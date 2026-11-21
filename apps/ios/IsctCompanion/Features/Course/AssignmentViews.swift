@@ -15,7 +15,7 @@ struct AssignmentScreen: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Theme.space7) {
                 if let assignment {
                     NavigationLink(value: CourseRoute(id: assignment.courseId)) {
                         Text(model.records.courses[assignment.courseId]?.text("title") ?? "")
@@ -27,12 +27,12 @@ struct AssignmentScreen: View {
                         .font(.title.bold())
                         .foregroundStyle(Theme.ink)
                     AssignmentBody(assignment: assignment)
-                    if assignment.sourceUrl != nil { HandInCard(assignment: assignment) }
+                    if assignment.handInAvailability == .prepareDraft { HandInCard(assignment: assignment) }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .padding(.horizontal, Theme.gutter)
+            .padding(.bottom, Theme.space10)
         }
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)
@@ -44,6 +44,15 @@ struct AssignmentScreen: View {
             HTMLCache.warm([loaded.bodyHtml])
             assignment = loaded
         }
+        .task(id: assignment?.deadline?.at) {
+            guard let deadline = assignment?.deadline, deadline.state == .remaining,
+                  let due = Format.date(deadline.at) else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0.001, due.timeIntervalSinceNow)))
+            } catch { return }
+            guard let loaded = await model.assignmentDetail(assignmentId), !Task.isCancelled else { return }
+            assignment = loaded
+        }
     }
 }
 
@@ -53,16 +62,16 @@ struct AssignmentCard: View {
     @Binding var expanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.space6) {
             Button {
                 withAnimation(.smooth(duration: Theme.motionBase)) { expanded.toggle() }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.space5) {
                     Text(assignment.title)
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.ink)
                         .multilineTextAlignment(.leading)
-                    Spacer(minLength: 8)
+                    Spacer(minLength: Theme.space4)
                     AssignmentState(assignment: assignment)
                     Image(systemName: "chevron.down")
                         .font(.footnote.weight(.semibold))
@@ -90,9 +99,9 @@ struct AssignmentBody: View {
     @Environment(\.push) private var push
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.space7) {
             if showsState {
-                HStack(spacing: 8) {
+                HStack(spacing: Theme.space4) {
                     AssignmentState(assignment: assignment)
                     if let due = assignment.dueAt {
                         Text(t("course.dueDate", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
@@ -102,7 +111,7 @@ struct AssignmentBody: View {
                 Text(t("course.dueDate", ["date": Format.due(due)])).font(.subheadline).foregroundStyle(Theme.muted)
             }
             if !assignment.bodyHtml.isEmpty {
-                HTMLText(html: assignment.bodyHtml, courseId: assignment.courseId)
+                HTMLText(html: assignment.bodyHtml, courseId: assignment.courseId, originalHTML: assignment.originalBodyHtml)
             } else if !assignment.details.isEmpty {
                 Text(assignment.details).font(.body).foregroundStyle(Theme.ink)
             }
@@ -114,14 +123,14 @@ struct AssignmentBody: View {
                     }
                 }
             }
-            if let url = assignment.sourceUrl {
+            if assignment.handInAvailability != .unavailable, let url = assignment.sourceUrl {
                 Button {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: assignment.title))
                 } label: {
-                    Label(t("common.submitInLMS"), systemImage: "arrow.up.forward.square")
+                    Label(t(assignment.handInAvailability == .openLms ? "common.openInLMS" : "common.submitInLMS"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, Theme.space6)
                 }
                 .buttonStyle(CapsuleButtonStyle())
             }
@@ -134,16 +143,11 @@ private struct AssignmentState: View {
     let assignment: AssignmentDetail
 
     var body: some View {
-        let done = ["submitted", "graded"].contains(assignment.submission ?? "")
-        let past = Format.date(assignment.dueAt).map { $0 < Date() } ?? false
-        let (ink, fill) = DeadlineChip.colors(done ? "done" : past ? "past" : "soon")
-        Text(done ? (assignment.grade ?? t("common.submitted")) : Format.countdown(assignment.dueAt, now: Date()))
-            .font(.caption.weight(.semibold).monospacedDigit())
-            .foregroundStyle(ink)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(fill, in: RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous))
-            .fixedSize()
+        AssignmentDeadlineTag(
+            deadline: assignment.deadline,
+            submitted: assignment.state == .submitted || assignment.state == .graded,
+            grade: assignment.grade
+        )
     }
 }
 
@@ -156,14 +160,14 @@ struct MaterialButton: View {
 
     var body: some View {
         MaterialOpener(title: title, source: source, courseId: courseId) { opening in
-            HStack(spacing: 12) {
+            HStack(spacing: Theme.rowGap) {
                 Image(systemName: Self.icon(kind)).foregroundStyle(Theme.muted).frame(width: 18)
                 Text(title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
-                Spacer(minLength: 8)
+                Spacer(minLength: Theme.space4)
                 if opening { ProgressView().controlSize(.small) }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Theme.rowX)
+            .padding(.vertical, Theme.rowY)
         }
     }
 

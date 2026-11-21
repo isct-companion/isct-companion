@@ -26,24 +26,26 @@ pub(super) const TAP_SLOP_POINTS: f64 = 12.0;
 /// Which maps app the card's links open in (the `mapsApp` setting).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum MapsApp {
+    #[cfg_attr(target_os = "android", allow(dead_code))]
     Apple,
     Google,
 }
 
 impl MapsApp {
-    /// What an absent or unknown setting reads as: Apple Maps, and on
-    /// Android, where Apple has no app, Google Maps.
+    /// The setting, read as Apple Maps unless it says Google.
     #[cfg(not(target_os = "android"))]
-    const DEFAULT: Self = Self::Apple;
-    #[cfg(target_os = "android")]
-    const DEFAULT: Self = Self::Google;
-
     pub(super) fn from_setting(value: Option<&str>) -> Self {
         match value {
-            Some("apple") => Self::Apple,
             Some("google") => Self::Google,
-            _ => Self::DEFAULT,
+            _ => Self::Apple,
         }
+    }
+
+    /// Android has no Apple Maps app, so links open Google Maps there even
+    /// when a backup from an Apple device chose Apple Maps.
+    #[cfg(target_os = "android")]
+    pub(super) fn from_setting(_: Option<&str>) -> Self {
+        Self::Google
     }
 }
 

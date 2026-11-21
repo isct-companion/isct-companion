@@ -28,12 +28,14 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { usePageLayer } from "../../app/KeptPage";
+import { usePageLayer } from "./page-layer";
 import { t } from "../../i18n";
-import { cx, type Size } from "./layout";
+import { cx } from "./layout";
+
+type ControlSize = "xs" | "sm" | "md" | "lg" | "xl";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  size?: Size | "compact-xs" | "compact-sm";
+  size?: ControlSize | "compact-xs" | "compact-sm";
   variant?: "filled" | "default" | "subtle" | "light";
   color?: string;
   loading?: boolean;
@@ -175,7 +177,7 @@ export function Field({
   );
 }
 type InputProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
-  size?: Size;
+  size?: ControlSize;
   rightSection?: ReactNode;
   rightSectionPointerEvents?: string;
 };
@@ -435,7 +437,7 @@ export function SegmentedControl({
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
-  size?: Size;
+  size?: ControlSize;
   className?: string;
 }) {
   return (
@@ -468,7 +470,7 @@ export const Chip = Object.assign(
   }: {
     value: string;
     children: ReactNode;
-    size?: Size;
+    size?: ControlSize;
   }) => (
     <ToggleGroup.Item value={value} className="uiChip">
       {children}
@@ -801,10 +803,10 @@ export function Progress({
   ...props
 }: React.HTMLAttributes<HTMLDivElement> & {
   value: number;
-  size?: Size;
+  size?: ControlSize;
   color?: string;
   animated?: boolean;
-  radius?: Size;
+  radius?: ControlSize;
   transitionDuration?: number;
 }) {
   return (
@@ -840,7 +842,7 @@ export function Pagination({
   value: number;
   onChange: (value: number) => void;
   total: number;
-  size?: Size;
+  size?: ControlSize;
 }) {
   const pages = Array.from({ length: total }, (_, i) => i + 1).filter(
     (page) => page === 1 || page === total || Math.abs(page - value) <= 1,

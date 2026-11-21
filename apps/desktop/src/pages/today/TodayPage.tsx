@@ -1,26 +1,17 @@
-import { dayShort } from "../../components/timetable/timetable";
-import { zoomFrom } from "../../app/course-zoom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { CalendarCheck } from "lucide-react";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { DueChip } from "../../components/DueChip";
-import { submissionLabel } from "../../lib/academic";
 import { useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
-import { UiButton, EmptyState, Skeleton, useReveal } from "../../components/ui";
+import { UiButton, useReveal } from "../../components/ui";
 import {
-  type Assignment,
   type PersonalEvent,
   type TermId,
   type Workspace,
 } from "../../lib/model";
-import { CourseFinder } from "./CourseFinder";
-import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
 import {
   addCivilDays as addDays,
   civilWeekday,
   formatJst,
-  jstClock,
   tokyoDate,
 } from "../../lib/civil-date";
 import {
@@ -31,11 +22,9 @@ import {
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import type { ExamView, TodayView } from "../../generated/persistence";
+import { TodayAssignments } from "./TodayAssignments";
+import { TodayAgenda } from "./TodayAgenda";
 
-const timeLabel = (value: string) => value.replace(/^0/, "");
-/** Rows shown before a list folds behind "+N more". */
-const CLASS_ROWS = 6;
-const DUE_ROWS = 8;
 export function Today({
   data,
   term,
@@ -47,7 +36,6 @@ export function Today({
   hideAssignment,
   openSchedule,
   focusSection,
-  compact = false,
   selection,
   active = true,
 }: {
@@ -65,7 +53,6 @@ export function Today({
   openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
   openSchedule: () => void;
-  compact?: boolean;
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
@@ -77,7 +64,6 @@ export function Today({
         ?.querySelector(`[data-today-section="${focusSection.section}"]`)
         ?.scrollIntoView?.({ block: "start" });
   }, [focusSection]);
-  const [allClasses, setAllClasses] = useState(false);
   const nowIso = useClock(active);
   const now = new Date(nowIso);
   const todayIso = tokyoDate(now);
@@ -117,7 +103,6 @@ export function Today({
   const agenda = agendas?.find((day) => day.date === viewIso);
   const teachingState = agenda?.calendarState;
   const effectiveDay = civilWeekday(viewIso);
-  const blocks = agenda?.occurrences ?? [];
   const importantDates = agenda?.importantDates ?? [];
   const week = Array.from({ length: 7 }, (_, index) => {
     const date = addDays(weekStart, index);
@@ -128,110 +113,14 @@ export function Today({
       ),
     };
   });
-  const clock = jstClock(now);
-  const currentKey = isToday ? today?.hero?.occurrence.key : undefined;
-  const nextKey = isToday ? today?.upcoming[0]?.occurrence.key : undefined;
-  const activeIndex = blocks.findIndex((block) => block.key === currentKey);
-  const nextIndex = blocks.findIndex((block) => block.key === nextKey);
-  const focusIndex = activeIndex >= 0 ? activeIndex : nextIndex;
   const tasksLoading = dashboard.pending && !taskView;
   const tasksReveal = useReveal(tasksLoading);
-  const taskTerm = taskView?.byTerm[term];
-  const submittedIds = new Set(taskView?.submittedIds);
-  const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
-  const pendingCount = taskTerm?.pendingIds.length ?? 0;
-  const row = (assignment: Assignment) => {
-    const course = data.courses.find(
-      (item) => item.id === assignment.courseId && !item.deletedAt,
-    );
-    const due = taskView?.deadlines?.[assignment.id];
-    const submitted = submittedIds.has(assignment.id);
-    // Past and submitted: gray; past and never submitted: red; submitted
-    // ahead of the deadline: green.
-    const state = due?.overdue
-      ? submitted
-        ? " closed"
-        : " missed"
-      : submitted
-        ? " done"
-        : "";
-    return (
-      <div className={`dueRow${state}`} key={assignment.id}>
-        <i style={{ background: course?.color ?? "#888" }} />
-        <UiButton
-          className={`dueAssignment${selection?.assignmentId === assignment.id ? " selected" : ""}`}
-          aria-current={
-            selection?.assignmentId === assignment.id ? "true" : undefined
-          }
-          onClick={() => openTask(assignment.id)}
-        >
-          <span>
-            <b>{assignment.title}</b>
-            <small>
-              {course?.title ?? "LMS"} ·{" "}
-              {submissionLabel(assignment, t, submitted)}
-            </small>
-          </span>
-          {due && (
-            <DueChip
-              due={due}
-              submitted={submitted}
-              locale={data.settings.locale}
-            />
-          )}
-        </UiButton>
-        <UiButton
-          className="textButton"
-          onClick={() => hideAssignment(assignment.id)}
-        >
-          {t("common.hide")}
-        </UiButton>
-      </div>
-    );
-  };
-  // With no agenda today, show the next actual occurrence within a week.
-  const nextClass = (() => {
-    if (blocks.length) return undefined;
-    for (const dayAgenda of agendas ?? []) {
-      const date = dayAgenda.date;
-      if (date <= viewIso || date > addDays(viewIso, 7)) continue;
-      const offset = Math.round(
-        (Date.parse(`${date}T12:00:00Z`) - Date.parse(`${viewIso}T12:00:00Z`)) /
-          86_400_000,
-      );
-      const day = civilWeekday(date);
-      const first = dayAgenda.occurrences[0];
-      if (first)
-        return {
-          ...first,
-          date: date,
-          day: t(
-            offset === 1 && isToday ? "common.tomorrow" : dayShort[day - 1],
-          ),
-        };
-    }
-    return undefined;
-  })();
-  const more = (hidden: number, expanded: boolean, toggle: () => void) =>
-    hidden > 0 || expanded ? (
-      <UiButton className="textButton moreToggle" onClick={toggle}>
-        {expanded
-          ? t("common.showLess")
-          : t("assignments.countMore", { count: hidden })}
-      </UiButton>
-    ) : null;
   const stateLabel =
     teachingState?.label ||
     t(effectiveDay > 5 ? "today.weekend" : "today.teachingDay");
 
   return (
-    <div
-      className={`page todayPage${compact ? " todayNavigation" : ""}`}
-      ref={page}
-    >
-      {compact && (
-        <CourseFinder data={data} term={term} open={(id) => open(id)} />
-      )}
+    <div className="page todayPage" ref={page}>
       <header className="todayHeader">
         <div className="daySwap" key={viewIso} style={swap}>
           <p className="todayEyebrow">
@@ -246,60 +135,58 @@ export function Today({
             })}
           </h1>
         </div>
-        {!compact && (
-          <div className="todayWeek">
-            <div
-              className="weekStrip"
-              role="group"
-              aria-label={t("today.week")}
-              style={
-                {
-                  "--day": effectiveDay - 1,
-                  "--swap": direction,
-                } as React.CSSProperties
-              }
+        <div className="todayWeek">
+          <div
+            className="weekStrip"
+            role="group"
+            aria-label={t("today.week")}
+            style={
+              {
+                "--day": effectiveDay - 1,
+                "--swap": direction,
+              } as React.CSSProperties
+            }
+          >
+            <UiButton
+              className="weekShift"
+              aria-label={t("today.previousWeek")}
+              onClick={() => pick(addDays(viewIso, -7))}
             >
+              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+            </UiButton>
+            {week.map(({ date, busy }) => (
               <UiButton
-                className="weekShift"
-                aria-label={t("today.previousWeek")}
-                onClick={() => pick(addDays(viewIso, -7))}
+                key={date}
+                className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
+                aria-pressed={date === viewIso}
+                aria-label={date}
+                onClick={() => pick(date === todayIso ? null : date)}
               >
-                <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+                <small>
+                  {formatJst(date, data.settings.locale, {
+                    weekday: "narrow",
+                  })}
+                </small>
+                <b>{Number(date.slice(8))}</b>
               </UiButton>
-              {week.map(({ date, busy }) => (
-                <UiButton
-                  key={date}
-                  className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
-                  aria-pressed={date === viewIso}
-                  aria-label={date}
-                  onClick={() => pick(date === todayIso ? null : date)}
-                >
-                  <small>
-                    {formatJst(date, data.settings.locale, {
-                      weekday: "narrow",
-                    })}
-                  </small>
-                  <b>{Number(date.slice(8))}</b>
-                </UiButton>
-              ))}
-              <UiButton
-                className="weekShift"
-                aria-label={t("today.nextWeek")}
-                onClick={() => pick(addDays(viewIso, 7))}
-              >
-                <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-              </UiButton>
-            </div>
-            <span className="teachingState">
-              {!isToday && (
-                <UiButton className="textButton" onClick={() => pick(null)}>
-                  {t("common.today")}
-                </UiButton>
-              )}
-              {stateLabel}
-            </span>
+            ))}
+            <UiButton
+              className="weekShift"
+              aria-label={t("today.nextWeek")}
+              onClick={() => pick(addDays(viewIso, 7))}
+            >
+              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+            </UiButton>
           </div>
-        )}
+          <span className="teachingState">
+            {!isToday && (
+              <UiButton className="textButton" onClick={() => pick(null)}>
+                {t("common.today")}
+              </UiButton>
+            )}
+            {stateLabel}
+          </span>
+        </div>
       </header>
 
       <div className="todayFlow">
@@ -336,191 +223,34 @@ export function Today({
             />
           </section>
         )}
-        <section className="todaySection" data-today-section="classes">
-          <header>
-            <h2>{t("common.schedule", { context: "today" })}</h2>
-            <UiButton className="textButton" onClick={openSchedule}>
-              {t("today.week")}
-            </UiButton>
-          </header>
-          {scheduleLoading ? (
-            <Skeleton count={3} />
-          ) : (
-            <div
-              className={`dayAgenda daySwap${scheduleReveal ? ` ${scheduleReveal}` : ""}`}
-              key={viewIso}
-              style={swap}
-            >
-              {(allClasses ? blocks : blocks.slice(0, CLASS_ROWS)).map(
-                (block, index) => {
-                  const state = !isToday
-                    ? ""
-                    : t(
-                        index === activeIndex
-                          ? "common.now"
-                          : index === nextIndex
-                            ? "today.next"
-                            : block.endTime <= clock
-                              ? "common.earlier"
-                              : // Core's moment covers classes; a personal
-                                // event is now while its own time runs.
-                                block.kind === "event" &&
-                                  block.startTime <= clock
-                                ? "common.now"
-                                : "common.later",
-                      );
-                  return (
-                    <UiButton
-                      className={`dayAgendaRow ${block.kind}${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
-                      aria-current={
-                        selection?.courseId === block.id &&
-                        !selection.assignmentId
-                          ? "true"
-                          : undefined
-                      }
-                      style={{ "--course": block.color } as React.CSSProperties}
-                      onClick={(event) => {
-                        if (block.kind === "exam" && block.termId && openExam)
-                          openExam(block.key, block.termId);
-                        else if (
-                          block.kind === "course" ||
-                          block.kind === "exam"
-                        ) {
-                          if (block.kind === "course")
-                            zoomFrom(event.currentTarget);
-                          open(block.id, undefined, {
-                            date: viewIso,
-                            startTime: block.startTime,
-                            endTime: block.endTime,
-                          });
-                        } else {
-                          const event = data.events.find(
-                            (item) => item.id === block.id,
-                          );
-                          if (event) openEvent(event);
-                        }
-                      }}
-                      key={block.key}
-                    >
-                      <span className="agendaState">{state}</span>
-                      <time>
-                        {timeLabel(block.startTime)}
-                        {block.kind === "exam" && (
-                          <small>
-                            {t(block.quiz ? "common.quiz" : "common.exam")}
-                            {block.timeLabel ? ` · ${block.timeLabel}` : ""}
-                          </small>
-                        )}
-                      </time>
-                      <span className="agendaLine" aria-hidden="true" />
-                      <span className="agendaCourse">
-                        <b>{block.title}</b>
-                        <small>
-                          {[
-                            block.room || block.subtitle,
-                            block.conflictWith?.length
-                              ? t("today.overlapsCourses", {
-                                  courses: block.conflictWith.join(", "),
-                                })
-                              : "",
-                          ]
-                            .filter(Boolean)
-                            .join(" · ") || "—"}
-                        </small>
-                      </span>
-                    </UiButton>
-                  );
-                },
-              )}
-              {blocks.length > CLASS_ROWS &&
-                more(
-                  allClasses ? 0 : blocks.length - CLASS_ROWS,
-                  allClasses,
-                  () => setAllClasses((value) => !value),
-                )}
-              {!blocks.length && (
-                <>
-                  <EmptyState compact icon={CalendarCheck}>
-                    {t(
-                      isToday
-                        ? "today.nothingScheduledToday"
-                        : "today.nothingScheduled",
-                    )}
-                  </EmptyState>
-                  {nextClass && (
-                    <UiButton
-                      className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}
-                      style={
-                        { "--course": nextClass.color } as React.CSSProperties
-                      }
-                      onClick={(event) => {
-                        if (nextClass.kind === "event") {
-                          const event = data.events.find(
-                            (item) => item.id === nextClass.id,
-                          );
-                          if (event) openEvent(event);
-                        } else {
-                          zoomFrom(event.currentTarget);
-                          open(nextClass.id, undefined, {
-                            date: nextClass.date,
-                            startTime: nextClass.startTime,
-                            endTime: nextClass.endTime,
-                          });
-                        }
-                      }}
-                    >
-                      <span className="agendaState">{t("today.next")}</span>
-                      <time>
-                        <small>{nextClass.day}</small>
-                        {timeLabel(nextClass.startTime)}
-                      </time>
-                      <span className="agendaLine" aria-hidden="true" />
-                      <span className="agendaCourse">
-                        <b>{nextClass.title}</b>
-                        <small>
-                          {nextClass.room || nextClass.subtitle || "—"}
-                        </small>
-                      </span>
-                    </UiButton>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </section>
-
-        <section
-          className="todaySection dueSection"
-          data-today-section="assignments"
-        >
-          <header>
-            <h2>{t("common.assignments")}</h2>
-            <span>
-              {pendingCount
-                ? t("today.countActive", { count: pendingCount })
-                : t("today.allClear")}
-            </span>
-            {openAssignments && (
-              <UiButton className="textButton" onClick={openAssignments}>
-                {t("common.allAssignments")} →
-              </UiButton>
-            )}
-          </header>
-          {tasksLoading ? (
-            <Skeleton count={3} />
-          ) : (
-            <div className={`dueList${tasksReveal ? ` ${tasksReveal}` : ""}`}>
-              <AssignmentGroupList
-                groups={taskTerm?.today}
-                assignments={byAssignment}
-                row={row}
-                thisWeekLimit={DUE_ROWS}
-                pastLabel={t("today.missed")}
-                empty={t("today.nothingDueThisWeek")}
-              />
-            </div>
-          )}
-        </section>
+        <TodayAgenda
+          data={data}
+          agendas={agendas}
+          agenda={agenda}
+          today={today}
+          now={now}
+          viewIso={viewIso}
+          isToday={isToday}
+          swap={swap}
+          scheduleLoading={scheduleLoading}
+          scheduleReveal={scheduleReveal}
+          selection={selection}
+          open={open}
+          openExam={openExam}
+          openEvent={openEvent}
+          openSchedule={openSchedule}
+        />
+        <TodayAssignments
+          data={data}
+          term={term}
+          taskView={taskView}
+          tasksLoading={tasksLoading}
+          tasksReveal={tasksReveal}
+          selection={selection}
+          openTask={openTask}
+          hideAssignment={hideAssignment}
+          openAssignments={openAssignments}
+        />
       </div>
     </div>
   );

@@ -1,9 +1,10 @@
 import { CalendarDays } from "lucide-react";
-import { formatJst, tokyoDate } from "../../lib/civil-date";
+import { formatDay, formatJst, isCivilDate, tokyoDate } from "../../lib/civil-date";
 import { useClock } from "../../platform/use-clock";
-import { refresh, useSync } from "../../app/useSync";
+import { refresh } from "../../platform/sync-intents";
+import { useSync } from "../../store/sync";
 import { runsFor } from "../../platform/sync";
-import { notify as appNotify } from "../../app/notify";
+import { notify as appNotify } from "../../components/notifications/notify";
 import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { CalendarException, Workspace } from "../../lib/model";
@@ -17,11 +18,7 @@ import {
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import { UiButton, UiInput, UiSelect, EmptyState } from "../../components/ui";
 import { SettingsGroup, SettingsHeader, Status } from "../../components/forms";
-import {
-  formatDay,
-  languageTag,
-  useSubscriptionViews,
-} from "./subscription-status";
+import { useSubscriptionViews } from "./subscription-status";
 
 type Draft = Pick<
   CalendarException,
@@ -29,17 +26,6 @@ type Draft = Pick<
 >;
 type Editing = { id: string | "new"; draft: Draft; fixedDate?: boolean };
 const blank: Draft = { date: "", type: "no-class", label: "" };
-
-function isCalendarDate(value: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const [year, month, day] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(year, month - 1, day));
-  return (
-    parsed.getUTCFullYear() === year &&
-    parsed.getUTCMonth() === month - 1 &&
-    parsed.getUTCDate() === day
-  );
-}
 
 function weekdayName(day: number, locale: Workspace["settings"]["locale"]) {
   // 2024-01-01 was a Monday; day 1 = Monday … 7 = Sunday.
@@ -163,8 +149,10 @@ export function AcademicCalendarSettings({
     event.preventDefault();
     if (readOnly || !editing) return;
     const { draft } = editing;
+    // The calendar editor has always rejected years below 0100.
     if (
-      !isCalendarDate(draft.date) ||
+      !isCivilDate(draft.date) ||
+      draft.date < "0100-01-01" ||
       !draft.label.trim() ||
       (draft.type === "replacement" && !draft.replacementDay)
     )

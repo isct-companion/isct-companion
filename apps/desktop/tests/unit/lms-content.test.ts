@@ -1,3 +1,4 @@
+import { downloadLimit, retentionDays } from "@app/lib/course-file-policy";
 // @vitest-environment jsdom
 /**
  * The LMS reading surface, grouped by behaviour: how a course file is
@@ -21,9 +22,9 @@ import {
   extension,
   fileFamily,
   previewKind,
-} from "@app/features/lms/file-types";
+} from "@app/lib/file-types";
 import type { MatrixCaptureMetrics } from "@app/generated/persistence";
-import { textLanguage } from "@app/features/lms/TextDocument";
+import { textLanguage } from "@app/components/files/TextDocument";
 import {
   gravityTarget,
   springStep,
@@ -41,7 +42,7 @@ type AssignmentsModule =
   typeof import("@app/features/lms/assignment-workspace");
 
 /**
- * `app/native.ts` captures `getDesktopBridge()` when it is first imported, so
+ * `platform/native.ts` captures `getDesktopBridge()` when it is first imported, so
  * the scripted host has to exist before the modules that reach it. Everything
  * above is bridge-free; these two are imported after `beforeAll` installs it.
  * The bridge delegates to whichever fake is installed at call time, so each
@@ -218,25 +219,25 @@ describe("LMS file addresses", () => {
 
 describe("course file policy bounds", () => {
   it("defaults the automatic download limit to 20 MB and clamps imported values", () => {
-    expect(files.downloadLimit({})).toBe(20 * 1024 * 1024);
-    expect(files.downloadLimit({ autoDownloadLimitMb: 0 })).toBe(1024 * 1024);
-    expect(files.downloadLimit({ autoDownloadLimitMb: 2048 })).toBe(
+    expect(downloadLimit({})).toBe(20 * 1024 * 1024);
+    expect(downloadLimit({ autoDownloadLimitMb: 0 })).toBe(1024 * 1024);
+    expect(downloadLimit({ autoDownloadLimitMb: 2048 })).toBe(
       1024 * 1024 * 1024,
     );
-    expect(files.downloadLimit({ autoDownloadLimitMb: Number.NaN })).toBe(
+    expect(downloadLimit({ autoDownloadLimitMb: Number.NaN })).toBe(
       20 * 1024 * 1024,
     );
-    expect(files.downloadLimit({ autoDownloadLimitMb: 2.6 })).toBe(
+    expect(downloadLimit({ autoDownloadLimitMb: 2.6 })).toBe(
       3 * 1024 * 1024,
     );
   });
 
   it("defaults the cleanup retention to 30 days and clamps imported values", () => {
-    expect(files.retentionDays({})).toBe(30);
-    expect(files.retentionDays({ autoCleanDays: 1.6 })).toBe(2);
-    expect(files.retentionDays({ autoCleanDays: Number.NaN })).toBe(30);
-    expect(files.retentionDays({ autoCleanDays: 0 })).toBe(1);
-    expect(files.retentionDays({ autoCleanDays: 99_999 })).toBe(3650);
+    expect(retentionDays({})).toBe(30);
+    expect(retentionDays({ autoCleanDays: 1.6 })).toBe(2);
+    expect(retentionDays({ autoCleanDays: Number.NaN })).toBe(30);
+    expect(retentionDays({ autoCleanDays: 0 })).toBe(1);
+    expect(retentionDays({ autoCleanDays: 99_999 })).toBe(3650);
   });
 });
 
@@ -940,7 +941,7 @@ describe("Live Matrix camera ownership", () => {
 describe("math delimiters in a read-only Markdown document", () => {
   async function normalize(lines: string[]) {
     const { readableMarkdown } =
-      await import("@app/features/lms/markdown-math");
+      await import("@app/lib/markdown-math");
     return readableMarkdown(lines.join("\n")).split("\n");
   }
 

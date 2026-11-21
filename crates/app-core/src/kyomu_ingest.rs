@@ -77,14 +77,8 @@ fn mark_missing(
         .map_err(IngestError::from)?;
     drop(statement);
     let missing = Utc::now().to_rfc3339();
-    let mut changed = 0;
-    for id in stale.into_iter().filter(|id| !live.contains(id)) {
-        changed += tx.execute(
-            &format!("UPDATE {table} SET missing_since=?2,rev=rev+1,value=json_set(value,'$.missingSince',?2,'$.rev',rev+1,'$.updatedAt',?2) WHERE id=?1"),
-            params![id, missing],
-        ).map_err(IngestError::from)?;
-    }
-    Ok(changed)
+    crate::data::versioned::mark_missing_rows(tx, table, stale, live, || missing.as_str())
+        .map_err(IngestError::from)
 }
 
 fn number(raw: &str) -> Option<f64> {

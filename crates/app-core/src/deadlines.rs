@@ -56,6 +56,13 @@ impl Duty for Reminders {
     }
     fn run(self: Arc<Self>) -> BoxFuture<'static, ()> {
         Box::pin(async move {
+            #[cfg(feature = "mobile-reminders")]
+            if let Some(port) = self.0.mobile_port() {
+                if let Err(error) = self.0.reconcile_mobile(port).await {
+                    crate::diagnostics::report("reminders", &error);
+                }
+                return;
+            }
             let Some(sink) = self.0.sink() else {
                 return;
             };

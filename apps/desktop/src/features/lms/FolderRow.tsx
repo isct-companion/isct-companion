@@ -1,11 +1,11 @@
-import { lazy, Suspense, useState } from "react";
+import { notify } from "../../components/notifications/notify";
+import { byName, FileName, fileSize, megabytes } from "./file-row";
+import { fileFamily, listsAsFolder } from "../../lib/file-types";
+import { pageOf, useCourseFile, type OpenPage } from "./course-file";
+import { openStoredFile, type SchoolPage } from "./files";
+import { useState } from "react";
 import { t } from "../../i18n";
-import type { SchoolPage } from "./files";
 import { FileTile, LmsIcon } from "./LmsIcon";
-
-const InlineFolder = lazy(() =>
-  import("./FilePreview").then((m) => ({ default: m.InlineFolder })),
-);
 
 /**
  * A folder in the outline, and a ZIP shown exactly as one: the folder tile,
@@ -55,20 +55,123 @@ export function FolderRow({
         <LmsIcon name="chevron" className="lmsRowAction lmsFolderChevron" />
       </button>
       {isOpen && (
-        <Suspense
-          fallback={
-            <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>
+        <InlineFolder
+          url={url}
+          courseId={courseId}
+          limit={limit}
+          openFile={openFile}
+          openPage={openPage}
+          archive={archive}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A folder's or a ZIP's files listed in the outline, under its own row, as
+ * Core lists them (a folder's kept with it, else read from the LMS; a ZIP's
+ * from the downloaded archive). Each file opens the way an outline item
+ * does: previews in the reader, anything else as the popover card at the
+ * clicked file.
+ */
+function InlineFolder({
+  url,
+  courseId,
+  limit,
+  openFile,
+  openPage,
+  archive = false,
+}: {
+  url: string;
+  courseId: string;
+  limit: number;
+  openFile: (url: string, name: string, anchor: Element) => void;
+  openPage: OpenPage;
+  /** A ZIP rather than an LMS folder: downloaded to read its files, within
+   * the automatic limit. A folder lists what Core kept or reads from the LMS. */
+  archive?: boolean;
+}) {
+  const course = useCourseFile(url, courseId, limit, { download: archive });
+  const { view } = course;
+  if (view.state === "loading")
+    return <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>;
+  if (view.state === "tooLarge")
+    return (
+      <p className="lmsQuiet lmsFolderNote">
+        {t("lms.largerThanTheAutomaticDownload", { size: megabytes(limit) })}{" "}
+        <button type="button" className="lmsTextLink" onClick={course.fetchNow}>
+          {t("lms.download")} · {megabytes(view.bytes)}
+        </button>
+      </p>
+    );
+  if (view.state === "ready")
+    return (
+      <p className="lmsQuiet lmsFolderNote">
+        {t("lms.thisArchiveIsTooLarge")}{" "}
+        <button
+          type="button"
+          className="lmsTextLink"
+          onClick={() =>
+            void openStoredFile(view.path, false).catch((error) =>
+              notify.error(error),
+            )
           }
         >
-          <InlineFolder
-            url={url}
+          {t("lms.openWithDefaultApp")}
+        </button>
+      </p>
+    );
+  if (view.state !== "folder" && view.state !== "archive")
+    return (
+      <p className="lmsQuiet lmsFolderNote">
+        {t("lms.thisFolderCouldNotBe")}{" "}
+        {pageOf(view) && (
+          <button
+            type="button"
+            className="lmsTextLink"
+            onClick={() => openPage(pageOf(view)!)}
+          >
+            {t("common.openInLMS")}
+          </button>
+        )}
+      </p>
+    );
+  if (!view.files.length)
+    return (
+      <p className="lmsQuiet lmsFolderNote">{t("lms.thisFolderIsEmpty")}</p>
+    );
+  return (
+    <div className="lmsFolderFiles">
+      {view.files.map((file) =>
+        listsAsFolder(file.url) ? (
+          <FolderRow
+            key={file.url}
+            title={file.name}
+            url={file.url}
+            archive
             courseId={courseId}
             limit={limit}
             openFile={openFile}
             openPage={openPage}
-            archive={archive}
+            compact
           />
-        </Suspense>
+        ) : (
+          <button
+            type="button"
+            className="lmsFolderFile"
+            key={file.url}
+            onClick={(event) =>
+              openFile(file.url, file.name, event.currentTarget)
+            }
+          >
+            <FileTile family={fileFamily(byName(file.name))} />
+            <FileName
+              name={file.name}
+              detail={"bytes" in file ? fileSize(file.bytes) : undefined}
+            />
+          </button>
+        ),
       )}
     </div>
   );

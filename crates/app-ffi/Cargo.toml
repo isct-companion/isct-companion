@@ -17,7 +17,7 @@ campus-map = ["app-core/campus-map"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
-app-core = { path = "../app-core" }
+app-core = { path = "../app-core", features = ["mobile-reminders"] }
 app-ocr = { path = "../app-ocr", optional = true }
 app-ocr-adapter = { path = "../app-ocr-adapter", optional = true }
 uniffi = { version = "=0.32.2" }

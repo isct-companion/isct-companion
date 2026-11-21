@@ -73,7 +73,7 @@ fun WeekPicker(year: TimetableYear?, monday: LocalDate, dismiss: () -> Unit, pic
         model.timetableYear(current + by)?.let { stepped = it }
     }
     ModalBottomSheet(onDismissRequest = dismiss, containerColor = Theme.colors.bg) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space4)) {
             IconButton(onClick = { step(-1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("timetable.previousYear")) }
             IconButton(onClick = { step(1) }) { Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("timetable.nextYear")) }
             Text(
@@ -84,7 +84,7 @@ fun WeekPicker(year: TimetableYear?, monday: LocalDate, dismiss: () -> Unit, pic
             TextButton(onClick = { pick(thisWeek()) }) { Text(t("timetable.backToToday")) }
         }
         val quarterOfShown = shown?.weeks?.firstOrNull { it.monday == selected }?.term
-        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(contentPadding = PaddingValues(horizontal = Theme.space8), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             items(shown?.quarters.orEmpty(), key = { it.term }) { quarter ->
                 FilterChip(
                     selected = quarter.term == quarterOfShown,
@@ -100,12 +100,12 @@ fun WeekPicker(year: TimetableYear?, monday: LocalDate, dismiss: () -> Unit, pic
             val index = rows(weeks).indexOfFirst { (it as? PickerRow.Week)?.week?.monday == selected }
             if (index > 0) list.scrollToItem(maxOf(index - 3, 0))
         }
-        LazyColumn(state = list, contentPadding = PaddingValues(bottom = 24.dp)) {
+        LazyColumn(state = list, contentPadding = PaddingValues(bottom = Theme.space10)) {
             items(rows(weeks)) { row ->
                 when (row) {
                     is PickerRow.Month -> Text(
                         row.title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold, color = Theme.colors.muted,
-                        modifier = Modifier.padding(start = 20.dp, top = 16.dp, bottom = 4.dp),
+                        modifier = Modifier.padding(start = Theme.space9, top = Theme.space8, bottom = Theme.space2),
                     )
                     is PickerRow.Week -> shown?.let { WeekRow(row.week, it, row.week.monday == selected) { Format.civilDate(row.week.monday)?.let(pick) } }
                 }
@@ -123,12 +123,12 @@ private fun WeekRow(week: TimetableWeek, year: TimetableYear, selected: Boolean,
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space6),
         modifier = Modifier
             .fillMaxWidth()
             .background(if (week.term == null) Theme.colors.surface2 else Theme.colors.surface)
             .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = Theme.space9, vertical = Theme.space5),
     ) {
         Text(
             weekLabel(week, year).orEmpty(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold,
@@ -140,7 +140,7 @@ private fun WeekRow(week: TimetableWeek, year: TimetableYear, selected: Boolean,
             modifier = Modifier
                 .clip(CircleShape)
                 .background(if (selected) Theme.colors.accent else Color.Transparent)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = Theme.space5, vertical = Theme.space2),
         )
     }
 }

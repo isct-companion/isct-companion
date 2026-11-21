@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.ExamCourseList
 import app.isctcompanion.design.SectionLabel
@@ -54,7 +53,7 @@ internal fun LazyListScope.currentCourses(state: CurrentCourses, open: (String) 
             TextButton(onClick = { state.attempt += 1 }) { Text(t("common.retry")) }
         }
         shown == null -> item(key = "courses-loading") {
-            Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() }
+            Box(Modifier.fillMaxWidth().padding(Theme.space10), Alignment.Center) { CircularProgressIndicator() }
         }
         shown.courses.isEmpty() -> item(key = "courses-empty") {
             Text(t("examShare.noCurrentCourses"), color = Theme.colors.muted)

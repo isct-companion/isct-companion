@@ -1,12 +1,8 @@
 import { EmptyState } from "../../components/ui";
 import { Globe } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import {
-  claimSchoolView,
-  desktopBridge,
-  hideNativeSchoolWeb,
-  releaseSchoolView,
-} from "../../app/native";
+import { desktopBridge } from "../../platform/native";
+import { claimSchoolView, hideNativeSchoolWeb, releaseSchoolView } from "../../platform/school-web-owner";
 import { useConfirmationPending } from "../../components/confirm";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
@@ -18,7 +14,7 @@ import {
   useSchoolWebPage,
 } from "../school-web";
 import { LmsIcon } from "./LmsIcon";
-import { ReaderTools } from "./ReaderPane";
+import { ReaderTools } from "../../components/files/ReaderPane";
 
 /** Each mounted reader presents the LMS view as a surface of its own. */
 let readers = 0;
@@ -28,10 +24,12 @@ export function OfficialLmsView({
   url,
   active: visible,
   available,
+  openAccounts,
 }: {
   url: string;
   active: boolean;
   available: boolean;
+  openAccounts?: () => void;
 }) {
   // The native view draws above every HTML overlay, so it hides while a
   // confirmation asks and returns to the same page afterwards.
@@ -126,7 +124,12 @@ export function OfficialLmsView({
         </div>
       </ReaderTools>
       {available && active && (
-        <SchoolWebNotices site="science-lms" page={page} onError={failed} />
+        <SchoolWebNotices
+          site="science-lms"
+          page={page}
+          onError={failed}
+          openAccounts={openAccounts}
+        />
       )}
       <div className="lmsOfficialHost" ref={host}>
         {!available ? (

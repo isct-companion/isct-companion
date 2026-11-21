@@ -6,12 +6,12 @@ import {
   Flag,
   SquareArrowOutUpRight,
 } from "lucide-react";
-import { desktopBridge } from "../../app/native";
-import { notify } from "../../app/notify";
+import { desktopBridge } from "../../platform/native";
+import { notify } from "../../components/notifications/notify";
 import { notifyDownload } from "../../components/DownloadNotice";
 import { ErrorBanner, Tag } from "../../components/ui";
-import { FileView } from "../../features/lms/FileView";
-import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
+import { FileView } from "../../components/files/FileView";
+import { ReaderPane, ReaderTools } from "../../components/files/ReaderPane";
 import type {
   ExamAction,
   ExamAnswer,

@@ -72,7 +72,7 @@ export function MatrixCamera({
         title={t("matrixCamera.scanMatrixWithCamera")}
         size="xl"
       >
-        <Stack gap="sm">
+        <Stack gap="space-5">
           <Text size="sm">
             {t("settings.matrixCamera.keepTheMatrixFramedAnd")}
           </Text>
@@ -96,7 +96,7 @@ export function MatrixCamera({
             </Text>
           )}
           {/* Cancel keeps its corner when an error adds Try again. */}
-          <Group justify="flex-end" gap="xs">
+          <Group justify="flex-end" gap="space-4">
             {error && (
               <Button
                 variant="default"
@@ -112,7 +112,7 @@ export function MatrixCamera({
         </Stack>
       </Modal>
       {processing && (
-        <Stack gap="xs" className="matrixCameraProcessing">
+        <Stack gap="space-4" className="matrixCameraProcessing">
           <Text size="sm" role="status">
             {t("matrixCamera.processingMatrixYouCanPut")}
           </Text>

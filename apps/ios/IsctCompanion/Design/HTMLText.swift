@@ -16,6 +16,8 @@ import UIKit
 struct HTMLText: View {
     let html: String
     let courseId: String
+    var originalHTML: String? = nil
+    @State private var original = false
     @Environment(AppModel.self) private var model
     @Environment(\.push) private var push
     @Environment(\.openURL) private var openURL
@@ -23,25 +25,32 @@ struct HTMLText: View {
     @State private var opening = MaterialOpening()
 
     var body: some View {
-        Text(rendered ?? HTMLCache.cached(html) ?? AttributedString())
-            .font(.body)
-            .foregroundStyle(Theme.ink)
-            .tint(Theme.accent)
-            .textSelection(.enabled)
-            .environment(\.openURL, OpenURLAction { url in
-                guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return .systemAction }
-                let place = MaterialPlace(model: model, push: push, openURL: openURL)
-                Task { await opening.open(courseId, url.absoluteString, title: "", at: place) }
-                return .handled
-            })
-            .task(id: html) {
-                rendered = nil
-                guard HTMLCache.cached(html) == nil else { return }
-                // Out of the update that showed the view, then render.
-                await Task.yield()
-                rendered = HTMLCache.text(html)
+        let html = original ? originalHTML ?? self.html : self.html
+        VStack(alignment: .leading, spacing: Theme.space4) {
+            if originalHTML != nil {
+                Button(t(original ? "lms.usePreferredLanguage" : "lms.showOriginal")) { original.toggle() }
+                    .font(.subheadline.weight(.semibold))
             }
-            .materialOpening(opening)
+            Text(rendered ?? HTMLCache.cached(html) ?? AttributedString())
+                .font(.body)
+                .foregroundStyle(Theme.ink)
+                .tint(Theme.accent)
+                .textSelection(.enabled)
+                .environment(\.openURL, OpenURLAction { url in
+                    guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return .systemAction }
+                    let place = MaterialPlace(model: model, push: push, openURL: openURL)
+                    Task { await opening.open(courseId, url.absoluteString, title: "", at: place) }
+                    return .handled
+                })
+                .task(id: html) {
+                    rendered = nil
+                    guard HTMLCache.cached(html) == nil else { return }
+                    // Out of the update that showed the view, then render.
+                    await Task.yield()
+                    rendered = HTMLCache.text(html)
+                }
+                .materialOpening(opening)
+        }
     }
 
     /// WebKit's HTML import runs on the main thread; the body's own colours

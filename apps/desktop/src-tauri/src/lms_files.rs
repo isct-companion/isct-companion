@@ -148,6 +148,22 @@ pub async fn choose_course_storage(
     .map_err(shell)??;
     course_storage_info(webview, app).await
 }
+async fn run_note_mutation<T: Send + 'static>(
+    app: &AppHandle,
+    mutate: impl FnOnce(Notes, DataStore) -> Result<T, app_core::notes::NoteError> + Send + 'static,
+) -> Result<T, CommandError> {
+    let service = notes(app)?;
+    let data = crate::core_ports::core(app).store.clone();
+    crate::core_ports::runtime(app)
+        .run(async move {
+            tauri::async_runtime::spawn_blocking(move || mutate(service, data).map_err(coded))
+                .await
+                .map_err(shell)?
+        })
+        .await
+        .map_err(coded)?
+}
+
 #[tauri::command]
 pub async fn save_course_note(
     webview: tauri::Webview,
@@ -157,20 +173,10 @@ pub async fn save_course_note(
     text: String,
 ) -> Result<LocalFile, CommandError> {
     crate::require_local_main(&webview)?;
-    let service = notes(&app)?;
-    let data = crate::core_ports::core(&app).store.clone();
-    let runtime = crate::core_ports::runtime(&app);
-    runtime
-        .run(async move {
-            let file = tauri::async_runtime::spawn_blocking(move || {
-                service.save(&data, context, id, text).map_err(coded)
-            })
-            .await
-            .map_err(shell)??;
-            Ok::<LocalFile, CommandError>(file)
-        })
-        .await
-        .map_err(coded)?
+    run_note_mutation(&app, move |service, data| {
+        service.save(&data, context, id, text)
+    })
+    .await
 }
 #[tauri::command]
 pub async fn read_course_note(
@@ -195,22 +201,10 @@ pub async fn move_course_note(
     restore: bool,
 ) -> Result<bool, CommandError> {
     crate::require_local_main(&webview)?;
-    let service = notes(&app)?;
-    let data = crate::core_ports::core(&app).store.clone();
-    let runtime = crate::core_ports::runtime(&app);
-    runtime
-        .run(async move {
-            let moved = tauri::async_runtime::spawn_blocking(move || {
-                service
-                    .move_note(&data, context, id, restore)
-                    .map_err(coded)
-            })
-            .await
-            .map_err(shell)??;
-            Ok::<bool, CommandError>(moved)
-        })
-        .await
-        .map_err(coded)?
+    run_note_mutation(&app, move |service, data| {
+        service.move_note(&data, context, id, restore)
+    })
+    .await
 }
 #[tauri::command]
 pub async fn list_course_notes(

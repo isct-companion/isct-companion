@@ -460,33 +460,6 @@ pub(crate) fn parse_url(text: &str) -> Result<Url, SdkError> {
     })
 }
 
-#[uniffi::export(rust, foreign)]
-#[async_trait::async_trait]
-pub trait NativeNotifications: Send + Sync {
-    async fn deliver(&self, item: NotificationItem) -> Result<(), SdkError>;
-}
-pub(crate) struct Notifications(pub Arc<dyn NativeNotifications>);
-impl app_core::schedule::NotificationSink for Notifications {
-    fn deliver<'a>(
-        &'a self,
-        item: app_core::schedule::NotificationItem,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<(), app_core::schedule::NotificationSinkError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.0
-                .deliver(project(item).map_err(|e| {
-                    app_core::schedule::NotificationSinkError::Delivery(e.to_string())
-                })?)
-                .await
-                .map_err(|e| app_core::schedule::NotificationSinkError::Delivery(e.to_string()))
-        })
-    }
-}
 /// One identity cookie as the school sent it: the response URL and the raw
 /// `Set-Cookie` value.
 #[derive(Clone, Debug, uniffi::Record)]

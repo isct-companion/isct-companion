@@ -3,21 +3,31 @@ import {
   type CSSProperties,
   type HTMLAttributes,
   type ReactNode,
+  type Ref,
 } from "react";
 
-export type Size = "xs" | "sm" | "md" | "lg" | "xl" | number;
+const spacingValues = {
+  "space-1": "var(--space-1)",
+  "space-2": "var(--space-2)",
+  "space-3": "var(--space-3)",
+  "space-4": "var(--space-4)",
+  "space-5": "var(--space-5)",
+  "space-6": "var(--space-6)",
+  "space-7": "var(--space-7)",
+  "space-8": "var(--space-8)",
+  "space-9": "var(--space-9)",
+  "space-10": "var(--space-10)",
+  "space-11": "var(--space-11)",
+  gutter: "var(--space-gutter)",
+  "row-x": "var(--space-row-x)",
+  "row-y": "var(--space-row-y)",
+  "row-gap": "var(--space-row-gap)",
+  card: "var(--space-card)",
+} as const;
+
+export type Size = keyof typeof spacingValues;
 export const spacing = (value?: Size) =>
-  typeof value === "number"
-    ? value
-    : value
-      ? {
-          xs: "0.625rem",
-          sm: "0.75rem",
-          md: "1rem",
-          lg: "1.25rem",
-          xl: "2rem",
-        }[value]
-      : undefined;
+  value === undefined ? undefined : spacingValues[value];
 export const cx = (...values: (string | false | null | undefined | 0 | 0n)[]) =>
   values.filter(Boolean).join(" ");
 export type SurfaceProps = HTMLAttributes<HTMLElement> & {
@@ -27,7 +37,6 @@ export type SurfaceProps = HTMLAttributes<HTMLElement> & {
   py?: Size;
   mt?: Size;
   mah?: number;
-  radius?: Size;
   shadow?: string;
   withBorder?: boolean;
 };
@@ -55,7 +64,6 @@ export function Paper({
   py,
   mt,
   mah,
-  radius,
   shadow,
   withBorder,
   className,
@@ -78,7 +86,7 @@ type LayoutProps = SurfaceProps & {
 function Layout(
   {
     component = "div",
-    gap = "md",
+    gap = "space-7",
     justify,
     align,
     wrap,
@@ -88,7 +96,6 @@ function Layout(
     py,
     mt,
     mah,
-    radius,
     shadow,
     withBorder,
     className,
@@ -120,7 +127,7 @@ export function Text({
   className,
   ...props
 }: HTMLAttributes<HTMLDivElement> & {
-  size?: Size;
+  size?: "xs" | "sm" | "md";
   fw?: CSSProperties["fontWeight"];
   c?: string;
 }) {
@@ -150,6 +157,7 @@ export function Tag({
   children,
   ...props
 }: HTMLAttributes<HTMLElement> & {
+  ref?: Ref<HTMLElement>;
   variant?: "soft" | "outline" | "solid";
   /** The colour role; named `tone` so it never shadows ARIA's `role`. */
   tone?: TagRole;

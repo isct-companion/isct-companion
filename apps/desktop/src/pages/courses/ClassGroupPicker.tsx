@@ -39,7 +39,7 @@ export function ClassGroupSwitch({
   onChange: (group: ClassGroup) => void;
 }) {
   return (
-    <Stack gap={4}>
+    <Stack gap="space-2">
       <SegmentedControl
         size="xs"
         value={choice.group ?? ""}
@@ -74,7 +74,7 @@ export function ClassGroupPrompt({
       onClose={later}
       title={`${t("courses.physicsGroup")} · ${semesterLabel(choice.terms)}`}
     >
-      <Stack gap="sm">
+      <Stack gap="space-5">
         <Text size="sm">{t("courses.andMeetEveryOtherWeek")}</Text>
         <Text size="sm" fw={600}>
           {choice.courses.map((course) => course.title).join(" · ")}
@@ -88,7 +88,7 @@ export function ClassGroupPrompt({
         <Text size="xs" c="dimmed">
           {t("courses.youCanChangeThisLater")}
         </Text>
-        <Group justify="flex-end" gap="xs">
+        <Group justify="flex-end" gap="space-4">
           <Button variant="subtle" onClick={later}>
             {t("common.later")}
           </Button>

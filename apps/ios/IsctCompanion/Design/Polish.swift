@@ -98,7 +98,7 @@ extension View {
     /// The hero card: course tint, continuous corners and a hairline in the tint.
     func heroCard(tint: Color) -> some View {
         let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
-        return padding(18)
+        return padding(Theme.cardPadding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background { CourseTint(tint: tint).clipShape(shape) }
             .overlay { shape.strokeBorder(tint.opacity(Theme.tintFill), lineWidth: 0.5) }
@@ -148,8 +148,8 @@ struct SkeletonRows: View {
             VStack(alignment: .leading, spacing: Theme.rowGap) {
                 ForEach(0..<rows, id: \.self) { index in
                     HStack(spacing: Theme.rowGap) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous).frame(width: 10, height: 10)
-                        VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: Theme.radiusCourseMarker, style: .continuous).frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: Theme.space3) {
                             Capsule().frame(width: index.isMultiple(of: 2) ? 180 : 140, height: 12)
                             Capsule().frame(width: 96, height: 9)
                         }

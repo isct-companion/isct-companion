@@ -236,8 +236,8 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
                 }
                 Column(
                     Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth()
-                        .clip(RoundedCornerShape(22.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                        .clip(RoundedCornerShape(22.dp)).background(Color.Black.copy(alpha = 0.55f)).padding(Theme.space7),
+                    verticalArrangement = Arrangement.spacedBy(Theme.space5),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     LiveGrid(state?.cells.orEmpty())
@@ -261,9 +261,9 @@ fun MatrixCameraDialog(session: MatrixCameraSession, done: (List<MatrixCell>?) -
 /** The 7×10 letters as Core confirms them; unconfirmed reads stay faint. */
 @Composable
 private fun LiveGrid(cells: List<MatrixCell>) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
         for (row in 0 until 7) {
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Theme.space1)) {
                 for (column in 0 until 10) {
                     val cell = cells.getOrNull(row * 10 + column)
                     val stable = cell?.stable == true

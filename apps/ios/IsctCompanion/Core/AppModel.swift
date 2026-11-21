@@ -3,7 +3,6 @@ import Foundation
 import IsctCore
 import Network
 import Observation
-import OSLog
 import SwiftUI
 
 /// The shell's one owner of the Core session. It renders Core read models,
@@ -19,12 +18,8 @@ final class AppModel {
     }
 
     private(set) var status: Status = .opening
-    nonisolated private static let mapLog = Logger(subsystem: "app.isctcompanion", category: "campus-map")
     private(set) var today: TodayView?
     private(set) var board: AssignmentBoard?
-    /// Files waiting in each assignment's `submit/`, by assignment id, for
-    /// 今日's rows (Core's `waitingHandIns`).
-    private(set) var waiting: [String: Int] = [:]
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
     private(set) var colors: [String: String] = [:]
@@ -44,11 +39,17 @@ final class AppModel {
     private(set) var problem: String?
     /// Cells read so far by a running Matrix scan, from Core's `ocr-progress`.
     private(set) var ocrProgress = 0
+    private var ocrOperation: UInt64?
     /// The commit sequence of the latest answers; open screens re-query when
     /// it moves.
     private(set) var contentRevision = ""
-    /// Core's cloud journal: providers, unfinished tasks, versions, recovery files.
-    private(set) var cloud: SyncState?
+    @ObservationIgnored private(set) lazy var backup = CloudBackup(
+        session: { [weak self] in self?.session },
+        refreshWorkspace: { [weak self] in
+            await self?.refresh()
+        },
+        reportFailure: { [weak self] error in self?.problem = AppModel.describe(error) }
+    )
     /// A newer release on the App Store, shown in Settings.
     private(set) var availableUpdate: AppRelease?
     /// A release a check of its own found, offered once over the page.
@@ -62,9 +63,8 @@ final class AppModel {
 
     let browser = SchoolBrowserHost()
     let web: WebRouter
-    private var session: Session?
+    private(set) var session: Session?
     private var revision = ""
-    private var lastNotificationSeq: UInt64?
     private let dashboardReads = ScheduleReads()
     let timetableWeeks = TimetableWeeks()
     @ObservationIgnored private var pendingSessionMark: Task<Void, Never>?
@@ -105,6 +105,10 @@ final class AppModel {
     }
 
     /// Tells Core's planner a fact or an intent; it never waits for a read.
+    func retrySync(_ plan: RetryPlan) {
+        for scope in plan.scopes { syncHint(.refresh(scope: scope)) }
+    }
+
     func syncHint(_ hint: Hint) {
         _ = try? session?.syncHint(hint: hint)
     }
@@ -148,13 +152,14 @@ final class AppModel {
                 cloudProviders: icloud + [.googleDrive], authorizedCloudProviders: icloud)
             let session = try await Session.open(
                 config: config, vault: KeychainVault(), browser: browser, cloud: cloud,
-                notifications: nil, webCookies: WebCookieSeed(),
+                webCookies: WebCookieSeed(),
                 webAuth: BrowserAuthentication(),
                 iosGoogleClientId: Bundle.main.object(forInfoDictionaryKey: "IsctGoogleClientID") as? String,
                 browserOpener: nil, driveTokens: nil)
             if let widgets = WidgetStorage() {
                 try session.attachWidgets(port: widgets)
             }
+            try session.attachReminderPort(port: NotificationScheduler(session: session))
             self.session = session
             let stream = try session.subscribe()
             Task { await self.listen(stream) }
@@ -163,7 +168,7 @@ final class AppModel {
             await refresh()
             await refreshAccounts()
             await refreshSyncSnapshot()
-            await refreshCloud()
+            await backup.refresh()
             status = .ready
             watchNetwork()
             watchPowerSaver()
@@ -183,6 +188,10 @@ final class AppModel {
 
     func refreshWidgets() {
         try? session?.refreshWidgets()
+    }
+
+    func refreshReminders() {
+        try? session?.refreshReminderPort()
     }
 
     func widgetRoute(_ url: URL) async throws -> WidgetRoute? {
@@ -347,18 +356,23 @@ final class AppModel {
                         if let snapshot = try? decodeSyncSnapshot(payload: event.payload) {
                             apply(snapshot)
                         }
-                    // The whole snapshot; credentials synced from another
-                    // device change it too, so both are read again.
                     case "school-session":
-                        await refreshAccounts()
+                        if let snapshot = try? decodeSchoolSession(payload: event.payload) {
+                            apply(snapshot)
+                            await refreshCredentials()
+                        } else {
+                            await refreshAccounts()
+                        }
                     case "ocr-progress":
                         if let row = try? JSONSerialization.jsonObject(with: Data(event.payload.utf8)) as? [String: Any],
+                            let operation = (row["operationId"] as? NSNumber)?.uint64Value,
+                            operation == ocrOperation,
                             let completed = (row["completed"] as? NSNumber)?.intValue
                         {
                             ocrProgress = completed
                         }
                     case "cloud-sync-state":
-                        await refreshCloud()
+                        await backup.refresh()
                     case "wake-directive":
                         if let next = try? decodeWakeDirective(payload: event.payload) { apply(next) }
                     case "exam-account":
@@ -434,8 +448,6 @@ final class AppModel {
         }).first, boundary <= Date() { return }
         guard try dashboardReads.accept(result, started: generation, session: session) else { return }
         if revision == previousRevision { revision = current }
-        let changed = lastNotificationSeq != result.seq
-        lastNotificationSeq = result.seq
         // No suspension between accepting the snapshot and publishing its views.
         for value in result.values {
             switch value {
@@ -452,8 +464,6 @@ final class AppModel {
         if let newColors { colors = newColors }
         contentRevision = "\(generation)-\(result.seq)"
         scheduleBoundary()
-        await refreshWaiting()
-        if changed { await NotificationScheduler.sync(session) }
     }
 
     /// Re-query when Core says the phase or hero changes next.
@@ -470,18 +480,35 @@ final class AppModel {
 
     func refreshAccounts() async {
         guard let session else { return }
-        if case let .credentials(status)? = try? await session.credentialStatus().value() {
-            credentials = status
-        }
         if case let .schoolSession(snapshot)? = try? await session.schoolSession().value() {
             apply(snapshot)
+        }
+        await refreshCredentials()
+    }
+
+    private func refreshCredentials() async {
+        guard let session else { return }
+        if case let .credentials(status)? = try? await session.credentialStatus().value() {
+            credentials = status
         }
     }
 
     /// A read that started before a newer school session must not replace it.
-    private func apply(_ snapshot: SchoolSessionSnapshot) {
-        guard snapshot.revision >= (schoolSessions?.revision ?? 0) else { return }
+    func apply(_ snapshot: SchoolSessionSnapshot) {
+        if let current = schoolSessions, snapshot.revision <= current.revision { return }
         schoolSessions = snapshot
+    }
+
+    /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
+    func scanMatrix(_ image: Data) async throws -> [MatrixCell] {
+        guard let session else { return [] }
+        ocrProgress = 0
+        let operation = try session.scanMatrix(image: image)
+        let id = operation.id()
+        ocrOperation = id
+        defer { if ocrOperation == id { ocrOperation = nil } }
+        guard case let .recognitions(cells) = try await operation.value() else { return [] }
+        return cells
     }
 
     private func refreshSyncSnapshot() async {
@@ -589,6 +616,16 @@ final class AppModel {
         return detail
     }
 
+    func deadlineDisplay(at: String) async -> TaskDeadlineView? {
+        guard let session,
+            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
+                .deadlineDisplay(at: at, now: Self.timestamp(Date(), fractional: true))
+            ]).value(),
+            case let .deadlineDisplay(display)? = result.values.first
+        else { return nil }
+        return display
+    }
+
     /// The academic year (April–March) a date belongs to.
     func academicYear(of date: Date) async -> Int32? {
         guard let session,
@@ -630,86 +667,6 @@ final class AppModel {
         return detail
     }
 
-    // MARK: Campus map
-
-    /// Whether Core's map knows a room string, or with `nil` whether a map
-    /// is stored at all; false (also before Core has the map's file) means
-    /// no map button. A failure also hides the button, but is not silent.
-    func campusMapHas(_ room: String?) async -> Bool {
-        if room?.isEmpty == true { return false }
-        guard let session else { return false }
-        do {
-            guard case let .flag(known) = try await session.campusMapHas(room: room).value() else { return false }
-            return known
-        } catch SdkError.Unavailable {
-            return false
-        } catch is CancellationError {
-            return false
-        } catch {
-            Self.mapLog.error("campus map has: \(Self.describe(error), privacy: .public)")
-            return false
-        }
-    }
-
-    /// Opens Core's map page on a room string, or on none to browse.
-    func campusMapOpen(_ room: String?) async -> CampusMapOpening {
-        guard let session else { return .failed(t("error.internal")) }
-        do {
-            guard case let .campusMapScene(scene?) = try await session.campusMapOpen(room: room).value() else {
-                return .failed(t("error.internal"))
-            }
-            return .ready(scene)
-        } catch SdkError.Unavailable {
-            return .missing
-        } catch {
-            return .failed(Self.describe(error))
-        }
-    }
-
-    /// One intent on an open map page; `nil` when nothing drawn changed or
-    /// the page is gone. A failure is logged: the page keeps its last scene.
-    func campusMapSend(_ page: UInt64, _ intent: CampusMapIntent) async -> CampusMapScene? {
-        guard let session else { return nil }
-        do {
-            guard case let .campusMapScene(scene) = try await session.campusMapSend(page: page, intent: intent).value()
-            else { return nil }
-            return scene
-        } catch {
-            Self.mapLog.error("campus map send: \(Self.describe(error), privacy: .public)")
-            return nil
-        }
-    }
-
-    /// What a map search's text names; Core echoes the text so the page can
-    /// drop answers to text since changed.
-    func campusMapSearch(_ query: String) async -> Result<CampusMapSearch, CampusMapFailure> {
-        guard let session else { return .failure(CampusMapFailure(message: t("error.internal"))) }
-        do {
-            guard case let .campusMapSearch(search) = try await session.campusMapSearch(query: query).value() else {
-                return .failure(CampusMapFailure(message: t("error.internal")))
-            }
-            return .success(search)
-        } catch {
-            return .failure(CampusMapFailure(message: Self.describe(error)))
-        }
-    }
-
-    /// Sends one floor photo to the maintainers' inbox; `nil` once stored.
-    func campusMapUploadPhoto(buildingId: String, jpeg: Data) async -> CampusMapFailure? {
-        guard let session else { return CampusMapFailure(message: t("error.internal")) }
-        do {
-            _ = try await session.campusMapUploadPhoto(buildingId: buildingId, jpeg: jpeg).value()
-            return nil
-        } catch {
-            Self.mapLog.error("campus map photo: \(Self.describe(error), privacy: .public)")
-            return CampusMapFailure(message: Self.describe(error))
-        }
-    }
-
-    /// Drops Core's map page, and its open if it is still loading.
-    func campusMapClose() {
-        session?.campusMapClose()
-    }
 
     // MARK: Intents
 
@@ -763,43 +720,6 @@ final class AppModel {
     func refreshFromSchool() {
         problem = nil
         syncHint(.refresh(scope: .everything))
-    }
-
-    /// "Save and connect": Core signs in with the entered details and keeps
-    /// them only when the school accepted them (`.connected`); any other
-    /// outcome saved nothing.
-    func connect(_ profile: SchoolAuthProfile, _ credentials: SchoolCredentials) async throws -> SchoolConnectOutcome? {
-        guard let session else { return nil }
-        let value = try await session.connectSchool(profile: profile, credentials: credentials).value()
-        await refreshAccounts()
-        guard case let .schoolConnect(outcome) = value else { return nil }
-        return outcome
-    }
-
-    /// Retry: Core reads the synced credentials again and makes one sign-in
-    /// attempt now. The credentials stay as they are.
-    func retrySchool(_ profile: SchoolAuthProfile) async throws {
-        guard let session else { return }
-        if case let .schoolSession(snapshot) = try await session.retrySchool(profile: profile).value() {
-            apply(snapshot)
-        }
-        await refreshAccounts()
-    }
-
-    func schoolOtpCode() async throws -> SchoolOtpCode? {
-        guard let session, case let .currentSchoolOtp(code) = try await session.schoolOtpCode().value() else {
-            return nil
-        }
-        return code
-    }
-
-    /// The saved school OTP setup as an `otpauth://` link, read only when the
-    /// person asks to add it to an authenticator or copy it.
-    func otpSetupLink() async throws -> String {
-        guard let session, case let .text(value) = try await session.schoolOtpLink().value() else {
-            throw CancellationError()
-        }
-        return value
     }
 
     /// Asks Core for a newer App Store release when a check is due (the
@@ -873,35 +793,6 @@ final class AppModel {
         (try? session?.capabilities().ocr) ?? false
     }
 
-    /// Reads the 70 Matrix cells from one photo, in row order (A1…J1, A2…).
-    func scanMatrix(_ image: Data) async throws -> [MatrixCell] {
-        guard let session else { return [] }
-        ocrProgress = 0
-        guard case let .recognitions(cells) = try await session.scanMatrix(image: image).value() else { return [] }
-        return cells
-    }
-
-    /// Starts a live Matrix scan; its ten-second budget starts now.
-    func beginMatrixCamera() throws -> MatrixCameraSession {
-        guard let session else { throw SdkError.Closed }
-        return try session.beginMatrixCamera()
-    }
-
-    /// Returns once Core has stopped the account's reads and removed its
-    /// sign-in, the web views' school cookies included.
-    /// Throws when signing out did not finish: the account stays saved, and
-    /// signing out again redoes every step.
-    func deleteCredentials(_ profile: SchoolAuthProfile) async throws {
-        guard let session else { return }
-        do {
-            _ = try await session.deleteCredentials(profile: profile).value()
-        } catch {
-            await refreshAccounts()
-            throw error
-        }
-        await refreshAccounts()
-    }
-
     // MARK: Formatting helpers
 
     nonisolated static func describe(_ error: Error) -> String {
@@ -935,10 +826,10 @@ final class AppModel {
         }
     }
 
-    nonisolated static func timestamp(_ date: Date) -> String {
+    nonisolated static func timestamp(_ date: Date, fractional: Bool = false) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.timeZone = .tokyo
-        formatter.formatOptions = [.withInternetDateTime]
+        formatter.formatOptions = fractional ? [.withInternetDateTime, .withFractionalSeconds] : [.withInternetDateTime]
         return formatter.string(from: date)
     }
 
@@ -977,74 +868,6 @@ extension Calendar {
     }()
 }
 
-// MARK: - Backup
-
-/// The desktop's Backup settings over the same Core journal: iCloud and Drive on or off,
-/// automatic or by-hand sync, earlier versions, local recovery files and a
-/// backup file. Core decides what uploads, merges and restores.
-extension AppModel {
-    func refreshCloud() async {
-        guard let session else { return }
-        if case let .cloud(state)? = try? await session.cloudState().value() {
-            cloud = state
-        }
-    }
-
-    /// Turning Drive on first shows Google's sign-in; Core keeps it off with
-    /// the reason if the sign-in fails.
-    func setCloudEnabled(_ provider: CloudProvider, _ enabled: Bool) async {
-        await cloudOperation { try $0.setCloudEnabled(provider: provider, enabled: enabled) }
-    }
-
-    func setCloudAutomatic(_ automatic: Bool) async {
-        await cloudOperation { try $0.setCloudAutomatic(enabled: automatic) }
-    }
-
-    func syncCloud(_ direction: Direction) async {
-        await cloudOperation { try $0.syncCloud(direction: direction) }
-        await refresh()
-    }
-
-    /// Restores a cloud version or a local recovery file, on every connected device.
-    func restoreCloud(_ id: String) async {
-        await cloudOperation { try $0.restoreCloud(id: id) }
-        await refresh()
-    }
-
-    /// The current workspace as a backup file (the desktop's Export…).
-    func exportBackup() async -> String? {
-        guard let session else { return nil }
-        do {
-            guard case let .text(value) = try await session.exportBackup().value() else { return nil }
-            return value
-        } catch {
-            problem = Self.describe(error)
-            return nil
-        }
-    }
-
-    /// Imports a backup file from this or another device; Core saves a recovery
-    /// file first and publishes the import to iCloud like any restore.
-    func importBackup(_ data: Data) async throws {
-        guard let session else { return }
-        // Core validates the document and rejects anything that is not a backup.
-        _ = try await session.applyBackup(document: String(decoding: data, as: UTF8.self)).value()
-        await refreshCloud()
-        await refresh()
-    }
-
-    private func cloudOperation(_ start: (Session) throws -> IsctCore.Operation) async {
-        guard let session else { return }
-        do {
-            if case let .cloud(state) = try await start(session).value() {
-                cloud = state
-            }
-        } catch {
-            problem = Self.describe(error)
-            await refreshCloud()
-        }
-    }
-}
 
 // MARK: - Reset
 
@@ -1066,16 +889,7 @@ extension AppModel {
         problem = nil
         await refreshAccounts()
         await refreshSyncSnapshot()
-        await refreshCloud()
-    }
-
-    /// After a full reset, as the desktop's: iCloud on again, then its copy pulled.
-    func restoreFromCloud() async throws {
-        guard let session else { return }
-        _ = try await session.setCloudEnabled(provider: .icloud, enabled: true).value()
-        _ = try await session.syncCloud(direction: .pull).value()
-        await refreshCloud()
-        await refresh()
+        await backup.refresh()
     }
 }
 
@@ -1185,66 +999,5 @@ extension AppModel {
         case "transfer": .transfer
         default: .unknown
         }
-    }
-}
-
-// MARK: - Hand-in (see HandIn.swift)
-
-extension AppModel {
-    /// The files waiting in the assignment's `submit/`.
-    func submitFiles(_ assignment: String) async -> [LocalFile] {
-        guard let session,
-            case let .files(files)? = try? await session.assignmentSubmitFiles(assignmentId: assignment).value()
-        else { return [] }
-        return files
-    }
-
-    /// Copies the files into the assignment's `submit/`; the sources stay.
-    func addSubmitFiles(_ assignment: String, _ files: [SharedFile]) async throws -> [LocalFile] {
-        guard let session else { throw SdkError.Closed }
-        guard case let .files(listed) = try await session.addAssignmentFiles(assignmentId: assignment, files: files).value()
-        else { return [] }
-        await refreshWaiting()
-        return listed
-    }
-
-    func removeSubmitFile(_ assignment: String, name: String) async throws -> [LocalFile] {
-        guard let session else { throw SdkError.Closed }
-        guard case let .files(listed) = try await session.removeAssignmentFile(assignmentId: assignment, name: name).value()
-        else { return [] }
-        await refreshWaiting()
-        return listed
-    }
-
-    /// Re-reads which assignments have files waiting to be handed in.
-    func refreshWaiting() async {
-        guard let session,
-            case let .waiting(assignments)? = try? await session.waitingHandIns().value()
-        else { return }
-        waiting = Dictionary(assignments.map { ($0.assignmentId, Int($0.files)) }, uniquingKeysWith: +)
-    }
-
-    /// Queues `submit/` for the LMS draft area and returns the page that
-    /// receives it, for the in-app web view.
-    func handIn(_ assignment: String) async throws -> String {
-        guard let session else { throw SdkError.Closed }
-        let messages = UploadMessages(
-            waiting: t("failure.preparingYourLMSUpload"),
-            queued: t("failure.filesSentToTheUpload"),
-            failed: t("failure.theUploadAreaIsNot"))
-        guard case let .text(url) = try await session.handInAssignment(assignmentId: assignment, messages: messages).value()
-        else { throw SdkError.Unavailable(detail: "") }
-        return url
-    }
-
-    /// The quarter's open assignments, for the share sheet's list.
-    func writeShareChoices(_ board: AssignmentBoard) {
-        let groups = board.today
-        let open = groups.pinned + groups.dueThisWeek + groups.later + groups.undated + groups.pastRecent
-        var seen = Set<String>()
-        let choices = open.filter { seen.insert($0.assignmentId).inserted }.map {
-            SharedInbox.Choice(id: $0.assignmentId, title: $0.title, course: $0.courseTitle, due: Format.due($0.dueAt))
-        }
-        SharedInbox.writeChoices(SharedInbox.Choices(language: Localizer.shared.language, assignments: choices))
     }
 }

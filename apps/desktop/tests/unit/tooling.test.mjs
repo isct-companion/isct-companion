@@ -40,6 +40,8 @@ import {
   readOAuthClients,
 } from "@repo/scripts/lib/oauth-config.mjs";
 import { readVersions } from "@repo/scripts/release/versions.mjs";
+import { tsFunctionRows } from "@repo/scripts/checks/code-quality/functions.mjs";
+import { parse as parseTs } from "@babel/parser";
 
 /** A bundled module id, as Vite would report it, for a package in node_modules. */
 const bundledModule = (...parts) =>
@@ -688,5 +690,37 @@ describe("release version bump", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("code quality audit", () => {
+  // Rankings by nesting are only useful if a flat `else if` chain reads as flat;
+  // the Rust, Swift and Kotlin parsers apply the same rule.
+  it("counts an else-if chain as one level and nested ifs as several", () => {
+    const source = `
+      function chain(x) {
+        if (x === 1) return 1;
+        else if (x === 2) return 2;
+        else if (x === 3) return 3;
+        else return 0;
+      }
+      function deep(x) {
+        if (x > 0) { if (x > 1) { if (x > 2) return 3; } }
+        return 0;
+      }
+      const inline = (items) => items.map((item) => (item ? 1 : 0));`;
+    const rows = tsFunctionRows(
+      parseTs(source, { sourceType: "module", plugins: ["typescript"] }),
+      "probe.ts",
+    );
+    const metrics = Object.fromEntries(
+      rows.map(({ name, branches, nesting }) => [name, { branches, nesting }]),
+    );
+    expect(metrics).toEqual({
+      chain: { branches: 3, nesting: 1 },
+      deep: { branches: 3, nesting: 3 },
+      // The anonymous callback has no row of its own; its branch is its caller's.
+      inline: { branches: 1, nesting: 1 },
+    });
   });
 });

@@ -34,7 +34,9 @@ pub(crate) async fn exam_share(
 ) -> Result<ExamAnswer, CommandError> {
     require_local_main(&webview)?;
     let _selected_files = match &mut action {
-        ExamAction::Upload { files, .. } => Some(selection.resolve(files).map_err(coded)?),
+        ExamAction::Upload { files, .. } | ExamAction::UploadReadiness { files, .. } => {
+            Some(selection.resolve(files).map_err(coded)?)
+        }
         _ => None,
     };
     let cancel = CancellationToken::new();

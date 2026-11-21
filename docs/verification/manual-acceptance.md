@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 171 checks must be re-run before the next release.**
+**5 of 172 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**166 checks have never been run or could not be run:**
+**167 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -134,6 +134,7 @@ an unverified area becomes an assumed-good one.
 - `ANDROID-TODAY-EXAMS-AND-STATUS` — never verified
 - `ANDROID-SETTINGS-PAGES` — never verified
 - `ANDROID-WEB-PREFERENCES` — never verified
+- `ANDROID-MAPS-GOOGLE-ONLY` — never verified
 - `ANDROID-SCHOOL-POPUPS` — never verified
 - `ANDROID-SCHOOL-NO-RESUBMIT` — never verified
 - `ANDROID-SCHOOL-LOAD-FAILURE` — never verified
@@ -204,112 +205,113 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SIGNIN-SCIENCE` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx |
 | `SCHOOL-SESSION-WINDOWS-VAULT` | school | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/secret_parts.rs<br>crates/app-core/src/school_session/store.rs |
 | `SCHOOL-LMS-TOKEN-HTTP` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-20 · codex · `07bc592` | crates/app-core/src/downloads.rs |
-| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
-| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/planner.rs<br>docs/lms-api/README.md |
-| `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
-| `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>apps/desktop/src/pages/courses/** |
+| `SCHOOL-LMS-PULL` | school | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-core/src/lms_ingest.rs<br>crates/app-core/src/school_session/site.rs<br>crates/adpt-isct/src/lms.rs<br>crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>crates/app-core/src/schedule/search.rs<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx |
+| `SCHOOL-LMS-TOKEN-PULL` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>crates/app-core/src/net/moodle/token.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/planner.rs<br>docs/lms-api/README.md |
+| `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner/**<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
+| `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>crates/app-core/src/course_query/catalog.rs<br>crates/app-core/src/course_query/conditions.rs<br>crates/app-core/src/course_query/matching.rs<br>crates/app-core/src/course_query/personal.rs<br>apps/desktop/src/pages/courses/** |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/app-core/src/kyomu_ingest.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/study_profile.rs |
 | `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
-| `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs |
+| `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs<br>crates/app-ffi/src/services.rs<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
-| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>crates/app-ocr-adapter/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
+| `OCR-CAMPUS-CARD` | ocr | 理工学系 1年生・初学期 | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | crates/app-ffi/src/matrix.rs<br>crates/app-ffi/src/services.rs<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/desktop/src-tauri/src/commands/platform.rs<br>crates/app-ocr/**<br>crates/app-ocr-adapter/**<br>apps/desktop/src/lib/matrix-ocr.ts<br>crates/app-core/src/matrix_scan/mod.rs<br>crates/app-core/src/matrix_scan/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src/components/matrix-camera.css<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs<br>apps/desktop/src-tauri/Info.plist<br>apps/desktop/src-tauri/Entitlements.plist |
 | `ANDROID-CAMPUS-MAP-SYSTEM` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/map/FloorMapView.kt |
-| `CAMPUS-MAP-FLOOR-PHOTO-RELEASE` | native | International student | —<br>not run | crates/app-core/src/campus_map/photos.rs<br>apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
+| `CAMPUS-MAP-FLOOR-PHOTO-RELEASE` | native | International student | —<br>not run | crates/app-core/src/campus_map/photos.rs<br>apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift<br>apps/ios/IsctCompanion/Features/Map/FloorPhotoCamera.swift<br>apps/ios/IsctCompanion/Core/AppModelCampusMap.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCampusMap.kt<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
 | `SCHOOL-MATRIX-TITECH-APP-IMPORT` | school | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
 | `OCR-CAMERA-GEOMETRY` | ocr | 理工学系 1年生・初学期 | —<br>not run | crates/app-ocr/src/engine/grid/**<br>crates/app-ocr/src/engine/vendor/**<br>apps/desktop/src/platform/matrix-camera.ts<br>apps/desktop/src/components/MatrixCamera.tsx<br>apps/desktop/src-tauri/src/commands/matrix_camera.rs |
-| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
-| `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
-| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/policy.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
-| `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
-| `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
-| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
+| `DESKTOP-SCHOOL-WEBVIEW` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/mod.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-POPUPS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/school-web/** |
+| `DESKTOP-SCHOOL-NO-RESUBMIT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/policy.rs<br>apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src-tauri/src/school_windows.rs<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-LOAD-FAILURE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src/pages/web/WebPage.tsx |
+| `DESKTOP-SCHOOL-HTTP-EXTERNAL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit/** |
+| `DESKTOP-SCHOOL-PRINT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/school_webkit/** |
+| `DESKTOP-SCHOOL-NATIVE-CONFIRM` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs<br>apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src-tauri/src/lms_files.rs |
 | `DESKTOP-CLOSE-WINDOW` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/window_close.rs<br>apps/desktop/src-tauri/src/window_close_macos.rs<br>apps/desktop/src-tauri/src/window_close_windows.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx |
 | `DESKTOP-NARROW-WINDOW` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/app/routes.ts<br>apps/desktop/src/styles.css |
-| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/today/CourseFinder.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css |
-| `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src-tauri/src/lib.rs |
+| `DESKTOP-PAGE-OVERLAYS` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/app/KeptPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/components/guide.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/ui/overlays.tsx<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/pages/lectures/LectureExams.tsx |
+| `DESKTOP-WINDOWS-SNAP-LAYOUT` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/app/App.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/features/lms/LmsReader.tsx<br>apps/desktop/src-tauri/src/lib.rs |
 | `DESKTOP-CAMPUS-WIFI` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src-tauri/src/plugins/campus_wifi.rs |
-| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-printer/src/cups.rs<br>crates/app-core/src/campus_printer.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
-| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx<br>crates/app-core/src/campus_printer.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
+| `DESKTOP-CAMPUS-PRINTER-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | crates/adpt-printer/src/cups.rs<br>crates/app-core/src/campus_printer/mod.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx |
+| `DESKTOP-CAMPUS-PRINTER-WINDOWS-QUEUE` | desktop | 修士課程 1年・前期課程 | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs<br>apps/desktop/src/pages/tools/CampusPrinter.tsx<br>crates/app-core/src/campus_printer/mod.rs<br>crates/app-core/src/campus_printer/ipp.rs<br>crates/app-core/src/campus_printer/ipp/attributes.rs |
 | `DESKTOP-ABOUT-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/app/App.tsx |
 | `DESKTOP-ABOUT-DESIGN` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/about/about.css<br>apps/desktop/src/pages/about/AboutPage.tsx<br>apps/desktop/src/pages/about/IconToy.tsx |
-| `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/pages/tools/registry.ts<br>apps/desktop/src/app/App.tsx |
-| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>crates/vpn-helper/assets/app.isctcompanion.vpn.plist<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/tauri.mjs |
+| `DESKTOP-TOOLS-PAGE` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/tools/ToolsPage.tsx<br>apps/desktop/src/pages/tools/ToolCard.tsx<br>apps/desktop/src/pages/tools/tools.css<br>apps/desktop/src/platform/available-tools.ts<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/platform/desktop-bridge/campus-tools.ts |
+| `DESKTOP-CAMPUS-VPN` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/tests/helper.rs<br>crates/vpn-helper/assets/vpnc-script<br>crates/vpn-protocol/src/lib.rs<br>crates/vpn-protocol/src/tests/protocol.rs<br>crates/app-core/src/tests/vpn.rs<br>crates/app-core/src/tests/vpn__f5.rs<br>crates/app-core/src/vpn/mod.rs<br>crates/app-core/src/vpn/f5.rs<br>crates/app-core/src/school_session/vpn.rs<br>crates/app-core/src/tests/school_session__vpn.rs<br>crates/adpt-isct/src/login.rs<br>crates/vpn-helper/src/unix.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs<br>crates/vpn-helper/assets/app.isctcompanion.vpn.plist<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/tauri.mjs |
 | `DESKTOP-CAMPUS-VPN-ON-DEMAND` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/ondemand.rs<br>crates/vpn-helper/src/unix.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/standby.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>crates/app-core/src/campus_network.rs<br>crates/vpn-helper/src/publisher_routes.rs<br>apps/desktop/src/pages/tools/VpnPublishers.tsx<br>apps/desktop/src/pages/tools/CampusVpn.tsx |
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
-| `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
+| `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
 | `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
 | `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/PdfDocument.tsx<br>apps/desktop/src/features/lms/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/files/PdfDocument.tsx<br>apps/desktop/src/components/files/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
-| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useSync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts |
-| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css |
+| `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useOpenHint.ts<br>apps/desktop/src/platform/sync-intents.ts<br>apps/desktop/src/store/sync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/features/lms/useOutlineReading.ts |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/app/SchoolStatusPanel.tsx<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx |
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
-| `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
-| `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/workspace.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs |
+| `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
+| `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/pages/courses/useFinderSelection.ts<br>crates/app-core/src/workspace/mod.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs<br>crates/app-core/src/course_query/catalog.rs<br>crates/app-core/src/course_query/conditions.rs<br>crates/app-core/src/course_query/matching.rs<br>crates/app-core/src/course_query/personal.rs |
 | `DESKTOP-FINDER-IME-KANA` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
 | `DESKTOP-FINDER-IME-PINYIN` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts |
-| `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/search.rs |
+| `DESKTOP-SYLLABUS-IN-APP` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/courses/syllabus-frame.tsx<br>apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/features/lms/LmsReader.tsx<br>apps/desktop/src/features/lms/useLmsReader.ts<br>crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/search.rs |
 | `NATIVE-DEVICE-FLOWS` | native | 理工学系 1年生・初学期 | **unreached**<br>2026-10-16 · human · `b598ae6` | apps/android/**<br>apps/ios/**<br>bindings/**<br>crates/app-ffi/** |
 | `RELEASE-SIGNING` | release | Narrow window, keyboard only | —<br>not run | scripts/desktop/macos-signing.mjs<br>.github/workflows/desktop-release.yml<br>.github/workflows/apple-signing-check.yml |
 | `IOS-TESTFLIGHT-RELEASE` | release | Two devices, interrupted work | —<br>not run | .github/workflows/ios-release.yml<br>docs/mobile-release.md |
 | `RELEASE-DRAFT-ASSEMBLY` | release | Two devices, interrupted work | —<br>not run | .github/workflows/desktop-release.yml<br>.github/workflows/ios-release.yml<br>.github/workflows/android-release.yml |
 | `RELEASE-INSTALL` | release | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/migrations.rs<br>apps/desktop/src-tauri/src/lib.rs<br>scripts/desktop/desktop-release.mjs<br>.github/workflows/desktop-release.yml<br>apps/desktop/src-tauri/src/main.rs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/src/lms_protocol.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
-| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/features/lms/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css |
-| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx<br>apps/desktop/src-tauri/src/school_webkit.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
+| `WORKSPACE-NATIVE-RESIZE` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_web.rs<br>apps/desktop/src/components/ResizableWorkspace.tsx<br>apps/desktop/src/components/resizable-workspace.css<br>apps/desktop/src/pages/web/WebPage.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src/components/files/ReaderPane.tsx<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/features/lms/LmsReader.tsx<br>apps/desktop/src/platform/desktop-bridge/school-web.ts |
+| `SCHOOL-ASSIGNMENT-UPLOAD` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/workspaces.rs<br>crates/app-core/src/school_browser/policy.rs<br>crates/app-core/src/school_browser/engine/mod.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js<br>apps/desktop/src-tauri/src/workspaces.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx<br>apps/desktop/src/features/lms/LmsAssignmentCard.tsx<br>apps/desktop/src-tauri/src/school_webkit/**<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-ASSIGNMENT-LMS-EXIT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lms/pages.rs<br>crates/app-core/src/net/moodle/mapping.rs<br>apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx |
-| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
+| `DESKTOP-REMINDER-TIMES` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/settings/NotificationSettings.tsx<br>apps/desktop/src-tauri/src/commands/notifications.rs<br>apps/desktop/src-tauri/src/notifications_macos.rs<br>apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/app/useWorkspaceRuntime.ts<br>scripts/desktop/tauri.mjs<br>crates/app-core/src/schedule/reminders/mod.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/core_ports.rs |
 | `DESKTOP-PHYSICS-PAIR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/timetable/timetable.tsx<br>crates/app-core/src/schedule/alternation.rs |
-| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx |
+| `SCHOOL-OFFICIAL-COURSE-PAGES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/school.rs<br>crates/adpt-isct/src/kyomu/search.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/app-core/src/net/kyomu.rs<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/data/school_projection.rs<br>apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx |
 | `DESKTOP-SIGNED-UPDATES` | desktop | 理工学系 3年生・履修計画期 | pass ⚠<br>2026-10-16 · agent · `af4f026` | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/tauri.conf.json |
-| `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/pages/about/AboutPage.tsx<br>crates/app-core/src/app_updates.rs |
+| `DESKTOP-WINDOWS-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/pages/about/AboutPage.tsx<br>crates/app-core/src/app_updates.rs |
 | `DESKTOP-DEV-BUILD-UPDATES` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/desktop_updates.rs |
 | `DESKTOP-WINDOWS-SCHOOL-PULL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/net/tls.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/kyomu.rs |
 | `DESKTOP-LMS-SESSION-RECOVERY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/site.rs<br>crates/app-core/src/downloads.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
 | `SCHOOL-OTP-QR` | school | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/components/OtpSetupInput.tsx<br>crates/app-core/src/school_auth/otp_import.rs<br>apps/desktop/src-tauri/src/commands/school_auth.rs<br>apps/desktop/src/components/QrCamera.tsx<br>apps/desktop/src/components/CameraPreview.tsx |
 | `SCHOOL-SIGNIN-TOKYO` | school | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/school_session/**<br>crates/adpt-isct/src/login.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
-| `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_auth.rs |
-| `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
-| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
-| `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
+| `SCHOOL-SESSION-RESTART` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_session/presentation.rs<br>crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs |
+| `SCHOOL-WEB-RESTORED-IDENTITY` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_session/identity.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_session/presentation.rs<br>crates/app-core/src/school_session/store.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_cookies.rs |
+| `SCHOOL-WEB-RELOAD-SIGN-IN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/operation.rs<br>crates/app-core/src/school_browser/engine/mod.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>apps/desktop/src/features/school-web/SchoolWebControls.tsx<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt |
+| `SCHOOL-WEB-SIGN-OUT-ONE-ACCOUNT` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/web.rs<br>apps/desktop/src-tauri/src/school_cookies.rs<br>apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `DESKTOP-SCHOOL-COOKIES-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/school_cookies.rs<br>apps/desktop/src-tauri/src/school_windows.rs |
 | `IOS-CREDENTIAL-SOURCE-TILES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift |
-| `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>crates/app-ffi/src/session.rs |
-| `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit.rs |
+| `MOBILE-OTP-AUTHENTICATOR-EXPORT` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>crates/app-ffi/src/session.rs |
+| `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit/** |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
-| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
-| `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
-| `BACKGROUND-THEMES` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/theme.json<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx<br>crates/app-core/src/data/settings.rs |
-| `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx |
+| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift<br>apps/ios/IsctCompanion/Shared/ShareSheet.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
+| `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `BACKGROUND-THEMES` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/theme.json<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx<br>crates/app-core/src/data/settings.rs |
+| `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/lectures/LectureExams.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayAssignments.tsx |
 | `IOS-NATIVE-CHROME` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift |
 | `IOS-TODAY-EXAMS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt |
 | `IOS-ASSIGNMENT-ROWS` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift |
 | `IOS-WEB-TAB-PICKER` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/TabBarLongPress.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
-| `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift |
-| `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Core/AppModelHandIn.swift<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
+| `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
-| `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
-| `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
-| `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
+| `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
+| `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
+| `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
+| `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
-| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
-| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
+| `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
+| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-COURSE-ZOOM-BACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/build.gradle.kts |
 | `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
-| `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt |
-| `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt |
-| `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-TODAY-EXAMS-AND-STATUS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt |
+| `ANDROID-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt |
+| `ANDROID-WEB-PREFERENCES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
+| `ANDROID-MAPS-GOOGLE-ONLY` | native | International student | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>crates/app-core/src/campus_map/map.rs |
 | `ANDROID-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolDownloads.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
@@ -317,16 +319,16 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt |
 | `ANDROID-SCHOOL-SELECT-AND-FILES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
+| `MOBILE-UI-LANGUAGE` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Design/Localization.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt<br>resources/locales/**<br>apps/desktop/src/i18n/**<br>apps/desktop/src/lib/model.ts |
 | `DESKTOP-CALENDAR-NOW-LINE` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/styles.css<br>apps/desktop/src/lib/timetable-layout.ts<br>resources/locales/en.json<br>resources/locales/ja.json<br>resources/locales/zh.json<br>apps/desktop/src/components/timetable/workspace.ts<br>apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/ui/ui.css<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/app/useCoreLifecycle.ts |
-| `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx |
-| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift |
+| `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/useOutlineReading.ts |
+| `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/features/lms/useOutlineReading.ts<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
-| `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
+| `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/cloud_sync/restore.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
 | `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/mod.rs<br>crates/app-core/src/exam_share/library.rs |
-| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/project.yml |
-| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
+| `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelCloud.swift<br>apps/ios/project.yml |
+| `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
 | `IOS-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-LOG-EXPORT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
@@ -340,9 +342,9 @@ an unverified area becomes an assumed-good one.
 | `NOW-TINT-APPEARANCE` | native | Two devices, interrupted work | —<br>not run | design/tokens/color.light.json<br>design/tokens/color.dark.json<br>apps/desktop/src/styles.css<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt |
 | `DESKTOP-WINDOW-MATERIAL` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src/app/useAppearance.ts |
 | `DESKTOP-NATIVE-CHROME` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src/components/ui/ui.css |
-| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/app/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
-| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner.rs<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src/app/sync-text.ts |
-| `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/app-core/src/school_session/identity.rs |
+| `DESKTOP-EXAM-MARKS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/CalendarView.tsx<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/components/exams/ExamEditor.tsx<br>apps/desktop/src/components/notifications/notify.ts<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
+| `SCHOOL-COURSE-AFTER-ENROLMENT` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner/**<br>crates/app-core/src/plan/school.rs<br>apps/desktop/src/lib/sync-text.ts |
+| `IOS-SIGNIN-REASON-AND-RETRY` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>crates/app-core/src/school_session/identity.rs |
 | `IOS-LMS-ATTACHMENT-SESSION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/WebCookieSeed.swift |
 | `IOS-SCHOOL-NATIVE-CONFIRM` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `IOS-SCHOOL-POPUPS` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
@@ -350,19 +352,19 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
 | `IOS-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
-| `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
-| `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth.rs<br>crates/app-core/src/school_session/mod.rs |
+| `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
+| `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_session/presentation.rs<br>crates/app-core/src/school_session/store.rs |
 | `SCHOOL-OTP-SUBMITTED-ONCE` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/login.rs |
 | `SCHOOL-SIGN-IN-MAINTENANCE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lib.rs<br>crates/adpt-isct/src/lms.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_session/site.rs<br>crates/app-core/src/school_session/walk.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/net/kyomu.rs |
-| `SCHOOL-RETRY-KEYCHAIN-DENIED` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/school_session/identity.rs |
+| `SCHOOL-RETRY-KEYCHAIN-DENIED` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/school_session/identity.rs |
 | `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
-| `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
-| `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
+| `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
 | `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-ffi/src/ports.rs<br>crates/app-ffi/src/session.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
-| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
-| `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/app/sync-text.ts<br>crates/app-core/src/school_auth.rs |
+| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/app/SchoolStatusPanel.tsx<br>apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
+| `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
-| `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
+| `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
 | `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>crates/app-core/src/lms_ingest.rs |
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
@@ -879,6 +881,7 @@ enrolment.
 - `crates/app-core/src/data/school_projection.rs`
 - `crates/app-core/src/schedule/search.rs`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
 
 **Last recorded** pass · 2026-10-14 · human · `7fdf1b6` · `1.0.0-rc.1`
 
@@ -975,7 +978,9 @@ parsing and mapping are covered by the net::moodle unit tests.
 - `crates/app-core/src/net/moodle/token.rs`
 - `crates/app-core/src/net/moodle/rest.rs`
 - `crates/app-core/src/net/moodle/ajax.rs`
-- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_auth/mod.rs`
+- `crates/app-core/src/school_auth/matrix.rs`
+- `crates/app-core/src/school_auth/otp_setup.rs`
 - `crates/app-core/src/plan/school.rs`
 - `crates/app-core/src/plan/planner.rs`
 - `docs/lms-api/README.md`
@@ -1059,7 +1064,7 @@ real school produces lead there.
 **Covers**
 
 - `crates/app-core/src/plan/planner.rs`
-- `crates/app-core/src/plan/runner.rs`
+- `crates/app-core/src/plan/runner/**`
 - `crates/app-core/src/plan/school.rs`
 - `crates/app-core/src/plan/snapshot.rs`
 - `crates/app-core/src/school_session/**`
@@ -1112,6 +1117,10 @@ screen can show.
 
 - `crates/app-core/src/study_profile.rs`
 - `crates/app-core/src/course_query/mod.rs`
+- `crates/app-core/src/course_query/catalog.rs`
+- `crates/app-core/src/course_query/conditions.rs`
+- `crates/app-core/src/course_query/matching.rs`
+- `crates/app-core/src/course_query/personal.rs`
 - `apps/desktop/src/pages/courses/**`
 
 **Last recorded** never run
@@ -1304,7 +1313,7 @@ that cannot be automated without live credentials.
 
 **Last recorded** never run
 
-### School logins back up to Drive and restore on a second desktop (`CLOUD-CREDENTIAL-BACKUP`)
+### School logins back up to Drive and restore on a second desktop and Android (`CLOUD-CREDENTIAL-BACKUP`)
 
 **Area** cloud · **Persona** Two devices, interrupted work · **Result** —
 
@@ -1315,7 +1324,8 @@ that cannot be automated without live credentials.
 Two desktops (Windows on one side makes the Drive file the only path,
 since Macs also share logins through iCloud Keychain), both with
 Google Drive on under the same account. Desktop A has a working school
-login; desktop B has none.
+login; desktop B has none. An Android phone C with Drive on under the
+same account and no school login.
 
 **Steps**
 
@@ -1337,18 +1347,25 @@ login; desktop B has none.
      keeps a password only after the upload it encrypted succeeded. The
      old shell wrote the new password first and kept it after a failed
      upload, so A and Drive disagreed.
+4. On C, open Settings › Backup: under Login credentials the row reads
+   "Restore login credentials". Enter a wrong password, then the right one.
+   - *Why:* Android had no way into the Drive file, so a phone restored from a
+     backup stayed signed out. It must offer to restore (one field, no
+     confirmation), refuse the wrong password with Core's message, and
+     after the right one sign in to the school without typing anything.
 
 **Where to look**
 
-The row's hint, button state and messages on both desktops, and whether
-B reaches the school portal signed in.
+The row's hint, button state and messages on both desktops and the
+phone, and whether B and C reach the school portal signed in.
 
 **Expected**
 
 A accepts only a 12–128 character new password, including a long
 passphrase; B restores only with the right password and a wrong one
 changes nothing in Drive; an offline password change fails and the
-next successful one replaces the backup.
+next successful one replaces the backup; C restores the same way and
+signs in.
 
 **Why this is manual**
 
@@ -1363,6 +1380,9 @@ in-memory store.
 - `apps/desktop/src/pages/settings/BackupSettings.tsx`
 - `apps/desktop/src-tauri/src/commands/cloud.rs`
 - `crates/app-core/src/cloud_credentials.rs`
+- `crates/app-ffi/src/services.rs`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt`
 
 **Last recorded** never run
 
@@ -1528,14 +1548,16 @@ Android builds with camera hardware.
 - `crates/app-ffi/src/services.rs`
 - `apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift`
 - `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
 - `apps/desktop/src-tauri/src/commands/platform.rs`
 - `crates/app-ocr/**`
 - `crates/app-ocr-adapter/**`
 - `apps/desktop/src/lib/matrix-ocr.ts`
-- `crates/app-core/src/matrix_scan.rs`
+- `crates/app-core/src/matrix_scan/mod.rs`
 - `crates/app-core/src/matrix_scan/**`
 - `apps/desktop/src/platform/matrix-camera.ts`
 - `apps/desktop/src/components/MatrixCamera.tsx`
@@ -1647,7 +1669,10 @@ vector on both sides.
 
 - `crates/app-core/src/campus_map/photos.rs`
 - `apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift`
+- `apps/ios/IsctCompanion/Features/Map/FloorPhotoCamera.swift`
+- `apps/ios/IsctCompanion/Core/AppModelCampusMap.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelCampusMap.kt`
 - `.github/workflows/ios-release.yml`
 - `.github/workflows/android-release.yml`
 
@@ -1691,7 +1716,7 @@ the Matrix was imported from titech-app.
 
 Needs the real card and a real export; whether the grid matches the
 card is a glance in the real app. Core's reading of both shapes is
-tested in crates/app-core/src/tests/school_auth.rs.
+tested in crates/app-core/src/tests/school_auth__matrix.rs.
 
 **Covers**
 
@@ -1884,9 +1909,9 @@ answer-once guard, which answers Cancel when dropped.
 
 **Covers**
 
-- `crates/app-core/src/school_browser/engine.rs`
+- `crates/app-core/src/school_browser/engine/mod.rs`
 - `apps/desktop/src-tauri/src/school_web.rs`
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
@@ -2005,7 +2030,7 @@ reading them from the snapshot is tested in the desktop suite.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 - `apps/desktop/src/features/lms/OfficialLmsView.tsx`
@@ -2064,7 +2089,7 @@ Core's and tested there.
 **Covers**
 
 - `crates/app-core/src/school_browser/policy.rs`
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src-tauri/src/school_windows.rs`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 
@@ -2119,7 +2144,7 @@ notice is a glance. Which failures are shown is Core's and tested there.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src/pages/web/WebPage.tsx`
 
 **Last recorded** never run
@@ -2157,7 +2182,7 @@ lands is a glance. The cleartext rule is Core's and tested there.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 
 **Last recorded** never run
 
@@ -2194,7 +2219,7 @@ The print panel is native UI on a real school page; it is a glance.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 
 **Last recorded** never run
 
@@ -2217,7 +2242,7 @@ and TSUBAME.
      with an async function, so `if (!confirm(...))` never stopped and
      logout happened with no question. Without that plugin, macOS WebKit
      answers confirm() with Cancel unseen unless the view's UI delegate
-     shows it; the school view's delegate (school_webkit.rs) now does, as
+     shows it; the school view's delegate (school_webkit/mod.rs) now does, as
      a sheet naming the page's origin. A confirm that keeps the session
      on Cancel means the sheet's answer reaches the page.
 2. On TSUBAME, open the password change form and press its submit
@@ -2263,7 +2288,7 @@ headless suite runs.
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/native_dialog.rs`
 - `apps/desktop/src-tauri/src/school_web.rs`
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
 - `apps/desktop/src-tauri/src/commands/backup.rs`
@@ -2413,7 +2438,6 @@ Native WebKit clipping, stacking and animated position are visual checks; page r
 **Covers**
 
 - `apps/desktop/src/app/KeptPage.tsx`
-- `apps/desktop/src/pages/today/CourseFinder.tsx`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/components/guide.tsx`
 - `apps/desktop/src/components/timetable/timetable.tsx`
@@ -2421,6 +2445,8 @@ Native WebKit clipping, stacking and animated position are visual checks; page r
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/styles.css`
 - `apps/desktop/src/pages/lectures/lectures.css`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
+- `apps/desktop/src/pages/lectures/LectureExams.tsx`
 
 **Last recorded** never run
 
@@ -2471,6 +2497,8 @@ a narrow pane, but not the native window transition.
 - `apps/desktop/src/app/App.tsx`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/features/lms/lms.css`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
+- `apps/desktop/src/features/lms/LmsReader.tsx`
 - `apps/desktop/src-tauri/src/lib.rs`
 
 **Last recorded** never run
@@ -2587,7 +2615,7 @@ in crates/adpt-printer/src/tests and crates/app-core/src/tests.
 **Covers**
 
 - `crates/adpt-printer/src/cups.rs`
-- `crates/app-core/src/campus_printer.rs`
+- `crates/app-core/src/campus_printer/mod.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
@@ -2684,7 +2712,7 @@ and the printer's billing page.
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs`
 - `apps/desktop/src/pages/tools/CampusPrinter.tsx`
-- `crates/app-core/src/campus_printer.rs`
+- `crates/app-core/src/campus_printer/mod.rs`
 - `crates/app-core/src/campus_printer/ipp.rs`
 - `crates/app-core/src/campus_printer/ipp/attributes.rs`
 
@@ -2832,8 +2860,9 @@ build has is in the Campus VPN suite.
 - `apps/desktop/src/pages/tools/ToolsPage.tsx`
 - `apps/desktop/src/pages/tools/ToolCard.tsx`
 - `apps/desktop/src/pages/tools/tools.css`
-- `apps/desktop/src/pages/tools/registry.ts`
+- `apps/desktop/src/platform/available-tools.ts`
 - `apps/desktop/src/app/App.tsx`
+- `apps/desktop/src/platform/desktop-bridge/campus-tools.ts`
 
 **Last recorded** never run
 
@@ -2929,7 +2958,7 @@ reachable from automated suites.
 - `crates/vpn-protocol/src/tests/protocol.rs`
 - `crates/app-core/src/tests/vpn.rs`
 - `crates/app-core/src/tests/vpn__f5.rs`
-- `crates/app-core/src/vpn.rs`
+- `crates/app-core/src/vpn/mod.rs`
 - `crates/app-core/src/vpn/f5.rs`
 - `crates/app-core/src/school_session/vpn.rs`
 - `crates/app-core/src/tests/school_session__vpn.rs`
@@ -3299,7 +3328,6 @@ tests drive the same paths only over a test transport.
 **Covers**
 
 - `crates/app-core/src/net/moodle/submission.rs`
-- `crates/app-core/src/submissions.rs`
 - `crates/app-core/src/submissions/**`
 - `crates/app-core/src/agent/submissions.rs`
 - `crates/app-core/src/deadlines.rs`
@@ -3535,8 +3563,8 @@ whether the PDF.js data files ship with it.
 
 **Covers**
 
-- `apps/desktop/src/features/lms/PdfDocument.tsx`
-- `apps/desktop/src/features/lms/TextDocument.tsx`
+- `apps/desktop/src/components/files/PdfDocument.tsx`
+- `apps/desktop/src/components/files/TextDocument.tsx`
 - `apps/desktop/src/features/lms/OfficialLmsView.tsx`
 - `apps/desktop/src/features/lms/lms.css`
 - `apps/desktop/src/components/workspace-chrome.css`
@@ -3765,9 +3793,13 @@ tests/e2e/today-and-lectures.test.tsx.
 
 - `apps/desktop/src/store/workspace.ts`
 - `apps/desktop/src/platform/core-query.ts`
-- `apps/desktop/src/app/useSync.ts`
+- `apps/desktop/src/app/useOpenHint.ts`
+- `apps/desktop/src/platform/sync-intents.ts`
+- `apps/desktop/src/store/sync.ts`
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/app/interaction-trace.ts`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
+- `apps/desktop/src/features/lms/useOutlineReading.ts`
 
 **Last recorded** never run
 
@@ -3784,18 +3816,18 @@ has already been read once.
 
 **Steps**
 
-1. Press Refresh now in the footer and watch the right half of the
-   footer until it is quiet again.
-   - *Why:* The footer shows a bar only while Core reports a run's total and a
+1. Press Refresh in the floating status at the bottom right, point at
+   its line and watch the panel until it is quiet again.
+   - *Why:* The panel shows a bar only while Core reports a run's total and a
      label or spinner otherwise. A bar that jumps backwards, or a bar for
      a run without a total, means the shell is estimating again.
-2. Open a lecture whose content is a few hours old and press Pull from
-   LMS in its header.
+2. Open a lecture whose content is a few hours old and press Refresh
+   now in its header.
    - *Why:* The page must keep its rows and say "Showing data from … ago ·
      updating this course k / n", then switch the whole course at once.
      A list that empties or half-updates means the page stopped reading
      local data while Core reads.
-3. On Timetable, press Refresh timetable and watch the footer.
+3. On Timetable, press Refresh timetable and watch the status panel.
    - *Why:* It must read only the LMS course list and the 教務Web pages, with
      the button's ring following them; a run over every current course
      means the button is pulling the whole LMS again instead of what the
@@ -3812,7 +3844,7 @@ has already been read once.
 
 **Where to look**
 
-The workstation footer, the lecture header, and the app log for the
+The floating status and its panel, the lecture header, and the app log for the
 sync hints sent.
 
 **Expected**
@@ -3832,11 +3864,14 @@ real school failure only exist against the live services.
 **Covers**
 
 - `apps/desktop/src/app/SchoolStatusLine.tsx`
-- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/pages/courses/CoursesPage.tsx`
 - `apps/desktop/src/components/PullRing.tsx`
 - `apps/desktop/src/styles.css`
+- `apps/desktop/src/app/SchoolStatusPanel.tsx`
+- `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
 
 **Last recorded** never run
 
@@ -3946,6 +3981,7 @@ check.
 
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 - `apps/desktop/src/pages/courses/useFinder.ts`
+- `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
 - `crates/app-core/src/catalog.rs`
 - `crates/app-core/src/facade.rs`
 
@@ -3986,13 +4022,18 @@ Perceived latency with the real catalog, native command runner and IME is judged
 
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 - `apps/desktop/src/pages/courses/useFinder.ts`
-- `apps/desktop/src/app/App.tsx`
+- `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
 - `apps/desktop/src/platform/query-client.ts`
 - `apps/desktop/src/store/workspace.ts`
-- `crates/app-core/src/workspace.rs`
+- `apps/desktop/src/pages/courses/useFinderSelection.ts`
+- `crates/app-core/src/workspace/mod.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src-tauri/src/commands/read_models.rs`
 - `crates/app-core/src/course_query/mod.rs`
+- `crates/app-core/src/course_query/catalog.rs`
+- `crates/app-core/src/course_query/conditions.rs`
+- `crates/app-core/src/course_query/matching.rs`
+- `crates/app-core/src/course_query/personal.rs`
 
 **Last recorded** never run
 
@@ -4135,10 +4176,13 @@ glance check (AGENTS.md §5).
 
 **Covers**
 
-- `apps/desktop/src/pages/courses/syllabus-frame.tsx`
+- `apps/desktop/src/components/courses/syllabus-frame.tsx`
 - `apps/desktop/src/pages/courses/CoursePanel.tsx`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
+- `apps/desktop/src/features/lms/LmsReader.tsx`
+- `apps/desktop/src/features/lms/useLmsReader.ts`
 - `crates/app-core/src/net/kyomu.rs`
 - `crates/adpt-isct/src/kyomu/search.rs`
 
@@ -4497,9 +4541,12 @@ school content; jsdom and the browser preview render only the DOM host.
 - `apps/desktop/src/pages/lectures/lectures.css`
 - `apps/desktop/src/features/lms/OfficialLmsView.tsx`
 - `apps/desktop/src/components/confirm.tsx`
-- `apps/desktop/src/features/lms/ReaderPane.tsx`
+- `apps/desktop/src/components/files/ReaderPane.tsx`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/components/workspace-chrome.css`
+- `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
+- `apps/desktop/src/features/lms/LmsReader.tsx`
+- `apps/desktop/src/platform/desktop-bridge/school-web.ts`
 
 **Last recorded** never run
 
@@ -4572,12 +4619,13 @@ The Finder drag needs the real AppKit hit test and native WebViews.
 
 - `crates/app-core/src/workspaces.rs`
 - `crates/app-core/src/school_browser/policy.rs`
-- `crates/app-core/src/school_browser/engine.rs`
+- `crates/app-core/src/school_browser/engine/mod.rs`
 - `crates/app-core/src/school_browser/submission.rs`
 - `crates/adpt-isct/assets/assignment-upload.js`
 - `apps/desktop/src-tauri/src/workspaces.rs`
 - `apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx`
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src/features/lms/LmsAssignmentCard.tsx`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 
 **Last recorded** never run
@@ -4723,7 +4771,7 @@ and native notification delivery; tests use a headless notification sink.
 - `apps/desktop/src-tauri/src/commands/platform.rs`
 - `apps/desktop/src/app/useWorkspaceRuntime.ts`
 - `scripts/desktop/tauri.mjs`
-- `crates/app-core/src/schedule/reminders.rs`
+- `crates/app-core/src/schedule/reminders/mod.rs`
 - `crates/app-core/src/deadlines.rs`
 - `apps/desktop/src-tauri/src/core_ports.rs`
 
@@ -4844,6 +4892,7 @@ Headless tests exercise the parser, shared projections and UI paging only.
 - `crates/app-core/src/catalog.rs`
 - `crates/app-core/src/data/school_projection.rs`
 - `apps/desktop/src/pages/courses/CourseFinder.tsx`
+- `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
 
 **Last recorded** never run
 
@@ -4941,6 +4990,7 @@ Needs a signed release on GitHub, a Windows PC, a real slow or broken network, a
 - `apps/desktop/src-tauri/src/desktop_updates.rs`
 - `apps/desktop/src-tauri/src/lib.rs`
 - `apps/desktop/src/app/useDesktopUpdates.ts`
+- `apps/desktop/src/store/app-update.ts`
 - `apps/desktop/src/pages/about/AboutPage.tsx`
 - `crates/app-core/src/app_updates.rs`
 
@@ -5227,7 +5277,10 @@ across a process restart; no suite holds a live school session.
 
 - `crates/app-core/src/school_session/store.rs`
 - `crates/app-core/src/school_session/mod.rs`
-- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_session/presentation.rs`
+- `crates/app-core/src/school_auth/mod.rs`
+- `crates/app-core/src/school_auth/matrix.rs`
+- `crates/app-core/src/school_auth/otp_setup.rs`
 
 **Last recorded** never run
 
@@ -5279,6 +5332,8 @@ rules are in the Core suites, the live acceptance only here.
 
 - `crates/app-core/src/school_session/identity.rs`
 - `crates/app-core/src/school_session/mod.rs`
+- `crates/app-core/src/school_session/presentation.rs`
+- `crates/app-core/src/school_session/store.rs`
 - `crates/app-core/src/school_browser/engine/operation.rs`
 - `apps/desktop/src-tauri/src/school_cookies.rs`
 
@@ -5360,7 +5415,7 @@ page Reload reopens are in the Core web operation suite.
 **Covers**
 
 - `crates/app-core/src/school_browser/engine/operation.rs`
-- `crates/app-core/src/school_browser/engine.rs`
+- `crates/app-core/src/school_browser/engine/mod.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 - `apps/desktop/src/features/school-web/SchoolWebControls.tsx`
 - `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
@@ -5438,6 +5493,8 @@ reachable from them.
 - `apps/desktop/src-tauri/src/school_cookies.rs`
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 - `apps/ios/IsctCompanion/Core/WebCookieSeed.swift`
 
 **Last recorded** never run
@@ -5618,7 +5675,9 @@ Needs signed apps on real phones, installed authenticator apps handling
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift`
+- `apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 - `crates/app-ffi/src/session.rs`
 
 **Last recorded** never run
@@ -5668,7 +5727,7 @@ have a window or WebKit.
 
 **Covers**
 
-- `apps/desktop/src-tauri/src/school_webkit.rs`
+- `apps/desktop/src-tauri/src/school_webkit/**`
 
 **Last recorded** never run
 
@@ -5882,7 +5941,9 @@ and the desktop `nowPercent` unit tests.
 - `apps/ios/IsctCompanion/Design/TabItemPress.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
-- `apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift`
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift`
+- `apps/ios/IsctCompanion/Shared/ShareSheet.swift`
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift`
 - `apps/ios/IsctCompanion/Core/AppModel.swift`
 
 **Last recorded** never run
@@ -5953,6 +6014,7 @@ schedule tests pin.
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift`
 - `apps/ios/IsctCompanion/Design/Theme.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt`
 - `apps/desktop/src/components/timetable/timetable.tsx`
 - `apps/desktop/src/styles.css`
@@ -6012,8 +6074,10 @@ the value is stored, validated and kept in the synced preferences.
 - `design/tokens/theme.json`
 - `apps/ios/IsctCompanion/Design/Theme.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt`
 - `apps/desktop/src/pages/settings/AppearanceSettings.tsx`
 - `crates/app-core/src/data/settings.rs`
 
@@ -6065,6 +6129,9 @@ Motion, haptics, loading appearance and system accessibility settings require re
 - `apps/desktop/src/pages/lectures/LectureDesk.tsx`
 - `apps/desktop/src/pages/lectures/lectures.css`
 - `apps/desktop/src/app/App.tsx`
+- `apps/desktop/src/pages/lectures/LectureExams.tsx`
+- `apps/desktop/src/pages/today/TodayAgenda.tsx`
+- `apps/desktop/src/pages/today/TodayAssignments.tsx`
 
 **Last recorded** never run
 
@@ -6364,7 +6431,7 @@ one would prove only the fake.
 
 **Last recorded** never run
 
-### Files shared into the iPhone or iPad app reach an assignment's LMS draft area (`IOS-SHARE-HAND-IN`)
+### Files shared on iPhone or iPad reach an eligible assignment's LMS draft area (`IOS-SHARE-HAND-IN`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6372,64 +6439,46 @@ one would prove only the fake.
 
 **Preconditions**
 
-The app signed in to Science Tokyo with an open assignment this quarter
-whose LMS page accepts file submissions; a signed build with the share
-extension and the App Group.
+A signed build with the share and action extensions and the App Group.
+The Science Tokyo account has an assignment that accepts late work and
+a closed assignment, or a deadline that can pass during the check.
 
 **Steps**
 
-1. In Goodnotes or Files, share a PDF and choose 「IsctCompanion で開く」
-   from the share sheet's actions (Edit Actions lists it if it is not
-   shown).
-   - *Why:* The app opens with the PDF in the corner stack, as if chosen in the
-     app; no panel pops up. No stack means the opened file never reached
-     the inbox.
-2. Drag the stack over an assignment row on 今日 and drop it; then add
-   another file, drag it to the trash that appears top right.
-   - *Why:* The row floats while the stack is over it; the drop opens the
-     assignment with the files in its upload card, and the row then says
-     「x 件のファイルが提出待ち」. The trash takes the stack with a bounce
-     and the files are gone from the inbox.
-3. In Photos, select two photos, Share, choose IsctCompanion, read the
-   sheet, leave 「アプリで選ぶ」 and tap 「追加して IsctCompanion を開く」.
-   - *Why:* The share extension copies both into the App Group inbox and the app
-     shows them as a thumbnail stack bottom right, without a count badge.
-     No IsctCompanion in the sheet means the extension or its activation
-     rule is missing.
-4. Tap the stack, then 「課題を選ぶ」 and the assignment.
-   - *Why:* The files move to the assignment's workspace `submit/` (Core) and its
-     page opens with both files in the upload card; the stack disappears.
-5. On the iPad, share a PDF from Files with the assignment picked in the
-   sheet; open the app. Then drag a file from Files in Split View onto
-   the upload card, and tap the card to add one more.
-   - *Why:* Files hands the sheet only a file URL, no content type; the sheet
-     must still show the PDF's thumbnail, and an empty strip with Add
-     greyed out means that URL was not read. A file given an assignment
-     in the sheet is handed in on the next open and that page is shown. The card is the one drop target and
-     tapping it opens the Files picker; each adds to the card's list.
-6. Tap 「LMS にアップロード」, wait, and read the LMS page.
-   - *Why:* Core fills the draft area through Moodle's own uploader and the page
-     says to review and submit yourself. The app never presses save; a
-     submission without the person's tap is a safety failure.
-7. In Files › On My iPad › IsctCompanion, open
-   `workspace/<quarter>/<course>/`.
-   - *Why:* The assignment's folder holds ASSIGNMENT.md and `submit/` with the
-     files, the same layout desktop uses.
+1. In Files, share a PDF through 「IsctCompanion で開く」. Choose the
+   assignment that allows late work, then inspect its LMS page.
+   - *Why:* The native action moves the app's copy into the current picker.
+     The LMS draft contains the PDF and the person must tap Save.
+2. In the share extension, pick an assignment before it closes. Wait
+   for its cutoff, then open the app from the share sheet.
+   - *Why:* Core rejects the stale target before taking the files. The app
+     retains the selection and offers another eligible assignment or Cancel.
+3. Cancel that selection. Verify the original PDF in Files and check the
+   previous assignment folder if this is an upgraded install.
+   - *Why:* The app clears its current copies; user's original and older files
+     are still there.
+4. On iPad, drag two files from Files in Split View onto an eligible
+   assignment row or its hand-in card. Try the same drop on a closed row.
+   - *Why:* The eligible drop reads the whole batch and fills the draft. A
+     closed row has no hand-in drop target.
+5. Pick files or photos in the assignment card. Go back from its LMS
+   page while it is still preparing, then reopen the LMS draft normally.
+   - *Why:* The resident browser cancels the matching request. Returning
+     does not make the canceled upload start.
 
 **Where to look**
 
-The share sheet, the corner stack, the assignment page and the LMS page in the app.
+The system share and pickers, the app's assignment picker, Files and the LMS draft.
 
 **Expected**
 
-Shared files wait in the corner, go to the chosen assignment's
-`submit/`, show in its upload card, and fill the LMS draft area for the
-person to save.
+Only eligible assignments receive the current selection. A stale
+target can be changed or canceled, and only a user's tap saves the draft.
 
 **Why this is manual**
 
-The share extension, App Group, Split View drag and the LMS draft area
-need a signed build, a device and a school account.
+The Apple extensions, App Group, Split View drag and actual LMS draft
+require a signed app, device and Science Tokyo account.
 
 **Covers**
 
@@ -6438,11 +6487,19 @@ need a signed build, a device and a school account.
 - `apps/ios/ExtensionShared/ExtensionInput.swift`
 - `apps/ios/IsctCompanion/Shared/SharedInbox.swift`
 - `apps/ios/IsctCompanion/Core/HandIn.swift`
-- `apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift`
+- `apps/ios/IsctCompanion/Core/AppModelHandIn.swift`
+- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
+- `apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift`
+- `apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift`
+- `apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift`
+- `apps/ios/IsctCompanion/Features/Web/WebScreens.swift`
+- `crates/app-ffi/src/hand_in.rs`
+- `crates/app-core/src/school_browser/submission.rs`
+- `crates/adpt-isct/assets/assignment-upload.js`
 
 **Last recorded** never run
 
-### Files shared into the Android app reach an assignment's LMS draft area (`ANDROID-SHARE-HAND-IN`)
+### Files shared on Android reach an eligible assignment's LMS draft area (`ANDROID-SHARE-HAND-IN`)
 
 **Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
 
@@ -6450,45 +6507,55 @@ need a signed build, a device and a school account.
 
 **Preconditions**
 
-The Android app signed in to Science Tokyo with an open assignment this
-quarter whose LMS page accepts file submissions.
+The app signed in to Science Tokyo with an assignment that allows late
+work and a closed assignment, or a deadline that can pass during the check.
 
 **Steps**
 
-1. In Photos (or Files), select two items, Share, choose IsctCompanion.
-   - *Why:* The app opens with both in the inbox stack above the navigation
-     bar. No IsctCompanion in the sheet means the SEND filter is wrong.
-2. Tap the stack, then 「課題を選ぶ」 and the assignment.
-   - *Why:* The files go to the assignment's `submit/` through Core and its page
-     opens with them listed in the upload card.
-3. On the card, tap to add a document and use Photos to add an image;
-   remove one file; on a tablet, drag a file from another app onto it.
-   - *Why:* The card is the one place to add files: the document picker, the
-     photo picker and a drop all add to its list, and removing deletes
-     the copy in `submit/` only.
-4. Tap 「LMS にアップロード」 and read the LMS page.
-   - *Why:* Core fills the draft area and the page asks the person to review and
-     submit; the app never saves the submission itself.
+1. Select two files in Files or Photos, tap Share and choose IsctCompanion.
+   In the picker, select the assignment that allows late work.
+   - *Why:* Android's share intent grants the app the two files. The app's
+     picker omits closed assignments and the selected draft shows both
+     files for the person to save.
+2. Open the picker before an assignment closes, leave it open until
+   its cutoff, then try the stale target if still shown.
+   - *Why:* Core rejects the stale choice and keeps the files for another
+     eligible assignment or Cancel.
+3. Cancel and check both original files. Repeat using the assignment
+   card's file or photo picker or tablet drop.
+   - *Why:* The app clears its current copies. The originals remain in their
+     source apps.
+4. Go back from the LMS page while it is preparing, then reopen the
+   draft normally.
+   - *Why:* The resident WebView cancels the matching request. Returning does
+     not make the canceled upload start.
 
 **Where to look**
 
-The share sheet, the corner stack, the assignment page and the LMS page.
+Android's share and file pickers, the app's assignment picker and the LMS draft.
 
 **Expected**
 
-Shared files wait in the corner, go to the chosen assignment, show in its
-upload card and fill the LMS draft area for the person to save.
+Each selection is sent to an eligible LMS draft. A stale target can
+be changed or canceled. The person taps Save to submit the draft.
 
 **Why this is manual**
 
-The share sheet, document and photo pickers, cross-app drag and the LMS
-draft area need a device or emulator with a school account.
+System share grants, document and photo pickers, tablet drag and the
+actual LMS draft require Android and a Science Tokyo account.
 
 **Covers**
 
+- `apps/android/app/src/main/java/app/isctcompanion/App.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
+- `crates/app-ffi/src/hand_in.rs`
+- `crates/app-core/src/school_browser/submission.rs`
+- `crates/adpt-isct/assets/assignment-upload.js`
 
 **Last recorded** never run
 
@@ -6601,6 +6668,7 @@ suite.
 **Covers**
 
 - `apps/desktop/src/app/useDesktopUpdates.ts`
+- `apps/desktop/src/store/app-update.ts`
 - `apps/desktop/src/components/confirm.tsx`
 - `apps/desktop/src-tauri/src/desktop_updates.rs`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
@@ -6673,7 +6741,7 @@ bytes are tested in crates/adpt-printer/src/tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt`
 - `crates/app-ffi/src/campus_print.rs`
-- `crates/app-core/src/campus_printer.rs`
+- `crates/app-core/src/campus_printer/mod.rs`
 - `crates/adpt-printer/src/document.rs`
 - `crates/adpt-printer/src/lpd.rs`
 
@@ -6735,6 +6803,7 @@ object itself is covered by Core's workspace tests.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift`
 - `apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift`
 - `apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift`
 - `apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift`
@@ -6783,6 +6852,19 @@ notifications) in the same workspace.
    - *Why:* Android clears alarms on a reboot or an update, which iOS's
      scheduled notifications survive; the app must put Core's reminders
      back on its own within a minute of boot.
+6. On each phone, let a scheduled reminder arrive while the app is
+   closed. Dismiss it from the notification shade or Notification Center
+   and reopen the app within five minutes of the scheduled time. Allow
+   exact alarms for this step on Android.
+   - *Why:* Once the system delivered the request, it no longer appears in the
+     pending list. After dismissal, reopening must still respect that
+     the OS already owned that reminder.
+7. On Android, turn off exact alarms and set a class reminder. If the
+   alarm is still pending after its nominal time, change the class
+   title and let the app refresh before the alarm fires. Repeat with
+   the class reminders switched off while the alarm is still pending.
+   - *Why:* The delayed broadcast must read the latest title exactly once.
+     After the switch is off, that pending alarm must stay silent.
 
 **Where to look**
 
@@ -6794,7 +6876,8 @@ Each phone asks once after the first sync; the test shows a banner with
 the app in front; after denying, the page says notifications are not
 allowed and 設定を開く opens the app's notification settings, also on
 a later visit, with no new prompt; Android's reminders are back after a
-reboot without opening the app.
+reboot without opening the app. The dismissed reminder stays dismissed
+when the app reopens within the catch-up window.
 
 **Why this is manual**
 
@@ -6808,7 +6891,9 @@ notification plan, covered by its tests.
 - `apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt`
 - `apps/android/app/src/main/AndroidManifest.xml`
@@ -6931,6 +7016,7 @@ loads. Recognition accuracy is Core's, covered by its tests and replay.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
 - `apps/android/app/src/main/AndroidManifest.xml`
 - `apps/android/app/build.gradle.kts`
@@ -6982,8 +7068,8 @@ themselves are checked in Core's plan tests.
 
 **Covers**
 
-- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt`
 - `apps/desktop/src/app/SchoolStatusLine.tsx`
 
 **Last recorded** never run
@@ -7127,6 +7213,8 @@ calendar export are covered by Core's timing and ICS tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt`
 - `apps/android/app/src/main/res/xml/file_paths.xml`
@@ -7360,7 +7448,7 @@ Core's sync snapshot, covered by its planner tests.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt`
 
 **Last recorded** never run
 
@@ -7420,8 +7508,15 @@ object is covered by Core's workspace tests.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt`
 
 **Last recorded** never run
 
@@ -7451,11 +7546,13 @@ needed, the SSO login page is enough.
    - *Why:* Both are device preferences, as on iOS: ウェブ must open on ポータル
      with large text. LMS or 115% after the relaunch means they are
      held in memory only.
-3. Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
+3. Open the page menu (⋮) and pick another ページの拡大率; reopen 設定.
    - *Why:* The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
-     text sizes. The menu and 設定 show one value with a tick; a
+     zoom levels. The menu and 設定 show one value with a tick; a
      page that does not resize, or 設定 showing the old size, means two
-     owners.
+     owners. Both places say ページの拡大率 (zh 网页缩放比例): the
+     setting zooms school pages only, and 文字サイズ read as the app's
+     own text size, which a tester reported as not working.
 4. Follow a link inside the page, then pick the shown site again from
    the title; follow another link and tap the ウェブ tab in the bottom
    bar.
@@ -7494,7 +7591,50 @@ school browser tests.
 - `apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/App.kt`
+
+**Last recorded** never run
+
+### Android has no maps-app choice and opens places in Google Maps (`ANDROID-MAPS-GOOGLE-ONLY`)
+
+**Area** native · **Persona** International student · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+An Android build of this commit with the campus map downloaded, whose
+data was restored from a backup made on an iPhone or a Mac with
+Apple Maps chosen.
+
+**Steps**
+
+1. Open 設定 and scroll past 言語.
+   - *Why:* Android has no Apple Maps app, so the Google/Apple choice is gone;
+     a row offering Apple マップ is the old screen.
+2. Open the campus map, pick a building and tap its maps link.
+   - *Why:* Core opens Google Maps on Android whatever the synced mapsApp
+     setting says; a maps.apple.com page means the setting still decides.
+
+**Where to look**
+
+設定 and the app the maps link opens.
+
+**Expected**
+
+No maps-app row in 設定, and the link opens Google Maps.
+
+**Why this is manual**
+
+A person sees the row and the opened app at a glance; the Android rule
+is compiled only for the Android target, which the host suites do not
+build.
+
+**Covers**
+
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `crates/app-core/src/campus_map/map.rs`
 
 **Last recorded** never run
 
@@ -7933,8 +8073,10 @@ judged against the live catalogue.
 
 - `apps/ios/IsctCompanion/Design/Localization.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt`
 - `resources/locales/**`
 - `apps/desktop/src/i18n/**`
 - `apps/desktop/src/lib/model.ts`
@@ -8027,6 +8169,7 @@ spring-scroll.ts.
 **Covers**
 
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
+- `apps/desktop/src/features/lms/useOutlineReading.ts`
 
 **Last recorded** never run
 
@@ -8072,6 +8215,7 @@ Real LMS data, native gestures, haptics and cross-device rendering are required;
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/features/lms/content.ts`
 - `apps/desktop/src/features/lms/lms.css`
+- `apps/desktop/src/features/lms/useOutlineReading.ts`
 - `apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift`
 - `apps/ios/IsctCompanion/Design/HTMLText.swift`
 - `apps/ios/IsctCompanion/Design/HorizontalPager.swift`
@@ -8272,6 +8416,7 @@ and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_ed
 **Covers**
 
 - `crates/app-core/src/cloud_sync/mod.rs`
+- `crates/app-core/src/cloud_sync/restore.rs`
 - `crates/app-core/src/data/cloud_merge.rs`
 - `crates/app-core/src/data/backup_store.rs`
 
@@ -8382,6 +8527,7 @@ real Google account. The PKCE checks and token storage are covered by
 
 - `apps/ios/IsctCompanion/Core/BrowserAuthentication.swift`
 - `apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift`
+- `apps/ios/IsctCompanion/Core/AppModelCloud.swift`
 - `apps/ios/project.yml`
 
 **Last recorded** never run
@@ -8460,6 +8606,7 @@ port is covered by
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt`
 - `crates/app-ffi/src/ports.rs`
 
@@ -9226,7 +9373,7 @@ Core's schedule tests and the lecture-desk e2e suite.
 - `apps/desktop/src/pages/today/CalendarView.tsx`
 - `apps/desktop/src/components/timetable/timetable.tsx`
 - `apps/desktop/src/components/exams/ExamEditor.tsx`
-- `apps/desktop/src/app/notify.ts`
+- `apps/desktop/src/components/notifications/notify.ts`
 - `apps/desktop/src/styles.css`
 - `design/tokens/course.json`
 
@@ -9284,9 +9431,9 @@ covered by Core's plan and lms_ingest tests.
 **Covers**
 
 - `crates/app-core/src/plan/planner.rs`
-- `crates/app-core/src/plan/runner.rs`
+- `crates/app-core/src/plan/runner/**`
 - `crates/app-core/src/plan/school.rs`
-- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/lib/sync-text.ts`
 
 **Last recorded** never run
 
@@ -9350,6 +9497,8 @@ tests is the live school's answer and the native page a person reads.
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift`
+- `apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift`
 - `apps/ios/IsctCompanion/Core/AppModel.swift`
 - `crates/app-core/src/school_session/identity.rs`
 
@@ -9773,7 +9922,9 @@ school_auth and school_browser tests.
 
 **Covers**
 
-- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_auth/mod.rs`
+- `crates/app-core/src/school_auth/matrix.rs`
+- `crates/app-core/src/school_auth/otp_setup.rs`
 - `crates/app-core/src/ports.rs`
 - `apps/ios/IsctCompanion/Core/KeychainVault.swift`
 - `apps/desktop/src-tauri/src/secrets.rs`
@@ -9830,8 +9981,12 @@ school_auth tests.
 
 **Covers**
 
-- `crates/app-core/src/school_auth.rs`
+- `crates/app-core/src/school_auth/mod.rs`
+- `crates/app-core/src/school_auth/matrix.rs`
+- `crates/app-core/src/school_auth/otp_setup.rs`
 - `crates/app-core/src/school_session/mod.rs`
+- `crates/app-core/src/school_session/presentation.rs`
+- `crates/app-core/src/school_session/store.rs`
 
 **Last recorded** never run
 
@@ -9981,7 +10136,7 @@ for a denied read is covered by the school_session suite.
 
 **Covers**
 
-- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src-tauri/src/secrets.rs`
 - `crates/app-core/src/school_session/identity.rs`
 
@@ -10078,7 +10233,7 @@ WebKit view and its cookies then sign in is a glance in the real app.
 
 **Covers**
 
-- `crates/app-core/src/school_browser/engine.rs`
+- `crates/app-core/src/school_browser/engine/mod.rs`
 - `crates/app-core/src/school_browser/engine/operation.rs`
 - `apps/desktop/src-tauri/src/school_browser_native.rs`
 
@@ -10133,7 +10288,11 @@ glance in the real app on three platforms.
 
 - `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
+- `apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift`
+- `apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 
 **Last recorded** never run
 
@@ -10276,12 +10435,17 @@ needs the live school.
 
 **Covers**
 
-- `apps/desktop/src/app/sync-text.ts`
+- `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
-- `apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift`
+- `apps/desktop/src/app/SchoolStatusPanel.tsx`
+- `apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
-- `apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt`
+- `apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift`
+- `apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt`
 
 **Last recorded** never run
 
@@ -10319,8 +10483,10 @@ refusal write; the vault-state decision is covered by school_auth tests.
 
 **Covers**
 
-- `apps/desktop/src/app/sync-text.ts`
-- `crates/app-core/src/school_auth.rs`
+- `apps/desktop/src/lib/sync-text.ts`
+- `crates/app-core/src/school_auth/mod.rs`
+- `crates/app-core/src/school_auth/matrix.rs`
+- `crates/app-core/src/school_auth/otp_setup.rs`
 
 **Last recorded** never run
 
@@ -10443,6 +10609,7 @@ export logic is pinned by the Core schedule and workspace suites.
 
 - `apps/desktop/src/pages/courses/CoursesPage.tsx`
 - `apps/desktop/src/pages/courses/editors.tsx`
+- `apps/desktop/src/pages/today/TodayAgenda.tsx`
 - `apps/desktop/src/pages/today/TodayPage.tsx`
 
 **Last recorded** never run
@@ -10456,7 +10623,8 @@ export logic is pinned by the Core schedule and workspace suites.
 **Preconditions**
 
 iOS simulator and Android emulator builds of this commit, UI in
-English, no school account signed in and the network turned off.
+English, signed in to Science Tokyo with an eligible file assignment
+and the network turned off.
 
 **Steps**
 
@@ -10464,8 +10632,8 @@ English, no school account signed in and the network turned off.
    - *Why:* Core answers with a code as the SDK error's detail; text such as
      "network" or "offline" on screen means the shell showed the code
      itself instead of `error.<code>`.
-2. Turn the network on and open an assignment's hand-in with no files
-   chosen, then hand in.
+2. Turn the network on, select files totaling more than 20 MiB in an
+   assignment's hand-in.
    - *Why:* A Core validation failure must read as its catalog copy, not as
      "Invalid input: …" from the SDK error's description.
 

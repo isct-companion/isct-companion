@@ -19,7 +19,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 
 /**
  * First-run guidance, as desktop's `components/guide.tsx`: one welcome sheet,
@@ -73,8 +72,8 @@ fun GuideTip(id: String, title: String, text: String? = null, modifier: Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.surface)
-            .padding(start = 16.dp, end = 8.dp, top = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+            .padding(start = Theme.space8, end = Theme.space4, top = Theme.space6),
+        verticalArrangement = Arrangement.spacedBy(Theme.space1),
     ) {
         Text(t(title), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         text?.let { Text(t(it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }

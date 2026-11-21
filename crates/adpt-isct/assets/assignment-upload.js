@@ -1,24 +1,36 @@
 (request => {
+  if (request.cancelRequest) {
+    // A cancel can reach the UI thread before the upload evaluation.
+    (globalThis.__isctCancelledAssignmentUploads ??= new Set()).add(request.cancelRequest);
+    const upload = globalThis.__isctAssignmentUpload;
+    if (upload?.request === request.cancelRequest) upload.cancel(true);
+    return;
+  }
+  if (globalThis.__isctCancelledAssignmentUploads?.has(request.request)) return;
   const target = new URL(request.url);
   const matches = () => {
     const here = new URL(location.href);
     return here.searchParams.getAll('id').length === 1 && here.searchParams.getAll('action').length === 1 &&
       here.origin === target.origin && here.pathname === target.pathname &&
       here.searchParams.get('id') === target.searchParams.get('id') &&
-      here.searchParams.get('action') === 'editsubmission';
+      here.searchParams.get('action') === 'editsubmission' &&
+      (!request.scoped || (here.searchParams.getAll('isctDraftRequest').length === 1 &&
+        here.searchParams.get('isctDraftRequest') === request.request));
   };
   if (!matches()) return;
   if (globalThis.__isctAssignmentUpload?.request === request.request) return;
   globalThis.__isctAssignmentUpload?.cancel();
   let observer, timer;
-  const cancel = () => {
+  const cancel = (removeStatus = false) => {
     observer?.disconnect();
     clearTimeout(timer);
-    removeEventListener('pagehide', cancel);
+    removeEventListener('pagehide', cancelOnHide);
     request.files = [];
+    if (removeStatus) banner.remove();
   };
+  const cancelOnHide = () => cancel();
   globalThis.__isctAssignmentUpload = { request: request.request, cancel };
-  addEventListener('pagehide', cancel, { once: true });
+  addEventListener('pagehide', cancelOnHide, { once: true });
   const banner = document.createElement('p');
   banner.setAttribute('role', 'status');
   banner.id = 'isct-assignment-upload-status';
@@ -29,7 +41,7 @@
   (form || document.body).prepend(banner);
   const fail = () => { banner.textContent = request.messages.failed; cancel(); };
   const upload = () => {
-    if (!matches()) return cancel();
+    if (!request.files.length || !matches()) return cancel();
     const input = field();
     const area = input?.closest('.fitem')?.querySelector('.filemanager.fm-loaded');
     if (!area || area.classList.contains('fm-updating')) return;

@@ -17,7 +17,7 @@ import "../../generated/design/tokens.dark.css";
 import { micromark } from "micromark";
 import { gfm, gfmHtml } from "micromark-extension-gfm";
 import { math, mathHtml } from "micromark-extension-math";
-import { readableMarkdown } from "../lms/markdown-math";
+import { readableMarkdown } from "../../lib/markdown-math";
 import "./viewer.css";
 
 /** Colours and size from the app's theme, as CSS values. */

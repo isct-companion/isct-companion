@@ -1,10 +1,10 @@
 import type { ComponentType } from "react";
 import { t } from "../../i18n";
-import type { Platform } from "../../app/shared";
+import type { Platform } from "../../platform/capabilities";
 import { CampusPrinter } from "./CampusPrinter";
 import { CampusVpn } from "./CampusVpn";
 import { CampusWifi } from "./CampusWifi";
-import { availableTools } from "./registry";
+import { availableTools } from "../../platform/available-tools";
 import type { DesktopTool } from "../../platform/desktop-bridge";
 import "./tools.css";
 

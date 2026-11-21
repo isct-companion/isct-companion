@@ -1,9 +1,15 @@
+import type { SchoolSite } from "../../generated/persistence";
+import { openExternalUrl } from "../../platform/external-url";
 import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
-import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../../components/ResizableWorkspace";
+import { usePanelRef } from "react-resizable-panels";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
-import type { SchoolSite, SchoolWebEntry } from "../../platform/desktop-bridge";
+import type { SchoolWebEntry } from "../../platform/desktop-bridge";
 import { serviceTiers } from "./services";
 import {
   boundsOf,
@@ -13,13 +19,11 @@ import {
   useSchoolWebPage,
 } from "../../features/school-web";
 import type { Workspace } from "../../lib/model";
-import {
-  claimSchoolView,
-  desktopBridge,
-  schoolWebExit,
-  official,
-} from "../../app/native";
-import { errorText, type Platform } from "../../app/shared";
+import { desktopBridge } from "../../platform/native";
+import { official } from "../../lib/school-sites";
+import { claimSchoolView, schoolWebExit } from "../../platform/school-web-owner";
+import { type Platform } from "../../platform/capabilities";
+import { errorText } from "../../lib/error-text";
 import { withRecords } from "../../platform/records";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -49,6 +53,7 @@ function WebBody({
   request,
   returnLabel,
   onReturn,
+  openAccounts,
   active = true,
 }: {
   /** False while another page is shown; the page stays mounted (keep alive). */
@@ -62,6 +67,7 @@ function WebBody({
   request?: number;
   returnLabel?: string;
   onReturn?: () => void;
+  openAccounts?: () => void;
 }) {
   const [site, setSite] = useState<SchoolSite>(() => {
     if (requestedUrl) return "science-lms";
@@ -85,6 +91,9 @@ function WebBody({
     });
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
+  /** The site list folds away to give the page the window's width. */
+  const sites = usePanelRef();
+  const [sitesCollapsed, setSitesCollapsed] = useState(false);
   const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
@@ -296,17 +305,17 @@ function WebBody({
           url: targetUrl,
         })
         .catch(() => notify(t("web.theSchoolWindowCouldNot")));
-    } else if (desktopBridge && platform !== "browser-preview")
-      void desktopBridge
-        .openExternal(targetUrl)
-        .catch(() => notify(t("web.couldNotOpenTheSystem")));
-    else window.open(targetUrl, "_blank", "noopener,noreferrer");
+    } else {
+      void openExternalUrl(targetUrl, platform).catch(() =>
+        notify(t("web.couldNotOpenTheSystem")),
+      );
+    }
   };
 
   const frameable = site !== "science-lms";
   return (
     <div className="page web servicesPage">
-      <div className="servicesBody">
+      <div className="servicesBody" data-sidebar-collapsed={sitesCollapsed}>
         <ResizableWorkspace
           id="web"
           enabled
@@ -315,8 +324,16 @@ function WebBody({
           firstMax={360}
           secondMin="40%"
           secondMax="100%"
+          firstCollapsible
+          firstPanelRef={sites}
+          onFirstCollapse={setSitesCollapsed}
         >
-          <nav className="servicePicker" aria-label={t("web.schoolServices")}>
+          <nav
+            id="web-sites"
+            className="servicePicker"
+            aria-label={t("web.schoolServices")}
+            inert={sitesCollapsed}
+          >
             {serviceTiers.map((tier, tierIndex) => (
               <div className="serviceTier" key={tier.frequency}>
                 {tierIndex > 0 && <div className="serviceDivider" />}
@@ -344,6 +361,11 @@ function WebBody({
               className="webToolbar"
               onSubmit={(event) => void navigate(event)}
             >
+              <WorkspaceSidebarToggle
+                panel={sites}
+                collapsed={sitesCollapsed}
+                controls="web-sites"
+              />
               <div className="webAddress">
                 {onReturn && (
                   <UiButton
@@ -438,7 +460,12 @@ function WebBody({
               </UiButton>
             </form>
             {embedded && (
-              <SchoolWebNotices site={site} page={page} onError={failed} />
+              <SchoolWebNotices
+                site={site}
+                page={page}
+                onError={failed}
+                openAccounts={openAccounts}
+              />
             )}
             <div className="webHost" ref={host}>
               {embedded ? null : platform === "browser-preview" && frameable ? (

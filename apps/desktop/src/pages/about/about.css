@@ -36,11 +36,11 @@
 .aboutLayout {
   height: 100%;
   box-sizing: border-box;
-  padding: clamp(16px, 5cqh, 48px) clamp(24px, 6cqw, 88px);
+  padding: clamp(var(--space-8), 5cqh, 48px) clamp(var(--space-10), 6cqw, 88px);
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   align-items: center;
-  column-gap: clamp(24px, 5cqw, 72px);
+  column-gap: clamp(var(--space-10), 5cqw, 72px);
 }
 
 /* ---------- the name and what you act on ---------- */
@@ -56,7 +56,7 @@
   font-weight: 600;
 }
 .aboutName {
-  margin: clamp(6px, 1.6cqh, 14px) 0 0;
+  margin: clamp(var(--space-3), 1.6cqh, var(--space-7)) 0 0;
   color: var(--ink);
   /* "IsctCompanion" is about 6.6em wide: fit it to the column. */
   font-size: clamp(34px, min(6.4cqw, 10cqh), 76px);
@@ -78,7 +78,7 @@
   animation: aboutDraw 700ms 250ms var(--motion-easing-emphasized) both;
 }
 .aboutTagline {
-  margin: clamp(8px, 2cqh, 16px) 0 0;
+  margin: clamp(var(--space-4), 2cqh, var(--space-8)) 0 0;
   color: var(--muted);
   font-size: calc(16px * var(--text));
   line-height: 1.5;
@@ -86,7 +86,7 @@
 
 /* ---------- updates ---------- */
 .aboutUpdate {
-  margin-top: clamp(16px, 4.5cqh, 36px);
+  margin-top: clamp(var(--space-8), 4.5cqh, 36px);
 }
 /* The status sits beside the button in a box of fixed height: the column is
    centred on the page, so a longer status (a native error) must not grow it
@@ -94,7 +94,7 @@
 .aboutUpdateLine {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-7);
   /* In the line's (larger) font, so it always holds the status at its tallest. */
   min-height: 4.2em;
 }
@@ -123,11 +123,11 @@
   font-size: inherit;
 }
 .aboutPrefs {
-  margin-top: 14px;
+  margin-top: var(--space-7);
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px 20px;
+  gap: var(--space-4) var(--space-9);
 }
 .aboutPrefs .uiCheckField {
   align-items: center;
@@ -136,7 +136,7 @@
   font-size: calc(var(--type-row-size) * var(--text));
 }
 .aboutNote {
-  margin: 6px 0 0;
+  margin: var(--space-3) 0 0;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.4;
@@ -144,11 +144,11 @@
 
 /* ---------- version, then the ways out ---------- */
 .aboutMeta {
-  margin: clamp(14px, 3.5cqh, 28px) 0 0;
+  margin: clamp(var(--space-7), 3.5cqh, 28px) 0 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 14px;
+  gap: var(--space-2) var(--space-7);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -158,23 +158,23 @@
   font-variant-numeric: tabular-nums;
 }
 .aboutMeta small {
-  margin-inline-start: 2px;
+  margin-inline-start: var(--space-1);
   font-size: inherit;
   opacity: 0.75;
   overflow-wrap: anywhere;
 }
 .aboutLinks {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: var(--space-7);
+  padding-top: var(--space-7);
   border-top: 1px solid var(--line);
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .aboutLink {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   height: var(--workspace-control-height);
   padding: 0 11px;
   border: 1px solid var(--line);

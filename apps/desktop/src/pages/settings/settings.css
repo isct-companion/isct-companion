@@ -1,17 +1,17 @@
 /* ---------- settings: navigation and search ---------- */
 .settingsNav {
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-4);
   min-height: 0;
 }
 .settingsSearch {
-  margin-bottom: 6px;
+  margin-bottom: var(--space-3);
 }
 .settingsNavList,
 .settingsResults {
   display: grid;
   align-content: start;
-  gap: 2px;
+  gap: var(--space-1);
   min-height: 0;
   overflow: auto;
 }
@@ -29,7 +29,7 @@
   font-size: calc(var(--type-block-size) * var(--text));
 }
 .settingsNoResults {
-  padding: 8px 11px;
+  padding: var(--space-4) 11px;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -39,11 +39,11 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: var(--space-8);
+  margin-bottom: var(--space-7);
 }
 .settingsHeader h2 {
-  margin: 0 0 4px;
+  margin: 0 0 var(--space-2);
 }
 .settingsHeader p {
   margin: 0;
@@ -59,14 +59,14 @@
   margin-bottom: 18px;
 }
 .settingsGroup > h3 {
-  margin: 0 0 2px;
+  margin: 0 0 var(--space-1);
 }
 .settingsGroup > .actions {
-  padding-top: 10px;
+  padding-top: var(--space-5);
 }
 .groupFooter,
 .settingsNote {
-  margin: 8px 0 0;
+  margin: var(--space-4) 0 0;
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
   line-height: 1.5;
@@ -86,11 +86,11 @@
   max-width: 100%;
 }
 .moreOptions {
-  margin: 4px 0 18px;
+  margin: var(--space-2) 0 18px;
 }
 .moreOptions > summary {
   cursor: default;
-  padding: 8px 0;
+  padding: var(--space-4) 0;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
@@ -134,8 +134,8 @@
   display: flex;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 8px;
-  padding-top: 12px;
+  gap: var(--space-4);
+  padding-top: var(--space-6);
 }
 .studyProfileError {
   color: var(--danger);
@@ -145,10 +145,10 @@
 .settingsStatus {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   min-height: 40px;
-  margin: 0 0 12px;
-  padding: 8px 10px;
+  margin: 0 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
   border-radius: 8px;
   background: var(--surface-2);
   font-size: calc(var(--type-note-size) * var(--text));
@@ -185,21 +185,21 @@
   overflow-wrap: anywhere;
 }
 .settingsGroup > .settingsStatus {
-  margin: 8px 0 4px;
+  margin: var(--space-4) 0 var(--space-2);
 }
 
 /* ---------- settings: academic calendar ---------- */
 .quarterGrid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding-top: 6px;
+  gap: var(--space-4);
+  padding-top: var(--space-3);
 }
 .quarterGrid > div {
   display: grid;
   gap: 3px;
   justify-items: start;
-  padding: 9px 10px;
+  padding: 9px var(--space-5);
   border: 1px solid var(--line);
   border-radius: 8px;
 }
@@ -221,10 +221,10 @@
   display: grid;
   grid-template-columns: 92px minmax(0, 1fr);
   align-items: center;
-  gap: 12px;
+  gap: var(--space-6);
   width: 100%;
   min-height: 46px;
-  padding: 6px 8px;
+  padding: var(--space-3) var(--space-4);
   border: 0;
   border-bottom: 1px solid var(--line);
   background: none;
@@ -241,10 +241,10 @@ button.calendarDay.open {
 }
 .calendarPast {
   justify-self: start;
-  margin: 2px 0 4px;
+  margin: var(--space-1) 0 var(--space-2);
 }
 .calendarAdd {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
 }
 .calendarDay time {
   color: var(--muted);
@@ -269,16 +269,16 @@ button.calendarDay.open {
 .calendarEditor {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 12px;
-  margin: 6px 0 10px;
-  padding: 12px;
+  gap: var(--space-5) var(--space-6);
+  margin: var(--space-3) 0 var(--space-5);
+  padding: var(--space-6);
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
 }
 .calendarEditor label {
   display: grid;
-  gap: 4px;
+  gap: var(--space-2);
   font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
@@ -303,7 +303,7 @@ button.calendarDay.open {
   }
   .settingsHeader {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-4);
   }
 }
 
@@ -322,7 +322,7 @@ button.calendarDay.open {
   .settingsPane .matrixGrid {
     width: 100%;
     grid-template-columns: 14px repeat(10, minmax(0, 1fr));
-    gap: 2px;
+    gap: var(--space-1);
     overflow: visible;
   }
   .matrixGrid .uiInputWrapper {
@@ -354,15 +354,15 @@ button.calendarDay.open {
 }
 
 /* Subordinate reminder controls keep their own accessible label and grouping. */
-.settingsSuboptions { margin: 0 0 12px 8px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
-.settingsSuboptions .row { border-bottom: 0; padding-block: 8px; }
+.settingsSuboptions { margin: 0 0 var(--space-6) var(--space-4); padding-inline-start: var(--space-9); border-inline-start: 1px solid var(--line); }
+.settingsSuboptions .row { border-bottom: 0; padding-block: var(--space-4); }
 .settingsSuboptions .row b { color: var(--muted); font-weight: 400; }
 .settingsPane .row > .assignmentTimes { width: clamp(180px, 40cqi, 280px); }
 .settings .settingsPane {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--muted) 35%, transparent) transparent;
   scrollbar-gutter: stable;
-  padding-inline-end: 12px;
+  padding-inline-end: var(--space-6);
 }
 .settingsPane::-webkit-scrollbar { width: 5px; height: 5px; }
 .settingsPane::-webkit-scrollbar-track { background: transparent; }
@@ -376,27 +376,27 @@ button.calendarDay.open {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 12px;
+  gap: var(--space-8);
+  margin-bottom: var(--space-6);
 }
 .diagnosticActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .diagnosticLogs {
   height: min(60vh, 620px);
   min-height: 280px;
   overflow: auto;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: var(--radius-surface);
   background: var(--surface);
-  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: calc(var(--type-note-size) * var(--text))/1.5 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 .diagnosticLogRow {
-  padding: 7px 12px;
+  padding: 7px var(--space-6);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   border-bottom: 1px solid var(--line);
@@ -408,8 +408,8 @@ button.calendarDay.open {
   display: grid;
   /* A grid track defaults to min-content, so one long line widened the pane. */
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  margin-top: 12px;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
 }
 .agentSetup > p {
   margin: 0;
@@ -419,8 +419,8 @@ button.calendarDay.open {
 .agentSnippet {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  padding: 8px 8px 8px 12px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface-2);
@@ -441,7 +441,7 @@ button.calendarDay.open {
    dot; the chosen one ringed in the accent. */
 .themeSwatches {
   display: flex;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .themeSwatch {
   position: relative;

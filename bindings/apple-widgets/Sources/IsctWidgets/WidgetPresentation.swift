@@ -130,6 +130,7 @@ private struct ContentView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.dynamicTypeSize) private var type
     @Environment(\.widgetRenderingMode) private var rendering
+    @Environment(\.colorScheme) private var colorScheme
     let entry: DisplayEntry
 
     private var usesLinks: Bool { family == .systemMedium || family == .systemLarge }
@@ -194,7 +195,7 @@ private struct ContentView: View {
     }
 
     private func course(_ row: WidgetFile.ClassRow, hero: Bool, showDate: Bool) -> some View {
-        VStack(alignment: .leading, spacing: hero ? 2 : 0) {
+        VStack(alignment: .leading, spacing: hero ? IsctTokens.space1 : 0) {
             Text(row.title)
                 .font(hero && !isAccessory ? .headline : .caption.weight(.semibold))
                 .lineLimit(hero && !isAccessory ? 2 : 1)
@@ -211,7 +212,7 @@ private struct ContentView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, isAccessory ? 0 : 2)
+        .padding(.vertical, isAccessory ? 0 : IsctTokens.space1)
         .padding(.horizontal, isAccessory ? 0 : 5)
         .background {
             if !isAccessory && rendering == .fullColor {
@@ -238,7 +239,7 @@ private struct ContentView: View {
     }
 
     private func assignmentRows(_ rows: ArraySlice<WidgetFile.AssignmentRow>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: IsctTokens.space3) {
             ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                 link(row.destination) {
                     VStack(alignment: .leading, spacing: 1) {
@@ -297,7 +298,9 @@ private struct ContentView: View {
     }
 
     private func color(_ value: String?) -> Color {
-        guard let value, let rgb = UInt32(value.dropFirst(), radix: 16) else { return .secondary }
+        guard let value, let rgb = UInt32(value.dropFirst(), radix: 16) else {
+            return colorScheme == .dark ? IsctTokensDark.colorMuted : IsctTokens.colorMuted
+        }
         return Color(red: Double((rgb >> 16) & 255) / 255, green: Double((rgb >> 8) & 255) / 255, blue: Double(rgb & 255) / 255)
     }
 }

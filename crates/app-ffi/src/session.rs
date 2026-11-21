@@ -47,7 +47,6 @@ pub struct SessionConfig {
 pub struct Capabilities {
     pub school_browser: bool,
     pub cloud: bool,
-    pub notifications: bool,
     pub ocr: bool,
 }
 struct RuntimeOwner(Option<Runtime>);
@@ -75,7 +74,8 @@ pub(crate) struct Inner {
     sync_services: CloudServices,
     /// Drive's sign-in, when the shell installed a Drive port.
     drive: Option<Arc<DriveAuth>>,
-    pub notifications: Option<Arc<dyn NativeNotifications>>,
+    /// Holds the school-login backup's password (`cloud_credentials`).
+    pub(crate) credential_vault: crate::ports::Vault,
     pub files: PathBuf,
     backup_directory: PathBuf,
     capabilities: Capabilities,
@@ -92,6 +92,18 @@ impl Inner {
         } else {
             Err(unavailable("Cloud transport"))
         }
+    }
+    /// Drive's app-data folder, where the encrypted school-login backup is.
+    pub(crate) fn credential_files(
+        &self,
+    ) -> Result<app_core::cloud_sync::google_drive::GoogleDrive<crate::ports::SharedDrive>, SdkError>
+    {
+        let drive = self
+            .drive
+            .clone()
+            .ok_or_else(|| unavailable("Google Drive"))?;
+        app_core::cloud_sync::google_drive::GoogleDrive::new(crate::ports::SharedDrive(drive))
+            .map_err(|e| crate::error::coded(&e))
     }
 }
 #[derive(uniffi::Object)]
@@ -246,7 +258,6 @@ impl Session {
         vault: Arc<dyn NativeVault>,
         browser: Option<Arc<dyn NativeBrowser>>,
         cloud: Option<Arc<dyn NativeCloud>>,
-        notifications: Option<Arc<dyn NativeNotifications>>,
         web_cookies: Option<Arc<dyn NativeWebCookies>>,
         // iOS: Google sign-in in a web authentication session, with the
         // app's registered client.
@@ -284,7 +295,6 @@ impl Session {
                 browser,
                 Ports {
                     cloud,
-                    notifications,
                     web_cookies,
                     web_auth,
                     ios_google_client_id,
@@ -687,6 +697,11 @@ pub fn decode_school_web_page(payload: JsonValue) -> Result<SchoolWebPage, SdkEr
 pub fn decode_sync_snapshot(payload: JsonValue) -> Result<SyncSnapshot, SdkError> {
     project_input(payload.0)
 }
+/// Decodes the same school snapshot as `Session::school_session` from a stream event.
+#[uniffi::export]
+pub fn decode_school_session(payload: JsonValue) -> Result<SchoolSessionSnapshot, SdkError> {
+    project_input(payload.0)
+}
 /// Decodes the payload of an `exam-account` stream event.
 #[uniffi::export]
 pub fn decode_exam_account(payload: JsonValue) -> Result<ExamAccount, SdkError> {
@@ -728,7 +743,6 @@ fn ocr_available() -> bool {
 /// The optional native ports a shell passed to `Session::open`.
 struct Ports {
     cloud: Option<Arc<dyn NativeCloud>>,
-    notifications: Option<Arc<dyn NativeNotifications>>,
     web_cookies: Option<Arc<dyn NativeWebCookies>>,
     web_auth: Option<Arc<dyn NativeWebAuthSession>>,
     ios_google_client_id: Option<String>,
@@ -744,7 +758,6 @@ async fn initialize(
 ) -> Result<Arc<Inner>, SdkError> {
     let Ports {
         cloud,
-        notifications,
         web_cookies,
         web_auth,
         ios_google_client_id,
@@ -774,7 +787,6 @@ async fn initialize(
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
-        notifications: notifications.is_some(),
         ocr: ocr_available(),
     };
     let initial_network: app_core::plan::Network = project_input(config.initial_network)?;
@@ -782,6 +794,7 @@ async fn initialize(
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
     let exam_vault = Arc::new(crate::ports::Vault(vault.clone()));
+    let credential_vault = crate::ports::Vault(vault.clone());
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
         let auth = Arc::new(SchoolAuthService::with_status_cache(
@@ -861,7 +874,7 @@ async fn initialize(
         sync,
         sync_services,
         drive,
-        notifications,
+        credential_vault,
         files,
         backup_directory,
         capabilities,
@@ -878,9 +891,7 @@ async fn initialize(
             inner.backup.clone(),
             inner.backup_directory.clone(),
         ))),
-        notifications: inner.notifications.as_ref().map(|sink| {
-            Arc::new(Notifications(sink.clone())) as Arc<dyn app_core::schedule::NotificationSink>
-        }),
+        notifications: None,
         cloud: inner
             .capabilities
             .cloud

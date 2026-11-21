@@ -34,7 +34,7 @@ struct TodayScreen: View {
                     }
                     .contentMargins(.horizontal, Self.margin, for: .scrollContent)
                     // Both columns start right under the header, level.
-                    .contentMargins(.top, 4, for: .scrollContent)
+                    .contentMargins(.top, Theme.space2, for: .scrollContent)
                 }
                 .frame(maxWidth: 1180)
                 .frame(maxWidth: .infinity)
@@ -75,7 +75,7 @@ struct TodayScreen: View {
                 SyncProblemBanner(problem: problem)
             }
             if model.needsAccount { ConnectCard() }
-            if let snapshot = model.syncSnapshot, !snapshot.activeRuns.isEmpty || snapshot.resetting,
+            if let snapshot = model.syncSnapshot, snapshot.showsLoading,
                 model.records.courses.isEmpty, model.records.assignments.isEmpty
             {
                 FirstLoadCard(snapshot: snapshot)
@@ -90,12 +90,12 @@ struct TodayScreen: View {
         .animation(.smooth(duration: Theme.motionBase), value: model.today == nil)
         .listRowBackground(Color.clear)
         .listRowSeparator(.hidden)
-        .listRowInsets(EdgeInsets(top: 6, leading: 0, bottom: 6, trailing: 0))
+        .listRowInsets(EdgeInsets(top: Theme.space3, leading: 0, bottom: Theme.space3, trailing: 0))
     }
 
     private var header: some View {
         HStack(alignment: .bottom) {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
@@ -115,7 +115,7 @@ struct TodayScreen: View {
             // The workstation's status bar carries the ring.
             if !navigator.workbench { SyncRingButton() }
         }
-        .padding(.top, 12)
+        .padding(.top, Theme.space6)
     }
 
     private var subtitle: String {
@@ -143,7 +143,7 @@ private struct RecentLabel: View {
             }
             .font(.subheadline.weight(.semibold))
             .buttonStyle(.borderless)
-            .padding(.horizontal, 16)
+            .padding(.horizontal, Theme.space8)
         }
     }
 }
@@ -227,9 +227,9 @@ private struct ClassStack: View {
                 // A card's day is said only where it changes; the row keeps
                 // one line for it when any of its cards needs one.
                 let labelled = items.indices.dropFirst().filter { items[$0].occurrence.date != items[$0 - 1].occurrence.date }
-                HStack(alignment: .top, spacing: 12) {
+                HStack(alignment: .top, spacing: Theme.space6) {
                     ForEach(Array(items.enumerated().dropFirst()), id: \.offset) { position, item in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: Theme.space3) {
                             if labelled.contains(position) {
                                 SectionLabel(Self.title(item, first: false))
                             } else if !labelled.isEmpty {
@@ -260,8 +260,8 @@ private struct ClassStack: View {
                     Text(verbatim: "\(index + 1) / \(items.count)")
                         .font(.footnote.monospacedDigit())
                         .foregroundStyle(Theme.muted)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
+                        .padding(.horizontal, Theme.space8)
+                        .padding(.top, Theme.space4)
                 }
             }
             ZStack(alignment: .top) {
@@ -338,7 +338,7 @@ private struct StackCard: View {
         let quiz = exam && item.occurrence.quiz == true
         let starts = Format.date(item.startsAt)
         let today = starts.map { Calendar.tokyo.isDate($0, inSameDayAs: now) } == true
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space4) {
             HStack {
                 Text(([quiz ? t("common.quiz") : exam ? t("common.exam") : nil, Format.periods(item.periods)] as [String?]).compactMap { $0 }.joined(separator: " · "))
                     .font(.subheadline.weight(.semibold))
@@ -351,7 +351,7 @@ private struct StackCard: View {
                         .countingFigure(minutes)
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.space6) {
                 Text(item.occurrence.startTime)
                     .font(.display.monospacedDigit())
                 Text(item.occurrence.room)
@@ -453,7 +453,7 @@ private struct CurrentClassHero: View {
         let ends = Format.date(item.endsAt) ?? now
         let total = max(ends.timeIntervalSince(starts), 1)
         let progress = min(max(now.timeIntervalSince(starts) / total, 0), 1)
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Theme.space5) {
             HStack {
                 // The first room only, so the line never wraps; every room is
                 // on the course page.
@@ -467,7 +467,7 @@ private struct CurrentClassHero: View {
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(tint)
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.space3) {
                 // The figure sits where the language puts the count: あと 45 分,
                 // 45 min left, 还剩 45 分钟.
                 let words = t("today.countMinLeft").components(separatedBy: "{{count}}")
@@ -509,13 +509,13 @@ private struct TonightHero: View {
     @Environment(\.push) private var push
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Theme.space5) {
             HStack {
                 Text(t("today.dueTonight"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.danger)
                 Spacer()
-                DeadlineChip(item: item, now: now)
+                DeadlineChip(item: item)
             }
             Text(Format.date(item.dueAt).map(Format.time) ?? Format.due(item.dueAt, now: now))
                 .font(.display.monospacedDigit())
@@ -530,13 +530,13 @@ private struct TonightHero: View {
                 } label: {
                     Label(t("today.openSubmissionPage"), systemImage: "arrow.up.forward.square")
                         .font(.body.weight(.semibold))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, Theme.rowX)
+                        .padding(.vertical, Theme.rowY)
                 }
                 .buttonStyle(CapsuleButtonStyle(level: .danger))
             }
         }
-        .padding(18)
+        .padding(Theme.cardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
     }
@@ -584,7 +584,7 @@ private extension View {
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
-            .padding(.trailing, 6)
+            .padding(.trailing, Theme.space3)
         }
     }
 }
@@ -641,12 +641,12 @@ private struct ThisClassCard: View {
                 if index > 0 || !materials.isEmpty { RowDivider() }
                 DeadlineLink(item: item) {
                     Image(systemName: "doc.text").foregroundStyle(Theme.muted).frame(width: 16)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(item.title).foregroundStyle(Theme.ink).lineLimit(2)
                         Text(Format.due(item.dueAt, now: now)).font(.subheadline).foregroundStyle(Theme.muted)
                     }
-                    Spacer(minLength: 8)
-                    DeadlineChip(item: item, now: now)
+                    Spacer(minLength: Theme.space4)
+                    DeadlineChip(item: item)
                 }
             }
         }
@@ -658,23 +658,23 @@ struct MaterialRow: View {
 
     var body: some View {
         MaterialOpener(title: item.title, source: item.url, courseId: item.courseId) { opening in
-            HStack(spacing: 12) {
+            HStack(spacing: Theme.rowGap) {
                 Image(systemName: MaterialButton.icon(item.kind)).foregroundStyle(Theme.muted).frame(width: 16)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Theme.space1) {
                     Text(item.title).foregroundStyle(Theme.ink).lineLimit(2).multilineTextAlignment(.leading)
                     if let detail {
                         Text(detail).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
                     }
                 }
-                Spacer(minLength: 8)
+                Spacer(minLength: Theme.space4)
                 if opening {
                     ProgressView().controlSize(.small)
                 } else if item.addedToday {
                     TagChip(text: t("common.addedToday"))
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
+            .padding(.horizontal, Theme.rowX)
+            .padding(.vertical, Theme.rowY)
         }
     }
 
@@ -700,14 +700,14 @@ private struct UpcomingExams: View {
     private func row(_ exam: ExamView) -> some View {
         CardLink(route: exam.courseId.map { CourseRoute(id: $0) }) {
             CourseSquare(color: exam.color)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(exam.title.isEmpty ? exam.code : exam.title).foregroundStyle(Theme.ink).lineLimit(1)
                 Text(detail(exam)).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1)
                 if let conflict = exam.conflict {
                     ExamConflictLabel(conflict: conflict)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Theme.space4)
         }
     }
 
@@ -750,11 +750,11 @@ private struct RecentCard: View {
             Task { await model.markRecentSeen(seen.0, seen.1) }
         }) {
             CourseSquare(color: color)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title).foregroundStyle(Theme.ink).lineLimit(2)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted).lineLimit(1) }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Theme.space4)
             tag
         }
     }
@@ -768,7 +768,7 @@ struct ProblemBanner: View {
 
     var body: some View {
         // One line and one way out (slotledger `approach/feedback-banner-toast`).
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.space5) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
             Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
             Spacer()
@@ -779,7 +779,7 @@ struct ProblemBanner: View {
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Theme.accent)
         }
-        .padding(14)
+        .padding(Theme.space7)
         .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
     }
 }
@@ -789,7 +789,7 @@ private struct ConnectCard: View {
     @Environment(\.push) private var push
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: Theme.space6) {
             Text(t("common.connectSchoolAccounts")).font(.title3.weight(.bold)).foregroundStyle(Theme.ink)
             Text(t("today.readsYourTimetableAssignmentsAnd"))
                 .font(.subheadline)
@@ -800,11 +800,11 @@ private struct ConnectCard: View {
                 Text(t("today.connectWithScienceTokyo"))
                     .font(.body.weight(.semibold))
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, Theme.space6)
             }
             .buttonStyle(CapsuleButtonStyle())
         }
-        .padding(18)
+        .padding(Theme.cardPadding)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
     }
 }
@@ -822,12 +822,12 @@ struct UndoToast: View {
             .font(.subheadline)
             .foregroundStyle(Theme.ink)
             .tint(Theme.accent)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Theme.space8)
+            .padding(.vertical, Theme.space6)
             // A floating layer takes the system material, not a black pill.
             .floatingGlass(in: Capsule())
             .padding(.horizontal, Theme.gutter)
-            .padding(.bottom, 8)
+            .padding(.bottom, Theme.space4)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .task(id: undo) {
                 try? await Task.sleep(for: .seconds(4))

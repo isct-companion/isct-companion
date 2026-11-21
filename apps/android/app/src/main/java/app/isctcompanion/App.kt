@@ -1,5 +1,6 @@
 package app.isctcompanion
 
+import app.isctcompanion.design.CollapsingBar
 import app.isctcompanion.design.reducedMotion
 import app.isctcompanion.design.LocalReducedMotion
 import android.Manifest
@@ -11,7 +12,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlin.math.min
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -93,9 +92,9 @@ import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WidgetRoute
 import app.isctcompanion.core.Viewer
 import app.isctcompanion.core.WebRouter
-import app.isctcompanion.features.handin.InboxTray
-import app.isctcompanion.design.CourseArchiveScreen
-import app.isctcompanion.design.CourseFileScreen
+import app.isctcompanion.features.handin.InboxSheet
+import app.isctcompanion.features.course.CourseArchiveScreen
+import app.isctcompanion.features.course.CourseFileScreen
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.LocalDestinationScope
@@ -155,7 +154,7 @@ class MainActivity : ComponentActivity() {
         val model = app.model
         model.browser.attachParking(this)
         model.drive.attach(this)
-        receiveShared(intent)
+        if (savedInstanceState == null) receiveShared(intent)
         widgetLink = savedInstanceState?.getString("widgetLink")
         if (savedInstanceState == null) receiveWidget(intent)
         app.scope.launch { model.start() }
@@ -188,11 +187,6 @@ class MainActivity : ComponentActivity() {
             if (largeScreen()) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 
-    override fun onResume() {
-        super.onResume()
-        lifecycleScope.launch(Dispatchers.IO) { SharedInbox.refresh(this@MainActivity) }
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         receiveShared(intent)
@@ -211,7 +205,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Copies what another app shared into the inbox while its grant lasts. */
+    /** Copies the current system share while its grant lasts. */
     private fun receiveShared(intent: Intent?) {
         val uris = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
@@ -219,7 +213,7 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
             else -> return
         }
-        if (uris.isNotEmpty()) lifecycleScope.launch(Dispatchers.IO) { SharedInbox.receive(this@MainActivity, uris) }
+        if (uris.isNotEmpty()) lifecycleScope.launch { SharedInbox.receive(this@MainActivity, uris) }
     }
 }
 
@@ -236,7 +230,7 @@ class Navigator(private val controller: NavHostController) {
     fun openAssignment(id: String) = controller.navigate("assignment/${Uri.encode(id)}")
 
     fun openPage(page: WebRouter.PushedPage) = controller.navigate(
-        "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}",
+        "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}&upload=${Uri.encode(page.uploadId.orEmpty())}",
     )
 
     var timetableDate by mutableStateOf<String?>(null)
@@ -326,7 +320,7 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
             CircularProgressIndicator()
         }
         is AppModel.Status.Failed -> Column(
-            Modifier.fillMaxSize().padding(32.dp),
+            Modifier.fillMaxSize().padding(Theme.space11),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -345,10 +339,9 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
 private fun NotificationPermissionAsk() {
     val model = LocalModel.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch { model.resyncNotifications() }
+        if (granted) model.resyncNotifications()
     }
     LaunchedEffect(model.notificationsBlocked) {
         // Once refused, only the settings page leads on (as iOS asks only
@@ -455,15 +448,19 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 // Six entries crowd a bottom bar: a tablet's sit in the side rail.
+                // It folds away while a school page is read down, with the
+                // page's own top bar.
                 if (showsBar && !wide) {
-                    NavigationBar {
-                        for (tab in tabs) {
-                            NavigationBarItem(
-                                selected = tab == current,
-                                onClick = { select(tab) },
-                                icon = { Icon(tab.icon, null) },
-                                label = { Text(t(tab.label)) },
-                            )
+                    CollapsingBar(!(current == AppTab.Web && model.web.barsHidden)) {
+                        NavigationBar {
+                            for (tab in tabs) {
+                                NavigationBarItem(
+                                    selected = tab == current,
+                                    onClick = { select(tab) },
+                                    icon = { Icon(tab.icon, null) },
+                                    label = { Text(t(tab.label)) },
+                                )
+                            }
                         }
                     }
                 }
@@ -576,27 +573,26 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                     CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
                 }
                 destination(
-                    "page/{site}?target={target}&title={title}",
+                    "page/{site}?target={target}&title={title}&upload={upload}",
                     listOf(
                         navArgument("site") { type = NavType.StringType },
                         navArgument("target") { type = NavType.StringType; defaultValue = "" },
                         navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("upload") { type = NavType.StringType; defaultValue = "" },
                     ),
                 ) {
                     val args = it.arguments
                     val site = runCatching { SchoolSite.valueOf(args?.getString("site").orEmpty()) }
                         .getOrDefault(SchoolSite.SCIENCE_LMS)
                     WebPageScreen(
-                        WebRouter.PushedPage(site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty()),
+                        WebRouter.PushedPage(
+                            site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty(),
+                            args?.getString("upload")?.ifEmpty { null },
+                        ),
                     )
                 }
             }
-            // What was shared into the app waits in the corner, above the
-            // navigation bar.
-            InboxTray(
-                Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
-            )
+            InboxSheet()
             }
             }
             }

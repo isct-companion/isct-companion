@@ -1,4 +1,3 @@
-import CoreLocation
 import IsctCore
 import MapKit
 import SwiftUI
@@ -51,13 +50,13 @@ struct CampusMapFailure: Error {
 /// measured.
 struct CampusMapScreen: View {
     let request: CampusMapRequest
-    @Environment(AppModel.self) private var model
+    @Environment(AppModel.self) var model
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var load = CampusMapLoad.loading
+    @State private(set) var load = CampusMapLoad.loading
     @State private var scene: CampusMapScene?
     /// Intents reach Core one after another, in the order sent.
     @State private var sending: Task<Void, Never>?
@@ -69,7 +68,7 @@ struct CampusMapScreen: View {
     /// The floor just picked, lit in the picker before Core answers.
     @State private var pickedLevel: String?
     /// Rooms, buildings and entrances picked on the map: each gives a tick.
-    @State private var mapPicks = 0
+    @State var mapPicks = 0
     /// The card's and the results' content, measured: each panel is as tall
     /// as its content up to a share of the window.
     @State private var cardHeight: CGFloat = 0
@@ -78,22 +77,22 @@ struct CampusMapScreen: View {
     @State private var cardDetent = CampusMapCardDetent.fit
     @State private var cardDrag: CGFloat = 0
     @State private var resultsHeight: CGFloat = 0
-    @ScaledMetric(relativeTo: .body) private var minimumResultHeight: CGFloat = 64
+    @ScaledMetric(relativeTo: .body) var minimumResultHeight: CGFloat = 64
     @State private var railLeading: CGFloat?
     /// The map's visible part in window coordinates, with the request the
     /// layout that measured it answered.
     @State private var openFrame: CGRect?
     @State private var openLayout: CampusMapLayoutRequest?
-    @State private var query = ""
-    @FocusState private var searchFocused: Bool
+    @State var query = ""
+    @FocusState var searchFocused: Bool
     @State private var keyboardVisible = false
     @State private var pickingResult = false
     @State private var searchAnswer: CampusMapSearch?
     @State private var searchFailure: String?
     /// The building the camera is open for, and how its photos went.
-    @State private var cameraFor: String?
-    @State private var photoUploads: [String: FloorPhotoUploads] = [:]
-    @State private var photoFailure: String?
+    @State var cameraFor: String?
+    @State var photoUploads: [String: FloorPhotoUploads] = [:]
+    @State var photoFailure: String?
 
     init(request: CampusMapRequest) {
         self.request = request
@@ -130,7 +129,7 @@ struct CampusMapScreen: View {
 
     var body: some View {
         @Bindable var location = location
-        ZStack {
+        floorPhotoCamera(ZStack {
             FloorMapView(
                 scene: scene,
                 chrome: chrome,
@@ -183,38 +182,7 @@ struct CampusMapScreen: View {
         .task {
             if case .loading = load { await open() }
         }
-        .task(id: query) { await search(query) }
-        .fullScreenCover(isPresented: Binding(get: { cameraFor != nil }, set: { if !$0 { cameraFor = nil } })) {
-            SystemCamera { image in
-                let building = cameraFor
-                cameraFor = nil
-                if let image, let building { Task { await sendPhoto(image, of: building) } }
-            }
-            .ignoresSafeArea()
-        }
-        .alert(
-            t("campusMap.photos.failed"),
-            isPresented: Binding(get: { photoFailure != nil }, set: { if !$0 { photoFailure = nil } })
-        ) {
-            Button(t("common.ok"), role: .cancel) {}
-        } message: {
-            Text(photoFailure ?? "")
-        }
-    }
-
-    /// Sends a photo in the background; the card's button tells how it went.
-    private func sendPhoto(_ image: UIImage, of building: String) async {
-        guard let jpeg = await Task.detached(priority: .userInitiated, operation: { floorPhotoJPEG(image) }).value
-        else { return }
-        photoUploads[building, default: FloorPhotoUploads()].sending += 1
-        let refused = await model.campusMapUploadPhoto(buildingId: building, jpeg: jpeg)
-        photoUploads[building, default: FloorPhotoUploads()].sending -= 1
-        if let refused {
-            photoFailure = refused.message
-        } else {
-            photoUploads[building, default: FloorPhotoUploads()].sent += 1
-            mapPicks += 1
-        }
+        .task(id: query) { await search(query) })
     }
 
     private func open() async {
@@ -232,7 +200,7 @@ struct CampusMapScreen: View {
 
     /// Sends an intent after the ones before it and draws the answer unless
     /// a newer scene is already drawn.
-    private func send(_ intent: CampusMapIntent, completion: ((CampusMapScene?) -> Void)? = nil) {
+    func send(_ intent: CampusMapIntent, completion: ((CampusMapScene?) -> Void)? = nil) {
         guard let page = scene?.page else { return }
         let previous = sending
         sending = Task {
@@ -318,8 +286,8 @@ struct CampusMapScreen: View {
                     Text(attribution.joined(separator: " · "))
                         .font(.caption2)
                         .foregroundStyle(Theme.muted)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
+                        .padding(.horizontal, Theme.space4)
+                        .padding(.vertical, Theme.space1)
                         .floatingGlass(in: Capsule())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                         .allowsHitTesting(false)
@@ -341,35 +309,7 @@ struct CampusMapScreen: View {
     private var topBar: some View {
         HStack(spacing: CampusMapChrome.controlGap) {
             closeButton
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(Theme.muted)
-                    .accessibilityHidden(true)
-                TextField(t("campusMap.search"), text: $query)
-                    .focused($searchFocused)
-                    .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
-                    .submitLabel(.search)
-                    .accessibilityIdentifier("campus-map-search")
-                    .disabled(!load.isReady)
-                if !query.isEmpty {
-                    Button {
-                        query = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .foregroundStyle(Theme.muted)
-                            .frame(width: 28, height: CampusMapChrome.controlSide)
-                    }
-                    .accessibilityLabel(t("common.clear"))
-                }
-            }
-            .padding(.leading, 14)
-            .padding(.trailing, query.isEmpty ? 14 : 6)
-            .frame(height: CampusMapChrome.controlSide)
-            .floatingGlass(in: Capsule())
-            .contentShape(Capsule())
-            .onTapGesture { if load.isReady { searchFocused = true } }
+            searchField
             if searching {
                 Button(t("common.cancel")) { endSearch() }
                     .font(.body.weight(.semibold))
@@ -480,7 +420,7 @@ struct CampusMapScreen: View {
                     if adjustable { cardGrabber(heights) }
                     cardHeader(card)
                 }
-                .padding(.top, adjustable ? 0 : 6)
+                .padding(.top, adjustable ? 0 : Theme.space3)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { measured in
                     if abs(measured - cardHeaderHeight) > 0.5 { cardHeaderHeight = measured }
                 }
@@ -550,27 +490,6 @@ struct CampusMapScreen: View {
         }
     }
 
-    private func cardHeader(_ card: CampusMapCard) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text(card.title)
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
-            Spacer()
-            Button {
-                send(.clear)
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .symbolRenderingMode(.hierarchical)
-                    .font(.title2)
-                    .foregroundStyle(Theme.muted)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel(t("campusMap.closeCard"))
-        }
-        .padding(.leading, Theme.cardPadding)
-        .padding(.trailing, 6)
-    }
-
     /// Loading, or the map file is missing or unreadable.
     @ViewBuilder
     private var statusPanel: some View {
@@ -621,7 +540,7 @@ struct CampusMapScreen: View {
         }
     }
 
-    private func pick(_ result: CampusMapSearchResult) {
+    func pick(_ result: CampusMapSearchResult) {
         guard scene != nil, !pickingResult else { return }
         pickingResult = true
         send(.select(place: result.place)) { next in
@@ -674,430 +593,4 @@ struct CampusMapScreen: View {
         }
     }
 
-    private func searchRow(_ result: CampusMapSearchResult) -> some View {
-        Button {
-            pick(result)
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(result.title)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.ink)
-                Text(Self.details(result))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.muted)
-                if result.noFloorPlan {
-                    Text(t("campusMap.notOnFloorPlans"))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.warn)
-                }
-            }
-            .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Theme.cardPadding)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, minHeight: minimumResultHeight, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .overlay(alignment: .bottom) { Divider().padding(.leading, Theme.cardPadding) }
-    }
-
-    /// `大岡山西9号館 · 2F · 大岡山`: the building unless it is the title, the
-    /// floor, the campus.
-    private static func details(_ result: CampusMapSearchResult) -> String {
-        var parts: [String] = []
-        if result.buildingName != result.title { parts.append(result.buildingName) }
-        if let level = result.levelName { parts.append(level) }
-        parts.append(campusName(result.campus))
-        return parts.joined(separator: " · ")
-    }
-
-    static func campusName(_ campus: String) -> String {
-        switch campus {
-        case "suzukakedai": t("campusMap.suzukakedai")
-        default: t("campusMap.ookayama")
-        }
-    }
-}
-
-/// Everything about the place under its title, at once: what it is, one row
-/// of actions, then its entrances. The card moves the map; only "Open in
-/// Maps" leaves the app.
-private struct CampusMapCardView: View {
-    let card: CampusMapCard
-    let choose: (Int) -> Void
-    let select: (CampusMapPlace) -> Void
-    let open: (String) -> Void
-    /// The building's uploads this visit, when the card offers photos.
-    let photos: FloorPhotoUploads?
-    let takePhoto: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(subtitle)
-                .font(.subheadline)
-                .foregroundStyle(Theme.muted)
-            if card.buildingOnly {
-                note(t("campusMap.buildingOnly"))
-            } else if card.noFloorPlans {
-                note(t("campusMap.noFloorPlans"))
-            }
-            actions
-            if !card.entrances.isEmpty {
-                entrances(card.entrances)
-            }
-            if !card.candidates.isEmpty {
-                candidates(card.candidates)
-            }
-        }
-        .padding(.horizontal, Theme.cardPadding)
-        .padding(.bottom, Theme.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// `建物 · 大岡山`, `西9号館 · 2F · 大岡山`.
-    private var subtitle: String {
-        var parts: [String] = []
-        switch card.kind {
-        case .building:
-            parts.append(t("campusMap.kind.building"))
-        case .room:
-            if card.buildingName != card.title { parts.append(card.buildingName) }
-        }
-        if let level = card.levelName { parts.append(level) }
-        parts.append(CampusMapScreen.campusName(card.campus))
-        return parts.joined(separator: " · ")
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text)
-            .font(.footnote)
-            .foregroundStyle(Theme.muted)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    /// The building (on a room's card) and the maps app, sharing the row.
-    private var actions: some View {
-        HStack(spacing: 8) {
-            if let building = card.building {
-                Button {
-                    select(building)
-                } label: {
-                    action(card.buildingName, systemImage: "building.2")
-                }
-                .buttonStyle(CapsuleButtonStyle(level: .secondary))
-                .accessibilityLabel(t("campusMap.showBuilding", ["name": card.buildingName]))
-            }
-            if let photos {
-                // Each tap opens the camera; the label tells how the photos went.
-                Button(action: takePhoto) {
-                    if photos.sending > 0 {
-                        action(t("campusMap.photos.sending"), systemImage: "arrow.up.circle")
-                    } else if photos.sent > 0 {
-                        action(t("campusMap.photos.sent", ["count": String(photos.sent)]), systemImage: "checkmark.circle")
-                    } else {
-                        action(t("campusMap.photos.upload"), systemImage: "camera")
-                    }
-                }
-                .buttonStyle(CapsuleButtonStyle(level: .secondary))
-                .accessibilityHint(t("campusMap.photos.upload"))
-            }
-            Button {
-                open(card.mapsUrl)
-            } label: {
-                action(t("campusMap.openInMaps"), systemImage: "arrow.up.forward.app")
-            }
-            .buttonStyle(CapsuleButtonStyle(level: .secondary))
-        }
-    }
-
-    private func action(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 44)
-    }
-
-    /// Each entrance lights on the map, on its floor, in this same card;
-    /// "Open in Maps" then pins it.
-    private func entrances(_ rows: [CampusMapEntranceRow]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(t("campusMap.entrances"))
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.muted)
-                .padding(.bottom, 2)
-            ForEach(rows, id: \.entranceId) { row in
-                Button {
-                    select(.entrance(id: row.entranceId))
-                } label: {
-                    HStack(spacing: 10) {
-                        Image("CampusMap/entrance")
-                            .renderingMode(.template)
-                            .resizable()
-                            .frame(width: 18, height: 18)
-                            .foregroundStyle(Theme.accent)
-                            .accessibilityHidden(true)
-                        Text(row.name ?? t("campusMap.entrance"))
-                            .font(row.selected ? .body.weight(.semibold) : .body)
-                            .foregroundStyle(row.selected ? Theme.accent : Theme.ink)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        if let level = row.levelName {
-                            Text(level)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(Theme.muted)
-                        }
-                        Image(systemName: "checkmark")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(Theme.accent)
-                            .opacity(row.selected ? 1 : 0)
-                            .accessibilityHidden(true)
-                    }
-                    .frame(minHeight: 44)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .overlay(alignment: .bottom) {
-                    if row.entranceId != rows.last?.entranceId { Divider().padding(.leading, 28) }
-                }
-                .accessibilityLabel(
-                    [row.name ?? t("campusMap.entrance"), row.levelName].compactMap { $0 }.joined(separator: ", "))
-                .accessibilityAddTraits(row.selected ? .isSelected : [])
-            }
-        }
-    }
-
-    /// Every room an ambiguous spelling names; one is shown at a time.
-    private func candidates(_ candidates: [CampusMapCandidate]) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(t("campusMap.chooseRoom"))
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.muted)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(candidates.enumerated()), id: \.offset) { index, candidate in
-                        Button {
-                            choose(index)
-                        } label: {
-                            Text(verbatim: "\(candidate.label) · \(candidate.buildingName)")
-                                .font(.footnote.weight(.semibold))
-                                .lineLimit(1)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 8)
-                                .frame(minHeight: 44)
-                                .foregroundStyle(candidate.chosen ? Theme.accentInk : Theme.accent)
-                                .background(candidate.chosen ? Theme.accent : Theme.accentSoft, in: Capsule())
-                        }
-                        .buttonStyle(PressableStyle())
-                        .accessibilityAddTraits(candidate.chosen ? .isSelected : [])
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A building Core asks floor photos of.
-/// A building's photo uploads during this map visit.
-struct FloorPhotoUploads: Equatable {
-    var sending = 0
-    var sent = 0
-}
-
-/// Upright pixels at most 2048 px on the long side, as JPEG: drawing the
-/// photo anew keeps none of the camera's metadata, so no EXIF and no
-/// location leave the device. Core signs it for the maintainers' inbox.
-private func floorPhotoJPEG(_ image: UIImage) -> Data? {
-    let longest = max(image.size.width, image.size.height)
-    guard longest > 0 else { return nil }
-    let scale = min(1, 2048 / longest)
-    let size = CGSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-    format.opaque = true
-    let drawn = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-        image.draw(in: CGRect(origin: .zero, size: size))
-    }
-    return drawn.jpegData(compressionQuality: 0.8)
-}
-
-/// The system camera; answers the photo, or `nil` when the person cancels.
-private struct SystemCamera: UIViewControllerRepresentable {
-    let done: (UIImage?) -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (UIImage?) -> Void
-        init(done: @escaping (UIImage?) -> Void) { self.done = done }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
-        ) {
-            done(info[.originalImage] as? UIImage)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
-    }
-}
-
-/// Floors top floor first, as in Apple Maps. A dot marks the floor the
-/// selected room is on, the entrance icon the floor the building is entered
-/// on from the street. A tall building (J2・J3 has 20 floors) scrolls within
-/// the space the page leaves, keeping the floor shown in view.
-private struct LevelPicker: View {
-    let levels: [CampusMapLevel]
-    let selected: String?
-    let marked: String?
-    let pick: (String) -> Void
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous)
-        ViewThatFits(in: .vertical) {
-            column
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) { column }
-                    .onAppear { if let selected { proxy.scrollTo(selected, anchor: .center) } }
-                    .onChange(of: selected) { _, id in
-                        if let id { withAnimation { proxy.scrollTo(id, anchor: .center) } }
-                    }
-            }
-        }
-        .frame(width: CampusMapChrome.controlSide)
-        .clipShape(shape)
-        .floatingGlass(in: shape)
-        .contentShape(.interaction, shape)
-        .shadow(color: .black.opacity(0.12), radius: 6, y: 2)
-        // Wider type would push the map's visible part to nothing.
-        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-    }
-
-    private var column: some View {
-        VStack(spacing: 0) {
-            ForEach(levels, id: \.id) { level in
-                let isSelected = level.id == selected
-                Button {
-                    pick(level.id)
-                } label: {
-                    Text(level.name)
-                        .font(.footnote.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(isSelected ? Theme.accentInk : Theme.ink)
-                        .padding(.horizontal, 6)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .background(isSelected ? Theme.accent : .clear)
-                        .overlay(alignment: .topTrailing) {
-                            if level.id == marked {
-                                Circle()
-                                    .fill(isSelected ? Theme.accentInk : Theme.accent)
-                                    .frame(width: 6, height: 6)
-                                    .padding(5)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                        .overlay(alignment: .bottomLeading) {
-                            if level.street {
-                                Image("CampusMap/entrance")
-                                    .renderingMode(.template)
-                                    .resizable()
-                                    .frame(width: 11, height: 11)
-                                    .foregroundStyle(isSelected ? Theme.accentInk : Theme.accent)
-                                    .padding(3)
-                                    .accessibilityHidden(true)
-                            }
-                        }
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .id(level.id)
-                .accessibilityLabel(t("campusMap.level", ["name": level.name]))
-                .accessibilityValue(
-                    [
-                        level.id == marked ? t("campusMap.destinationFloor") : nil,
-                        level.street ? t("campusMap.streetFloor") : nil,
-                    ].compactMap { $0 }.joined(separator: ", "))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
-        }
-    }
-}
-
-/// While-in-use permission, asked for only when the person taps the
-/// position button. MapKit draws the blue dot itself; there is no
-/// background location.
-@Observable
-final class CampusMapLocation: NSObject, CLLocationManagerDelegate {
-    private(set) var status: CLAuthorizationStatus
-    /// This page asked: once allowed, the map goes to the person's building.
-    private(set) var asked = false
-    var settingsRequired = false
-    @ObservationIgnored private let manager = CLLocationManager()
-
-    override init() {
-        status = manager.authorizationStatus
-        super.init()
-        manager.delegate = self
-    }
-
-    var allowed: Bool { status == .authorizedWhenInUse || status == .authorizedAlways }
-
-    func requestPermission() {
-        switch status {
-        case .notDetermined:
-            asked = true
-            manager.requestWhenInUseAuthorization()
-        case .denied, .restricted:
-            settingsRequired = true
-        case .authorizedWhenInUse, .authorizedAlways:
-            break
-        @unknown default:
-            settingsRequired = true
-        }
-    }
-
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        status = manager.authorizationStatus
-    }
-}
-
-/// Opens the map for a room string, or with none to browse it. Nothing
-/// shows until Core can place the string (with none, until a map file is
-/// stored).
-struct RoomMapButton<Content: View>: View {
-    let room: String?
-    @ViewBuilder var label: Content
-    @Environment(AppModel.self) private var model
-    @Environment(\.openCampusMap) private var openCampusMap
-    @State private var placed = false
-
-    var body: some View {
-        // A ZStack, not a Group: an empty Group would never run its task.
-        ZStack {
-            if placed {
-                Button {
-                    openCampusMap(room)
-                } label: {
-                    label
-                }
-                .buttonStyle(PressableStyle())
-                .accessibilityLabel(t(room == nil ? "campusMap.browse" : "campusMap.open"))
-            }
-        }
-        // Again once the map's file lands (the reference source's update)
-        // or the data changes.
-        .task(id: "\(room ?? "")|\(model.contentRevision)|\(model.syncSource("references")?.lastUpdated ?? "")") {
-            let known = await model.campusMapHas(room)
-            guard !Task.isCancelled else { return }
-            placed = known
-        }
-    }
 }

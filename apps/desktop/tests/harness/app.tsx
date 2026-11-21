@@ -6,7 +6,7 @@ import { mount, type Mounted } from "./render";
 /**
  * Mounts the real application over a scripted host.
  *
- * `app/native.ts` captures the bridge once, at first import, and only when
+ * `platform/native.ts` captures the bridge once, at first import, and only when
  * `window.__TAURI_INTERNALS__` already exists. Every e2e suite therefore goes
  * through this helper: install the fake host, then import the shell. The bridge
  * keeps delegating to whichever fake is installed, so each suite gets a clean

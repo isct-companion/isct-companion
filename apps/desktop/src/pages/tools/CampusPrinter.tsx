@@ -1,16 +1,16 @@
 import { Printer } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import {
   nativeOs,
   type CampusPrinterStatus,
   type PrinterAccount,
 } from "../../platform/desktop-bridge";
-import { accountText } from "../../features/campus-print/account";
+import { accountText } from "../../features/campus-print";
 import { InfoTip, UiButton } from "../../components/ui";
 import { ToolCard } from "./ToolCard";
-import { errorText } from "../../app/shared";
+import { errorText } from "../../lib/error-text";
 
 /** What the last Add said, kept as data so it follows a language switch. */
 type Result =

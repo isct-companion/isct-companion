@@ -7,54 +7,119 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import java.io.File
+import java.io.IOException
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
-/**
- * What was shared into the app (the system share sheet's `ACTION_SEND`),
- * waiting to be given to an assignment, as the iOS share extension's inbox.
- * Each file sits in `files/Inbox/<id>/`; the person gives it to an assignment,
- * Core copies it into that assignment's workspace `submit/` and the inbox
- * entry is removed. Nothing here decides anything.
- */
+/** Owns only the current selection, copied while its content URI grants last. */
 object SharedInbox {
-    /** One shared file. */
-    data class Item(val id: String, val file: File, val addedAt: Long) {
-        val name: String get() = file.name
-    }
+    data class Target(val assignmentId: String, val title: String)
+    data class Item(val file: File, val name: String)
+    data class Selection(val folder: File, val files: List<Item>, val target: Target?)
 
-    var items: List<Item> by mutableStateOf(emptyList())
+    private data class Upload(val id: String, val selection: Selection, val receipt: UploadReceipt)
+
+    private var generation = 0L
+    private var upload: Upload? = null
+    var failedUpload: String? by mutableStateOf(null)
+        private set
+    var selection: Selection? by mutableStateOf(null)
+        private set
+    var working: Boolean by mutableStateOf(false)
+        private set
+    var error: String? by mutableStateOf(null)
         private set
 
-    private fun folder(context: Context) = File(context.filesDir, "Inbox")
-
-    /** Re-reads the folder, oldest first. */
-    fun refresh(context: Context) {
-        items = folder(context).listFiles().orEmpty()
-            .filter { it.isDirectory }
-            .mapNotNull { dir -> dir.listFiles()?.firstOrNull { it.isFile }?.let { Item(dir.name, it, dir.lastModified()) } }
-            .sortedBy { it.addedAt }
-    }
-
-    /** Copies shared content in while the sending app's grant lasts. */
-    fun receive(context: Context, uris: List<Uri>) {
-        for (uri in uris) {
-            runCatching {
-                val dir = File(folder(context), UUID.randomUUID().toString()).apply { mkdirs() }
-                val target = File(dir, displayName(context, uri))
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { input.copyTo(it) }
-                } ?: dir.deleteRecursively()
+    suspend fun receive(context: Context, uris: List<Uri>, target: Target? = null) {
+        if (uris.isEmpty()) return
+        val current = ++generation
+        val folder = File(context.cacheDir, "hand-in-${UUID.randomUUID()}")
+        var adopted = false
+        try {
+            val files = withContext(Dispatchers.IO) {
+                if (!folder.mkdir()) throw IOException("Could not create a temporary folder")
+                uris.map { uri ->
+                    val name = displayName(context, uri)
+                    val file = File(folder, UUID.randomUUID().toString())
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: throw IOException("Could not read $name")
+                    input.use { source -> file.outputStream().use { source.copyTo(it) } }
+                    Item(file, name)
+                }
             }
+            if (generation != current) return
+            selection?.folder?.deleteRecursively()
+            selection = Selection(folder, files, target)
+            adopted = true
+        } catch (failure: CancellationException) {
+            throw failure
+        } catch (failure: Exception) {
+            if (generation == current) error = AppModel.describe(failure)
+        } finally {
+            if (!adopted) folder.deleteRecursively()
         }
-        refresh(context)
     }
 
-    fun remove(context: Context, item: Item) {
-        item.file.parentFile?.deleteRecursively()
-        refresh(context)
+    fun discard(item: Selection) {
+        if (selection != item) return
+        selection = null
+        item.folder.deleteRecursively()
     }
 
-    /** The sender's file name without folders; Core makes it safe everywhere. */
+    suspend fun give(item: Selection, target: Target, model: AppModel): WebRouter.PushedPage? {
+        if (working || selection != item) return null
+        working = true
+        try {
+            // Finish reading Core's receipt even if the picker is dismissed.
+            val (id, url, receipt) = withContext(NonCancellable) { model.handIn(item, target.assignmentId) }
+            if (!currentCoroutineContext().isActive || selection != item) {
+                model.web.cancelHandIn(id)
+                return null
+            }
+            upload?.selection?.folder?.deleteRecursively()
+            upload = Upload(id, item, receipt)
+            selection = null
+            return WebRouter.PushedPage(SchoolSite.SCIENCE_LMS, url, target.title, id)
+        } finally {
+            working = false
+        }
+    }
+
+    suspend fun waitForUpload(id: String, web: WebRouter) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        val dispatched = request.receipt.dispatched()
+        if (upload?.id != id) return
+        if (dispatched) {
+            closeUpload(id)
+        } else {
+            web.cancelHandIn(id)
+            failedUpload = id
+        }
+    }
+
+    fun retryUpload(id: String) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        if (selection != null) return
+        upload = null
+        failedUpload = null
+        selection = request.selection.copy(target = null)
+    }
+
+    fun closeUpload(id: String) {
+        val request = upload?.takeIf { it.id == id } ?: return
+        upload = null
+        failedUpload = null
+        request.selection.folder.deleteRecursively()
+    }
+
+    fun dismissError() { error = null }
+
+    /** The sender's file name without folders. */
     fun displayName(context: Context, uri: Uri): String {
         val queried = runCatching {
             context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->

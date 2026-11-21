@@ -1,3 +1,4 @@
+import IsctWidgets
 import QuickLookThumbnailing
 import SwiftUI
 import UIKit
@@ -9,6 +10,7 @@ import UniformTypeIdentifiers
 /// (`SharedInbox.Choices`) and leaves the hand-in to the app.
 final class ShareViewController: UIViewController {
     private let state = ShareState()
+    private var finished = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -27,20 +29,28 @@ final class ShareViewController: UIViewController {
     }
 
     private func load() async {
-        state.files = await ExtensionInput.files(extensionContext)
+        do {
+            let transfer = try await ExtensionInput.transfer(extensionContext)
+            if finished { transfer?.discard(); return }
+            state.transfer = transfer
+        } catch {
+            state.failed = true
+        }
         state.loading = false
     }
 
     private func finish(save: Bool, open: Bool = false) {
-        if save {
-            // Without the App Group the inbox is unreachable; keep the sheet
-            // open on what was not saved rather than drop it silently.
-            state.files.removeAll { file in
-                (try? SharedInbox.add(file.url, name: file.name, assignmentId: state.assignment)) != nil
+        if save, let transfer = state.transfer {
+            do {
+                try SharedInbox.publish(transfer, choice: state.choices.first { $0.id == state.assignment })
+            } catch {
+                state.failed = true
+                return
             }
-            state.failed = !state.files.isEmpty
-            if state.failed { return }
         }
+        finished = true
+        state.transfer?.discard()
+        state.transfer = nil
         if open { ExtensionInput.openApp(from: self) }
         extensionContext?.completeRequest(returningItems: nil)
     }
@@ -49,7 +59,7 @@ final class ShareViewController: UIViewController {
 @MainActor
 @Observable
 final class ShareState {
-    var files: [SharedFile] = []
+    var transfer: SharedInbox.Transfer?
     var loading = true
     /// The inbox refused the files still listed.
     var failed = false
@@ -67,18 +77,20 @@ private struct ShareView: View {
             List {
                 Section {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 12) {
-                            ForEach(state.files) { file in
-                                VStack(spacing: 6) {
-                                    Thumbnail(url: file.url).frame(width: 72, height: 92)
-                                    Text(file.name).font(.caption2).lineLimit(1).frame(width: 80)
+                        HStack(spacing: IsctTokens.space6) {
+                            if let transfer = state.transfer {
+                                ForEach(transfer.files) { file in
+                                    VStack(spacing: IsctTokens.space3) {
+                                        Thumbnail(url: file.url(in: transfer.folder)).frame(width: 72, height: 92)
+                                        Text(file.name).font(.caption2).lineLimit(1).frame(width: 80)
+                                    }
                                 }
                             }
                             if state.loading { ProgressView().frame(width: 72, height: 92) }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, IsctTokens.space2)
                     }
-                    if !state.loading && state.files.isEmpty && !state.failed {
+                    if !state.loading && state.transfer == nil && !state.failed {
                         Text(t("shareViewController.noFilesCameThrough"))
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -101,7 +113,7 @@ private struct ShareView: View {
                         Label(t("shareViewController.addAndOpenIsctCompanion"), systemImage: "arrow.up.forward.app")
                             .font(.body.weight(.semibold))
                     }
-                    .disabled(state.loading || state.files.isEmpty)
+                    .disabled(state.loading || state.transfer == nil)
                 }
                 Section(t("common.handInTo")) {
                     choiceRow(nil, title: t("shareViewController.chooseInTheApp"), detail: nil)
@@ -119,7 +131,7 @@ private struct ShareView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(t("common.add")) { done(true, false) }
-                        .disabled(state.loading || state.files.isEmpty)
+                        .disabled(state.loading || state.transfer == nil)
                 }
             }
         }
@@ -130,7 +142,7 @@ private struct ShareView: View {
             state.assignment = id
         } label: {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: IsctTokens.space1) {
                     Text(title).foregroundStyle(.primary)
                     if let detail, !detail.isEmpty {
                         Text(detail).font(.footnote).foregroundStyle(.secondary)

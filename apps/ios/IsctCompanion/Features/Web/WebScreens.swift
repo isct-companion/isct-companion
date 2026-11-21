@@ -16,6 +16,9 @@ private struct ResidentWebView: UIViewRepresentable {
     let revision: Int
     /// Pull to refresh, as in Safari; Core reloads the page.
     var refresh: (() -> Void)?
+    /// Whether the person is reading down the page (true) or back up or at
+    /// its top (false), so the screen can move its bars out of the way.
+    var reading: ((Bool) -> Void)?
 
     func makeUIView(context: Context) -> Container {
         let container = Container(host: host)
@@ -26,6 +29,7 @@ private struct ResidentWebView: UIViewRepresentable {
     func updateUIView(_ container: Container, context: Context) {
         container.site = site
         container.refresh = refresh
+        container.reading = reading
         container.claim()
     }
 
@@ -37,6 +41,13 @@ private struct ResidentWebView: UIViewRepresentable {
         let host: SchoolBrowserHost
         var site: SchoolSite?
         var refresh: (() -> Void)?
+        var reading: ((Bool) -> Void)?
+        /// How far the person scrolls one way before the bars follow, so a
+        /// small correction does not flick them, as in Safari.
+        private static let barsTravel: CGFloat = 24
+        private var offsetObservation: NSKeyValueObservation?
+        private var lastOffset: CGFloat = 0
+        private var travel: CGFloat = 0
         /// One per container: the resident view carries it while held here.
         private lazy var refreshControl: UIRefreshControl = {
             let control = UIRefreshControl()
@@ -75,14 +86,49 @@ private struct ResidentWebView: UIViewRepresentable {
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if refresh != nil { webView.scrollView.refreshControl = refreshControl }
             addSubview(webView)
+            follow(webView.scrollView)
             host.arrangePopups(site)
         }
 
         /// Returns whatever view it holds to the parking window.
         func release() {
+            offsetObservation = nil
             for case let held as WKWebView in subviews {
                 if held.scrollView.refreshControl === refreshControl { held.scrollView.refreshControl = nil }
                 host.park(held)
+            }
+        }
+
+        /// Watches the held page's scrolling for `reading`.
+        private func follow(_ scrollView: UIScrollView) {
+            lastOffset = scrollView.contentOffset.y
+            travel = 0
+            offsetObservation = scrollView.observe(\.contentOffset) { [weak self] scrollView, _ in
+                self?.scrolled(scrollView)
+            }
+        }
+
+        private func scrolled(_ scrollView: UIScrollView) {
+            let offset = scrollView.contentOffset.y
+            let delta = offset - lastOffset
+            lastOffset = offset
+            guard let reading else { return }
+            // At the top the bars always show.
+            if offset <= -scrollView.adjustedContentInset.top + Self.barsTravel {
+                travel = 0
+                reading(false)
+                return
+            }
+            // Only the person's own scrolling moves the bars, not a load, a
+            // jump to an anchor or the insets changing as the bars move.
+            guard scrollView.isDragging || scrollView.isDecelerating else {
+                travel = 0
+                return
+            }
+            travel = (travel >= 0) == (delta >= 0) ? travel + delta : delta
+            if abs(travel) >= Self.barsTravel {
+                reading(travel > 0)
+                travel = 0
             }
         }
     }
@@ -94,23 +140,31 @@ private struct ResidentWebView: UIViewRepresentable {
 /// menu, and a pull reloads. Tapping the tab again returns the site home.
 struct WebTabScreen: View {
     @Environment(WebRouter.self) private var web
+    @Environment(Navigator.self) private var navigator
     @State private var visibilityOwner = UUID()
+    @State private var barsHidden = false
 
     var body: some View {
         ZStack {
-            ResidentWebView(site: web.tabSite, host: web.browser, revision: web.attachRevision) {
-                web.reload(web.tabSite)
-            }
+            // The page runs on under the translucent tab bar, as in Safari.
+            ResidentWebView(
+                site: web.tabSite,
+                host: web.browser,
+                revision: web.attachRevision,
+                refresh: { web.reload(web.tabSite) },
+                reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
+            )
+            .ignoresSafeArea(.container, edges: .bottom)
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if let error = web.error {
-                ProblemNote(text: error).padding(.top, 12).frame(maxHeight: .infinity, alignment: .top)
+                ProblemNote(text: error).padding(.top, Theme.space6).frame(maxHeight: .infinity, alignment: .top)
             }
             // The one thing drawn over the page, once: how to reach the
             // other sites.
             TipView(WebSitesTip())
-                .padding(12)
+                .padding(Theme.space6)
                 .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .safeAreaInset(edge: .top, spacing: 0) { PageBars(site: web.tabSite) }
@@ -143,12 +197,26 @@ struct WebTabScreen: View {
                 PageActions(site: web.tabSite)
             }
         }
+        .toolbar(barsHidden ? .hidden : .visible, for: .navigationBar, .tabBar)
         .onAppear {
             web.showTab(web.tabSite)
             web.appear(web.tabSite, owner: visibilityOwner)
         }
-        .onDisappear { web.disappear(owner: visibilityOwner) }
+        .onDisappear {
+            barsHidden = false
+            web.disappear(owner: visibilityOwner)
+        }
     }
+}
+
+/// Both web screens' bars, as in Safari: reading down the page moves them
+/// away, scrolling back up or reaching the top brings them back. The
+/// workstation keeps its bars; there they cost no page height worth saving.
+@MainActor
+private func moveBars(_ readingDown: Bool, _ hidden: Binding<Bool>, workbench: Bool) {
+    let hide = readingDown && !workbench
+    guard hide != hidden.wrappedValue else { return }
+    withAnimation(.smooth(duration: Theme.motionBase)) { hidden.wrappedValue = hide }
 }
 
 /// Whether a Back or Forward button is off: only when Core says it would do
@@ -171,7 +239,7 @@ private struct PageActions: View {
             Picker(selection: $textScale) {
                 ForEach(SchoolBrowserHost.textScales, id: \.self) { Text(verbatim: "\($0)%").tag($0) }
             } label: {
-                Label(t("common.textSize"), systemImage: "textformat.size")
+                Label(t("web.pageZoom"), systemImage: "textformat.size")
             }
             .pickerStyle(.menu)
         } label: {
@@ -237,14 +305,29 @@ typealias SitePickerPress = TabItemPress<SitePick>
 struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
+    @Environment(InboxModel.self) private var inbox
+    @Environment(Navigator.self) private var navigator
     @State private var visibilityOwner = UUID()
+    @State private var barsHidden = false
 
     var body: some View {
         ZStack {
-            ResidentWebView(site: page.site, host: web.browser, revision: web.attachRevision) {
-                web.reload(page.site)
-            }
-            if let error = web.error {
+            ResidentWebView(
+                site: page.site,
+                host: web.browser,
+                revision: web.attachRevision,
+                refresh: { web.reload(page.site) },
+                reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
+            )
+            .ignoresSafeArea(.container, edges: .bottom)
+            if let id = page.uploadId, inbox.failedUpload == id {
+                VStack(spacing: Theme.space4) {
+                    ProblemNote(text: t("failure.theDraftUploadFailed"))
+                    Button(t("common.retry")) { inbox.retryUpload(id) }
+                }
+                .padding(Theme.space6)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface))
+            } else if let error = web.error {
                 ProblemNote(text: error)
             }
         }
@@ -253,6 +336,7 @@ struct WebPageScreen: View {
         .navigationTitle(page.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar(barsHidden ? .hidden : .visible, for: .navigationBar, .bottomBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 PageActions(site: page.site)
@@ -278,7 +362,17 @@ struct WebPageScreen: View {
             web.open(page.site, target: page.target)
             web.appear(page.site, owner: visibilityOwner)
         }
-        .onDisappear { web.disappear(owner: visibilityOwner) }
+        .task(id: page.uploadId) {
+            if let id = page.uploadId { await inbox.waitForUpload(id, web: web) }
+        }
+        .onDisappear {
+            barsHidden = false
+            if let id = page.uploadId {
+                web.cancelHandIn(id)
+                inbox.closeUpload(id)
+            }
+            web.disappear(owner: visibilityOwner)
+        }
     }
 }
 
@@ -317,7 +411,7 @@ private struct PageBars: View {
                         .controlSize(.small)
                 }
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
                 Divider()
             }
             if let otp = web.pages[site]?.otp {
@@ -339,7 +433,7 @@ private struct PageBars: View {
                         .controlSize(.small)
                 }
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
                 Divider()
             }
             if let failure = web.failure(site) {
@@ -352,7 +446,7 @@ private struct PageBars: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, Theme.space4)
                 Divider()
             }
         }
@@ -384,14 +478,14 @@ private struct PageBars: View {
                     .controlSize(.small)
             }
             .padding(.horizontal)
-            .padding(.vertical, 8)
+            .padding(.vertical, Theme.space4)
         case let .problem(problem):
             Label(t(Self.problemText(problem)), systemImage: "person.crop.circle.badge.exclamationmark")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal)
-                .padding(.vertical, 8)
+                .padding(.vertical, Theme.space4)
         }
     }
 
@@ -405,7 +499,7 @@ private struct PageBars: View {
     }
 
     private func failed(_ failure: SchoolWebFailure) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space4) {
             Label(t(Self.failureText(failure.reason)), systemImage: "exclamationmark.triangle")
                 .font(.subheadline)
                 .symbolRenderingMode(.multicolor)
@@ -425,7 +519,7 @@ private struct PageBars: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.vertical, Theme.space4)
     }
 }
 
@@ -434,8 +528,8 @@ private struct ProblemNote: View {
     var body: some View {
         Text(text)
             .font(.subheadline)
-            .padding(12)
-            .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: 12))
+            .padding(Theme.space6)
+            .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface))
             .padding()
     }
 }

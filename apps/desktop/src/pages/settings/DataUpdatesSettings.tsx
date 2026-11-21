@@ -1,7 +1,9 @@
+import { formatDay } from "../../lib/civil-date";
 import { workspaceActions } from "../../store/workspace";
-import { notify as appNotify } from "../../app/notify";
+import { notify as appNotify } from "../../components/notifications/notify";
 import { Fragment, useState, type ReactNode } from "react";
-import { refresh, useSync } from "../../app/useSync";
+import { refresh } from "../../platform/sync-intents";
+import { useSync } from "../../store/sync";
 import { runsFor } from "../../platform/sync";
 import { t, type MessageKey } from "../../i18n";
 import type { Subscription, Workspace } from "../../lib/model";
@@ -16,9 +18,8 @@ import {
   PUBLIC_DATA_INDEX,
   REFERENCE_KINDS,
 } from "../../generated/persistence";
-import type { Platform } from "../../app/shared";
+import type { Platform } from "../../platform/capabilities";
 import {
-  formatDay,
   subscriptionRow,
   useSubscriptionViews,
 } from "./subscription-status";

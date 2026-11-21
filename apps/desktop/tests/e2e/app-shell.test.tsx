@@ -37,8 +37,8 @@ import {
   SCHEDULE_READS,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
-import { notify } from "@app/app/notify";
-import { notifications } from "@app/app/notifications";
+import { notify } from "@app/components/notifications/notify";
+import { notifications } from "@app/components/notifications/notifications";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";
@@ -129,7 +129,6 @@ type Handle = NonNullable<FakeCoreOptions["handle"]>;
 /** Answers every non-query command the shell issues on the routes we cover. */
 const baseHandle: Handle = (command, args) => {
   switch (command) {
-    case "bootstrap_reminders":
     case "hide_school_web":
     case "configure_school_web_policy":
     case "set_school_web_zoom":
@@ -194,7 +193,8 @@ function shellQueries(): QueryTable {
       byTerm: {},
       nearestByCourse: {},
       deadlines: {},
-      submittedIds: [],
+      states: {},
+      handInAvailability: {},
     },
   };
 }
@@ -1905,7 +1905,7 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("renders Core's sync snapshot in the footer and sends hints for refresh and opened pages", async () => {
+it("renders Core's sync snapshot in the status panel and sends hints for refresh and opened pages", async () => {
   app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
   // Core decides what is due and how far a run is (`plan` and its
   // tests); the shell only picks the row to show and names it.
@@ -1920,6 +1920,7 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     scope: null,
     held: null,
     failure: null,
+    retry: null,
     ...overrides,
   });
   const source = (name: string, lastUpdated: string | null) => ({
@@ -1927,28 +1928,45 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     lastUpdated,
     running: false,
     held: null,
-    failure: null,
+    failure: null as unknown,
+    retry: null as unknown,
     session: null,
     maintenance: null,
   });
   let generation = 1;
-  const emit = (runs: unknown[], sources = [source("lms", null)]) =>
+  const emit = (
+    runs: unknown[],
+    sources = [source("lms", null)],
+    attention = {
+      primary: runs.length ? { kind: "active", run: "run" } : null,
+      problem: null as unknown,
+      busy: runs.length > 0,
+    },
+  ) =>
     act(async () =>
       app!.core.emit("sync-snapshot", {
         generation: ++generation,
         resetting: false,
+        attention,
         runs,
         sources,
       }),
     );
-  const status = () => app!.host.querySelector(".lmsStatus")!;
+  // The summary floats in the shell; its panel (where the detail lives)
+  // renders in a portal, so it is read from the document.
+  const overview = () =>
+    app!.host.querySelector<HTMLButtonElement>(".schoolStatusOverview")!;
+  const status = () => document.querySelector(".lmsStatus")!;
   const hints = () =>
     app!.core.calls
       .filter((call) => call.command === "sync_hint")
       .map((call) => call.args.hint);
 
+  await click(overview());
   await emit([run({ done: 7, total: 62 })]);
   await until(() => {
+    expect(overview().getAttribute("data-kind")).toBe("busy");
+    expect(overview().textContent).toContain("Course content 7/62");
     expect(status().getAttribute("data-kind")).toBe("bar");
     expect(status().textContent).toContain("Course content · 7 / 62");
     expect(status().querySelector("progress")!.value).toBe(7);
@@ -1967,7 +1985,11 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     expect(status().querySelector(".schoolStatusSpinner")).not.toBeNull();
     expect(status().querySelector("progress")).toBeNull();
   });
-  await emit([run({ held: { kind: "cellular" } })]);
+  await emit([run({ held: { kind: "cellular" } })], undefined, {
+    primary: { kind: "held", run: "run" },
+    busy: false,
+    problem: null,
+  });
   await until(() =>
     expect(status().textContent).toContain("Waiting for Wi-Fi"),
   );
@@ -1981,7 +2003,14 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       run: "grades",
       dataset: "kyomu.page",
       scope: "grades",
-      failure: { kind: "timeout", keysFailed: 1, retryAt: null, detail: null },
+      failure: {
+        kind: "timeout",
+        reason: { key: "syncStatus.failure.timedOut", args: {} },
+        keysFailed: 1,
+        retryAt: null,
+        detail: null,
+      },
+      retry: { scopes: [{ kind: "site", site: "kyomu" }] },
     }),
   ]);
   const retry = await required(
@@ -1992,11 +2021,13 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
     "the failed dataset's Retry",
   );
   expect(status().textContent).toContain("教務Web pages failed · timed out");
+  expect(overview().getAttribute("data-kind")).toBe("problem");
+  expect(overview().textContent).toBe("Needs attention (1)");
   await click(retry);
   const force = await required(
     () =>
-      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "Refresh now",
+      app!.host.querySelector<HTMLButtonElement>(
+        '.schoolStatusPanel button[aria-label="Refresh now"]',
       ),
     "Refresh now",
   );
@@ -2006,6 +2037,48 @@ it("renders Core's sync snapshot in the footer and sends hints for refresh and o
       expect.arrayContaining([
         { kind: "refresh", scope: { kind: "site", site: "kyomu" } },
         { kind: "refresh", scope: { kind: "everything" } },
+      ]),
+    ),
+  );
+  await emit(
+    [],
+    [
+      {
+        ...source("catalog", null),
+        failure: {
+          kind: "http-503",
+          reason: {
+            key: "syncStatus.failure.serverFailed",
+            args: { status: "503" },
+          },
+          keysFailed: 2,
+          retryAt: null,
+          detail: null,
+        },
+        retry: {
+          scopes: [
+            { kind: "catalog", year: 2024 },
+            { kind: "catalog", year: 2026 },
+          ],
+        },
+      },
+    ],
+  );
+  // Refresh sits outside the panel, so pressing it closed the panel.
+  await click(overview());
+  const catalogRetry = await required(
+    () =>
+      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "Retry",
+      ),
+    "the persisted catalog failure's Retry",
+  );
+  await click(catalogRetry);
+  await until(() =>
+    expect(hints()).toEqual(
+      expect.arrayContaining([
+        { kind: "refresh", scope: { kind: "catalog", year: 2024 } },
+        { kind: "refresh", scope: { kind: "catalog", year: 2026 } },
       ]),
     ),
   );

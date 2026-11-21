@@ -43,6 +43,7 @@ struct SettingsDestination: View {
 /// ウェブ tab and reset.
 /// Planning, calendars, folders and developer settings stay on desktop.
 struct SettingsScreen: View {
+    @Environment(\.openURL) private var openURL
     @Environment(AppModel.self) private var model
     @Environment(WebRouter.self) private var web
     @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
@@ -82,7 +83,7 @@ struct SettingsScreen: View {
                     Picker(selection: $textScale) {
                         ForEach(SchoolBrowserHost.textScales, id: \.self) { Text("\($0)%").tag($0) }
                     } label: {
-                        Label { Text(t("common.textSize")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
+                        Label { Text(t("web.pageZoom")) } icon: { SettingsIcon(symbol: "textformat.size", tint: Theme.muted) }
                     }
                     Picker(selection: $firstSite) {
                         ForEach(WebRouter.tabSites, id: \.self) { Text(WebRouter.name($0)).tag($0) }
@@ -130,7 +131,7 @@ struct SettingsScreen: View {
                             SettingsIcon(symbol: "doc.text", tint: Theme.muted)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
+                        .padding(.vertical, Theme.space3)
                         .contentShape(.rect)
                         .contentShape(.contextMenuPreview, .rect(cornerRadius: 10))
                     }
@@ -179,8 +180,8 @@ struct SettingsScreen: View {
                     SettingsIcon(symbol: "arrow.down.app", tint: Theme.accent)
                 }
                 Spacer()
-                if let url = URL(string: release.url) {
-                    Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
+                if let button = OpenReleaseButton(release: release, openURL: openURL) {
+                    button
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                 }
@@ -247,7 +248,7 @@ struct SettingsScreen: View {
 
     private func row(_ title: String, _ detail: String?, icon: String, tint: Color) -> some View {
         Label {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }
@@ -273,7 +274,7 @@ struct SettingsScreen: View {
     }
 
     private var backupSummary: String {
-        let icloud = model.cloud?.providers.first { $0.provider == .icloud }
+        let icloud = model.backup.state?.providers.first { $0.provider == .icloud }
         guard icloud?.enabled == true else { return t("settings.main.off") }
         return icloud?.lastSyncedAt.map { t("settings.backup.syncedDate", ["date": Format.due($0)]) } ?? "iCloud"
     }
@@ -288,18 +289,16 @@ struct SettingsScreen: View {
         let session = model.profileSession(profile)
         let state = session?.state ?? .notConfigured
         let text: String =
-            if session?.signOutPending == true {
-                t("error.sign-out-incomplete")
-            } else if state == .normal, let lastRun {
+            if state == .normal, session?.presentation.recovery.isEmpty == true, let lastRun {
                 t("settings.main.connectedUpdatedTime", ["time": Format.due(lastRun)])
             } else if let session {
                 SchoolSessionText.line(session)
             } else {
-                SchoolSessionText.state(state)
+                t("common.notConnected")
             }
-        return HStack(spacing: 12) {
+        return HStack(spacing: Theme.rowGap) {
             Circle().fill(Self.tint(state)).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(name)
                 Text(text).font(.subheadline).foregroundStyle(Theme.muted)
                 if let maintenance = session?.maintenance {
@@ -326,7 +325,7 @@ struct SettingsScreen: View {
 /// role, never a system rainbow colour: accent for preferences, ok for data,
 /// warn and danger for caution, muted for utilities. Solid squares in these
 /// deep roles, half of them grey, made the list look heavy.
-private struct SettingsIcon: View {
+struct SettingsIcon: View {
     let symbol: String
     let tint: Color
 
@@ -337,306 +336,5 @@ private struct SettingsIcon: View {
             .foregroundStyle(tint)
             .frame(width: 29, height: 29)
             .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-    }
-}
-
-/// Sign in, change or forget a school account. The password goes straight to
-/// Core, which signs in with it and stores it in the Keychain only once the
-/// school accepted it. While the account is stuck, the page says why and
-/// offers Core's Retry.
-private struct AccountScreen: View {
-    let profile: SchoolAuthProfile
-    let name: String
-    @Environment(AppModel.self) private var model
-    @Environment(WebRouter.self) private var web
-    @Environment(Navigator.self) private var navigator
-    @Environment(\.dismiss) private var dismiss
-    @State private var username = ""
-    @State private var password = ""
-    @State private var otpSecret = ""
-    @State private var matrix = ""
-    @State private var saving = false
-    @State private var retrying = false
-    @State private var removing = false
-    @State private var error: String?
-    /// What the last Connect did, shown until the next one.
-    @State private var outcome: SchoolConnectOutcome?
-
-    private var summary: CredentialSummary? {
-        profile == .science ? model.credentials?.science : model.credentials?.tokyoTech
-    }
-
-    private var session: SchoolProfileSession? { model.profileSession(profile) }
-
-    /// The states that wait for the person or for Core's next try, where
-    /// Retry makes one attempt now with the synced credentials.
-    private static let stuck: [SchoolSessionState] = [.refused, .needsWeb, .unavailable]
-
-    var body: some View {
-        Form {
-            Group {
-                Section {
-                    TextField(t("settings.schoolAccounts.id"), text: $username)
-                        .textContentType(.username)
-                        .keyboardType(.asciiCapable)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField(summary?.saved == true ? t("settings.main.passwordEnterOnlyToChange") : t("settings.main.password"), text: $password)
-                        .textContentType(.password)
-                } footer: {
-                    Text(t("settings.main.thePasswordIsSavedIn"))
-                }
-                // Pasted keys, not passwords: a second secure field makes AutoFill
-                // read the form as a sign-up and offer new credentials instead of
-                // the saved login. They stay out of screenshots and the app switcher.
-                if profile == .science {
-                    // Its own sections: the OTP state, and the import paths
-                    // while no setup is saved or read.
-                    OtpImportField(
-                        saved: summary?.hasOtp == true,
-                        verifiedAccount: summary?.saved == true,
-                        canShowCode: session?.signOutPending != true,
-                        setup: $otpSecret,
-                        openSetup: {
-                            web.showOtpSetup(username: username)
-                            navigator.tab = .web
-                        }
-                    )
-                } else {
-                    MatrixImportSection(saved: summary?.hasMatrix == true, matrix: $matrix)
-                }
-                if let error {
-                    Section { Text(error).foregroundStyle(Theme.danger) }
-                } else if let outcome {
-                    connectOutcome(outcome)
-                } else if session?.signOutPending == true {
-                    Text(t("error.sign-out-incomplete"))
-                } else if !saving, let session, Self.stuck.contains(session.state) {
-                    status(session)
-                }
-                if let maintenance = session?.maintenance {
-                    Section { Text(SchoolSessionText.maintenance(maintenance, profile: profile)).foregroundStyle(Theme.warn) }
-                }
-                Section {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if saving { ProgressView() } else { Text(t("settings.main.saveAndConnect")) }
-                    }
-                    .disabled(saving || session?.signOutPending == true || username.isEmpty || (password.isEmpty && summary?.saved != true))
-                }
-                if summary?.saved == true || session?.signOutPending == true {
-                    Section {
-                        // Core first stops the account's reads, so this can take a moment.
-                        Button(role: .destructive) {
-                            removing = true
-                            error = nil
-                            Task {
-                                do {
-                                    try await model.deleteCredentials(profile)
-                                    dismiss()
-                                } catch {
-                                    // Signing out did not finish: the account
-                                    // stays saved, and this button with it.
-                                    self.error = AppModel.describe(error)
-                                }
-                                removing = false
-                            }
-                        } label: {
-                            if removing { ProgressView() } else { Text(t("settings.main.removeSignInDetailsFrom")) }
-                        }
-                        .disabled(removing)
-                    }
-                }
-            }
-            .themedRows()
-        }
-        .themedList()
-        .navigationTitle(name)
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear { if username.isEmpty { username = summary?.username ?? "" } }
-        .onChange(of: summary?.username) { _, owner in
-            if username.isEmpty { username = owner ?? "" }
-        }
-    }
-
-    /// What Connect did. Only `.connected` saved the entries; after anything
-    /// else they stay in the form to be fixed and sent again.
-    private func connectOutcome(_ outcome: SchoolConnectOutcome) -> some View {
-        Section {
-            switch outcome {
-            case .connected:
-                Text(t("schoolSession.connect.connected")).foregroundStyle(Theme.ok)
-            case let .refused(reason, _):
-                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.refused)).foregroundStyle(Theme.danger)
-                Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-            case let .needsWeb(reason, _):
-                Text(SchoolSessionText.reason(reason) ?? SchoolSessionText.state(.needsWeb)).foregroundStyle(Theme.warn)
-                Text(t("schoolSession.connect.notSaved")).font(.footnote).foregroundStyle(Theme.muted)
-            case .unreachable:
-                Text(t("schoolSession.connect.unreachable")).foregroundStyle(Theme.warn)
-            case .notSaved:
-                Text(t("schoolSession.connect.saveFailed")).foregroundStyle(Theme.danger)
-            case .stopped:
-                Text(t("schoolSession.connect.stopped")).foregroundStyle(Theme.warn)
-            }
-        }
-    }
-
-    /// Why the account is stuck, then what to do. Without school OTP that is
-    /// setting it up on the portal (Retry would only get the emailed code
-    /// again); other needs-web says the person signs in on the school page;
-    /// refused says when Retry helps.
-    private func status(_ session: SchoolProfileSession) -> some View {
-        Section {
-            Text(SchoolSessionText.line(session))
-                .foregroundStyle(session.state == .refused ? Theme.danger : Theme.warn)
-            if SchoolSessionText.otpNotSetUp(session.state, problem: session.problem) {
-                Text(t("schoolSession.problem.emailOtp")).font(.footnote).foregroundStyle(Theme.muted)
-                Button(t("schoolSession.openPortal"), action: openPortal)
-            } else {
-                if session.state == .needsWeb {
-                    Text(t("schoolSession.needsWeb.signInYourself")).font(.footnote).foregroundStyle(Theme.muted)
-                }
-                Button {
-                    Task { await retry() }
-                } label: {
-                    if retrying { ProgressView() } else { Text(t("common.retry")) }
-                }
-                .disabled(retrying)
-            }
-        } footer: {
-            if session.state == .refused { Text(t("schoolSession.retry.otherDevice")) }
-        }
-    }
-
-    /// The portal's start page as it is, where the person signs in and sets
-    /// up school OTP by hand.
-    private func openPortal() {
-        web.showUnsigned(.sciencePortal)
-        navigator.tab = .web
-    }
-
-    private func retry() async {
-        retrying = true
-        defer { retrying = false }
-        do {
-            try await model.retrySchool(profile)
-        } catch {
-            self.error = AppModel.describe(error)
-        }
-    }
-
-    private func save() async {
-        saving = true
-        defer { saving = false }
-        error = nil
-        outcome = nil
-        do {
-            outcome = try await model.connect(
-                profile,
-                SchoolCredentials(username: username, password: password, otpSecret: otpSecret, matrix: matrix))
-            // The secrets are saved now; the fields go back to "enter only to change".
-            if case .connected = outcome {
-                password = ""
-                otpSecret = ""
-                matrix = ""
-            }
-        } catch {
-            self.error = AppModel.describe(error)
-        }
-    }
-}
-
-/// The desktop's language rows: the UI language and the language of school
-/// text. Both are workspace settings, so they follow the person to desktop.
-/// Settings → the background theme: five swatches, applied at once and kept
-/// in the synced settings (slotledger `approach/neutral-themes`).
-private struct ThemeSection: View {
-    @Environment(AppModel.self) private var model
-    @Environment(\.colorScheme) private var scheme
-
-    private static let names = ["warm": "settings.main.warm", "cool": "settings.main.cool", "paper": "settings.main.paper", "mist": "settings.main.mist", "moss": "settings.main.moss"]
-
-    var body: some View {
-        let chosen = model.records.settings.text("theme") ?? "warm"
-        Section {
-            HStack(spacing: 0) {
-                Label { Text(t("settings.main.theme")) } icon: { SettingsIcon(symbol: "paintpalette", tint: Theme.accent) }
-                Spacer(minLength: 12)
-                HStack(spacing: 10) {
-                    ForEach(Theme.themes, id: \.self) { id in swatch(id, selected: id == chosen) }
-                }
-            }
-            .sensoryFeedback(.selection, trigger: chosen)
-        }
-    }
-
-    private func swatch(_ id: String, selected: Bool) -> some View {
-        let set = IsctThemes.all[id].map { scheme == .dark ? $0.dark : $0.light }
-        return Button {
-            Task { await model.updateSettings { $0["theme"] = id } }
-        } label: {
-            Circle()
-                .fill(set?.bg ?? Theme.bg)
-                .overlay { Circle().fill(set?.surface ?? Theme.surface).padding(8) }
-                .overlay { Circle().strokeBorder(selected ? Theme.accent : Theme.line, lineWidth: selected ? 2 : 1) }
-                .frame(width: 28, height: 28)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(t(Self.names[id] ?? id))
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-/// Settings → Map: which maps app the campus map's "Open in Maps" links
-/// open in. Core builds the link from this device setting.
-private struct MapSection: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Section(t("settings.main.map")) {
-            Picker(selection: Binding(
-                get: { model.records.settings.text("mapsApp") ?? "apple" },
-                set: { value in Task { await model.updateSettings { $0["mapsApp"] = value } } }
-            )) {
-                Text(t("settings.main.appleMaps")).tag("apple")
-                Text(t("settings.main.googleMaps")).tag("google")
-            } label: {
-                Label { Text(t("settings.main.openPlacesIn")) } icon: { SettingsIcon(symbol: "map", tint: Theme.ok) }
-            }
-        }
-    }
-}
-
-private struct LanguageSection: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        Section {
-            Picker(selection: binding("locale", default: "en")) {
-                Text(verbatim: "English").tag("en")
-                Text(verbatim: "日本語").tag("ja")
-                Text(verbatim: "中文").tag("zh")
-            } label: {
-                Label { Text(t("common.language")) } icon: { SettingsIcon(symbol: "character.bubble", tint: Theme.accent) }
-            }
-            Picker(selection: binding("contentLanguage", default: "auto")) {
-                Text(t("common.automatic")).tag("auto")
-                Text(verbatim: "English").tag("en")
-                Text(verbatim: "日本語").tag("ja")
-            } label: {
-                Label { Text(t("settings.main.schoolContentLanguage")) } icon: { SettingsIcon(symbol: "text.book.closed", tint: Theme.accent) }
-            }
-        } footer: {
-            Text(t("settings.main.courseNamesRoomsAndSyllabus"))
-        }
-    }
-
-    private func binding(_ key: String, default fallback: String) -> Binding<String> {
-        Binding(
-            get: { model.records.settings.text(key) ?? fallback },
-            set: { value in Task { await model.updateSettings { $0[key] = value } } }
-        )
     }
 }

@@ -100,7 +100,7 @@ code {
     monospace;
 }
 pre {
-  padding: 12px 14px;
+  padding: var(--space-6) var(--space-7);
   border-radius: 8px;
   background: var(--md-surface);
   overflow-x: auto;
@@ -121,7 +121,7 @@ table {
 }
 th,
 td {
-  padding: 6px 10px;
+  padding: var(--space-3) var(--space-5);
   border: 1px solid var(--md-line);
   vertical-align: top;
 }
@@ -131,7 +131,7 @@ th {
 /* A wide formula scrolls sideways rather than overflowing the page. */
 .katex-display {
   margin: 0.9em 0;
-  padding: 2px 0;
+  padding: var(--space-1) 0;
   overflow-x: auto;
   overflow-y: hidden;
 }

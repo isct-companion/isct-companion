@@ -5,12 +5,10 @@ import type {
   LectureSearch,
   TimetableAxis,
   WorkspaceChange,
-} from "@app/generated/persistence";
-import type {
-  SchoolRecords,
   SchoolSessionSnapshot,
   SchoolSessionState,
-} from "@app/platform/desktop-bridge";
+} from "@app/generated/persistence";
+import type { SchoolRecords } from "@app/platform/desktop-bridge";
 
 /**
  * Data builders shared by the suites.
@@ -35,6 +33,18 @@ export function schoolProfiles(
     signOutPending: false,
     refusalUnsaved: false,
     state,
+    presentation: {
+      stateKey: {
+        "not-configured": "common.notConnected",
+        normal: "schoolSession.state.normal",
+        "signing-in": "common.signingIn",
+        refused: "schoolSession.state.refused",
+        "needs-web": "schoolSession.state.needsWeb",
+        unavailable: "schoolSession.state.unavailable",
+      }[state],
+      reasonKey: null,
+      recovery: [],
+    },
     problem: null,
     retryAt: null,
     maintenance: null,

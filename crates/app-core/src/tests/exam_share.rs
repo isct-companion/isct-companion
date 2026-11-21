@@ -405,7 +405,7 @@ fn a_draft_follows_its_role_and_the_api_limits() {
     long_note.note = "x".repeat(41);
     assert!(matches!(
         upload::validate(&mut long_note),
-        Err(ExamError::InvalidInput)
+        Err(ExamError::UploadNoteLength)
     ));
 }
 
@@ -501,4 +501,61 @@ fn files_come_only_from_the_storage_host() {
     ] {
         assert!(!file(refused), "{refused}");
     }
+}
+
+#[test]
+fn upload_readiness_validates_staged_bytes_and_the_actual_draft() {
+    let folder = std::env::temp_dir().join(format!("exam-readiness-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let image = folder.join("photo.png");
+    image::RgbImage::new(2, 2).save(&image).unwrap();
+    let pdf = folder.join("document.jpg");
+    std::fs::write(&pdf, b"%PDF-1.7").unwrap();
+    let file = |path: &std::path::Path, name: &str| ExamUploadFile {
+        path: path.to_string_lossy().into(),
+        name: name.into(),
+    };
+    let photo = file(&image, "misleading.pdf");
+    let document = file(&pdf, "misleading.jpg");
+    let mut draft = draft(ExamRole::Question, ExamOccasion::Final);
+    let ready = |draft: &ExamUploadDraft, files: &[ExamUploadFile], reason: Option<&str>| {
+        assert_eq!(upload_readiness(draft, files).reason_key.as_deref(), reason);
+    };
+    ready(&draft, &[], Some("error.exam-share-upload-no-files"));
+    ready(
+        &draft,
+        &[photo.clone(), document],
+        Some("error.exam-share-upload-mixed"),
+    );
+    ready(&draft, &[photo.clone(), photo.clone()], None);
+    draft.new_teachers.push(ExamNewTeacher {
+        family_name: " ".into(),
+        given_name: "A".into(),
+    });
+    ready(
+        &draft,
+        std::slice::from_ref(&photo),
+        Some("error.exam-share-upload-teacher-name"),
+    );
+    draft.new_teachers[0].family_name = "𠮷".repeat(51);
+    ready(
+        &draft,
+        std::slice::from_ref(&photo),
+        Some("error.exam-share-upload-teacher-length"),
+    );
+    draft.new_teachers[0].family_name = "𠮷".repeat(50);
+    draft.variant = "𠮷".repeat(51);
+    ready(
+        &draft,
+        std::slice::from_ref(&photo),
+        Some("error.exam-share-upload-variant-length"),
+    );
+    draft.variant.clear();
+    draft.note = "𠮷".repeat(21);
+    ready(
+        &draft,
+        &[photo],
+        Some("error.exam-share-upload-note-length"),
+    );
+    std::fs::remove_dir_all(folder).unwrap();
 }

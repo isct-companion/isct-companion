@@ -1,9 +1,9 @@
-import { ReaderTools } from "./ReaderPane";
+import { ReaderTools } from "../../components/files/ReaderPane";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { t } from "../../i18n";
 import { readNote, saveNote, moveNote, type CourseFolder } from "./files";
 const MarkdownDocument = lazy(() =>
-  import("./MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),
+  import("../../components/files/MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),
 );
 const RECOVERY_PREFIX = "lms-note-recovery:";
 const RECOVERY_TTL_MS = 30 * 24 * 60 * 60 * 1000;

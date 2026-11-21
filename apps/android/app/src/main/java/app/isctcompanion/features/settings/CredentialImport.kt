@@ -1,11 +1,14 @@
 package app.isctcompanion.features.settings
 
-import android.Manifest
+import app.isctcompanion.core.beginMatrixCamera
+import app.isctcompanion.core.canScanMatrix
+import app.isctcompanion.core.otpSetupLink
+import app.isctcompanion.shared.StillCameraResult
+import app.isctcompanion.shared.rememberStillCamera
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
@@ -75,8 +78,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.MatrixCameraSession
@@ -97,7 +98,6 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.common.InputImage
 import java.io.ByteArrayOutputStream
-import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -119,6 +119,7 @@ import app.isctcompanion.design.ButtonLevel
 private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
     AssistChip(
         onClick = onClick, enabled = enabled,
+        shape = RoundedCornerShape(Theme.radiusControl),
         // One line: a chip that does not fit moves to the next row of
         // `ChipRow` instead of breaking its label into a column.
         label = { Text(label, maxLines = 1, softWrap = false) },
@@ -130,7 +131,7 @@ private fun SourceChip(label: String, icon: ImageVector, enabled: Boolean = true
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChipRow(content: @Composable FlowRowScope.() -> Unit) =
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space4), content = content)
 
 /** An image on the clipboard (a screenshot shared to it), as a content URI. */
 private fun clipboardImage(context: Context): Uri? {
@@ -214,7 +215,7 @@ fun OtpImportField(
     }
 
     if (saved && !changing && setup.isEmpty()) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
             Text(t(if (verifiedAccount) "settings.credentialImport.codesAreFilledInFor" else "otpEnrollment.savedOnDevice"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
@@ -262,14 +263,14 @@ fun OtpImportField(
     if (read != null && !changing) {
         // A good read folds the chooser into one line, like a saved setup;
         // Change opens it again to fix a wrong image or link.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             Icon(Icons.Rounded.CheckCircle, null, tint = Theme.colors.ok, modifier = Modifier.size(20.dp))
             Text(read, color = Theme.colors.ok, modifier = Modifier.weight(1f))
             TextButton(onClick = { changing = true }) { Text(t("settings.credentialImport.change")) }
         }
         return
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         OtpBranchCard(branch == "help", t("otpEnrollment.help"), t("otpEnrollment.helpHint"), { branch = "help" }) {
             ActionButton(t("otpEnrollment.start"), { confirming = true }, level = ButtonLevel.Secondary)
         }
@@ -358,7 +359,7 @@ fun OtpImportField(
                     for (account in choices) {
                         Text(
                             name(account),
-                            modifier = Modifier.fillMaxWidth().clickable { choose(account) }.padding(vertical = 12.dp),
+                            modifier = Modifier.fillMaxWidth().clickable { choose(account) }.padding(vertical = Theme.space6),
                         )
                     }
                 }
@@ -382,22 +383,22 @@ private fun OtpBranchCard(selected: Boolean, title: String, hint: String, select
     ) {
         Row(
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space2),
             modifier = Modifier
                 .fillMaxWidth()
                 .selectable(selected, role = Role.RadioButton, onClick = select)
-                .padding(end = 14.dp, top = 2.dp, bottom = 12.dp),
+                .padding(end = Theme.space7, top = Theme.space1, bottom = Theme.space6),
         ) {
-            RadioButton(selected, onClick = null, modifier = Modifier.padding(12.dp).size(20.dp))
-            Column(Modifier.weight(1f).padding(top = 12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            RadioButton(selected, onClick = null, modifier = Modifier.padding(Theme.space6).size(20.dp))
+            Column(Modifier.weight(1f).padding(top = Theme.space6), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
                 Text(title, color = colors.ink, fontWeight = FontWeight.SemiBold)
                 Text(hint, style = MaterialTheme.typography.bodyMedium, color = colors.muted)
             }
         }
         if (selected) {
             Column(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = 14.dp, bottom = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(Theme.space4),
+                modifier = Modifier.fillMaxWidth().padding(start = 48.dp, end = Theme.space7, bottom = Theme.space7),
                 content = content,
             )
         }
@@ -472,30 +473,32 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             .onFailure { error = t("settings.credentialImport.pasteExactly70LettersIn") }
     }
 
-    fun scan(uri: Uri) {
-        scope.launch {
-            reading = true
-            error = null
-            note = null
-            try {
-                val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
-                val result = model.scanMatrix(jpeg)
-                if (result.size != 70) {
-                    error = t("settings.credentialImport.couldNotFindTheGrid")
-                } else {
-                    result.forEachIndexed { index, cell ->
-                        cells[index] = cell.text
-                        confidence[index] = cell.level
-                    }
-                    publish()
-                    editing = true
-                    note = t("settings.credentialImport.checkTheColouredCellsAgainst")
+    suspend fun scanImage(uri: Uri) {
+        reading = true
+        error = null
+        note = null
+        try {
+            val jpeg = withContext(Dispatchers.IO) { jpeg(context, uri) }
+            val result = model.scanMatrix(jpeg)
+            if (result.size != 70) {
+                error = t("settings.credentialImport.couldNotFindTheGrid")
+            } else {
+                result.forEachIndexed { index, cell ->
+                    cells[index] = cell.text
+                    confidence[index] = cell.level
                 }
-            } catch (failure: Exception) {
-                error = AppModel.describe(failure)
+                publish()
+                editing = true
+                note = t("settings.credentialImport.checkTheColouredCellsAgainst")
             }
-            reading = false
+        } catch (failure: Exception) {
+            error = AppModel.describe(failure)
         }
+        reading = false
+    }
+
+    fun scan(uri: Uri) {
+        scope.launch { scanImage(uri) }
     }
 
     var live by remember { mutableStateOf<MatrixCameraSession?>(null) }
@@ -517,24 +520,13 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     val photo = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         uri?.let(::scan)
     }
-    // Upload image, as on iOS: the system camera's still or a library photo.
-    // The system camera writes into a file this app hands it.
     var choosing by remember { mutableStateOf(false) }
-    var shot by remember { mutableStateOf<Uri?>(null) }
-    val hasCamera = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
-    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
-        if (taken) shot?.let(::scan)
-    }
-    fun takePhoto() {
-        val file = File(context.cacheDir, "photos").apply { mkdirs() }.resolve("matrix.jpg")
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-        shot = uri
-        takePicture.launch(uri)
-    }
-    // An app that declares the camera permission must hold it to start the
-    // system camera.
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-        if (allowed) takePhoto() else error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+    val camera = rememberStillCamera<Unit> { _, result ->
+        when (result) {
+            is StillCameraResult.Captured -> scanImage(result.uri)
+            StillCameraResult.Denied -> error = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+            StillCameraResult.Cancelled -> Unit
+        }
     }
 
     if (!editing) {
@@ -542,7 +534,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
     ChipRow {
         if (canScan) {
-            if (hasCamera) {
+            if (camera.available) {
                 SourceChip(t("settings.credentialImport.autoScan"), Icons.Rounded.DocumentScanner, enabled = !reading) {
                     error = null
                     note = null
@@ -554,15 +546,11 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
             Box {
                 SourceChip(t("settings.credentialImport.uploadImage"), Icons.Rounded.Image, enabled = !reading) { choosing = true }
                 DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
-                    if (hasCamera) {
+                    if (camera.available) {
                         DropdownMenuItem(text = { Text(t("settings.credentialImport.takePhoto")) }, onClick = {
                             choosing = false
                             error = null
-                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                takePhoto()
-                            } else {
-                                cameraPermission.launch(Manifest.permission.CAMERA)
-                            }
+                            camera.take(Unit)
                         })
                     }
                     DropdownMenuItem(text = { Text(t("settings.credentialImport.chooseFromLibrary")) }, onClick = {
@@ -594,7 +582,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
     }
     if (editing) {
         MatrixGrid(cells, confidence) { publish() }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Theme.space6)) {
             Swatch(Theme.colors.okSoft, t("settings.credentialImport.certain"))
             Swatch(Theme.colors.warnSoft, t("settings.credentialImport.check"))
             Swatch(Theme.colors.dangerSoft, t("settings.credentialImport.unreadable"))
@@ -611,7 +599,7 @@ fun MatrixImportSection(saved: Boolean, onMatrix: (String) -> Unit) {
 
 @Composable
 private fun Swatch(color: Color, label: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Box(Modifier.size(12.dp).clip(RoundedCornerShape(3.dp)).background(color))
         Text(label, style = MaterialTheme.typography.labelSmall, color = Theme.colors.muted)
     }
@@ -666,7 +654,7 @@ private fun MatrixGrid(cells: MutableList<String>, confidence: MutableList<Matri
                             .height(32.dp)
                             .clip(RoundedCornerShape(5.dp))
                             .background(fill)
-                            .padding(top = 6.dp)
+                            .padding(top = Theme.space3)
                             .focusRequester(focus[index]),
                     )
                 }

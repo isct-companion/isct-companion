@@ -153,19 +153,8 @@ pub fn read_search(
     {
         return Err("The course search columns changed.".into());
     }
-    let rows: Vec<ElementRef<'_>> = table_rows(grid)
-        .into_iter()
-        .filter(|row| first(*row, r#"a[href*="jwc="]"#).is_some())
-        .collect();
-    if rows.len() > MAX_PAGE_ROWS {
-        return Err("The course search returned more rows than one page holds.".into());
-    }
-    let base = url::Url::parse(&format!(
-        "https://{}{}",
-        super::HOST,
-        crate::urls::KYOMU_SEARCH_PATH
-    ))
-    .ok();
+    let rows = search_rows(grid)?;
+    let base = search_base();
     let mut courses = Vec::with_capacity(rows.len());
     let mut seen = HashSet::new();
     for row in rows {
@@ -206,6 +195,26 @@ pub fn read_search(
     }))
 }
 
+fn search_rows(grid: ElementRef<'_>) -> Result<Vec<ElementRef<'_>>, SchoolParseError> {
+    let rows: Vec<ElementRef<'_>> = table_rows(grid)
+        .into_iter()
+        .filter(|row| first(*row, r#"a[href*="jwc="]"#).is_some())
+        .collect();
+    if rows.len() > MAX_PAGE_ROWS {
+        return Err("The course search returned more rows than one page holds.".into());
+    }
+    Ok(rows)
+}
+
+fn search_base() -> Option<url::Url> {
+    url::Url::parse(&format!(
+        "https://{}{}",
+        super::HOST,
+        crate::urls::KYOMU_SEARCH_PATH
+    ))
+    .ok()
+}
+
 /// Reads one response of the search in English (after `ctl00$ToEnglish`):
 /// only each row's id, English title and romanized instructors, as
 /// `{ id, year, title: { en }, instructors: [{ en }] }`. The Japanese page
@@ -236,19 +245,8 @@ pub fn read_english(
     let (Some(_), Some(instructor)) = (at("Course Title"), at("Instructor")) else {
         return Err("The English course search columns changed.".into());
     };
-    let rows: Vec<ElementRef<'_>> = table_rows(grid)
-        .into_iter()
-        .filter(|row| first(*row, r#"a[href*="jwc="]"#).is_some())
-        .collect();
-    if rows.len() > MAX_PAGE_ROWS {
-        return Err("The course search returned more rows than one page holds.".into());
-    }
-    let base = url::Url::parse(&format!(
-        "https://{}{}",
-        super::HOST,
-        crate::urls::KYOMU_SEARCH_PATH
-    ))
-    .ok();
+    let rows = search_rows(grid)?;
+    let base = search_base();
     let mut courses = Vec::with_capacity(rows.len());
     for row in rows {
         let link = first(row, r#"a[href*="jwc="]"#).ok_or("A course search row is incomplete.")?;

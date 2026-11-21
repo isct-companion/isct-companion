@@ -20,7 +20,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
-import app.isctcompanion.features.timetable.clockMinutes
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -39,7 +38,7 @@ import org.json.JSONObject
  * forwards intents and reports lifecycle facts; every decision about what is
  * due, grouped or shown stays in Core. Lives as long as the process, so state
  * survives activity recreation. Every member is used on the main thread. */
-class AppModel(private val context: Context, private val scope: CoroutineScope) {
+class AppModel(internal val context: Context, private val scope: CoroutineScope) {
     /** Newer releases from GitHub, offered on 今日 (`AppUpdater`). */
     val updater = AppUpdater(context)
 
@@ -54,10 +53,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
-        private set
-    /** Files waiting in each assignment's `submit/`, by assignment id, for
-     * 今日's rows (Core's `waitingHandIns`). */
-    var waiting: Map<String, Int> by mutableStateOf(emptyMap())
         private set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
@@ -78,10 +73,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         private set
     /** Core's school session per account: state, problem, retry time and
      * maintenance, rendered as they are. */
-    var sessions: SchoolSessionProfiles? by mutableStateOf(null)
-        private set
-    /** The `revision` of the snapshot [sessions] came from. */
-    private var sessionRevision: ULong? = null
+    private var schoolSession: SchoolSessionSnapshot? by mutableStateOf(null)
+    val sessions: SchoolSessionProfiles?
+        get() = schoolSession?.profiles
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
@@ -98,9 +92,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
     var ocrProgress: Int by mutableStateOf(0)
         private set
-    /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
-    var cloud: SyncState? by mutableStateOf(null)
-        private set
+    private var ocrOperation: ULong? = null
     /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
      * events and `Account` answers report it; null until the page reads it. */
     var examAccount: ExamAccount? by mutableStateOf(null)
@@ -113,9 +105,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Google Drive sign-in; the activity in front attaches its consent screen. */
     val drive = DriveTokens(context)
     val web = WebRouter(browser, scope, context)
-    private var session: Session? = null
+    internal var session: Session? = null
+        private set
+    internal val backup = CloudBackup(
+        session = { session },
+        refreshWorkspace = { refresh() },
+        reportFailure = { problem = describe(it) },
+    )
     private var revision = ""
-    private var lastNotificationSeq: ULong? = null
     private val dashboardReads = ScheduleReads()
     internal val timetableWeeks = TimetableWeeks()
     private val sessionMarks = Mutex()
@@ -156,9 +153,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
+                config, KeystoreVault(context), browser, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
+            val model = java.lang.ref.WeakReference(this)
+            session.attachReminderPort(NotificationScheduler(context) { needed ->
+                model.get()?.notificationsBlocked = needed
+            })
             this.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
@@ -167,7 +168,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             refresh()
             refreshAccounts()
             readSync()
-            refreshCloud()
+            backup.refresh()
             status = Status.Ready
             watchNetwork()
             watchPowerSaver()
@@ -205,8 +206,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             armDeadline()
             scheduleRefresh(force = true)
             scope.launch { checkForUpdate() }
-            // Permission granted in the system settings while away.
-            if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
             deadlineJob?.cancel()
             deadlineJob = null
@@ -235,7 +234,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt, systemChange: Boolean) {
         start()
         val session = session ?: return
-        if (systemChange) runCatching { session.refreshWidgets() }
+        if (systemChange) {
+            runCatching { session.refreshWidgets() }
+            resyncNotifications()
+        }
         val id = java.util.UUID.randomUUID().toString()
         val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
             .getOrNull() ?: return
@@ -263,6 +265,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     fun open(view: SyncView) = hint(Hint.Open(view))
 
     fun refresh(target: SyncScope) = hint(Hint.Refresh(target))
+
+    fun retrySync(plan: RetryPlan) = plan.scopes.forEach(::refresh)
 
     /** Takes Core's directive, unless an older one; the in-front timer and
      * the WorkManager requests follow it. */
@@ -344,21 +348,26 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 is StreamUpdate.Event -> when (update.event.name) {
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
                         .onSuccess(::apply)
-                    // The whole snapshot. Credentials another device synced
-                    // change it too, so their summary is read again.
                     "school-session" -> {
-                        runCatching { decodeSchoolSession(update.event.payload) }
-                            .onSuccess(::applySchool)
-                            .onFailure { scope.launch { refreshAccounts() } }
-                        scope.launch { refreshCredentials() }
+                        val snapshot = runCatching { decodeSchoolSession(update.event.payload) }.getOrNull()
+                        if (snapshot == null) {
+                            refreshAccounts()
+                        } else {
+                            applySchool(snapshot)
+                            refreshCredentials()
+                        }
                     }
-                    "cloud-sync-state" -> refreshCloud()
+                    "cloud-sync-state" -> backup.refresh()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
                     "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
                         .onSuccess { examAccount = it }
-                    "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
-                        .onSuccess { ocrProgress = it }
+                    "ocr-progress" -> runCatching {
+                        val progress = JSONObject(update.event.payload)
+                        if (progress.getLong("operationId").toULong() == ocrOperation) {
+                            ocrProgress = progress.getInt("completed")
+                        }
+                    }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
@@ -417,8 +426,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (!dashboardReads.accept(snapshot, generation, session)) return
         if (revision == previousRevision) revision = current
         val key = "$generation-${result.seq}"
-        val changed = lastNotificationSeq != result.seq
-        lastNotificationSeq = result.seq
         // Publish every view and its revision before the next suspension.
         for (value in result.values) {
             when (value) {
@@ -436,8 +443,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         (overview?.values?.firstOrNull() as? WorkspaceQueryResult.WorkspaceOverview)?.let { colors = it.v1.colors }
         contentRevision = key
         scheduleBoundary()
-        refreshWaiting()
-        if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
     }
 
     /** Re-query when Core says the phase or hero changes next. */
@@ -451,11 +456,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
-    suspend fun refreshAccounts() {
-        refreshCredentials()
+    internal suspend fun refreshAccounts() {
         val session = session ?: return
         runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
             .getOrNull()?.let(::applySchool)
+        refreshCredentials()
     }
 
     private suspend fun refreshCredentials() {
@@ -466,11 +471,24 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Keeps the higher `revision` of Core's `school-session` events and
      * `schoolSession` reads. */
-    private fun applySchool(snapshot: SchoolSessionSnapshot) {
-        val shown = sessionRevision
-        if (shown != null && snapshot.revision < shown) return
-        sessionRevision = snapshot.revision
-        sessions = snapshot.profiles
+    internal fun applySchool(snapshot: SchoolSessionSnapshot) {
+        val current = schoolSession
+        if (current != null && snapshot.revision <= current.revision) return
+        schoolSession = snapshot
+    }
+
+    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
+    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
+        val session = session ?: return emptyList()
+        ocrProgress = 0
+        val operation = session.scanMatrix(image)
+        val id = operation.id()
+        ocrOperation = id
+        return try {
+            (operation.value() as? OperationResult.Recognitions)?.cells.orEmpty()
+        } finally {
+            if (ocrOperation == id) ocrOperation = null
+        }
     }
 
     /** On start and after a missed stream; `sync-snapshot` events carry every
@@ -513,88 +531,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun assignmentDetail(id: String): AssignmentDetail? =
         (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
 
-    // Campus map
-
-    /** Whether Core's map knows a room string, or with null whether a map is
-     * stored at all; false (also before Core has the map's file) means no
-     * map button. A failure also hides the button, but is logged. */
-    suspend fun campusMapHas(room: String?): Boolean {
-        val session = session ?: return false
-        if (room?.isEmpty() == true) return false
-        return try {
-            (session.campusMapHas(room).value() as? OperationResult.Flag)?.value == true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            false
-        } catch (error: Exception) {
-            Log.w("isct", "campus map has", error)
-            false
-        }
-    }
-
-    /** Opens Core's map page on a room string, or on none to browse. */
-    suspend fun campusMapOpen(room: String?): CampusMapOpening {
-        val session = session ?: return CampusMapOpening.Failed(t("error.internal"))
-        return try {
-            val scene = (session.campusMapOpen(room).value() as? OperationResult.CampusMapScene)?.scene
-            if (scene != null) CampusMapOpening.Ready(scene) else CampusMapOpening.Failed(t("error.internal"))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            CampusMapOpening.Missing
-        } catch (error: Exception) {
-            CampusMapOpening.Failed(describe(error))
-        }
-    }
-
-    /** One intent on an open map page; null when nothing drawn changed or
-     * the page is gone. A failure is logged: the page keeps its last scene. */
-    /** Sends one floor photo to the maintainers' inbox; `null` once stored,
-     * else what to show. */
-    suspend fun campusMapUploadPhoto(buildingId: String, jpeg: ByteArray): String? {
-        val session = session ?: return t("error.internal")
-        return try {
-            session.campusMapUploadPhoto(buildingId, jpeg).value()
-            null
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map photo", error)
-            describe(error)
-        }
-    }
-
-    suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
-        val session = session ?: return null
-        return try {
-            (session.campusMapSend(page, intent).value() as? OperationResult.CampusMapScene)?.scene
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map send", error)
-            null
-        }
-    }
-
-    /** What a map search's text names; Core echoes the text so the page can
-     * drop answers to text since changed. A failure carries the text to show. */
-    suspend fun campusMapSearch(query: String): Result<CampusMapSearch> {
-        val session = session ?: return Result.failure(IllegalStateException(t("error.internal")))
-        return try {
-            val search = (session.campusMapSearch(query).value() as? OperationResult.CampusMapSearch)?.search
-            if (search != null) Result.success(search) else Result.failure(IllegalStateException(t("error.internal")))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Result.failure(IllegalStateException(describe(error)))
-        }
-    }
-
-    /** Drops Core's map page, and its open if it is still loading. */
-    fun campusMapClose() {
-        session?.campusMapClose()
-    }
+    suspend fun deadlineDisplay(at: String): TaskDeadlineView? =
+        (query(WorkspaceQuery.DeadlineDisplay(at, Instant.now().toString())) as? WorkspaceQueryResult.DeadlineDisplay)?.v1
 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
@@ -645,71 +583,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Material)?.material
     }
 
-    // Hand-in (slotledger `approach/share-entry-points`): files go to the assignment's
-    // workspace `submit/`; handing in fills the LMS draft area from it. Core
-    // never submits; the person saves the page.
-
-    /** The files waiting in the assignment's `submit/`. */
-    suspend fun submitFiles(assignment: String): List<LocalFile> {
-        val session = session ?: return emptyList()
-        val result = runCatching { session.assignmentSubmitFiles(assignment).value() }.getOrNull()
-        return (result as? OperationResult.Files)?.files.orEmpty()
-    }
-
-    /** Copies the files into the assignment's `submit/`; the sources stay. */
-    suspend fun addSubmitFiles(assignment: String, files: List<SharedFile>): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.addAssignmentFiles(assignment, files).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
-    suspend fun removeSubmitFile(assignment: String, name: String): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
     /** Asks Core for a newer release when a check is due (or now, `manual`). */
     suspend fun checkForUpdate(manual: Boolean = false) {
         val session = session ?: return
         updater.check(session, manual)
-    }
-
-    /** Re-reads which assignments have files waiting to be handed in. */
-    suspend fun refreshWaiting() {
-        val session = session ?: return
-        val result = runCatching { session.waitingHandIns().value() }.getOrNull() as? OperationResult.Waiting ?: return
-        waiting = result.assignments.groupBy({ it.assignmentId }, { it.files.toInt() }).mapValues { it.value.sum() }
-    }
-
-    /** Queues `submit/` for the LMS draft area; returns the page that receives it. */
-    suspend fun handIn(assignment: String): String {
-        val session = session ?: throw SdkException.Closed()
-        val messages = UploadMessages(
-            t("failure.preparingYourLMSUpload"),
-            t("failure.filesSentToTheUpload"),
-            t("failure.theUploadAreaIsNot"),
-        )
-        return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
-            ?: throw SdkException.Unavailable("")
-    }
-
-    /** Gives inbox items to an assignment and removes them; on failure they stay. */
-    suspend fun give(items: List<SharedInbox.Item>, assignment: String): Boolean {
-        val files = items.map { SharedFile(it.file.path, it.name) }
-        if (files.isEmpty()) return false
-        return try {
-            addSubmitFiles(assignment, files)
-            items.forEach { SharedInbox.remove(context, it) }
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            problem = describe(error)
-            false
-        }
     }
 
     /** The syllabus departments, as the desktop's course finder lists them. */
@@ -863,37 +740,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         refresh(SyncScope.Everything)
     }
 
-    /** "Save and connect": Core signs in with the entered details and keeps
-     * them only when the school accepted them (`Connected`); every other
-     * outcome saved nothing. */
-    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectOutcome? {
-        val session = session ?: return null
-        val value = session.connectSchool(profile, credentials).value()
-        refreshAccounts()
-        return (value as? OperationResult.SchoolConnect)?.outcome
-    }
-
-    /** Retry on an account Core holds (`refused`, `needs-web`) or waits on
-     * (`unavailable`): Core reads the synced credentials again and signs in
-     * once in front; the credentials stay as they are. */
-    suspend fun retrySchool(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        (session.retrySchool(profile).value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
-    }
-
-    suspend fun schoolOtpCode(): SchoolOtpCode? {
-        val session = session ?: return null
-        return (session.schoolOtpCode().value() as? OperationResult.CurrentSchoolOtp)?.snapshot
-    }
-
-    /** The saved school OTP setup as an `otpauth://` link, read only when the
-     * person asks to add it to an authenticator or copy it. */
-    suspend fun otpSetupLink(): String {
-        val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-        return (session.schoolOtpLink().value() as? OperationResult.Text)?.value
-            ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-    }
-
     /** Edits `settings.notifications` and replaces the settings object. */
     suspend fun setNotifications(edit: (JSONObject) -> Unit) = updateSettings { settings ->
         val notifications = settings.optJSONObject("notifications") ?: JSONObject()
@@ -912,83 +758,12 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         Unit
     }
 
-    /** Schedules the plan again, after the notification permission changed. */
-    suspend fun resyncNotifications() {
-        val session = session ?: return
-        notificationsBlocked = NotificationScheduler.sync(context, session)
+    /** Reports a change in the system's reminder settings. */
+    fun resyncNotifications() {
+        runCatching { session?.refreshReminderPort() }
     }
 
-    /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */
-    val canScanMatrix: Boolean
-        get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
 
-    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
-    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
-        val session = session ?: return emptyList()
-        ocrProgress = 0
-        return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
-    }
-
-    /** Starts a live Matrix scan; its ten-second budget starts now. */
-    fun beginMatrixCamera(): MatrixCameraSession =
-        session?.beginMatrixCamera() ?: throw SdkException.Closed()
-
-    // Backup: the desktop's Backup settings over the same Core journal. Core
-    // decides what uploads, merges and restores.
-
-    suspend fun refreshCloud() {
-        val session = session ?: return
-        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
-            ?.let { cloud = it.state }
-    }
-
-    /** Turning Drive on first shows Google's consent; Core keeps it off with
-     * the reason if that fails. */
-    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
-        cloudOperation { it.setCloudEnabled(provider, enabled) }
-
-    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
-
-    suspend fun syncCloud(direction: Direction) {
-        cloudOperation { it.syncCloud(direction) }
-        refresh()
-    }
-
-    /** Restores a cloud version or a local recovery file, on every connected device. */
-    suspend fun restoreCloud(id: String) {
-        cloudOperation { it.restoreCloud(id) }
-        refresh()
-    }
-
-    /** The current workspace as a backup file (the desktop's Export…). */
-    suspend fun exportBackup(): String? {
-        val session = session ?: return null
-        return try {
-            (session.exportBackup().value() as? OperationResult.Text)?.value
-        } catch (error: Exception) {
-            problem = describe(error)
-            null
-        }
-    }
-
-    /** Imports a backup file; Core saves a recovery file first and publishes
-     * the import like any restore. Core rejects anything that is not a backup. */
-    suspend fun importBackup(text: String) {
-        val session = session ?: return
-        session.applyBackup(text).value()
-        refreshCloud()
-        refresh()
-    }
-
-    private suspend fun cloudOperation(start: (Session) -> Operation) {
-        val session = session ?: return
-        try {
-            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
-        } catch (error: Exception) {
-            problem = describe(error)
-            refreshCloud()
-        }
-    }
 
     /** Settings → Reset: what `request` would remove now, or null when Core
      * cannot tell. */
@@ -1009,67 +784,18 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         problem = null
         refreshAccounts()
         readSync()
-        refreshCloud()
-    }
-
-    /** After a full reset, as the desktop's: the providers that were on are
-     * turned on again, then their copy is pulled. Throws when either fails. */
-    suspend fun restoreFromCloud(providers: List<CloudProvider>) {
-        val session = session ?: return
-        for (provider in providers) session.setCloudEnabled(provider, true).value()
-        session.syncCloud(Direction.PULL).value()
-        refreshCloud()
-        refresh()
-    }
-
-    /** Forgets an account. Returns once Core's account barrier passed: its
-     * reads stopped, and its credentials, cookies and LMS token are gone, with
-     * every school web sign-in (the other account's next page writes its own
-     * again). */
-    suspend fun deleteCredentials(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        try {
-            session.deleteCredentials(profile).value()
-        } finally {
-            refreshAccounts()
-        }
+        backup.refresh()
     }
 
     companion object {
-        /** Core's sign-in problem in the person's words, chosen by its kind.
-         * Core's `message` is a diagnostic for the log, never shown. */
-        fun reason(kind: SchoolSignInProblemKind): String = when (kind) {
-            SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
-            SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
-            SchoolSignInProblemKind.OTP_NEEDED -> t("schoolSession.problem.otpNeeded")
-            SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
-            SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
-            SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")
-            SchoolSignInProblemKind.UNKNOWN_PAGE -> t("schoolSession.problem.unknownPage")
-            SchoolSignInProblemKind.CREDENTIAL_STORE -> t("schoolSession.problem.credentialStore")
-            SchoolSignInProblemKind.NETWORK, SchoolSignInProblemKind.UNANSWERED, SchoolSignInProblemKind.ANOMALY ->
-                t("schoolSession.state.unavailable")
+        fun sessionText(session: SchoolProfileSession): String =
+            signInText(session.presentation, session.retryAt)
+
+        fun signInText(presentation: SignInPresentation, retryAt: String? = null): String {
+            val time = Format.date(retryAt)?.let { Format.time(it) }
+            val state = if (time != null) t(presentation.stateKey, "time" to time) else t(presentation.stateKey)
+            return listOfNotNull(state, presentation.reasonKey?.let { t(it) }).joinToString(" · ")
         }
-
-        /** The school sent its emailed-code page: the account has no school
-         * OTP, so the next step is setting one up on the portal. */
-        fun otpNotSetUp(state: SchoolSessionState, problem: SchoolSignInProblem?): Boolean =
-            state == SchoolSessionState.NEEDS_WEB && problem?.kind == SchoolSignInProblemKind.EMAIL_OTP
-
-        /** One line for an account's session state, as the account row and a
-         * read waiting on it say it; `problem` and `retryAt` add what Core
-         * knows. */
-        fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
-            if (otpNotSetUp(state, problem)) t("schoolSession.state.otpNotSetUp") else when (state) {
-                SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
-                SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
-                SchoolSessionState.SIGNING_IN -> t("common.signingIn")
-                SchoolSessionState.REFUSED -> problem?.let { reason(it.kind) } ?: t("schoolSession.state.refused")
-                SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
-                SchoolSessionState.UNAVAILABLE -> Format.date(retryAt)
-                    ?.let { t("schoolSession.state.unavailableRetry", "time" to Format.time(it)) }
-                    ?: t("schoolSession.state.unavailable")
-            }
 
         /** An account's site paused for maintenance (LMS for Science Tokyo,
          * 教務Web for Tokyo Tech), until when, with the school's notice. */
@@ -1082,31 +808,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
             return listOfNotNull(line, maintenance.notice?.ifBlank { null }).joinToString("\n")
         }
-
-        /** Core's `school-session` payload, the snapshot in its serde names. */
-        private fun decodeSchoolSession(payload: String): SchoolSessionSnapshot {
-            val row = JSONObject(payload)
-            val profiles = row.getJSONObject("profiles")
-            return SchoolSessionSnapshot(
-                revision = row.getLong("revision").toULong(),
-                profiles = SchoolSessionProfiles(
-                    science = profileSession(profiles.getJSONObject("science")),
-                    tokyoTech = profileSession(profiles.getJSONObject("tokyoTech")),
-                ),
-            )
-        }
-
-        private fun profileSession(row: JSONObject) = SchoolProfileSession(
-            signOutPending = row.getBoolean("signOutPending"),
-            refusalUnsaved = row.getBoolean("refusalUnsaved"),
-            state = wire(row.getString("state")),
-            problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
-            retryAt = row.text("retryAt"),
-            maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },
-        )
-
-        /** A kebab-case serde name as its enum entry (`needs-web` → `NEEDS_WEB`). */
-        private inline fun <reified T : Enum<T>> wire(raw: String): T = enumValueOf(raw.uppercase().replace('-', '_'))
 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)

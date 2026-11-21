@@ -66,7 +66,7 @@ impl WebBounds {
     }
 }
 /// What wry reports for a main view. Navigation and windows go through the
-/// platform host instead (`school_webkit.rs`; `school_windows.rs` for now).
+/// platform host instead (`school_webkit/mod.rs`; `school_windows.rs` for now).
 #[derive(Clone)]
 pub(crate) struct ViewCallbacks {
     pub loaded: Arc<dyn Fn(&str) + Send + Sync>,

@@ -14,7 +14,12 @@ import type {
   WorkspaceIntent,
   WorkspaceMutation,
 } from "@app/lib/workspace-intents";
-import type { WorkspaceChange } from "@app/generated/persistence";
+import type {
+  WorkspaceChange,
+  RunView,
+  SchoolSessionSnapshot,
+  SyncSnapshot,
+} from "@app/generated/persistence";
 import type { SectionContext } from "@app/pages/settings/registry";
 import {
   can,
@@ -32,16 +37,7 @@ import {
   scheduleQuery,
   type ScheduleQuery,
 } from "@app/platform/core-query";
-import {
-  createTauriDesktopBridge,
-  getDesktopBridge,
-  type InvokeNative,
-  type ListenNative,
-  type SchoolDownloadEvent,
-  type SchoolRecords,
-  type SchoolSessionSnapshot,
-  type WorkspaceChangedEvent,
-} from "@app/platform/desktop-bridge";
+import { createTauriDesktopBridge, getDesktopBridge, type InvokeNative, type ListenNative, type SchoolDownloadEvent, type SchoolRecords, type WorkspaceChangedEvent } from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
 import {
   changesCommitted,
@@ -53,10 +49,7 @@ import {
 import {
   pageProgress,
   progressLine,
-  retryScope,
   runsFor,
-  type RunView,
-  type SyncSnapshot,
 } from "@app/platform/sync";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
@@ -922,6 +915,11 @@ function listenerSeam() {
 const snapshot = (generation: number, done: number): SyncSnapshot => ({
   generation,
   resetting: false,
+  attention: {
+    primary: { kind: "active", run: "run-1" },
+    problem: null,
+    busy: true,
+  },
   runs: [
     {
       run: "run-1",
@@ -934,6 +932,7 @@ const snapshot = (generation: number, done: number): SyncSnapshot => ({
       scope: "42",
       held: null,
       failure: null,
+      retry: null,
     },
   ],
   sources: [],
@@ -1016,7 +1015,16 @@ describe("Tauri bridge contract", () => {
     const { invoke, calls } = invokeSeam((command) => {
       switch (command) {
         case "connect_school":
-          return { kind: "refused", reason: "invalid-otp", refusalUnsaved: false };
+          return {
+            kind: "refused",
+            reason: "invalid-otp",
+            refusalUnsaved: false,
+            presentation: {
+              stateKey: "schoolSession.state.refused",
+              reasonKey: "failure.theOneTimePasswordWas",
+              recovery: [],
+            },
+          };
         case "navigate_school_web":
         case "set_school_web_zoom":
         case "school_web_forward":
@@ -1057,7 +1065,16 @@ describe("Tauri bridge contract", () => {
     };
 
     await expect(bridge.connectSchool("science", credentials)).resolves.toEqual(
-      { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
+      {
+        kind: "refused",
+        reason: "invalid-otp",
+        refusalUnsaved: false,
+        presentation: {
+          stateKey: "schoolSession.state.refused",
+          reasonKey: "failure.theOneTimePasswordWas",
+          recovery: [],
+        },
+      },
     );
     await expect(bridge.schoolSessionSnapshot()).resolves.toEqual({
       revision: 4,
@@ -1291,11 +1308,14 @@ describe("Tauri bridge contract", () => {
       profiles: schoolProfiles("normal", "normal"),
     };
     seam.deliver(valid);
-    // The pre-redesign per-profile event and states are refused outright.
     seam.deliver({ profile: "science", state: "active", revision: 3 });
+    // An inherited object key cannot stand in for a Core state.
     seam.deliver({
       revision: 4,
-      profiles: { ...valid.profiles, science: { state: "verifying" } },
+      profiles: {
+        ...valid.profiles,
+        science: { ...valid.profiles.science, state: "toString" },
+      },
     });
     seam.deliver({ revision: -1, profiles: valid.profiles });
     seam.deliver({
@@ -1389,59 +1409,44 @@ const run = (overrides: Partial<RunView>): RunView => ({
   scope: null,
   held: null,
   failure: null,
+  retry: null,
   ...overrides,
 });
-const syncOf = (...runs: RunView[]): SyncSnapshot => ({
+const syncOf = (
+  primary: SyncSnapshot["attention"]["primary"],
+  ...runs: RunView[]
+): SyncSnapshot => ({
   generation: 1,
   resetting: false,
+  attention: { primary, problem: null, busy: primary?.kind === "active" },
   runs,
   sources: [],
 });
 
 describe("sync snapshot surfaces", () => {
-  it("shows a bar only for a run of known size and a spinner for background-only work", () => {
-    expect(progressLine(syncOf())).toEqual({ kind: "idle" });
-    const background = run({ run: "bg", priority: "background", total: 40 });
-    expect(progressLine(syncOf(background))).toMatchObject({
-      kind: "background",
-    });
-    const unsized = run({ run: "vis" });
-    expect(progressLine(syncOf(background, unsized))).toMatchObject({
-      kind: "busy",
-      run: { run: "vis" },
-    });
-    // The page the person opened outranks Core's visible work.
-    const opened = run({
-      run: "open",
-      priority: "interactive",
-      done: 4,
-      total: 9,
-    });
-    expect(progressLine(syncOf(unsized, opened))).toEqual({
-      kind: "bar",
-      run: opened,
-      done: 4,
-      total: 9,
-    });
-  });
+  it("renders Core's selected work with the appropriate progress control", () => {
+    expect(progressLine(syncOf(null))).toEqual({ kind: "idle" });
 
-  it("names a held foreground run before quiet background work, and skips failed runs", () => {
-    const held = run({ run: "held", held: { kind: "cellular" } });
-    const failed = run({
-      run: "failed",
-      total: 3,
-      failure: { kind: "http-503", keysFailed: 1, retryAt: null, detail: null },
-    });
-    const background = run({ run: "bg", priority: "background" });
-    expect(progressLine(syncOf(failed, held, background))).toMatchObject({
-      kind: "held",
-      held: { kind: "cellular" },
-    });
-    expect(progressLine(syncOf(failed))).toEqual({ kind: "idle" });
+    const background = run({ priority: "background", total: 40 });
+    expect(progressLine(syncOf({ kind: "active", run: background.run }, background)))
+      .toMatchObject({ kind: "background" });
+
+    const unsized = run({});
+    expect(progressLine(syncOf({ kind: "active", run: unsized.run }, unsized)))
+      .toMatchObject({ kind: "busy" });
+
+    const sized = run({ done: 4, total: 9 });
+    expect(progressLine(syncOf({ kind: "active", run: sized.run }, sized)))
+      .toEqual({ kind: "bar", run: sized, done: 4, total: 9 });
+
+    const held = run({ held: { kind: "cellular" } });
+    expect(progressLine(syncOf({ kind: "held", run: held.run }, held)))
+      .toMatchObject({ kind: "held", held: { kind: "cellular" } });
   });
 
   it("sums a page's runs by scope, and drops the total when any run's size is unknown", () => {
     const snapshot = syncOf(
+      null,
       run({ run: "a", scope: "42", done: 2, total: 5 }),
       run({ run: "b", dataset: "lms.assign", scope: "42", done: 1, total: 1 }),
       run({ run: "c", scope: "43", done: 7, total: 7 }),
@@ -1457,30 +1462,5 @@ describe("sync snapshot surfaces", () => {
       pageProgress([run({ done: 1, total: 4 }), run({ done: 2 })]),
     ).toEqual({ done: 3, total: null });
     expect(pageProgress(runsFor(snapshot, ["kyomu"]))).toBeNull();
-  });
-
-  it("retries a failed dataset at its own scope", () => {
-    expect(retryScope(run({ scope: "42" }))).toEqual({
-      kind: "course",
-      lmsCourseId: 42,
-    });
-    expect(retryScope(run({ dataset: "lms.deadlines" }))).toEqual({
-      kind: "site",
-      site: "science-lms",
-    });
-    expect(retryScope(run({ dataset: "kyomu.page", scope: "gpa" }))).toEqual({
-      kind: "site",
-      site: "kyomu",
-    });
-    expect(
-      retryScope(run({ dataset: "catalog.official", scope: "2026" })),
-    ).toEqual({ kind: "catalog", year: 2026 });
-    // A scope that is not a year names no catalog.
-    expect(
-      retryScope(run({ dataset: "catalog.official", scope: "202602431" })),
-    ).toEqual({ kind: "everything" });
-    expect(retryScope(run({ dataset: "reference" }))).toEqual({
-      kind: "references",
-    });
   });
 });

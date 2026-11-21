@@ -36,7 +36,9 @@ mod identity;
 mod jar;
 mod login;
 mod owner;
+mod presentation;
 mod site;
+mod snapshot;
 mod store;
 mod vpn;
 mod walk;
@@ -45,7 +47,14 @@ mod web;
 pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use login::fresh_otp;
 pub(crate) use owner::Permit;
+pub use presentation::{
+    SchoolConnectOutcome, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
+    SignInPresentation, SignInRecovery,
+};
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
+pub use snapshot::{
+    SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
+};
 pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 
@@ -54,11 +63,9 @@ use self::{
     jar::Jar,
     owner::Owner,
     site::SiteSession,
-    store::Saved,
     web::{WebError, WebQueue},
 };
 use crate::{
-    events::CoreEvent,
     net::{BoxFuture, Host, Http, Limits, NetError, NetRequest, Response},
     ports::EventSink,
     runtime_tasks::RuntimeTasks,
@@ -113,148 +120,6 @@ const _: () = assert!(
     SIGN_IN_DEADLINE.as_secs() + 2 * Limits::page().deadline.as_secs()
         <= crate::plan::KEY_DEADLINE.as_secs()
 );
-
-/// One account as shells show it, derived from what Core keeps about it
-/// (`identity::Identity::view`).
-#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolSessionState {
-    /// No credentials are saved.
-    NotConfigured,
-    /// Nothing stands in the way: Core signs in when it needs to.
-    Normal,
-    SigningIn,
-    /// The school refused the saved credentials: Core does not sign in with
-    /// them on its own until they change or the person retries.
-    Refused,
-    /// The school wants the person on its own page (an emailed code, a new
-    /// password, a page Core does not know).
-    NeedsWeb,
-    /// No verdict (network, an unanswered sign-in, an anomaly); Core tries
-    /// again after `retry_at`.
-    Unavailable,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum SchoolSignInProblemKind {
-    InvalidCredentials,
-    InvalidOtp,
-    /// The school asks for the App one-time password and the Connect
-    /// entered no OTP setup.
-    OtpNeeded,
-    InvalidMatrix,
-    EmailOtp,
-    PasswordChange,
-    UnknownPage,
-    Network,
-    /// The password went out and no answer came: counted as submitted.
-    Unanswered,
-    /// A fresh sign-in was sent straight back to the sign-in page.
-    Anomaly,
-    /// The system vault refused to give the saved credentials (a locked or
-    /// denied keychain): nothing was sent, and it is not the network.
-    CredentialStore,
-}
-
-impl SchoolSignInProblemKind {
-    /// The school wants the person on its own page, not other credentials.
-    pub(crate) fn needs_web(self) -> bool {
-        matches!(
-            self,
-            Self::EmailOtp | Self::PasswordChange | Self::UnknownPage
-        )
-    }
-}
-
-/// Why an account is not signed in. A refusal is kept with the credentials
-/// it is about (`school_auth`'s refusal record), so a relaunch never sends
-/// a refused password again.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolSignInProblem {
-    pub kind: SchoolSignInProblemKind,
-    /// Core's short diagnostic, for logs; shells show text for `kind`.
-    pub message: String,
-}
-
-/// A site the school paused for maintenance, while the pause lasts.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolMaintenance {
-    pub notice: Option<String>,
-    pub until: DateTime<Utc>,
-}
-
-/// One account's session as shells render it.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolProfileSession {
-    pub sign_out_pending: bool,
-    pub state: SchoolSessionState,
-    pub problem: Option<SchoolSignInProblem>,
-    pub refusal_unsaved: bool,
-    /// When Core tries again on its own (`unavailable` only).
-    pub retry_at: Option<DateTime<Utc>>,
-    /// The account's site (LMS, 教務Web) is paused for maintenance.
-    pub maintenance: Option<SchoolMaintenance>,
-}
-
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolSessionProfiles {
-    pub science: SchoolProfileSession,
-    pub tokyo_tech: SchoolProfileSession,
-}
-
-/// Sent as `school-session` whenever it changes; a shell keeps the higher
-/// revision of this and what it read.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchoolSessionSnapshot {
-    pub revision: u64,
-    pub profiles: SchoolSessionProfiles,
-}
-
-impl SchoolSessionSnapshot {
-    pub fn profile(&self, profile: SchoolAuthProfile) -> &SchoolProfileSession {
-        match profile {
-            SchoolAuthProfile::Science => &self.profiles.science,
-            SchoolAuthProfile::TokyoTech => &self.profiles.tokyo_tech,
-        }
-    }
-}
-
-/// How `Core::connect_school` ended, for the Connect form. Only `Connected`
-/// saved anything: the entered credentials are the verified ones now and
-/// sync to the person's other devices. Every other outcome keeps the
-/// form's input.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum SchoolConnectOutcome {
-    Connected,
-    /// The school refused these credentials: the ID or password, the
-    /// one-time password or the Matrix (`reason`).
-    Refused {
-        reason: SchoolSignInProblemKind,
-        #[serde(rename = "refusalUnsaved")]
-        refusal_unsaved: bool,
-    },
-    /// The school wants the person on its own page: an emailed code, a new
-    /// password, a page Core does not know (`reason`).
-    NeedsWeb {
-        reason: SchoolSignInProblemKind,
-        #[serde(rename = "refusalUnsaved")]
-        refusal_unsaved: bool,
-    },
-    /// No verdict: offline, the network, out of time.
-    Unreachable,
-    /// The school accepted the credentials, and the system credential vault
-    /// did not save them: the saved credentials are as they were.
-    NotSaved,
-    /// A newer Connect, a sign-out or a reset stopped it.
-    Stopped,
-}
 
 /// The identity cookies of one sign-in, as the providers sent them.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
@@ -689,7 +554,7 @@ impl SchoolSessions {
     ) -> Result<SchoolConnectOutcome, SchoolAuthError> {
         let inner = &self.0;
         let Some(permit) = inner.account(profile).owner.permit() else {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         };
         // The person's Connect replaces the running sign-in at once, before
         // the vault is read: a read that fails leaves none running.
@@ -697,7 +562,7 @@ impl SchoolSessions {
         let intent = turn.intent;
         inner.publish();
         let Some(blocking) = inner.account(profile).owner.permit_of(permit.generation()) else {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         };
         let auth = inner.auth.clone();
         let credentials = tokio::task::spawn_blocking(move || {
@@ -710,7 +575,7 @@ impl SchoolSessions {
             SchoolAuthError::Storage("The saved credentials could not be read.".into())
         })??;
         if permit.is_cancelled() {
-            return Ok(SchoolConnectOutcome::Stopped);
+            return Ok(SchoolConnectOutcome::stopped());
         }
         inner.restore(profile).await;
         let seen = inner.account(profile).identity.generation();
@@ -722,24 +587,42 @@ impl SchoolSessions {
         let ended = inner.sign_in(profile, seen, how).await;
         inner.changed();
         Ok(match ended {
-            Ok(_) => SchoolConnectOutcome::Connected,
+            Ok(_) => SchoolConnectOutcome::Connected {
+                presentation: SignInPresentation::new("schoolSession.connect.connected", None, []),
+            },
             Err(Ended::Refused(problem)) if problem.kind.needs_web() => {
                 SchoolConnectOutcome::NeedsWeb {
                     refusal_unsaved: inner.auth.refusal_unsaved(profile)
                         && inner.auth.refusal(profile).as_ref() == Some(&problem),
                     reason: problem.kind,
+                    presentation: SignInPresentation::new(
+                        "schoolSession.state.needsWeb",
+                        Some(problem.kind),
+                        problem.kind.page_recovery(),
+                    ),
                 }
             }
             Err(Ended::Refused(problem)) => SchoolConnectOutcome::Refused {
                 refusal_unsaved: inner.auth.refusal_unsaved(profile)
                     && inner.auth.refusal(profile).as_ref() == Some(&problem),
                 reason: problem.kind,
+                presentation: SignInPresentation::new(
+                    "schoolSession.state.refused",
+                    Some(problem.kind),
+                    [],
+                ),
             },
-            Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved,
-            Err(Ended::Stopped) => SchoolConnectOutcome::Stopped,
-            Err(Ended::Unavailable(_) | Ended::Offline | Ended::NotConfigured) => {
-                SchoolConnectOutcome::Unreachable
+            Err(Ended::NotSaved { .. }) => SchoolConnectOutcome::NotSaved {
+                presentation: SignInPresentation::new("schoolSession.connect.saveFailed", None, []),
+            },
+            Err(Ended::Stopped) => SchoolConnectOutcome::stopped(),
+            Err(Ended::Unavailable(problem)) => {
+                SchoolConnectOutcome::unreachable(Some(problem.kind))
             }
+            Err(Ended::Offline) => {
+                SchoolConnectOutcome::unreachable(Some(SchoolSignInProblemKind::Network))
+            }
+            Err(Ended::NotConfigured) => SchoolConnectOutcome::unreachable(None),
         })
     }
 
@@ -1240,160 +1123,6 @@ impl Inner {
     fn changed(&self) {
         self.credentials.changed();
     }
-
-    fn profile(&self, profile: SchoolAuthProfile) -> SchoolProfileSession {
-        let account = self.account(profile);
-        let (state, problem, retry_at) = account.identity.view(self.auth.refusal(profile));
-        SchoolProfileSession {
-            sign_out_pending: account.owner.sign_out_pending(),
-            state,
-            problem,
-            refusal_unsaved: self.auth.refusal_unsaved(profile),
-            retry_at,
-            maintenance: self.maintenance(account),
-        }
-    }
-
-    fn profiles(&self) -> SchoolSessionProfiles {
-        SchoolSessionProfiles {
-            science: self.profile(SchoolAuthProfile::Science),
-            tokyo_tech: self.profile(SchoolAuthProfile::TokyoTech),
-        }
-    }
-
-    /// The account's site paused for maintenance: by the school's notice, or
-    /// by the host's breaker after a maintenance answer.
-    fn maintenance(&self, account: &Account) -> Option<SchoolMaintenance> {
-        let host = account.sites.first()?.site.host();
-        let until = self.transport.paused_until(host)?;
-        let notice = account
-            .sites
-            .iter()
-            .find_map(|site| guard(&site.state).notice.clone());
-        notice.as_ref()?;
-        Some(SchoolMaintenance {
-            notice,
-            until: DateTime::from_timestamp(until, 0).unwrap_or_else(Utc::now),
-        })
-    }
-
-    /// Brings the published snapshot up to date and returns it, sending
-    /// `school-session` when what shells render changed. The view is derived
-    /// and numbered under the snapshot's lock: a later revision is always a
-    /// later view. Events may arrive out of order; shells keep the highest
-    /// revision.
-    fn publish(&self) -> SchoolSessionSnapshot {
-        let (snapshot, changed) = {
-            let mut published = guard(&self.published);
-            let profiles = self.profiles();
-            match published.as_mut() {
-                Some(current) if current.profiles == profiles => (current.clone(), false),
-                Some(current) => {
-                    current.revision += 1;
-                    current.profiles = profiles;
-                    (current.clone(), true)
-                }
-                None => (
-                    published
-                        .insert(SchoolSessionSnapshot {
-                            revision: 1,
-                            profiles,
-                        })
-                        .clone(),
-                    true,
-                ),
-            }
-        };
-        if changed {
-            if let Some(events) = self.events.get() {
-                let _ = events.emit(CoreEvent::SchoolSession(snapshot.clone()));
-            }
-        }
-        snapshot
-    }
-
-    /// Reads the account's vault items once: its identity, the sites' jars
-    /// and the refusals kept on this device. The read holds a permit until
-    /// what it read is installed, so a barrier forgets and deletes only
-    /// after it; the blocking read holds one of its own to its end, since a
-    /// shell's vault is free to write while it reads.
-    async fn restore(&self, profile: SchoolAuthProfile) {
-        let account = self.account(profile);
-        let first = AtomicBool::new(false);
-        account
-            .restored
-            .get_or_init(|| async {
-                first.store(true, Ordering::SeqCst);
-                // A barrier is running: it deletes the item anyway.
-                let Some(permit) = account.owner.permit() else {
-                    return;
-                };
-                let Some(blocking) = account.owner.permit_of(permit.generation()) else {
-                    return;
-                };
-                let auth = self.auth.clone();
-                let loaded = tokio::task::spawn_blocking(move || {
-                    let _permit = blocking;
-                    if let Err(error) = auth.load_refusals() {
-                        log::warn!(target: "app_core::school_session", "refusals not read: {error}");
-                    }
-                    let saved = auth.load_session(profile).ok().flatten()?;
-                    Saved::decode(&saved)
-                })
-                .await
-                .ok()
-                .flatten();
-                let Some(saved) = loaded else { return };
-                let snapshot = Snapshot {
-                    cookies: saved.identity.clone(),
-                };
-                let Some(generation) = account.identity.restore(snapshot) else {
-                    return;
-                };
-                for site in &account.sites {
-                    if let Some(jar) = saved.site(site.site).and_then(Jar::load) {
-                        site.install_restored(jar, generation);
-                    }
-                }
-                log::info!(target: "app_core::school_session", "restored the saved session profile={profile:?}");
-            })
-            .await;
-        // The jars and refusals are known now, no longer unchecked.
-        if first.load(Ordering::SeqCst) {
-            self.changed();
-        }
-        self.publish();
-    }
-
-    /// Saves the identity and every site's jar of the account, for an
-    /// operation of account generation `generation`. The write holds a
-    /// permit of that generation until it lands, however the caller ends: a
-    /// barrier waits for it, so it never lands after the barrier deleted
-    /// the item, and an operation of an older generation writes nothing.
-    async fn persist(&self, profile: SchoolAuthProfile, generation: u64) {
-        let account = self.account(profile);
-        let Some(permit) = account.owner.permit_of(generation) else {
-            return;
-        };
-        let Some(snapshot) = account.identity.persisted() else {
-            return;
-        };
-        let mut saved = Saved::new(snapshot.cookies.clone());
-        for site in &account.sites {
-            saved = saved.with_site(site.site, site.saved_jar());
-        }
-        let Some(text) = saved.encode() else { return };
-        let auth = self.auth.clone();
-        let stored = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            auth.store_session(profile, &text)
-        })
-        .await;
-        if let Ok(Err(error)) = stored {
-            log::warn!(target: "app_core::school_session", "session not saved profile={profile:?}: {error}");
-        }
-    }
-
     /// The barrier. It closes admission first, then cancels the account's
     /// sign-in and reads and waits for every operation of it (writes run on
     /// to their end), and only then, still closed, deletes Core's identity
@@ -1621,6 +1350,23 @@ impl Inner {
             answer: None,
         })
     }
+}
+
+#[cfg(feature = "ts")]
+pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
+    use ts_rs::TS;
+    vec![
+        SchoolSessionState::decl(cfg),
+        SchoolSignInProblemKind::decl(cfg),
+        SignInRecovery::decl(cfg),
+        SignInPresentation::decl(cfg),
+        SchoolSignInProblem::decl(cfg),
+        SchoolConnectOutcome::decl(cfg),
+        SchoolMaintenance::decl(cfg),
+        SchoolProfileSession::decl(cfg),
+        SchoolSessionProfiles::decl(cfg),
+        SchoolSessionSnapshot::decl(cfg),
+    ]
 }
 
 #[cfg(test)]

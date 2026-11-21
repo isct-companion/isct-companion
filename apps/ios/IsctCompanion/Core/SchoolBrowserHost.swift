@@ -523,6 +523,7 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
     /// The history entry of the last committed page. A form resubmission
     /// whose entry differs travels through history instead of reloading.
     private(set) var committed: WKBackForwardListItem?
+    private var committedLoad: (navigation: WKNavigation, url: URL?)?
     private weak var host: SchoolBrowserHost?
     /// A same-document navigation (`pushState`) changes the history with no
     /// commit or finish.
@@ -622,12 +623,15 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
 
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         committed = webView.backForwardList.currentItem
+        if let navigation { committedLoad = (navigation, webView.url) }
         host?.historyChanged(self)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         host?.historyChanged(self)
-        host?.loaded(self, url: webView.url)
+        // An old finish must not borrow the URL of a newer navigation.
+        guard let committedLoad, committedLoad.navigation === navigation else { return }
+        host?.loaded(self, url: committedLoad.url)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

@@ -17,7 +17,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.SectionLabel
@@ -45,8 +44,8 @@ fun WelcomeSheet(connect: () -> Unit) {
     }
     ModalBottomSheet(onDismissRequest = { Guide.closeWelcome() }, sheetState = state, containerColor = Theme.colors.bg) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = Theme.space8).padding(bottom = Theme.space10),
+            verticalArrangement = Arrangement.spacedBy(Theme.space4),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -68,7 +67,7 @@ fun WelcomeSheet(connect: () -> Unit) {
             Footer(t("guide.canDifferFromTheApp"))
             Footer(t("widget.addOnPhone"))
             if (model.needsAccount) {
-                Button(onClick = { close(connect) }, modifier = Modifier.fillMaxWidth().padding(top = 16.dp)) {
+                Button(onClick = { close(connect) }, modifier = Modifier.fillMaxWidth().padding(top = Theme.space8)) {
                     Text(t("common.connectSchoolAccounts"), fontWeight = FontWeight.SemiBold)
                 }
             }

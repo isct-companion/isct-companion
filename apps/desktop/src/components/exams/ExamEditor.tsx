@@ -5,7 +5,7 @@ import type { ExamAssociation, ExamView } from "../../generated/persistence";
 import type { Course } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
 import { workspaceActions } from "../../store/workspace";
-import { notify } from "../../app/notify";
+import { notify } from "../notifications/notify";
 import { t } from "../../i18n";
 import "./exams.css";
 

@@ -58,7 +58,7 @@ private struct OtpGuideSheet: View {
         NavigationStack {
             TabView(selection: $page) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
-                    VStack(spacing: 16) {
+                    VStack(spacing: Theme.space8) {
                         Screenshot(step: step, isCurrent: page == index)
                         Text(t(step.caption))
                             .font(.callout)
@@ -135,7 +135,7 @@ private struct TapMarker: View {
         .frame(width: 40, height: 40)
         .onAppear {
             guard !reduceMotion else { return }
-            withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulsing = true }
+            withAnimation(.easeOut(duration: Theme.motionGuideTap).repeatForever(autoreverses: false)) { pulsing = true }
         }
     }
 }

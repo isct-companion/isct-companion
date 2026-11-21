@@ -99,18 +99,16 @@ export const ImageThumbnail = memo(function ImageThumbnail({
 
 export const RichContent = memo(function RichContent({
   html,
-  language,
   openLink,
   files,
   folders,
 }: {
   files: FileAccess;
   html: string;
-  language?: "ja" | "en";
   openLink: (url: string, title: string, anchor?: Element) => void;
   folders?: LinkedFolders;
 }) {
-  const content = useMemo(() => safeContent(html, language), [html, language]);
+  const content = useMemo(() => safeContent(html), [html]);
   const renderedHtml = useMemo(() => ({ __html: content }), [content]);
   const element = useRef<HTMLDivElement>(null);
   const foldersNow = useRef(folders);

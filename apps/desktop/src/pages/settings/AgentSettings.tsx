@@ -2,7 +2,7 @@ import { Server, ServerOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import type { AgentConnection } from "../../platform/desktop-bridge";
 import { SegmentedControl, EmptyState } from "../../components/ui";
 import { UiButton } from "../../components/ui";

@@ -1,33 +1,8 @@
-import { intlLocale } from "../../i18n/locale";
 import type { Subscription, Workspace } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
-import {
-  formatJst,
-  isCivilDate,
-  parseIsoTimestamp,
-} from "../../lib/civil-date";
 
 export const subscriptionRow = (data: Workspace, kind: Subscription["kind"]) =>
   data.subscriptions.find((row) => row.kind === kind && !row.deletedAt);
-
-export const languageTag = intlLocale;
-
-/** "3 Oct" / "10月3日" for an ISO timestamp or civil date, in Japan time. */
-export function formatDay(
-  value: string,
-  locale: Workspace["settings"]["locale"],
-  options: Intl.DateTimeFormatOptions = {},
-) {
-  const date = isCivilDate(value)
-    ? new Date(`${value}T12:00:00+09:00`)
-    : parseIsoTimestamp(value);
-  if (!date) return value;
-  return formatJst(date, locale, {
-    month: "short",
-    day: "numeric",
-    ...options,
-  });
-}
 
 export type SubscriptionState =
   | { state: "off" }

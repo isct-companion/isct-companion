@@ -10,18 +10,41 @@ use super::{
     array, parse_timestamp, placement_terms, scheduled_courses, text, visible, ScheduleError,
 };
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum DeadlineState {
+    Remaining,
+    Overdue,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum CountdownUnit {
+    Days,
+    Hours,
+    Minutes,
+    Seconds,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CountdownComponent {
+    pub unit: CountdownUnit,
+    pub count: u32,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TaskDeadlineView {
     pub at: String,
-    #[cfg_attr(feature = "ts", ts(type = "number"))]
-    pub remaining_milliseconds: i64,
-    pub label: String,
-    pub tone: String,
-    pub countdown_label: String,
+    pub state: DeadlineState,
+    pub units: Vec<CountdownComponent>,
     pub countdown_tone: String,
-    pub overdue: bool,
+    pub next_change_at: Option<String>,
 }
 
 /// One quarter's assignments, grouped the way every list shows them: what is
@@ -62,21 +85,77 @@ pub struct TermTaskView {
 #[serde(rename_all = "camelCase")]
 pub struct TaskView {
     pub deadlines: BTreeMap<String, TaskDeadlineView>,
-    /// Visible assignments Core treats as submitted (`submission` submitted
-    /// or graded, or LMS `submissionStatus` submitted). Shells render this
-    /// instead of applying their own rule.
-    pub submitted_ids: Vec<String>,
-    /// Visible assignments that no longer take a hand-in: submitted, or past
-    /// the deadline unless the LMS page last showed it still accepting late
-    /// work. Shells open the LMS page for these instead of preparing a draft.
-    pub closed_ids: Vec<String>,
+    pub states: BTreeMap<String, AssignmentState>,
+    pub hand_in_availability: BTreeMap<String, HandInAvailability>,
     pub nearest_by_course: BTreeMap<String, String>,
     pub by_term: BTreeMap<String, TermTaskView>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum AssignmentState {
+    Open,
+    Overdue,
+    Closed,
+    Submitted,
+    Graded,
+}
+
+impl AssignmentState {
+    pub fn is_submitted(self) -> bool {
+        matches!(self, Self::Submitted | Self::Graded)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub enum HandInAvailability {
+    Unavailable,
+    OpenLms,
+    PrepareDraft,
+}
+
+pub fn assignment_state(row: &Value, now: DateTime<FixedOffset>) -> AssignmentState {
+    if let Some(state) = assignment_completion(row) {
+        return state;
+    }
+    if text(row, "dueAt")
+        .and_then(|at| parse_timestamp(at).ok())
+        .is_some_and(|due| due <= now)
+    {
+        if row.get("acceptsSubmission").and_then(Value::as_bool) == Some(true) {
+            AssignmentState::Overdue
+        } else {
+            AssignmentState::Closed
+        }
+    } else {
+        AssignmentState::Open
+    }
+}
+
+pub(crate) fn hand_in_availability(row: &Value, state: AssignmentState) -> HandInAvailability {
+    match (text(row, "sourceUrl").filter(|url| !url.is_empty()), state) {
+        (None, _) => HandInAvailability::Unavailable,
+        (Some(_), AssignmentState::Open | AssignmentState::Overdue) => {
+            HandInAvailability::PrepareDraft
+        }
+        (Some(_), _) => HandInAvailability::OpenLms,
+    }
+}
+
+fn assignment_completion(row: &Value) -> Option<AssignmentState> {
+    match text(row, "submission") {
+        Some("graded") => Some(AssignmentState::Graded),
+        Some("submitted") => Some(AssignmentState::Submitted),
+        _ if text(row, "submissionStatus") == Some("submitted") => Some(AssignmentState::Submitted),
+        _ => None,
+    }
+}
+
 pub(crate) fn assignment_submitted(row: &Value) -> bool {
-    matches!(text(row, "submission"), Some("submitted" | "graded"))
-        || text(row, "submissionStatus") == Some("submitted")
+    assignment_completion(row).is_some()
 }
 
 /// Missed work stays on Today for a week.
@@ -93,9 +172,9 @@ pub(super) fn assignment_boundaries(
         .filter(|row| visible(row))
         .filter_map(|row| {
             let due = parse_timestamp(text(row, "dueAt")?).ok()?;
-            // The task view uses strict comparisons for overdue and missed work.
+            // Missed work leaves the recent list just after the grace date.
             Some([
-                due + Duration::milliseconds(1),
+                due,
                 due + Duration::days(TODAY_MISSED_DAYS) + Duration::milliseconds(1),
             ])
         })
@@ -105,47 +184,26 @@ pub(super) fn assignment_boundaries(
 pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
     let mut deadlines = BTreeMap::new();
+    let mut states = BTreeMap::new();
+    let mut availability = BTreeMap::new();
     for row in array(workspace, "assignments")
         .iter()
         .filter(|row| visible(row))
     {
-        let (Some(id), Some(raw)) = (text(row, "id"), text(row, "dueAt")) else {
-            continue;
-        };
-        let due = match parse_timestamp(raw) {
-            Ok(value) => value,
-            Err(_) => continue,
-        };
-        parsed.insert(id.to_owned(), due);
-        deadlines.insert(id.to_owned(), deadline_view(due, now));
+        let Some(id) = text(row, "id") else { continue };
+        let state = assignment_state(row, now);
+        states.insert(id.to_owned(), state);
+        availability.insert(id.to_owned(), hand_in_availability(row, state));
+        if let Some(due) = text(row, "dueAt").and_then(|raw| parse_timestamp(raw).ok()) {
+            parsed.insert(id.to_owned(), due);
+            deadlines.insert(id.to_owned(), deadline_view(due, now));
+        }
     }
-    let submitted_ids = array(workspace, "assignments")
-        .iter()
-        .filter(|row| visible(row) && assignment_submitted(row))
-        .filter_map(|row| text(row, "id").map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let closed_ids = array(workspace, "assignments")
-        .iter()
-        .filter(|row| visible(row))
-        .filter(|row| {
-            assignment_submitted(row)
-                || (text(row, "id")
-                    .and_then(|id| parsed.get(id))
-                    .is_some_and(|due| *due < now)
-                    && row.get("acceptsSubmission").and_then(Value::as_bool) != Some(true))
-        })
-        .filter_map(|row| text(row, "id").map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
     let mut nearest_by_course = BTreeMap::<String, (DateTime<FixedOffset>, String)>::new();
-    for row in array(workspace, "assignments").iter().filter(|row| {
-        visible(row)
-            && row.get("hidden").and_then(Value::as_bool) != Some(true)
-            && !assignment_submitted(row)
-    }) {
+    for row in array(workspace, "assignments")
+        .iter()
+        .filter(|row| visible(row) && row.get("hidden").and_then(Value::as_bool) != Some(true))
+    {
         let (Some(id), Some(course), Some(due)) = (
             text(row, "id"),
             text(row, "courseId"),
@@ -153,7 +211,7 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
         ) else {
             continue;
         };
-        if *due < now {
+        if *due <= now || states.get(id).is_some_and(|state| state.is_submitted()) {
             continue;
         }
         if nearest_by_course
@@ -212,13 +270,13 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
                 hidden.push((due, id));
                 continue;
             }
-            let submitted = assignment_submitted(row);
+            let submitted = states.get(id).is_some_and(|state| state.is_submitted());
             let pinned = row.get("pinned").and_then(Value::as_bool) == Some(true);
             if pinned && !submitted {
                 today_pinned.push((due, id));
             }
             match due {
-                Some(due) if due < now => past.push((due, id, submitted, pinned)),
+                Some(due) if due <= now => past.push((due, id, submitted, pinned)),
                 Some(due) => upcoming.push((due, id, submitted, pinned)),
                 None => undated.push((id, pinned)),
             }
@@ -271,8 +329,8 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     }
     Ok(TaskView {
         deadlines,
-        submitted_ids,
-        closed_ids,
+        states,
+        hand_in_availability: availability,
         nearest_by_course: nearest_by_course
             .into_iter()
             .map(|(k, (_, v))| (k, v))
@@ -281,63 +339,63 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     })
 }
 
-fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> TaskDeadlineView {
-    let ms = (due - now).num_milliseconds();
-    let abs = ms.saturating_abs();
-    let relative = |value: i64| {
-        let hours = (value / 3_600_000).max(1);
-        if hours < 24 {
-            format!("{hours}h")
-        } else {
-            format!("{}d", (hours + 12) / 24)
+pub fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> TaskDeadlineView {
+    const UNITS: [(CountdownUnit, i64); 4] = [
+        (CountdownUnit::Days, 86_400),
+        (CountdownUnit::Hours, 3_600),
+        (CountdownUnit::Minutes, 60),
+        (CountdownUnit::Seconds, 1),
+    ];
+    let elapsed = now >= due;
+    let seconds = if elapsed { now - due } else { due - now }.num_seconds();
+    let largest = UNITS
+        .iter()
+        .position(|(_, size)| seconds >= *size)
+        .unwrap_or(UNITS.len() - 1);
+    let (unit, size) = UNITS[largest];
+    let count = seconds / size;
+    let component = |unit, count| CountdownComponent {
+        unit,
+        count: u32::try_from(count).unwrap_or(u32::MAX),
+    };
+    let mut units = vec![component(unit, count)];
+    let step = UNITS.get(largest + 1).map_or(1, |(unit, smaller)| {
+        let next = (seconds % size) / smaller;
+        if next > 0 {
+            units.push(component(*unit, next));
         }
-    };
-    let (label, tone) = if ms < 0 {
-        (format!("{} ago", relative(abs)), "normal")
-    } else if ms < 86_400_000 {
-        (format!("Due in {}", relative(ms)), "warning")
+        *smaller
+    });
+    let bucket = seconds / step * step;
+    let next = if elapsed {
+        due.checked_add_signed(Duration::seconds(bucket + step))
+    } else if seconds == 0 {
+        Some(due)
     } else {
-        let local = due.with_timezone(&FixedOffset::east_opt(9 * 3600).unwrap_or(*due.offset()));
-        (format!("Due {}", local.format("%-d %b, %H:%M")), "normal")
+        // When counting down, the old value includes the exact boundary.
+        // Refresh on the first representable UI millisecond after it.
+        let boundary = due - Duration::seconds(bucket);
+        DateTime::from_timestamp_millis(boundary.timestamp_millis() + 1)
+            .map(|at| at.with_timezone(due.offset()))
     };
-    let hours = ms.max(0) / 3_600_000;
-    let days = hours / 24;
-    let countdown_label = if ms < 0 {
-        format!("{} ago", relative(abs))
-    } else if hours < 1 {
-        format!("{}m", (ms / 60_000).max(1))
-    } else if hours < 24 {
-        format!("{hours}h")
-    } else if hours < 72 && hours % 24 != 0 {
-        format!("{days}d {}h", hours % 24)
-    } else {
-        format!("{days}d")
-    };
-    TaskDeadlineView {
-        at: due.to_rfc3339(),
-        remaining_milliseconds: ms,
-        label,
-        tone: tone.into(),
-        countdown_label,
-        countdown_tone: countdown_tone(due, now).into(),
-        overdue: ms < 0,
-    }
-}
-
-/// Urgency of a deadline: `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
-pub(super) fn countdown_tone(
-    due: DateTime<FixedOffset>,
-    now: DateTime<FixedOffset>,
-) -> &'static str {
-    let ms = (due - now).num_milliseconds();
-    let hours = ms.max(0) / 3_600_000;
-    if ms < 0 {
+    let tone = if elapsed {
         "past"
-    } else if hours < 24 {
+    } else if seconds < 86_400 {
         "urgent"
-    } else if hours < 72 {
+    } else if seconds < 259_200 {
         "soon"
     } else {
         "normal"
+    };
+    TaskDeadlineView {
+        at: due.to_rfc3339(),
+        state: if elapsed {
+            DeadlineState::Overdue
+        } else {
+            DeadlineState::Remaining
+        },
+        units,
+        countdown_tone: tone.into(),
+        next_change_at: next.map(|at| at.to_utc().to_rfc3339()),
     }
 }

@@ -62,6 +62,7 @@ codes! {
     HostPaused => "host-paused",
     WorkspaceFolderMissing => "workspace-folder-missing",
     HandInFilesOnly => "hand-in-files-only",
+    HandInUnavailable => "hand-in-unavailable",
     HandInEmpty => "hand-in-empty",
     HandInNeedsZip => "hand-in-needs-zip",
     HandInTooLarge => "hand-in-too-large",
@@ -119,6 +120,11 @@ codes! {
     ExamShareIdentity => "exam-share-identity",
     ExamShareAlreadyReported => "exam-share-already-reported",
     ExamShareQuota => "exam-share-quota",
+    ExamShareUploadNoFiles => "exam-share-upload-no-files",
+    ExamShareUploadTeacherName => "exam-share-upload-teacher-name",
+    ExamShareUploadTeacherLength => "exam-share-upload-teacher-length",
+    ExamShareUploadVariantLength => "exam-share-upload-variant-length",
+    ExamShareUploadNoteLength => "exam-share-upload-note-length",
     ExamShareUploadFile => "exam-share-upload-file",
     ExamShareUploadMixed => "exam-share-upload-mixed",
     ExamShareUploadSize => "exam-share-upload-size",
@@ -258,6 +264,11 @@ coded!(crate::exam_share::ExamError, |e| {
         E::Identity => C::ExamShareIdentity,
         E::AlreadyReported => C::ExamShareAlreadyReported,
         E::Quota => C::ExamShareQuota,
+        E::UploadNoFiles => C::ExamShareUploadNoFiles,
+        E::UploadTeacherName => C::ExamShareUploadTeacherName,
+        E::UploadTeacherLength => C::ExamShareUploadTeacherLength,
+        E::UploadVariantLength => C::ExamShareUploadVariantLength,
+        E::UploadNoteLength => C::ExamShareUploadNoteLength,
         E::UploadFile => C::ExamShareUploadFile,
         E::UploadMixed => C::ExamShareUploadMixed,
         E::UploadSize => C::ExamShareUploadSize,
@@ -303,6 +314,7 @@ coded!(crate::data::StoreOpenError, |e| {
         E::RecoveryRequired { .. } | E::Io(_) => C::Storage,
     }
 });
+#[cfg(feature = "desktop-workspaces")]
 coded!(crate::workspaces::WorkspaceError, |e| {
     use crate::workspaces::WorkspaceError as E;
     match e {
@@ -311,10 +323,12 @@ coded!(crate::workspaces::WorkspaceError, |e| {
         E::Missing => C::WorkspaceFolderMissing,
     }
 });
+#[cfg(feature = "desktop-workspaces")]
 coded!(crate::workspaces::HandInError, |e| {
     use crate::workspaces::HandInError as E;
     match e {
         E::Workspace(e) => e.code(),
+        E::Unavailable => C::HandInUnavailable,
         E::FilesOnly => C::HandInFilesOnly,
         E::Empty => C::HandInEmpty,
         E::NeedsZip => C::HandInNeedsZip,
@@ -454,6 +468,10 @@ coded!(SubmissionError, |e| match e {
     SubmissionError::InvalidInput(_) => C::InvalidInput,
     SubmissionError::Storage(_) => C::Storage,
     SubmissionError::Browser(_) => C::Platform,
+    SubmissionError::AssignmentUnavailable => C::HandInUnavailable,
+    SubmissionError::FilesOnly => C::HandInFilesOnly,
+    SubmissionError::TooLarge => C::HandInTooLarge,
+    #[cfg(feature = "desktop-workspaces")]
     SubmissionError::WorkspaceMissing => C::WorkspaceFolderMissing,
 });
 coded!(CredentialMutationError, |e| match e {
@@ -540,7 +558,6 @@ coded!(ReferenceError, |e| match e {
     ReferenceError::Cancelled | ReferenceError::Superseded => C::Cancelled,
 });
 coded!(ReminderError, |e| match e {
-    ReminderError::InvalidInput(_) => C::InvalidInput,
     ReminderError::Data(e) => e.code(),
     ReminderError::Storage(_) => C::Storage,
     ReminderError::Policy(e) => e.code(),

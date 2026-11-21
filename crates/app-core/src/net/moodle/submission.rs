@@ -514,32 +514,10 @@ fn remote_state(status: &Value) -> Result<RemoteState, MoodleError> {
         Some("reopened") => RemoteStatus::Reopened,
         _ => return Err(MoodleError::Malformed("submission status")),
     };
-    let mut files = Vec::new();
-    for plugin in array(submission.get("plugins")) {
-        if plugin.get("type").and_then(Value::as_str) != Some("file") {
-            continue;
-        }
-        for area in array(plugin.get("fileareas")) {
-            if area.get("area").and_then(Value::as_str) != Some("submission_files") {
-                continue;
-            }
-            for file in array(area.get("files")) {
-                let name = file
-                    .get("filename")
-                    .and_then(Value::as_str)
-                    .ok_or(MoodleError::Malformed("submission file"))?;
-                let folder = file
-                    .get("filepath")
-                    .and_then(Value::as_str)
-                    .unwrap_or("/")
-                    .trim_start_matches('/');
-                files.push(RemoteFile {
-                    name: format!("{folder}{name}"),
-                    bytes: number(file.get("filesize")).max(0) as u64,
-                });
-            }
-        }
-    }
+    let files = parse_submission_files(submission)?
+        .into_iter()
+        .map(|(file, _)| file)
+        .collect();
     Ok(RemoteState {
         attempt: number(submission.get("attemptnumber")).max(0) as u32,
         status: state,
@@ -608,10 +586,20 @@ fn rules(assignment: &Value, status: &Value, info: &Value) -> SubmissionRules {
 /// The submitted files with their sizes and download addresses, by the
 /// same names `remote_state` gives them; `None` when one has no address.
 fn submitted_files(status: &Value) -> Option<Vec<(String, u64, String)>> {
-    let mut files = Vec::new();
     let Some(submission) = status.pointer("/lastattempt/submission") else {
-        return Some(files);
+        return Some(Vec::new());
     };
+    parse_submission_files(submission)
+        .ok()?
+        .into_iter()
+        .map(|(file, url)| Some((file.name, file.bytes, url?.to_string())))
+        .collect()
+}
+
+fn parse_submission_files(
+    submission: &Value,
+) -> Result<Vec<(RemoteFile, Option<&str>)>, MoodleError> {
+    let mut files = Vec::new();
     for plugin in array(submission.get("plugins")) {
         if plugin.get("type").and_then(Value::as_str) != Some("file") {
             continue;
@@ -621,22 +609,26 @@ fn submitted_files(status: &Value) -> Option<Vec<(String, u64, String)>> {
                 continue;
             }
             for file in array(area.get("files")) {
-                let name = file.get("filename").and_then(Value::as_str)?;
-                let url = file.get("fileurl").and_then(Value::as_str)?;
+                let name = file
+                    .get("filename")
+                    .and_then(Value::as_str)
+                    .ok_or(MoodleError::Malformed("submission file"))?;
                 let folder = file
                     .get("filepath")
                     .and_then(Value::as_str)
                     .unwrap_or("/")
                     .trim_start_matches('/');
                 files.push((
-                    format!("{folder}{name}"),
-                    number(file.get("filesize")).max(0) as u64,
-                    url.to_string(),
+                    RemoteFile {
+                        name: format!("{folder}{name}"),
+                        bytes: number(file.get("filesize")).max(0) as u64,
+                    },
+                    file.get("fileurl").and_then(Value::as_str),
                 ));
             }
         }
     }
-    Some(files)
+    Ok(files)
 }
 
 /// A submitted file's download: its size, plus Moodle's answer.

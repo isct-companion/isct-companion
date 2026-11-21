@@ -1,17 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { useInRouterContext } from "react-router";
 import { DownloadNotice } from "../../components/DownloadNotice";
 import { UiButton } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
-import { desktopBridge } from "../../app/native";
-import { useAnimatedNavigate } from "../../app/navigation";
-import { paths } from "../../app/routes";
+import { desktopBridge } from "../../platform/native";
+import type { SchoolSite } from "../../generated/persistence";
 import {
   type SchoolDownloadEvent,
   type SchoolLoadFailure,
   type SchoolOtpEnrollment,
   type SchoolOtpIntent,
-  type SchoolSite,
   type SchoolWebNotice,
   type SchoolWebPage,
   type SchoolWebProblem,
@@ -55,10 +52,12 @@ export function SchoolWebNotices({
   site,
   page,
   onError,
+  openAccounts,
 }: {
   site: SchoolSite;
   page: SchoolWebPage | undefined;
   onError: (error: unknown) => void;
+  openAccounts?: () => void;
 }) {
   const [notice, setNotice] = useState<SchoolWebNotice["kind"]>();
   useEffect(() => {
@@ -91,13 +90,17 @@ export function SchoolWebNotices({
       setDownload(undefined);
     };
   }, [site]);
-  const routed = useInRouterContext();
   const failure = page?.notice;
   const access = page?.access;
   return (
     <>
       {page?.otp && (
-        <OtpNotice key={page.otp.id} otp={page.otp} onError={onError} />
+        <OtpNotice
+          key={page.otp.id}
+          otp={page.otp}
+          onError={onError}
+          openAccounts={openAccounts}
+        />
       )}
       {access?.kind === "signing-in" && (
         <div className="webNotice" role="status" aria-busy="true">
@@ -115,7 +118,9 @@ export function SchoolWebNotices({
       {access?.kind === "problem" && (
         <div className="webNotice" role="status">
           <span>{t(problemText[access.problem])}</span>
-          {access.problem === "rejected" && routed && <OpenAccounts />}
+          {access.problem === "rejected" && openAccounts && (
+            <OpenAccounts openAccounts={openAccounts} />
+          )}
         </div>
       )}
       {page?.signIn && (
@@ -196,19 +201,23 @@ const otpMessages: Record<SchoolOtpEnrollment["stage"], MessageKey> = {
 function OtpNotice({
   otp,
   onError,
+  openAccounts,
 }: {
   otp: SchoolOtpEnrollment;
   onError: (error: unknown) => void;
+  openAccounts?: () => void;
 }) {
-  const routed = useInRouterContext();
   const send = (intent: SchoolOtpIntent) =>
     desktopBridge?.schoolOtpIntent?.(otp.id, intent).catch(onError);
   const active = ["sign-in", "checking", "setting-up"].includes(otp.stage);
   return (
     <div className="webNotice otpEnrollmentNotice" role="status">
       <span>{t(otpMessages[otp.stage], { account: otp.owner ?? "" })}</span>
-      {routed && otp.stage === "complete" && (
-        <OpenAccounts label="otpEnrollment.settings" />
+      {openAccounts && otp.stage === "complete" && (
+        <OpenAccounts
+          label="otpEnrollment.settings"
+          openAccounts={openAccounts}
+        />
       )}
       {otp.stage === "save-failed" && (
         <UiButton type="button" onClick={() => void send("retry-save")}>
@@ -228,15 +237,13 @@ function OtpNotice({
  * inside the app's routes has somewhere to go. */
 function OpenAccounts({
   label = "web.signIn.openSettings",
+  openAccounts,
 }: {
   label?: MessageKey;
+  openAccounts: () => void;
 }) {
-  const navigate = useAnimatedNavigate();
   return (
-    <UiButton
-      type="button"
-      onClick={() => void navigate(paths.settings("accounts"))}
-    >
+    <UiButton type="button" onClick={openAccounts}>
       {t(label)}
     </UiButton>
   );

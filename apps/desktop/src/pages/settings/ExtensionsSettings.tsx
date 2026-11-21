@@ -1,11 +1,8 @@
 import { Badge } from "../../components/ui";
 import { t } from "../../i18n";
 import { UiButton, UiTextarea } from "../../components/ui";
-import {
-  customizationNames,
-  desktopBridge,
-  type CustomizationSite,
-} from "../../app/native";
+import { desktopBridge } from "../../platform/native";
+import { customizationNames, type CustomizationSite } from "../../lib/school-sites";
 import type { Workspace } from "../../lib/model";
 import { SettingsHeader } from "../../components/forms";
 

@@ -157,18 +157,16 @@ fn engine() -> (
 
 // Native WebViews have no headless mode; drive their real Core coordinator
 // through page callbacks.
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinations() {
     use crate::school_browser::SubmissionFile;
-    let (engine, browser, _, _) = engine();
-    // Shells hand over bytes; Core encodes them as the page's uploader takes them.
+    let (engine, browser, _, store) = engine();
     let files = || {
         vec![SubmissionFile::from_bytes(
             "report.txt".into(),
             b"my report",
         )]
     };
-    assert_eq!(files()[0].data, "bXkgcmVwb3J0");
     let messages = || SubmissionMessages {
         waiting: "waiting".into(),
         queued: "queued".into(),
@@ -233,6 +231,106 @@ async fn assignment_upload_targets_the_edit_page_once_and_rejects_other_destinat
         tokio::task::yield_now().await;
         assert_eq!(count_uploads(), if sequence == 1 { 0 } else { 1 });
     }
+    // The phone starts with a selection rather than a workspace. Use the
+    // real stored local assignment state and the same native load callbacks.
+    let update_availability = |accepts: bool| {
+        let row = serde_json::json!({
+            "id": "a", "sourceUrl": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
+            "dueAt": "2025-01-01T00:00:00Z", "acceptsSubmission": accepts
+        });
+        store
+            .write(None, |transaction| {
+                transaction
+                    .execute(
+                        "INSERT INTO assignments (id,value,hash,updated_at,updated_by,rev)
+                         VALUES ('a',?1,?2,'2025-01-01T00:00:00Z','seed',1)
+                         ON CONFLICT (id) DO UPDATE SET value=excluded.value, hash=excluded.hash, rev=rev+1",
+                        rusqlite::params![row.to_string(), accepts.to_string()],
+                    )
+                    .map_err(crate::data::DataError::from)?;
+                Ok::<_, crate::data::DataError>(())
+            })
+            .unwrap();
+    };
+    let source = std::env::temp_dir().join(format!("isct-hand-in-{}", Uuid::new_v4()));
+    let selection = || vec![(source.clone(), "report.txt".into())];
+    let prepare = || engine.prepare_assignment_submission(&store, "a", selection(), messages());
+    update_availability(false);
+    // This selection does not yet exist: the stale target has to fail before
+    // Core even tries to open a file.
+    assert!(matches!(
+        prepare(),
+        Err(SubmissionError::AssignmentUnavailable)
+    ));
+    std::fs::write(&source, b"my report").unwrap();
+    update_availability(true);
+    let cancelled = prepare().unwrap();
+    engine.cancel_submission(&cancelled.id);
+    assert!(!cancelled.dispatched().await);
+    let current = prepare().unwrap();
+    engine.cancel_submission(&cancelled.id);
+    engine
+        .navigate(SchoolSite::ScienceLms, &current.url)
+        .unwrap();
+    for (sequence, url, expected_uploads) in [
+        (4, cancelled.url.as_str(), 1),
+        (5, target.as_str(), 1),
+        (6, current.url.as_str(), 2),
+    ] {
+        listener.page_loaded(PageLoaded {
+            page: PageId {
+                browser: id,
+                sequence,
+            },
+            cause: None,
+            url: Url::parse(url).unwrap(),
+        });
+        tokio::task::yield_now().await;
+        assert_eq!(count_uploads(), expected_uploads);
+    }
+    assert!(current.dispatched().await);
+    engine.cancel_submission(&current.id);
+    assert!(browser
+        .commands
+        .lock()
+        .unwrap()
+        .iter()
+        .any(|command| matches!(
+            &command.command, BrowserAction::Eval(script)
+                if script.contains(&format!("{{\"cancelRequest\":\"{}\"}}", current.id))
+        )));
+    let expired = prepare().unwrap();
+    tokio::time::advance(std::time::Duration::from_secs(301)).await;
+    assert!(!expired.dispatched().await);
+    let before_expired_callback = count_uploads();
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 7,
+        },
+        cause: None,
+        url: Url::parse(&expired.url).unwrap(),
+    });
+    tokio::task::yield_now().await;
+    assert_eq!(count_uploads(), before_expired_callback);
+
+    let failed = prepare().unwrap();
+    engine
+        .navigate(SchoolSite::ScienceLms, &failed.url)
+        .unwrap();
+    browser.unavailable.store(true, Ordering::Release);
+    listener.page_loaded(PageLoaded {
+        page: PageId {
+            browser: id,
+            sequence: 8,
+        },
+        cause: None,
+        url: Url::parse(&failed.url).unwrap(),
+    });
+    assert!(!failed.dispatched().await);
+    assert!(!browser.unavailable.load(Ordering::Acquire));
+    assert_eq!(std::fs::read(&source).unwrap(), b"my report");
+    std::fs::remove_file(source).unwrap();
     engine.shutdown().await;
 }
 

@@ -25,11 +25,8 @@ import {
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import type {
-  CloudSyncState,
-  SchoolCredentialStatus,
-  SchoolProfileSession,
-} from "@app/platform/desktop-bridge";
+import type { SchoolCredentialStatus, SchoolProfileSession } from "@app/generated/persistence";
+import type { CloudSyncState } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
 import { schoolSessions } from "@app/platform/school-session";
@@ -48,7 +45,7 @@ import { schoolSessions } from "@app/platform/school-session";
  * - ZXing camera/canvas decoding is replaced by controlled results; account
  *   selection, draft replacement and explicit credential saves remain real.
  *
- * `mountApp` must stay the first thing that imports the shell: `app/native.ts`
+ * `mountApp` must stay the first thing that imports the shell: `platform/native.ts`
  * captures its bridge at first import.
  */
 
@@ -123,14 +120,6 @@ function emitNative(core: FakeCore, event: string, payload: unknown): void {
   core.emit(event, payload);
 }
 
-/** The host starts every suite with the reminder bootstrap reporting success. */
-function withDefaults(handler?: Handler): Handler {
-  return (command, args, core) => {
-    if (command === "bootstrap_reminders") return true;
-    return handler?.(command, args, core);
-  };
-}
-
 function mountSettings(
   route: string,
   options: {
@@ -156,7 +145,7 @@ function mountSettings(
         academicYears: { currentYear: YEAR },
         ...options.queries,
       },
-      handle: withDefaults(options.handle),
+      handle: options.handle,
       apply: options.apply,
     },
     { route },
@@ -263,7 +252,15 @@ describe("School accounts", () => {
               },
               { label: "School account", issuer: "School", setup },
             ];
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });
@@ -395,9 +392,32 @@ describe("School accounts", () => {
         tokyoTech: notConfigured(),
       };
       const answers = [
-        { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
-        { kind: "not-saved" },
-        { kind: "connected" },
+        {
+          kind: "refused",
+          reason: "invalid-otp",
+          refusalUnsaved: false,
+          presentation: {
+            stateKey: "schoolSession.state.refused",
+            reasonKey: "failure.theOneTimePasswordWas",
+            recovery: [],
+          },
+        },
+        {
+          kind: "not-saved",
+          presentation: {
+            stateKey: "schoolSession.connect.saveFailed",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
+        {
+          kind: "connected",
+          presentation: {
+            stateKey: "schoolSession.connect.connected",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
       ];
       const mounted = await mountAccounts({
         handle: (command) => {
@@ -513,6 +533,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(2, {
             state: "refused",
+            presentation: {
+              stateKey: "schoolSession.state.refused",
+              reasonKey: "failure.theIDOrPasswordWas",
+              recovery: ["retry"],
+            },
             problem: { kind: "invalid-credentials", message: "HTTP 401" },
           }),
         ),
@@ -550,6 +575,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(5, {
             state: "needs-web",
+            presentation: {
+              stateKey: "schoolSession.state.otpNotSetUp",
+              reasonKey: "schoolSession.problem.emailOtp",
+              recovery: ["set-up-otp-on-portal"],
+            },
             problem: { kind: "email-otp", message: "email" },
           }),
         ),
@@ -903,7 +933,15 @@ describe("Matrix scan and paste", () => {
               stable: false,
               level: index === 0 ? "high" : index === 1 ? "medium" : "low",
             }));
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });

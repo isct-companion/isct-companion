@@ -14,27 +14,37 @@ use url::Url;
 pub(crate) type NativeWebview = tauri::Webview;
 
 /// The units the shell measures a pane in (`school-web-bounds.ts`): physical
-/// pixels on Windows, where WebView2's CSS pixel need not be the window's
-/// logical pixel; logical points on macOS.
+/// pixels of the client area on Windows, where WebView2's CSS pixel need not
+/// be the window's logical pixel.
 #[cfg(target_os = "windows")]
-fn placement(x: f64, y: f64, width: f64, height: f64) -> (Position, Size) {
-    (
-        tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32).into(),
-        tauri::PhysicalSize::new(width.round() as u32, height.round() as u32).into(),
-    )
+fn placement(_window: &tauri::Window, bounds: &WebBounds) -> Result<(Position, Size), String> {
+    Ok((
+        tauri::PhysicalPosition::new(bounds.x.round() as i32, bounds.y.round() as i32).into(),
+        tauri::PhysicalSize::new(bounds.width.round() as u32, bounds.height.round() as u32).into(),
+    ))
 }
 
-#[cfg(not(target_os = "windows"))]
-fn placement(x: f64, y: f64, width: f64, height: f64) -> (Position, Size) {
-    (
-        tauri::LogicalPosition::new(x, y).into(),
-        tauri::LogicalSize::new(width, height).into(),
-    )
+/// On macOS the shell measures logical points from the top of the content,
+/// while a child view is placed from the top of the window frame, title bar
+/// included. The title bar's height is the window's own (it differs between
+/// macOS releases and is zero in full screen), so it is read here rather than
+/// assumed by the page.
+#[cfg(target_os = "macos")]
+fn placement(window: &tauri::Window, bounds: &WebBounds) -> Result<(Position, Size), String> {
+    let unreadable = |_| "The window's title bar could not be measured.".to_string();
+    let scale = window.scale_factor().map_err(unreadable)?;
+    let outer = window.outer_size().map_err(unreadable)?;
+    let inner = window.inner_size().map_err(unreadable)?;
+    let title_bar = f64::from(outer.height.saturating_sub(inner.height)) / scale;
+    Ok((
+        tauri::LogicalPosition::new(bounds.x, bounds.y + title_bar).into(),
+        tauri::LogicalSize::new(bounds.width, bounds.height).into(),
+    ))
 }
 
 pub(crate) fn apply_bounds(webview: &NativeWebview, bounds: WebBounds) -> Result<(), String> {
     let bounds = bounds.sanitized();
-    let (position, size) = placement(bounds.x, bounds.y, bounds.width, bounds.height);
+    let (position, size) = placement(&webview.window(), &bounds)?;
     webview
         .set_position(position)
         .and_then(|_| webview.set_size(size))
@@ -100,7 +110,7 @@ pub(crate) fn go(webview: &NativeWebview, back: bool) -> Result<(), String> {
 
 /// A resident school view. School pages get no script of the app's: only
 /// Core's own page scripts, which Core evaluates itself. The
-/// platform host decides navigation and windows (`school_webkit.rs`; the
+/// platform host decides navigation and windows (`school_webkit/mod.rs`; the
 /// Windows interim's wry callbacks in `school_windows.rs`).
 pub(crate) fn create_webview(
     app: &AppHandle,
@@ -127,12 +137,17 @@ pub(crate) fn create_webview(
     .on_download(move |_, event| (callbacks.download)(event));
     #[cfg(windows)]
     let builder = interim.attach(app, builder);
-    let (position, size) = if visible {
-        let bounds = bounds.sanitized();
-        placement(bounds.x, bounds.y, bounds.width, bounds.height)
+    let bounds = if visible {
+        bounds.sanitized()
     } else {
-        placement(0.0, 0.0, 1.0, 1.0)
+        WebBounds {
+            x: 0.0,
+            y: 0.0,
+            width: 1.0,
+            height: 1.0,
+        }
     };
+    let (position, size) = placement(&main, &bounds)?;
     main.add_child(builder, position, size)
         .map_err(|error| error.to_string())
 }

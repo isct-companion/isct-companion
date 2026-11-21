@@ -63,7 +63,7 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
           {/* The arrow keys page like the phone's swipe; Next holds focus, so
               Space and Return step through without the pointer. */}
           <Stack
-            gap="sm"
+            gap="space-5"
             align="center"
             onKeyDown={(event) => {
               if (event.key === "ArrowRight" && !last) go(index + 1);
@@ -114,7 +114,7 @@ export function OtpGuideButton({ guide }: { guide: OtpGuideId }) {
                   total: String(steps.length),
                 })}
               </Text>
-              <Group gap={6} className="otpGuideNav">
+              <Group gap="space-3" className="otpGuideNav">
                 <Button
                   variant="default"
                   size="xs"

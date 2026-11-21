@@ -1,5 +1,6 @@
 package app.isctcompanion
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -14,6 +15,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import app.isctcompanion.core.BackgroundWork
+import app.isctcompanion.core.NotificationScheduler
 import app.isctcompanion.core.WakeDirective
 import app.isctcompanion.design.Format
 import java.time.Instant
@@ -75,14 +77,14 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
             }
         }
 
-        /** One local opportunity as soon as Android allows: the session opens
-         * and the reminder alarms are scheduled again. */
+        /** One local opportunity for changed system facts. Keep a successor
+         * when an earlier opportunity may already have read the old facts. */
         fun soon(context: Context) {
             val request = OneTimeWorkRequestBuilder<BackgroundWake>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                 .setInputData(workDataOf(NETWORK to false, SYSTEM_CHANGE to true))
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("$NAME-now", ExistingWorkPolicy.REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork("$NAME-now", ExistingWorkPolicy.APPEND_OR_REPLACE, request)
         }
     }
 }
@@ -93,8 +95,12 @@ class BackgroundWake(context: Context, params: WorkerParameters) : CoroutineWork
 class RescheduleReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED,
-            Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED -> BackgroundWake.soon(context)
+            Intent.ACTION_BOOT_COMPLETED, Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                NotificationScheduler.invalidateAlarms(context)
+                BackgroundWake.soon(context)
+            }
+            Intent.ACTION_TIME_CHANGED, Intent.ACTION_TIMEZONE_CHANGED,
+            AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED -> BackgroundWake.soon(context)
         }
     }
 }

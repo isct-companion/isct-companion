@@ -92,7 +92,7 @@ the changes it made, the next `revision` (user writes) and the commit `seq`;
 | School                | `openSchool`, `schoolWebPage`, `schoolSession`, `schoolLifecycle`, `schoolBrowsing`, back/forward/reload         |
 | Reads                 | `syncHint` (the planner decides what is read), `syncSnapshot`                                                    |
 | Files/notes           | `openMaterial`, `cleanMaterials`, `saveNote`, `readNote`, `listNotes`, `parseLmsResource`                        |
-| Hand-in               | `waitingHandIns`, `assignmentSubmitFiles`, `addAssignmentFiles`, `removeAssignmentFile`, `handInAssignment`      |
+| Hand-in               | `prepareHandIn`, `cancelHandIn` for the current mobile file selection and its LMS draft request                    |
 | Backup/cloud          | `exportBackup`, `applyBackup`, `cloudState`, `syncCloud`, `setCloudEnabled`, `setCloudAutomatic`, `restoreCloud` |
 | Lifecycle             | `suspend`, `resume`, `wakeDirective`, `deadlineReached`, `beginBackgroundOpportunity`, `endBackgroundOpportunity`, `shutdown`, `checkAndroidUpdate` |
 | Optional OCR          | `capabilities`, `prepareScanner`, `scanMatrix`                                                                   |
@@ -150,10 +150,12 @@ shell; background changes are coalesced to at most one event per source per
 failure. `applyBackup` imports through the cloud journal like the desktop
 (written as this device's newest edits, then uploaded), so it and a cloud
 version restore both emit `cloud-restore`. Pull and OCR progress use the same typed `CoreEvent` envelope.
-Query results are authoritative; events are hints.
+Query results are authoritative. The `school-session` event carries a complete revisioned snapshot.
+`decodeSchoolSession` converts its payload to the same SDK type as
+`schoolSession`. On a lost or undecodable event, read the snapshot again.
 
 The bounded queue holds 128 events. A slow consumer receives `SnapshotRequired`
-and must re-run its queries and `syncSnapshot`. `unsubscribe()` wakes pending next calls and
+and must re-run its queries, including `schoolSession` and `syncSnapshot`. `unsubscribe()` wakes pending next calls and
 returns Closed; it does not free the Kotlin object handle, which also has the
 generated `close()` resource method. Session shutdown closes subscriptions.
 
@@ -171,8 +173,11 @@ Native ports are mechanisms:
 - `NativeDownloadSession`: the school WebView cookie store for Core HTTP:
   `cookieHeader` reads it (empty means signed out), `storeSetCookies` writes
   server cookies back (iOS `WKHTTPCookieStore`, Android `CookieManager` + flush).
-- `NativeNotifications`: async system notification delivery.
 - `NativeCloud`: async provider transport; Core owns merge/queue/recovery policy.
+- `NativeReminderPort`, installed by `attachReminderPort`: report the system's
+  pending reminder times and payloads, then apply Core's registrations, updates,
+  cancellations and immediate deliveries. Core records possible OS ownership
+  before dispatch and uses the port's receipt to distinguish confirmed results.
 
 `BrowserEvents` holds only a weak engine listener. Stale generations are rejected
 by Core, and callbacks retained beyond shutdown return Closed. Native browser

@@ -25,7 +25,7 @@ import {
 import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
 import type { LmsCourseRecord, LmsSection } from "@app/platform/desktop-bridge";
 import type { CourseContent, LessonItemKind } from "@app/generated/persistence";
-import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
+import type { CourseEntry } from "@app/features/lms";
 
 /**
  * The LMS reading workspace and the readers it opens, over the scripted host.
@@ -91,7 +91,7 @@ beforeEach(() => {
 });
 
 /**
- * Installs the scripted host, then loads the real module. `app/native` captures
+ * Installs the scripted host, then loads the real module. `platform/native` captures
  * its bridge at first import, so the fake host has to be in place first —
  * `mountApp` does the same thing for the shell.
  */
@@ -269,6 +269,7 @@ function contentFor(
         number: null,
         label: section.title,
         summaryHtml: section.bodyHtml ?? "",
+        originalSummaryHtml: null,
         summary: "",
         items: items.map((m) => ({
           materialId: m.id,
@@ -277,6 +278,7 @@ function contentFor(
           bodyHtml: ["page", "label", "forum"].includes(m.module ?? "")
             ? (m.bodyHtml ?? null)
             : null,
+          originalBodyHtml: null,
           source: m.url ?? m.resourceUrl ?? null,
           imageOnly: imageOnly.includes(m.id),
         })),
@@ -286,6 +288,14 @@ function contentFor(
         posted: items.length > 0,
       };
     }),
+    materialReaderHtml: Object.fromEntries(
+      materials.flatMap((m) =>
+        m.bodyHtml &&
+        !["page", "label", "forum", "assign", "quiz"].includes(m.module ?? "")
+          ? [[m.id, { preferred: m.bodyHtml, original: null }]]
+          : [],
+      ),
+    ),
     otherAssignmentIds: f.workspace.assignments
       .filter((a) => !placed(a))
       .map((a) => a.id),
@@ -369,7 +379,6 @@ async function openWorkspace(
     entry: { courseId: fixture.course.id, request: 1, ...options.entry },
     active: options.active ?? true,
     schoolWebAvailable: options.schoolWebAvailable ?? false,
-    close: () => {},
     markLesson: options.markLesson,
   };
   const view = await mount(
@@ -793,16 +802,17 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
-  it("filters bilingual school text by the content language, and shows the original on request", async () => {
+  it("shows Core’s preferred course text and opens the original on request", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
     f.workspace.settings.lmsBilingualFilter = true;
-    f.record.sections![0].bodyHtml =
+    const content = contentFor(f);
+    content.lessons[0].originalSummaryHtml =
       '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
-    // Core reads the content language from settings and names it here.
+    content.lessons[0].summaryHtml = '<p lang="ja">日本語の概要</p>';
     const { host } = await openWorkspace(f, {
       entry: { request: 700 },
-      detail: { contentLanguage: "ja" },
+      content,
     });
 
     const body = () => host.querySelector(".lmsSectionBody")?.textContent ?? "";
@@ -816,61 +826,6 @@ describe("the LMS reading workspace", () => {
       ),
     );
   }, 30_000);
-
-  it("filters only complete paired labels and keeps mixed continuation and code", async () => {
-    const paired =
-      "<p>授業計画：NPDA<br>課題：状態遷移<br>Course schedule: NPDA<br>Objectives: transitions</p>";
-    const mixed = paired.replace(
-      "課題：状態遷移",
-      "課題：状態遷移<br>Important unique notice",
-    );
-    const code =
-      "<pre><code>授業計画：NPDA<br>Course schedule: NPDA</code></pre>";
-
-    const english = async (bodyHtml: string) => {
-      const f = lectureFixture();
-      f.workspace.settings.locale = "en";
-      f.workspace.settings.lmsBilingualFilter = true;
-      f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, {
-        entry: { request: 701 },
-        detail: { contentLanguage: "en" },
-      });
-      return host.querySelector(".lmsSectionBody")?.textContent ?? "";
-    };
-
-    const filtered = await english(paired);
-    expect(filtered).not.toContain("授業計画");
-    expect(filtered).toContain("Objectives");
-
-    const withContinuation = await english(mixed);
-    expect(withContinuation).toContain("授業計画");
-    expect(withContinuation).toContain("Important unique notice");
-
-    const withCode = await english(code);
-    expect(withCode).toContain("授業計画");
-  }, 60_000);
-
-  it("falls back to the school language that is present when the preferred blocks are absent", async () => {
-    const only = async (bodyHtml: string, contentLanguage: "ja" | "en") => {
-      const f = lectureFixture();
-      f.workspace.settings.locale = "en";
-      f.workspace.settings.lmsBilingualFilter = true;
-      f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, {
-        entry: { request: 702 },
-        detail: { contentLanguage },
-      });
-      return host.querySelector(".lmsSectionBody")?.textContent ?? "";
-    };
-
-    expect(
-      await only('<p lang="en">English-only announcement</p>', "ja"),
-    ).toContain("English-only announcement");
-    expect(await only('<p lang="ja">日本語のみ</p>', "en")).toContain(
-      "日本語のみ",
-    );
-  }, 60_000);
 
   it("opens an announcement in the reader without expanding its body in the outline", async () => {
     const f = lectureFixture();
@@ -1203,16 +1158,14 @@ describe("the LMS reading workspace", () => {
     const { host } = await openWorkspace(f, {
       entry: { request: 3, assignmentId: "a1" },
       tasks: {
-        submittedIds: ["a1"],
+        states: { a1: "submitted" },
         deadlines: {
           a1: {
             at: "2026-10-10T09:00:00+09:00",
-            label: "Due 10 Oct, 09:00",
-            tone: "normal",
-            remainingMilliseconds: 172800000,
-            countdownLabel: "2d",
+            units: [{ unit: "days", count: 2 }],
+            state: "remaining",
             countdownTone: "soon",
-            overdue: false,
+            nextChangeAt: null,
           },
         },
         nearestByCourse: {},
@@ -1312,7 +1265,6 @@ describe("the LMS reading workspace", () => {
       ).toMatchObject({
         path: workspace.path,
         assignment: "a1",
-        url: f.workspace.assignments[0].sourceUrl,
       });
       if (outcome === "failed") {
         expect(host.textContent).toContain("The submit folder is empty.");
@@ -1580,7 +1532,6 @@ describe("the LMS reading workspace", () => {
         entry={{ courseId: f.course.id, request: 1 }}
         active={active}
         schoolWebAvailable={false}
-        close={() => {}}
       />
     );
     const view = await mount(node(false));
@@ -2267,7 +2218,7 @@ describe("the PDF viewer", () => {
   async function openPdf() {
     const { real } = await scriptedHost(
       { workspace: workspaceFixture() },
-      () => import("@app/features/lms/PdfDocument"),
+      () => import("@app/components/files/PdfDocument"),
     );
     function RetainedPdf() {
       const [visible, setVisible] = useState(true);
@@ -2598,7 +2549,7 @@ describe("the markdown editor", () => {
     );
     const { Editor, editorViewCtx } = await import("@milkdown/kit/core");
     const { MarkdownDocument } =
-      await import("@app/features/lms/MarkdownDocument");
+      await import("@app/components/files/MarkdownDocument");
     const editors: InstanceType<typeof Editor>[] = [];
     const make = Editor.make.bind(Editor);
     vi.spyOn(Editor, "make").mockImplementation(() => {

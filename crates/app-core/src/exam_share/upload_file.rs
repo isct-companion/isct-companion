@@ -23,7 +23,7 @@ pub(super) fn prepare(
     cancel: &CancellationToken,
 ) -> Result<Prepared, ExamError> {
     let (name, content_type, bytes, hash) = match files {
-        [] => return Err(ExamError::UploadFile),
+        [] => return Err(ExamError::UploadNoFiles),
         [file] => single(file, cancel)?,
         files => {
             let bytes = image_pdf(files, cancel)?;
@@ -60,31 +60,73 @@ fn check_size(size: usize) -> Result<(), ExamError> {
     }
 }
 
-type SingleFile = (String, &'static str, Vec<u8>, Option<String>);
-
-fn single(file: &ExamUploadFile, cancel: &CancellationToken) -> Result<SingleFile, ExamError> {
-    let data = read(file)?;
+fn upload_name(file: &ExamUploadFile) -> Result<&str, ExamError> {
     let name = file.name.trim();
     if name.is_empty() || name.encode_utf16().count() > 255 {
         return Err(ExamError::UploadFile);
     }
+    Ok(name)
+}
+
+fn text_extension(file: &ExamUploadFile) -> bool {
+    [Path::new(file.name.trim()), Path::new(&file.path)]
+        .into_iter()
+        .filter_map(Path::extension)
+        .filter_map(|value| value.to_str())
+        .any(|ext| {
+            ["txt", "md", "markdown"]
+                .iter()
+                .any(|allowed| ext.eq_ignore_ascii_case(allowed))
+        })
+}
+
+/// Inspect a bounded prefix. Full decoding, text validation and output size
+/// checks still happen at transfer time.
+pub(super) fn validate_selection(files: &[ExamUploadFile]) -> Result<(), ExamError> {
+    if files.is_empty() {
+        return Err(ExamError::UploadNoFiles);
+    }
+    for file in files {
+        let metadata = std::fs::metadata(&file.path).map_err(|_| ExamError::UploadFile)?;
+        if !metadata.is_file() {
+            return Err(ExamError::UploadFile);
+        }
+        let size = metadata.len();
+        let mut source = File::open(&file.path).map_err(|_| ExamError::UploadFile)?;
+        if size > LIMIT as u64 {
+            return Err(ExamError::UploadSize);
+        }
+        let mut prefix = vec![0; size.min(16) as usize];
+        source
+            .read_exact(&mut prefix)
+            .map_err(|_| ExamError::UploadFile)?;
+        check_size(prefix.len())?;
+        if files.len() > 1 {
+            if photo_format(&prefix).is_none() {
+                return Err(ExamError::UploadMixed);
+            }
+        } else {
+            upload_name(file)?;
+            if !prefix.starts_with(b"%PDF-")
+                && photo_format(&prefix).is_none()
+                && !text_extension(file)
+            {
+                return Err(ExamError::UploadFile);
+            }
+        }
+    }
+    Ok(())
+}
+
+type SingleFile = (String, &'static str, Vec<u8>, Option<String>);
+
+fn single(file: &ExamUploadFile, cancel: &CancellationToken) -> Result<SingleFile, ExamError> {
+    let data = read(file)?;
+    let name = upload_name(file)?;
     if data.starts_with(b"%PDF-") {
         return Ok((name.into(), "application/pdf", data, None));
     }
-    if [Path::new(name), Path::new(&file.path)]
-        .into_iter()
-        .any(|source| {
-            source
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| {
-                    ["txt", "md", "markdown"]
-                        .iter()
-                        .any(|allowed| ext.eq_ignore_ascii_case(allowed))
-                })
-        })
-        && std::str::from_utf8(&data).is_ok()
-    {
+    if text_extension(file) && std::str::from_utf8(&data).is_ok() {
         return Ok((name.into(), "text/plain", data, None));
     }
     if photo_format(&data).is_none() {

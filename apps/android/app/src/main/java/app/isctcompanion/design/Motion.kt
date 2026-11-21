@@ -1,6 +1,9 @@
 package app.isctcompanion.design
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionScope.ResizeMode.Companion.RemeasureToBounds
@@ -90,8 +93,8 @@ fun SkeletonRows(count: Int = 4, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
                 modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
-                Skeleton(Modifier.size(10.dp), RoundedCornerShape(3.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Skeleton(Modifier.size(10.dp), RoundedCornerShape(Theme.radiusCourseMarker))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
                     Skeleton(Modifier.fillMaxWidth(if (index % 2 == 0) 0.7f else 0.55f).height(14.dp))
                     Skeleton(Modifier.fillMaxWidth(0.4f).height(10.dp))
                 }
@@ -183,4 +186,17 @@ private fun Modifier.courseZoom(zoom: String?, destination: Boolean): Modifier {
         // page keeps its final layout and the animated bounds only clip it.
         if (destination) bounds.skipToLookaheadSize() else bounds
     }
+}
+
+/** A bar that folds away while the person reads down a school page and
+ * unfolds again (the web screens' top bars, the navigation bar under them).
+ * Under "Remove animations" it only fades. */
+@Composable
+fun CollapsingBar(visible: Boolean, content: @Composable () -> Unit) {
+    val reduced = LocalReducedMotion.current
+    AnimatedVisibility(
+        visible,
+        enter = if (reduced) fadeIn(Motion.fast()) else expandVertically(Motion.base()) + fadeIn(Motion.base()),
+        exit = if (reduced) fadeOut(Motion.fast()) else shrinkVertically(Motion.base()) + fadeOut(Motion.base()),
+    ) { content() }
 }

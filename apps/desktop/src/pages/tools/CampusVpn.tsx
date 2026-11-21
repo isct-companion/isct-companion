@@ -1,32 +1,16 @@
 import { Clock, Route, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { t, type MessageKey } from "../../i18n";
-import { desktopBridge } from "../../app/native";
-import type { VpnNotice, VpnStatus } from "../../platform/desktop-bridge";
+import { desktopBridge } from "../../platform/native";
+import type { VpnStatus } from "../../platform/desktop-bridge";
 import { InfoTip, Switch, UiButton } from "../../components/ui";
 import { VpnPublishers } from "./VpnPublishers";
-import { workspaceActions } from "../../store/workspace";
+import { saveVpnOnDemand, saveVpnPublishers } from "../../store/vpn-settings";
+import { vpnErrorText } from "../../lib/vpn-text";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
-import { errorText } from "../../app/shared";
+import { errorText } from "../../lib/error-text";
 import { jstClock } from "../../lib/civil-date";
-
-/** Codes from the desktop's VPN commands, keyed as the shell reports them. */
-const VPN_ERROR_TEXT: Record<string, MessageKey> = {
-  helper_not_installed: "tools.campusWifi.vpnHelperNotInstalled",
-  helper_needs_approval: "tools.campusWifi.vpnHelperNeedsApproval",
-  helper_outdated: "tools.campusWifi.vpnHelperOutdated",
-  helper_unreachable: "tools.campusWifi.vpnHelperUnreachable",
-  helper_timeout: "tools.campusWifi.vpnHelperTimeout",
-  helper_protocol: "tools.campusWifi.vpnHelperProtocol",
-  tunnel_failed: "tools.campusWifi.vpnTunnelFailed",
-  vpn_needs_account: "tools.campusWifi.vpnNeedsAccount",
-  vpn_login_rejected: "tools.campusWifi.vpnLoginRejected",
-  vpn_needs_web: "tools.campusWifi.vpnNeedsWeb",
-  vpn_unreachable: "tools.campusWifi.vpnUnreachable",
-  vpn_access_denied: "tools.campusWifi.vpnAccessDenied",
-  vpn_login_changed: "tools.campusWifi.vpnLoginChanged",
-};
 
 /** Helper states an install fixes: none yet, an older one, or one that does
  * not answer (installing registers the daemon afresh from this app). */
@@ -35,51 +19,6 @@ const HELPER_INSTALL_FIXES = new Set([
   "helper_outdated",
   "helper_unreachable",
 ]);
-
-const vpnErrorText = (status: VpnStatus) =>
-  status.error && VPN_ERROR_TEXT[status.error]
-    ? t(VPN_ERROR_TEXT[status.error])
-    : (status.detail ?? t("common.signInFailed"));
-
-/** Title and body of the system notification for a reminder. */
-export const vpnNoticeText = (notice: VpnNotice): [string, string] => {
-  switch (notice.kind) {
-    case "ending":
-      return [
-        t("tools.campusWifi.vpnEndingTitle"),
-        t("tools.campusWifi.vpnEndingBody", { minutes: notice.minutes }),
-      ];
-    case "ended":
-      return [
-        t("tools.campusWifi.vpnEndedTitle"),
-        t("tools.campusWifi.vpnEndedBody"),
-      ];
-    case "unused":
-      return [
-        t("tools.campusWifi.vpnUnusedTitle"),
-        t("tools.campusWifi.vpnUnusedBody"),
-      ];
-    case "demandStopped":
-      return [
-        t("tools.campusWifi.vpnDemandStoppedTitle"),
-        vpnErrorText({ state: "error", error: notice.code }),
-      ];
-  }
-};
-
-/** This device's on-demand choice, which the next launch reads. */
-export const saveVpnOnDemand = (enabled: boolean) =>
-  workspaceActions.updateSettings((draft) => {
-    draft.settings.campusVpnOnDemand = enabled;
-    return draft;
-  });
-
-/** This device's publisher list; `undefined` stores the default. */
-export const saveVpnPublishers = (list: string[] | undefined) =>
-  workspaceActions.updateSettings((draft) => {
-    draft.settings.campusVpnPublishers = list;
-    return draft;
-  });
 
 /** The APM session's countdown as h:mm, or nothing when it is not known. */
 const vpnRemaining = (expiresAt: string | null | undefined, now: number) => {
@@ -161,11 +100,9 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     if (!next.error || !HELPER_INSTALL_FIXES.has(next.error)) return next;
     const update = next.error === "helper_outdated";
     const confirmed = await confirmAction(
-      t(
-        next.error === "helper_not_installed"
-          ? "tools.campusWifi.vpnInstallNeeded"
-          : VPN_ERROR_TEXT[next.error],
-      ),
+      next.error === "helper_not_installed"
+        ? t("tools.campusWifi.vpnInstallNeeded")
+        : vpnErrorText(next),
       t(update ? "tools.campusWifi.vpnUpdate" : "tools.campusWifi.vpnInstall"),
       { title: t("tools.campusWifi.campusVpn"), danger: false },
     );

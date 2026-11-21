@@ -109,7 +109,7 @@ fun OtpGuideButton(guide: OtpGuide) {
     var shown by remember { mutableStateOf(false) }
     TextButton(onClick = { shown = true }) {
         Icon(Icons.Rounded.TouchApp, null, modifier = Modifier.size(18.dp))
-        Text(t("otpGuide.showSteps"), modifier = Modifier.padding(start = 6.dp))
+        Text(t("otpGuide.showSteps"), modifier = Modifier.padding(start = Theme.space3))
     }
     if (shown) OtpGuideSheet(guide, steps) { shown = false }
 }
@@ -124,8 +124,8 @@ private fun OtpGuideSheet(guide: OtpGuide, steps: List<OtpGuide.Step>, close: ()
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = Theme.colors.bg,
     ) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().padding(bottom = Theme.space10), horizontalAlignment = Alignment.CenterHorizontally) {
+            Row(Modifier.padding(horizontal = Theme.space8), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     t(guide.title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
                     color = Theme.colors.ink, modifier = Modifier.weight(1f),
@@ -135,9 +135,9 @@ private fun OtpGuideSheet(guide: OtpGuide, steps: List<OtpGuide.Step>, close: ()
             HorizontalPager(pager, Modifier.fillMaxWidth()) { index ->
                 val step = steps[index]
                 Column(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Theme.space8),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(Theme.space8),
                 ) {
                     Screenshot(step, isCurrent = index == pager.settledPage)
                     Text(
@@ -146,7 +146,7 @@ private fun OtpGuideSheet(guide: OtpGuide, steps: List<OtpGuide.Step>, close: ()
                     )
                 }
             }
-            Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.padding(top = Theme.space6), horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
                 repeat(steps.size) { index ->
                     Box(
                         Modifier.size(7.dp).clip(CircleShape)
@@ -224,7 +224,7 @@ private fun TapMarker(modifier: Modifier) {
     val still = LocalReducedMotion.current
     val pulse = rememberInfiniteTransition(label = "tap")
     val progress by pulse.animateFloat(
-        0f, 1f, infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Restart), label = "ring",
+        0f, 1f, infiniteRepeatable(tween(Theme.motionGuideTap, easing = LinearEasing), RepeatMode.Restart), label = "ring",
     )
     val ring = if (still) 0.5f else progress
     val white = Color.White.copy(alpha = 0.85f)

@@ -261,7 +261,7 @@ function CoursesBody({
                 <Button
                   size="xs"
                   variant="default"
-                  px={6}
+                  style={{ paddingInline: "var(--space-3)" }}
                   aria-label={t("courses.calendarExportOptions")}
                 >
                   <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
@@ -318,7 +318,6 @@ function CoursesBody({
               className="ttCard"
               withBorder
               shadow="xs"
-              radius="md"
             >
               <div className="timetableViewBar">
                 <b>{t("courses.quarterTemplate")}</b>

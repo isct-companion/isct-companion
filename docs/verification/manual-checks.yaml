@@ -520,6 +520,7 @@ checks:
       - crates/app-core/src/data/school_projection.rs
       - crates/app-core/src/schedule/search.rs
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified:
       version: 1.0.0-rc.1
       date: 2026-10-14
@@ -619,7 +620,9 @@ checks:
       - crates/app-core/src/net/moodle/token.rs
       - crates/app-core/src/net/moodle/rest.rs
       - crates/app-core/src/net/moodle/ajax.rs
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/plan/school.rs
       - crates/app-core/src/plan/planner.rs
       - docs/lms-api/README.md
@@ -699,7 +702,7 @@ checks:
       real school produces lead there.
     covers:
       - crates/app-core/src/plan/planner.rs
-      - crates/app-core/src/plan/runner.rs
+      - crates/app-core/src/plan/runner/**
       - crates/app-core/src/plan/school.rs
       - crates/app-core/src/plan/snapshot.rs
       - crates/app-core/src/school_session/**
@@ -744,6 +747,10 @@ checks:
     covers:
       - crates/app-core/src/study_profile.rs
       - crates/app-core/src/course_query/mod.rs
+      - crates/app-core/src/course_query/catalog.rs
+      - crates/app-core/src/course_query/conditions.rs
+      - crates/app-core/src/course_query/matching.rs
+      - crates/app-core/src/course_query/personal.rs
       - apps/desktop/src/pages/courses/**
     verified: null
 
@@ -925,13 +932,14 @@ checks:
 
   - id: CLOUD-CREDENTIAL-BACKUP
     area: cloud
-    title: School logins back up to Drive and restore on a second desktop
+    title: School logins back up to Drive and restore on a second desktop and Android
     persona: careless-multidevice
     preconditions: |
       Two desktops (Windows on one side makes the Drive file the only path,
       since Macs also share logins through iCloud Keychain), both with
       Google Drive on under the same account. Desktop A has a working school
-      login; desktop B has none.
+      login; desktop B has none. An Android phone C with Drive on under the
+      same account and no school login.
     steps:
       - action: |
           On A, Settings › Backup › Login credential sync › Set up: type an
@@ -957,14 +965,23 @@ checks:
           keeps a password only after the upload it encrypted succeeded. The
           old shell wrote the new password first and kept it after a failed
           upload, so A and Drive disagreed.
+      - action: |
+          On C, open Settings › Backup: under Login credentials the row reads
+          "Restore login credentials". Enter a wrong password, then the right one.
+        reason: |
+          Android had no way into the Drive file, so a phone restored from a
+          backup stayed signed out. It must offer to restore (one field, no
+          confirmation), refuse the wrong password with Core's message, and
+          after the right one sign in to the school without typing anything.
     observe: |
-      The row's hint, button state and messages on both desktops, and whether
-      B reaches the school portal signed in.
+      The row's hint, button state and messages on both desktops and the
+      phone, and whether B and C reach the school portal signed in.
     expected: |
       A accepts only a 12–128 character new password, including a long
       passphrase; B restores only with the right password and a wrong one
       changes nothing in Drive; an offline password change fails and the
-      next successful one replaces the backup.
+      next successful one replaces the backup; C restores the same way and
+      signs in.
     why_manual: |
       Needs a real Google account, Drive's app-data folder and two signed
       desktop installs with a school login. Core's side, including the
@@ -975,6 +992,9 @@ checks:
       - apps/desktop/src/pages/settings/BackupSettings.tsx
       - apps/desktop/src-tauri/src/commands/cloud.rs
       - crates/app-core/src/cloud_credentials.rs
+      - crates/app-ffi/src/services.rs
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
     verified: null
 
   - id: CLOUD-RESILIENCE
@@ -1132,14 +1152,16 @@ checks:
       - crates/app-ffi/src/services.rs
       - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/desktop/src-tauri/src/commands/platform.rs
       - crates/app-ocr/**
       - crates/app-ocr-adapter/**
       - apps/desktop/src/lib/matrix-ocr.ts
-      - crates/app-core/src/matrix_scan.rs
+      - crates/app-core/src/matrix_scan/mod.rs
       - crates/app-core/src/matrix_scan/**
       - apps/desktop/src/platform/matrix-camera.ts
       - apps/desktop/src/components/MatrixCamera.tsx
@@ -1233,7 +1255,10 @@ checks:
     covers:
       - crates/app-core/src/campus_map/photos.rs
       - apps/ios/IsctCompanion/Features/Map/CampusMapScreen.swift
+      - apps/ios/IsctCompanion/Features/Map/FloorPhotoCamera.swift
+      - apps/ios/IsctCompanion/Core/AppModelCampusMap.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/map/FloorPhotoCamera.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCampusMap.kt
       - .github/workflows/ios-release.yml
       - .github/workflows/android-release.yml
   - id: SCHOOL-MATRIX-TITECH-APP-IMPORT
@@ -1266,7 +1291,7 @@ checks:
     why_manual: |
       Needs the real card and a real export; whether the grid matches the
       card is a glance in the real app. Core's reading of both shapes is
-      tested in crates/app-core/src/tests/school_auth.rs.
+      tested in crates/app-core/src/tests/school_auth__matrix.rs.
     covers:
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
@@ -1454,9 +1479,9 @@ checks:
       while the panel is open cannot be triggered by hand; it rests on the
       answer-once guard, which answers Cancel when dropped.
     covers:
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - apps/desktop/src-tauri/src/school_web.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
@@ -1579,7 +1604,7 @@ checks:
       and the failure's lifetime are Core's and tested there; the reader
       reading them from the snapshot is tested in the desktop suite.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src/pages/web/WebPage.tsx
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
@@ -1630,7 +1655,7 @@ checks:
       Core's and tested there.
     covers:
       - crates/app-core/src/school_browser/policy.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_windows.rs
       - apps/desktop/src/pages/web/WebPage.tsx
     verified: null
@@ -1677,7 +1702,7 @@ checks:
       Needs the campus network and a real failed load inside WebKit; the
       notice is a glance. Which failures are shown is Core's and tested there.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src/pages/web/WebPage.tsx
     verified: null
 
@@ -1703,7 +1728,7 @@ checks:
       Needs the real school link and the system browser; where the click
       lands is a glance. The cleartext rule is Core's and tested there.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-SCHOOL-PRINT
@@ -1728,7 +1753,7 @@ checks:
     why_manual: |
       The print panel is native UI on a real school page; it is a glance.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-SCHOOL-NATIVE-CONFIRM
@@ -1747,7 +1772,7 @@ checks:
           with an async function, so `if (!confirm(...))` never stopped and
           logout happened with no question. Without that plugin, macOS WebKit
           answers confirm() with Cancel unseen unless the view's UI delegate
-          shows it; the school view's delegate (school_webkit.rs) now does, as
+          shows it; the school view's delegate (school_webkit/mod.rs) now does, as
           a sheet naming the page's origin. A confirm that keeps the session
           on Cancel means the sheet's answer reaches the page.
       - action: |
@@ -1791,7 +1816,7 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/native_dialog.rs
       - apps/desktop/src-tauri/src/school_web.rs
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src-tauri/src/school_downloads.rs
       - apps/desktop/src-tauri/src/commands/backup.rs
@@ -1919,7 +1944,6 @@ checks:
       retention is covered by the app-shell suite.
     covers:
       - apps/desktop/src/app/KeptPage.tsx
-      - apps/desktop/src/pages/today/CourseFinder.tsx
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/components/guide.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
@@ -1927,6 +1951,8 @@ checks:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/styles.css
       - apps/desktop/src/pages/lectures/lectures.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/pages/lectures/LectureExams.tsx
     verified: null
 
 
@@ -1970,6 +1996,8 @@ checks:
       - apps/desktop/src/app/App.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
       - apps/desktop/src-tauri/src/lib.rs
     verified: null
 
@@ -2074,7 +2102,7 @@ checks:
       in crates/adpt-printer/src/tests and crates/app-core/src/tests.
     covers:
       - crates/adpt-printer/src/cups.rs
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/cups.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/mod.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
@@ -2175,7 +2203,7 @@ checks:
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/plugins/campus_printer/queue.rs
       - apps/desktop/src/pages/tools/CampusPrinter.tsx
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - crates/app-core/src/campus_printer/ipp.rs
       - crates/app-core/src/campus_printer/ipp/attributes.rs
     verified: null
@@ -2292,8 +2320,9 @@ checks:
       - apps/desktop/src/pages/tools/ToolsPage.tsx
       - apps/desktop/src/pages/tools/ToolCard.tsx
       - apps/desktop/src/pages/tools/tools.css
-      - apps/desktop/src/pages/tools/registry.ts
+      - apps/desktop/src/platform/available-tools.ts
       - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/platform/desktop-bridge/campus-tools.ts
   - id: DESKTOP-CAMPUS-VPN
     area: desktop
     title: Campus VPN connect, use, disconnect from outside campus
@@ -2393,7 +2422,7 @@ checks:
       - crates/vpn-protocol/src/tests/protocol.rs
       - crates/app-core/src/tests/vpn.rs
       - crates/app-core/src/tests/vpn__f5.rs
-      - crates/app-core/src/vpn.rs
+      - crates/app-core/src/vpn/mod.rs
       - crates/app-core/src/vpn/f5.rs
       - crates/app-core/src/school_session/vpn.rs
       - crates/app-core/src/tests/school_session__vpn.rs
@@ -2766,7 +2795,6 @@ checks:
       tests drive the same paths only over a test transport.
     covers:
       - crates/app-core/src/net/moodle/submission.rs
-      - crates/app-core/src/submissions.rs
       - crates/app-core/src/submissions/**
       - crates/app-core/src/agent/submissions.rs
       - crates/app-core/src/deadlines.rs
@@ -2976,8 +3004,8 @@ checks:
       and was never covered by a live run, and only an installed bundle shows
       whether the PDF.js data files ship with it.
     covers:
-      - apps/desktop/src/features/lms/PdfDocument.tsx
-      - apps/desktop/src/features/lms/TextDocument.tsx
+      - apps/desktop/src/components/files/PdfDocument.tsx
+      - apps/desktop/src/components/files/TextDocument.tsx
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
       - apps/desktop/src/features/lms/lms.css
       - apps/desktop/src/components/workspace-chrome.css
@@ -3180,9 +3208,13 @@ checks:
     covers:
       - apps/desktop/src/store/workspace.ts
       - apps/desktop/src/platform/core-query.ts
-      - apps/desktop/src/app/useSync.ts
+      - apps/desktop/src/app/useOpenHint.ts
+      - apps/desktop/src/platform/sync-intents.ts
+      - apps/desktop/src/store/sync.ts
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/app/interaction-trace.ts
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/useOutlineReading.ts
     verified: null
 
   - id: DESKTOP-SYNC-STATUS
@@ -3194,22 +3226,22 @@ checks:
       has already been read once.
     steps:
       - action: |
-          Press Refresh now in the footer and watch the right half of the
-          footer until it is quiet again.
+          Press Refresh in the floating status at the bottom right, point at
+          its line and watch the panel until it is quiet again.
         reason: |
-          The footer shows a bar only while Core reports a run's total and a
+          The panel shows a bar only while Core reports a run's total and a
           label or spinner otherwise. A bar that jumps backwards, or a bar for
           a run without a total, means the shell is estimating again.
       - action: |
-          Open a lecture whose content is a few hours old and press Pull from
-          LMS in its header.
+          Open a lecture whose content is a few hours old and press Refresh
+          now in its header.
         reason: |
           The page must keep its rows and say "Showing data from … ago ·
           updating this course k / n", then switch the whole course at once.
           A list that empties or half-updates means the page stopped reading
           local data while Core reads.
       - action: |
-          On Timetable, press Refresh timetable and watch the footer.
+          On Timetable, press Refresh timetable and watch the status panel.
         reason: |
           It must read only the LMS course list and the 教務Web pages, with
           the button's ring following them; a run over every current course
@@ -3229,7 +3261,7 @@ checks:
           and Retry must start only that dataset; a generic "Refresh failed"
           or a full refresh means the scope was lost.
     observe: |
-      The workstation footer, the lecture header, and the app log for the
+      The floating status and its panel, the lecture header, and the app log for the
       sync hints sent.
     expected: |
       Bars only with a total, a spinner for background work, held reasons and
@@ -3243,11 +3275,14 @@ checks:
       real school failure only exist against the live services.
     covers:
       - apps/desktop/src/app/SchoolStatusLine.tsx
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/components/PullRing.tsx
       - apps/desktop/src/styles.css
+      - apps/desktop/src/app/SchoolStatusPanel.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
     verified: null
 
   - id: DESKTOP-PLANNING-PANEL
@@ -3343,6 +3378,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/facade.rs
     verified: null
@@ -3375,13 +3411,18 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/pages/courses/useFinder.ts
-      - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
       - apps/desktop/src/platform/query-client.ts
       - apps/desktop/src/store/workspace.ts
-      - crates/app-core/src/workspace.rs
+      - apps/desktop/src/pages/courses/useFinderSelection.ts
+      - crates/app-core/src/workspace/mod.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src-tauri/src/commands/read_models.rs
       - crates/app-core/src/course_query/mod.rs
+      - crates/app-core/src/course_query/catalog.rs
+      - crates/app-core/src/course_query/conditions.rs
+      - crates/app-core/src/course_query/matching.rs
+      - crates/app-core/src/course_query/personal.rs
     verified: null
 
 
@@ -3499,10 +3540,13 @@ checks:
       for English keys are tested in Core. Which panel shows what is a
       glance check (AGENTS.md §5).
     covers:
-      - apps/desktop/src/pages/courses/syllabus-frame.tsx
+      - apps/desktop/src/components/courses/syllabus-frame.tsx
       - apps/desktop/src/pages/courses/CoursePanel.tsx
       - apps/desktop/src/pages/courses/CourseFinder.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
+      - apps/desktop/src/features/lms/useLmsReader.ts
       - crates/app-core/src/net/kyomu.rs
       - crates/adpt-isct/src/kyomu/search.rs
     verified: null
@@ -3833,9 +3877,12 @@ checks:
       - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/features/lms/OfficialLmsView.tsx
       - apps/desktop/src/components/confirm.tsx
-      - apps/desktop/src/features/lms/ReaderPane.tsx
+      - apps/desktop/src/components/files/ReaderPane.tsx
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/components/workspace-chrome.css
+      - apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx
+      - apps/desktop/src/features/lms/LmsReader.tsx
+      - apps/desktop/src/platform/desktop-bridge/school-web.ts
     verified: null
 
   - id: SCHOOL-ASSIGNMENT-UPLOAD
@@ -3908,12 +3955,13 @@ checks:
     covers:
       - crates/app-core/src/workspaces.rs
       - crates/app-core/src/school_browser/policy.rs
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - crates/app-core/src/school_browser/submission.rs
       - crates/adpt-isct/assets/assignment-upload.js
       - apps/desktop/src-tauri/src/workspaces.rs
       - apps/desktop/src/features/lms/AssignmentWorkspaceCard.tsx
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src/features/lms/LmsAssignmentCard.tsx
+      - apps/desktop/src-tauri/src/school_webkit/**
       - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
 
@@ -4049,7 +4097,7 @@ checks:
       - apps/desktop/src-tauri/src/commands/platform.rs
       - apps/desktop/src/app/useWorkspaceRuntime.ts
       - scripts/desktop/tauri.mjs
-      - crates/app-core/src/schedule/reminders.rs
+      - crates/app-core/src/schedule/reminders/mod.rs
       - crates/app-core/src/deadlines.rs
       - apps/desktop/src-tauri/src/core_ports.rs
     verified: null
@@ -4156,6 +4204,7 @@ checks:
       - crates/app-core/src/catalog.rs
       - crates/app-core/src/data/school_projection.rs
       - apps/desktop/src/pages/courses/CourseFinder.tsx
+      - apps/desktop/src/pages/courses/CoursePlanningPage.tsx
     verified: null
 
   - id: DESKTOP-SIGNED-UPDATES
@@ -4246,6 +4295,7 @@ checks:
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/desktop/src-tauri/src/lib.rs
       - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/pages/about/AboutPage.tsx
       - crates/app-core/src/app_updates.rs
     verified: null
@@ -4470,7 +4520,10 @@ checks:
     covers:
       - crates/app-core/src/school_session/store.rs
       - crates/app-core/src/school_session/mod.rs
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_session/presentation.rs
+      - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
     verified: null
 
 
@@ -4515,6 +4568,8 @@ checks:
     covers:
       - crates/app-core/src/school_session/identity.rs
       - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_session/presentation.rs
+      - crates/app-core/src/school_session/store.rs
       - crates/app-core/src/school_browser/engine/operation.rs
       - apps/desktop/src-tauri/src/school_cookies.rs
     verified: null
@@ -4598,7 +4653,7 @@ checks:
       page Reload reopens are in the Core web operation suite.
     covers:
       - crates/app-core/src/school_browser/engine/operation.rs
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
       - apps/desktop/src/features/school-web/SchoolWebControls.tsx
       - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
@@ -4672,6 +4727,8 @@ checks:
       - apps/desktop/src-tauri/src/school_cookies.rs
       - apps/android/app/src/main/java/app/isctcompanion/core/WebCookieSeed.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/ios/IsctCompanion/Core/WebCookieSeed.swift
     verified: null
 
@@ -4834,7 +4891,9 @@ checks:
       `otpauth://`, and the system clipboard.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - crates/app-ffi/src/session.rs
     verified: null
 
@@ -4875,7 +4934,7 @@ checks:
       signed-in account. Neither the jsdom e2e host nor the Rust engine tests
       have a window or WebKit.
     covers:
-      - apps/desktop/src-tauri/src/school_webkit.rs
+      - apps/desktop/src-tauri/src/school_webkit/**
     verified: null
 
   - id: DESKTOP-WRITES-PUBLISH-THEMSELVES
@@ -5076,7 +5135,9 @@ checks:
       - apps/ios/IsctCompanion/Design/TabItemPress.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
-      - apps/ios/IsctCompanion/Design/TimetableAxis+Layout.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift
+      - apps/ios/IsctCompanion/Shared/ShareSheet.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
     verified: null
 
@@ -5144,6 +5205,7 @@ checks:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift
       - apps/ios/IsctCompanion/Design/Theme.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt
       - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
       - apps/desktop/src/components/timetable/timetable.tsx
       - apps/desktop/src/styles.css
@@ -5196,8 +5258,10 @@ checks:
       - design/tokens/theme.json
       - apps/ios/IsctCompanion/Design/Theme.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt
       - apps/desktop/src/pages/settings/AppearanceSettings.tsx
       - crates/app-core/src/data/settings.rs
     verified: null
@@ -5245,6 +5309,9 @@ checks:
       - apps/desktop/src/pages/lectures/LectureDesk.tsx
       - apps/desktop/src/pages/lectures/lectures.css
       - apps/desktop/src/app/App.tsx
+      - apps/desktop/src/pages/lectures/LectureExams.tsx
+      - apps/desktop/src/pages/today/TodayAgenda.tsx
+      - apps/desktop/src/pages/today/TodayAssignments.tsx
     verified: null
 
 
@@ -5511,119 +5578,118 @@ checks:
 
   - id: IOS-SHARE-HAND-IN
     area: native
-    title: Files shared into the iPhone or iPad app reach an assignment's LMS draft area
+    title: Files shared on iPhone or iPad reach an eligible assignment's LMS draft area
     persona: undergraduate-senior
     preconditions: |
-      The app signed in to Science Tokyo with an open assignment this quarter
-      whose LMS page accepts file submissions; a signed build with the share
-      extension and the App Group.
+      A signed build with the share and action extensions and the App Group.
+      The Science Tokyo account has an assignment that accepts late work and
+      a closed assignment, or a deadline that can pass during the check.
     steps:
       - action: |
-          In Goodnotes or Files, share a PDF and choose 「IsctCompanion で開く」
-          from the share sheet's actions (Edit Actions lists it if it is not
-          shown).
+          In Files, share a PDF through 「IsctCompanion で開く」. Choose the
+          assignment that allows late work, then inspect its LMS page.
         reason: |
-          The app opens with the PDF in the corner stack, as if chosen in the
-          app; no panel pops up. No stack means the opened file never reached
-          the inbox.
+          The native action moves the app's copy into the current picker.
+          The LMS draft contains the PDF and the person must tap Save.
       - action: |
-          Drag the stack over an assignment row on 今日 and drop it; then add
-          another file, drag it to the trash that appears top right.
+          In the share extension, pick an assignment before it closes. Wait
+          for its cutoff, then open the app from the share sheet.
         reason: |
-          The row floats while the stack is over it; the drop opens the
-          assignment with the files in its upload card, and the row then says
-          「x 件のファイルが提出待ち」. The trash takes the stack with a bounce
-          and the files are gone from the inbox.
+          Core rejects the stale target before taking the files. The app
+          retains the selection and offers another eligible assignment or Cancel.
       - action: |
-          In Photos, select two photos, Share, choose IsctCompanion, read the
-          sheet, leave 「アプリで選ぶ」 and tap 「追加して IsctCompanion を開く」.
+          Cancel that selection. Verify the original PDF in Files and check the
+          previous assignment folder if this is an upgraded install.
         reason: |
-          The share extension copies both into the App Group inbox and the app
-          shows them as a thumbnail stack bottom right, without a count badge.
-          No IsctCompanion in the sheet means the extension or its activation
-          rule is missing.
+          The app clears its current copies; user's original and older files
+          are still there.
       - action: |
-          Tap the stack, then 「課題を選ぶ」 and the assignment.
+          On iPad, drag two files from Files in Split View onto an eligible
+          assignment row or its hand-in card. Try the same drop on a closed row.
         reason: |
-          The files move to the assignment's workspace `submit/` (Core) and its
-          page opens with both files in the upload card; the stack disappears.
+          The eligible drop reads the whole batch and fills the draft. A
+          closed row has no hand-in drop target.
       - action: |
-          On the iPad, share a PDF from Files with the assignment picked in the
-          sheet; open the app. Then drag a file from Files in Split View onto
-          the upload card, and tap the card to add one more.
+          Pick files or photos in the assignment card. Go back from its LMS
+          page while it is still preparing, then reopen the LMS draft normally.
         reason: |
-          Files hands the sheet only a file URL, no content type; the sheet
-          must still show the PDF's thumbnail, and an empty strip with Add
-          greyed out means that URL was not read. A file given an assignment
-          in the sheet is handed in on the next open and that page is shown. The card is the one drop target and
-          tapping it opens the Files picker; each adds to the card's list.
-      - action: Tap 「LMS にアップロード」, wait, and read the LMS page.
-        reason: |
-          Core fills the draft area through Moodle's own uploader and the page
-          says to review and submit yourself. The app never presses save; a
-          submission without the person's tap is a safety failure.
-      - action: |
-          In Files › On My iPad › IsctCompanion, open
-          `workspace/<quarter>/<course>/`.
-        reason: |
-          The assignment's folder holds ASSIGNMENT.md and `submit/` with the
-          files, the same layout desktop uses.
-    observe: The share sheet, the corner stack, the assignment page and the LMS page in the app.
+          The resident browser cancels the matching request. Returning
+          does not make the canceled upload start.
+    observe: The system share and pickers, the app's assignment picker, Files and the LMS draft.
     expected: |
-      Shared files wait in the corner, go to the chosen assignment's
-      `submit/`, show in its upload card, and fill the LMS draft area for the
-      person to save.
+      Only eligible assignments receive the current selection. A stale
+      target can be changed or canceled, and only a user's tap saves the draft.
     why_manual: |
-      The share extension, App Group, Split View drag and the LMS draft area
-      need a signed build, a device and a school account.
+      The Apple extensions, App Group, Split View drag and actual LMS draft
+      require a signed app, device and Science Tokyo account.
     covers:
       - apps/ios/IsctShare/ShareViewController.swift
       - apps/ios/IsctOpen/OpenViewController.swift
       - apps/ios/ExtensionShared/ExtensionInput.swift
       - apps/ios/IsctCompanion/Shared/SharedInbox.swift
       - apps/ios/IsctCompanion/Core/HandIn.swift
-      - apps/ios/IsctCompanion/Features/HandIn/HandInViews.swift
+      - apps/ios/IsctCompanion/Core/AppModelHandIn.swift
+      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
+      - apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift
+      - apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift
+      - apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift
+      - apps/ios/IsctCompanion/Features/Web/WebScreens.swift
+      - crates/app-ffi/src/hand_in.rs
+      - crates/app-core/src/school_browser/submission.rs
+      - crates/adpt-isct/assets/assignment-upload.js
     verified: null
 
   - id: ANDROID-SHARE-HAND-IN
     area: native
-    title: Files shared into the Android app reach an assignment's LMS draft area
+    title: Files shared on Android reach an eligible assignment's LMS draft area
     persona: undergraduate-senior
     preconditions: |
-      The Android app signed in to Science Tokyo with an open assignment this
-      quarter whose LMS page accepts file submissions.
+      The app signed in to Science Tokyo with an assignment that allows late
+      work and a closed assignment, or a deadline that can pass during the check.
     steps:
       - action: |
-          In Photos (or Files), select two items, Share, choose IsctCompanion.
+          Select two files in Files or Photos, tap Share and choose IsctCompanion.
+          In the picker, select the assignment that allows late work.
         reason: |
-          The app opens with both in the inbox stack above the navigation
-          bar. No IsctCompanion in the sheet means the SEND filter is wrong.
-      - action: Tap the stack, then 「課題を選ぶ」 and the assignment.
-        reason: |
-          The files go to the assignment's `submit/` through Core and its page
-          opens with them listed in the upload card.
+          Android's share intent grants the app the two files. The app's
+          picker omits closed assignments and the selected draft shows both
+          files for the person to save.
       - action: |
-          On the card, tap to add a document and use Photos to add an image;
-          remove one file; on a tablet, drag a file from another app onto it.
+          Open the picker before an assignment closes, leave it open until
+          its cutoff, then try the stale target if still shown.
         reason: |
-          The card is the one place to add files: the document picker, the
-          photo picker and a drop all add to its list, and removing deletes
-          the copy in `submit/` only.
-      - action: Tap 「LMS にアップロード」 and read the LMS page.
+          Core rejects the stale choice and keeps the files for another
+          eligible assignment or Cancel.
+      - action: |
+          Cancel and check both original files. Repeat using the assignment
+          card's file or photo picker or tablet drop.
         reason: |
-          Core fills the draft area and the page asks the person to review and
-          submit; the app never saves the submission itself.
-    observe: The share sheet, the corner stack, the assignment page and the LMS page.
+          The app clears its current copies. The originals remain in their
+          source apps.
+      - action: |
+          Go back from the LMS page while it is preparing, then reopen the
+          draft normally.
+        reason: |
+          The resident WebView cancels the matching request. Returning does
+          not make the canceled upload start.
+    observe: Android's share and file pickers, the app's assignment picker and the LMS draft.
     expected: |
-      Shared files wait in the corner, go to the chosen assignment, show in its
-      upload card and fill the LMS draft area for the person to save.
+      Each selection is sent to an eligible LMS draft. A stale target can
+      be changed or canceled. The person taps Save to submit the draft.
     why_manual: |
-      The share sheet, document and photo pickers, cross-app drag and the LMS
-      draft area need a device or emulator with a school account.
+      System share grants, document and photo pickers, tablet drag and the
+      actual LMS draft require Android and a Science Tokyo account.
     covers:
+      - apps/android/app/src/main/java/app/isctcompanion/App.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/handin/HandIn.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt
       - apps/android/app/src/main/AndroidManifest.xml
+      - crates/app-ffi/src/hand_in.rs
+      - crates/app-core/src/school_browser/submission.rs
+      - crates/adpt-isct/assets/assignment-upload.js
     verified: null
 
   - id: ANDROID-APP-UPDATE
@@ -5718,6 +5784,7 @@ checks:
       suite.
     covers:
       - apps/desktop/src/app/useDesktopUpdates.ts
+      - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/components/confirm.tsx
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
@@ -5783,7 +5850,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
       - crates/app-ffi/src/campus_print.rs
-      - crates/app-core/src/campus_printer.rs
+      - crates/app-core/src/campus_printer/mod.rs
       - crates/adpt-printer/src/document.rs
       - crates/adpt-printer/src/lpd.rs
     verified: null
@@ -5840,6 +5907,7 @@ checks:
       object itself is covered by Core's workspace tests.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
       - apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift
@@ -5892,13 +5960,31 @@ checks:
           Android clears alarms on a reboot or an update, which iOS's
           scheduled notifications survive; the app must put Core's reminders
           back on its own within a minute of boot.
+      - action: |
+          On each phone, let a scheduled reminder arrive while the app is
+          closed. Dismiss it from the notification shade or Notification Center
+          and reopen the app within five minutes of the scheduled time. Allow
+          exact alarms for this step on Android.
+        reason: |
+          Once the system delivered the request, it no longer appears in the
+          pending list. After dismissal, reopening must still respect that
+          the OS already owned that reminder.
+      - action: |
+          On Android, turn off exact alarms and set a class reminder. If the
+          alarm is still pending after its nominal time, change the class
+          title and let the app refresh before the alarm fires. Repeat with
+          the class reminders switched off while the alarm is still pending.
+        reason: |
+          The delayed broadcast must read the latest title exactly once.
+          After the switch is off, that pending alarm must stay silent.
     observe: The system prompts, the banner, and 設定 › 通知 on both phones.
     expected: |
       Each phone asks once after the first sync; the test shows a banner with
       the app in front; after denying, the page says notifications are not
       allowed and 設定を開く opens the app's notification settings, also on
       a later visit, with no new prompt; Android's reminders are back after a
-      reboot without opening the app.
+      reboot without opening the app. The dismissed reminder stays dismissed
+      when the app reopens within the catch-up window.
     why_manual: |
       The permission prompt, banners and system settings exist only on real
       devices with a signed app; which reminders are due is Core's
@@ -5908,7 +5994,9 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
       - apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
       - apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt
       - apps/android/app/src/main/AndroidManifest.xml
@@ -6018,6 +6106,7 @@ checks:
       loads. Recognition accuracy is Core's, covered by its tests and replay.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
       - apps/android/app/src/main/AndroidManifest.xml
       - apps/android/app/build.gradle.kts
@@ -6058,8 +6147,8 @@ checks:
       a person sees at a glance whether it reads right. The text and the labels
       themselves are checked in Core's plan tests.
     covers:
-      - apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
       - apps/desktop/src/app/SchoolStatusLine.tsx
     verified: null
 
@@ -6198,6 +6287,8 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt
       - apps/android/app/src/main/res/xml/file_paths.xml
@@ -6405,7 +6496,7 @@ checks:
       Core's sync snapshot, covered by its planner tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
     verified: null
 
   - id: ANDROID-SETTINGS-PAGES
@@ -6462,8 +6553,15 @@ checks:
       object is covered by Core's workspace tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
-      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsPages.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/DataUpdatesScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
     verified: null
 
   - id: ANDROID-WEB-PREFERENCES
@@ -6492,12 +6590,14 @@ checks:
           with large text. LMS or 115% after the relaunch means they are
           held in memory only.
       - action: |
-          Open the page menu (⋮) and pick another 文字の大きさ; reopen 設定.
+          Open the page menu (⋮) and pick another ページの拡大率; reopen 設定.
         reason: |
           The menu holds 再読み込み, 共有, ブラウザで開く and 印刷, then the
-          text sizes. The menu and 設定 show one value with a tick; a
+          zoom levels. The menu and 設定 show one value with a tick; a
           page that does not resize, or 設定 showing the old size, means two
-          owners.
+          owners. Both places say ページの拡大率 (zh 网页缩放比例): the
+          setting zooms school pages only, and 文字サイズ read as the app's
+          own text size, which a tester reported as not working.
       - action: |
           Follow a link inside the page, then pick the shown site again from
           the title; follow another link and tap the ウェブ tab in the bottom
@@ -6533,7 +6633,39 @@ checks:
       - apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt
       - apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
       - apps/android/app/src/main/java/app/isctcompanion/App.kt
+    verified: null
+
+  - id: ANDROID-MAPS-GOOGLE-ONLY
+    area: native
+    title: Android has no maps-app choice and opens places in Google Maps
+    persona: international-student
+    preconditions: |
+      An Android build of this commit with the campus map downloaded, whose
+      data was restored from a backup made on an iPhone or a Mac with
+      Apple Maps chosen.
+    steps:
+      - action: |
+          Open 設定 and scroll past 言語.
+        reason: |
+          Android has no Apple Maps app, so the Google/Apple choice is gone;
+          a row offering Apple マップ is the old screen.
+      - action: |
+          Open the campus map, pick a building and tap its maps link.
+        reason: |
+          Core opens Google Maps on Android whatever the synced mapsApp
+          setting says; a maps.apple.com page means the setting still decides.
+    observe: 設定 and the app the maps link opens.
+    expected: |
+      No maps-app row in 設定, and the link opens Google Maps.
+    why_manual: |
+      A person sees the row and the opened app at a glance; the Android rule
+      is compiled only for the Android target, which the host suites do not
+      build.
+    covers:
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - crates/app-core/src/campus_map/map.rs
     verified: null
 
   - id: ANDROID-SCHOOL-POPUPS
@@ -6908,8 +7040,10 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Design/Localization.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift
       - apps/android/app/src/main/java/app/isctcompanion/design/Localization.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt
       - resources/locales/**
       - apps/desktop/src/i18n/**
       - apps/desktop/src/lib/model.ts
@@ -6979,6 +7113,7 @@ checks:
       spring-scroll.ts.
     covers:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
+      - apps/desktop/src/features/lms/useOutlineReading.ts
     verified: null
 
   - id: COURSE-LESSON-SERIES-LABELS
@@ -7022,6 +7157,7 @@ checks:
       - apps/desktop/src/features/lms/LmsWorkspace.tsx
       - apps/desktop/src/features/lms/content.ts
       - apps/desktop/src/features/lms/lms.css
+      - apps/desktop/src/features/lms/useOutlineReading.ts
       - apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift
       - apps/ios/IsctCompanion/Design/HTMLText.swift
       - apps/ios/IsctCompanion/Design/HorizontalPager.swift
@@ -7207,6 +7343,7 @@ checks:
       and `a_device_with_both_providers_relays_on_its_remote_checks_without_a_local_edit`.
     covers:
       - crates/app-core/src/cloud_sync/mod.rs
+      - crates/app-core/src/cloud_sync/restore.rs
       - crates/app-core/src/data/cloud_merge.rs
       - crates/app-core/src/data/backup_store.rs
     verified: null
@@ -7303,6 +7440,7 @@ checks:
     covers:
       - apps/ios/IsctCompanion/Core/BrowserAuthentication.swift
       - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelCloud.swift
       - apps/ios/project.yml
     verified: null
 
@@ -7379,6 +7517,7 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt
       - crates/app-ffi/src/ports.rs
     verified: null
@@ -8030,7 +8169,7 @@ checks:
       - apps/desktop/src/pages/today/CalendarView.tsx
       - apps/desktop/src/components/timetable/timetable.tsx
       - apps/desktop/src/components/exams/ExamEditor.tsx
-      - apps/desktop/src/app/notify.ts
+      - apps/desktop/src/components/notifications/notify.ts
       - apps/desktop/src/styles.css
       - design/tokens/course.json
     verified: null
@@ -8080,9 +8219,9 @@ checks:
       covered by Core's plan and lms_ingest tests.
     covers:
       - crates/app-core/src/plan/planner.rs
-      - crates/app-core/src/plan/runner.rs
+      - crates/app-core/src/plan/runner/**
       - crates/app-core/src/plan/school.rs
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
     verified: null
 
   - id: IOS-SIGNIN-REASON-AND-RETRY
@@ -8140,6 +8279,8 @@ checks:
       tests is the live school's answer and the native page a person reads.
     covers:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/ios/IsctCompanion/Core/AppModel.swift
       - crates/app-core/src/school_session/identity.rs
     verified: null
@@ -8483,7 +8624,9 @@ checks:
       cannot run in CI. Promotion and the sync payload are covered by Core's
       school_auth and school_browser tests.
     covers:
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/ports.rs
       - apps/ios/IsctCompanion/Core/KeychainVault.swift
       - apps/desktop/src-tauri/src/secrets.rs
@@ -8532,8 +8675,12 @@ checks:
       real devices. Re-reading a changed vault item is covered by Core's
       school_auth tests.
     covers:
-      - crates/app-core/src/school_auth.rs
+      - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
       - crates/app-core/src/school_session/mod.rs
+      - crates/app-core/src/school_session/presentation.rs
+      - crates/app-core/src/school_session/store.rs
     verified: null
 
   - id: SCHOOL-OTP-SUBMITTED-ONCE
@@ -8655,7 +8802,7 @@ checks:
       Only the real keychain prompt can be denied. The snapshot Core gives
       for a denied read is covered by the school_session suite.
     covers:
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src-tauri/src/secrets.rs
       - crates/app-core/src/school_session/identity.rs
     verified: null
@@ -8734,7 +8881,7 @@ checks:
       The entry rule is exercised in the school_browser suite; that the real
       WebKit view and its cookies then sign in is a glance in the real app.
     covers:
-      - crates/app-core/src/school_browser/engine.rs
+      - crates/app-core/src/school_browser/engine/mod.rs
       - crates/app-core/src/school_browser/engine/operation.rs
       - apps/desktop/src-tauri/src/school_browser_native.rs
     verified: null
@@ -8781,7 +8928,11 @@ checks:
     covers:
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
     verified: null
 
   - id: SCHOOL-APP-OTP-ENTRY
@@ -8913,12 +9064,17 @@ checks:
       labels, colours and Retry are a glance in each shell, and the refusal
       needs the live school.
     covers:
-      - apps/desktop/src/app/sync-text.ts
+      - apps/desktop/src/lib/sync-text.ts
       - apps/desktop/src/pages/settings/SchoolAccounts.tsx
-      - apps/ios/IsctCompanion/Features/Status/SchoolStatusViews.swift
+      - apps/desktop/src/app/SchoolStatusPanel.tsx
+      - apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
-      - apps/android/app/src/main/java/app/isctcompanion/design/SyncStatus.kt
+      - apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift
+      - apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift
+      - apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt
     verified: null
 
   - id: SCHOOL-REFUSAL-UNSAVED-COPY
@@ -8944,8 +9100,10 @@ checks:
       Requires the live school and a real vault that selectively denies the
       refusal write; the vault-state decision is covered by school_auth tests.
     covers:
-      - apps/desktop/src/app/sync-text.ts
-      - crates/app-core/src/school_auth.rs
+      - apps/desktop/src/lib/sync-text.ts
+      - crates/app-core/src/school_auth/mod.rs
+      - crates/app-core/src/school_auth/matrix.rs
+      - crates/app-core/src/school_auth/otp_setup.rs
     verified: null
 
   - id: DESKTOP-ERROR-CODE-COPY
@@ -9060,6 +9218,7 @@ checks:
     covers:
       - apps/desktop/src/pages/courses/CoursesPage.tsx
       - apps/desktop/src/pages/courses/editors.tsx
+      - apps/desktop/src/pages/today/TodayAgenda.tsx
       - apps/desktop/src/pages/today/TodayPage.tsx
     verified: null
 
@@ -9069,7 +9228,8 @@ checks:
     persona: international-student
     preconditions: |
       iOS simulator and Android emulator builds of this commit, UI in
-      English, no school account signed in and the network turned off.
+      English, signed in to Science Tokyo with an eligible file assignment
+      and the network turned off.
     steps:
       - action: |
           Pull to refresh on Today with the network off.
@@ -9078,8 +9238,8 @@ checks:
           "network" or "offline" on screen means the shell showed the code
           itself instead of `error.<code>`.
       - action: |
-          Turn the network on and open an assignment's hand-in with no files
-          chosen, then hand in.
+          Turn the network on, select files totaling more than 20 MiB in an
+          assignment's hand-in.
         reason: |
           A Core validation failure must read as its catalog copy, not as
           "Invalid input: …" from the SDK error's description.

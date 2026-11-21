@@ -10,7 +10,9 @@ use serde_json::Value;
 use ts_rs::TS;
 
 use super::course_detail::lms_record;
-use super::lms_html::{image_only, lesson_summary, mark_schedule, safe_html};
+use super::lms_html::{
+    image_only, lesson_summary, mark_schedule, preferred_language, project_html, LocalizedLmsHtml,
+};
 use super::occurrence::course_timeline;
 use super::{array, text};
 
@@ -22,6 +24,7 @@ pub struct CourseContent {
     /// Sections with anything in them, and every lesson of a course that
     /// numbers its lessons, in section order.
     pub lessons: Vec<LessonContent>,
+    pub material_reader_html: std::collections::BTreeMap<String, LocalizedLmsHtml>,
     /// The course's assignments set outside any section (their LMS activity
     /// is not among the materials).
     pub other_assignment_ids: Vec<String>,
@@ -63,6 +66,7 @@ pub struct LessonContent {
     /// earlier rows `lmsRowPast`, its row `lmsRowNow`, cancelled rows
     /// `lmsRowOff`.
     pub summary_html: String,
+    pub original_summary_html: Option<String>,
     /// The first line of that text without a short leading label
     /// (授業計画：, Course schedule:), which heads a folded lesson.
     pub summary: String,
@@ -85,6 +89,7 @@ pub struct LessonItem {
     /// The text shown in place, for pages, labels and announcements, with
     /// schedule tables marked as in `LessonContent.summary_html`.
     pub body_html: Option<String>,
+    pub original_body_html: Option<String>,
     /// The LMS page or file Core resolves and downloads.
     pub source: Option<String>,
     /// A label of LMS pictures only, which shells lay side by side with the
@@ -248,6 +253,7 @@ fn place(lessons: &mut Vec<(Option<u64>, LessonContent)>, row: &Value) -> usize 
             number: None,
             label: String::new(),
             summary_html: String::new(),
+            original_summary_html: None,
             summary: String::new(),
             items: Vec::new(),
             assignment_ids: Vec::new(),
@@ -288,6 +294,8 @@ pub fn course_content(
                 && !syllabus(row)
         })
         .collect();
+    let language = preferred_language(workspace);
+    let mut material_reader_html = std::collections::BTreeMap::new();
     // Sections from the LMS record, which also carries each section's text;
     // a course without one keeps the sections its materials name.
     let mut lessons: Vec<(Option<u64>, LessonContent)> = Vec::new();
@@ -305,6 +313,9 @@ pub fn course_content(
         let id = section
             .get("id")
             .and_then(|value| value.as_u64().or_else(|| value.as_str()?.parse().ok()));
+        let html = text(section, "bodyHtml")
+            .map(|html| project_html(html, false, language))
+            .unwrap_or_default();
         lessons.push((
             id,
             LessonContent {
@@ -313,12 +324,9 @@ pub fn course_content(
                 title: text(section, "title").map(str::to_owned),
                 number: None,
                 label: String::new(),
-                summary_html: text(section, "bodyHtml")
-                    .map(|html| safe_html(html, false))
-                    .unwrap_or_default(),
-                summary: text(section, "bodyHtml")
-                    .map(lesson_summary)
-                    .unwrap_or_default(),
+                summary: lesson_summary(&html.preferred),
+                summary_html: html.preferred,
+                original_summary_html: html.original,
                 items: Vec::new(),
                 assignment_ids: Vec::new(),
                 posted: false,
@@ -340,14 +348,27 @@ pub fn course_content(
             LessonItemKind::Page | LessonItemKind::Label | LessonItemKind::Forum
         );
         let body = text(row, "bodyHtml");
+        let id = text(row, "id").unwrap_or_default();
+        let html = body
+            .map(|html| project_html(html, true, language))
+            .filter(|html| !html.preferred.is_empty());
+        let inline_html = if inline {
+            html
+        } else {
+            if let Some(html) = html {
+                material_reader_html.insert(id.to_owned(), html);
+            }
+            None
+        };
+        let (body_html, original_body_html) = inline_html
+            .map(|html| (Some(html.preferred), html.original))
+            .unwrap_or_default();
         lesson.items.push(LessonItem {
-            material_id: text(row, "id").unwrap_or_default().into(),
+            material_id: id.into(),
             kind,
             title: text(row, "title").unwrap_or_default().into(),
-            body_html: inline
-                .then(|| body.map(|html| safe_html(html, true)))
-                .flatten()
-                .filter(|html| !html.is_empty()),
+            body_html,
+            original_body_html,
             source: item_source(row).map(str::to_owned),
             image_only: kind == LessonItemKind::Label && body.is_some_and(image_only),
         });
@@ -460,12 +481,16 @@ pub fn course_content(
     let current_number = current.and_then(|lesson| lesson.number);
     for lesson in &mut lessons {
         lesson.summary_html = mark_schedule(&lesson.summary_html, current_number);
-        for html in lesson
-            .items
-            .iter_mut()
-            .filter_map(|item| item.body_html.as_mut())
-        {
+        if let Some(html) = &mut lesson.original_summary_html {
             *html = mark_schedule(html, current_number);
+        }
+        for item in &mut lesson.items {
+            for html in [&mut item.body_html, &mut item.original_body_html]
+                .into_iter()
+                .flatten()
+            {
+                *html = mark_schedule(html, current_number);
+            }
         }
     }
     Some(CourseContent {
@@ -473,6 +498,7 @@ pub fn course_content(
         current_section,
         class_at: timeline.and_then(|timeline| timeline.class_at),
         lessons,
+        material_reader_html,
         other_assignment_ids,
     })
 }

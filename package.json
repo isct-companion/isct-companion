@@ -16,6 +16,7 @@
     "test:live": "ISCT_LIVE_SCHOOL_TESTS=1 vitest run --config apps/desktop/tests/vitest.config.ts tests/live",
     "test:types": "./node_modules/.bin/tsc -p apps/desktop/tests/tsconfig.json",
     "verify:manual": "node scripts/checks/manual-acceptance.mjs",
+    "quality:audit": "node scripts/checks/code-quality/scan.mjs",
     "release:bump": "node scripts/release/bump.mjs",
     "format": "yarn workspace @isct/desktop format",
     "design:tokens": "node design/build.mjs",
@@ -31,8 +32,11 @@
     "android:debug": "node scripts/bindings/build-android.mjs --assemble-debug"
   },
   "devDependencies": {
+    "@babel/parser": "^7.29.8",
     "@tauri-apps/cli": "^2.12.4",
+    "jscpd": "^5.4.3",
     "jsdom": "31.0.0",
+    "postcss": "^8.5.32",
     "prettier": "3.9.10",
     "style-dictionary": "5.8.0",
     "vite": "8.3.6",

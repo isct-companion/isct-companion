@@ -1,4 +1,5 @@
 use super::*;
+use crate::study_profile::CourseEligibilityStatus;
 fn eligibility_offering(id: &str, code: &str) -> Value {
     json!({
         "id":id, "year":2026, "code":code, "quarters":["3Q"],

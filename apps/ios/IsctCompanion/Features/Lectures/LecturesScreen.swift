@@ -28,7 +28,7 @@ struct LecturesScreen: View {
                 .pickerStyle(.segmented)
             }
             .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            .listRowInsets(EdgeInsets(top: Theme.space2, leading: 0, bottom: Theme.space2, trailing: 0))
             .listRowSeparator(.hidden)
             switch navigator.lectureMode {
             case .courses:
@@ -94,18 +94,18 @@ struct LecturesScreen: View {
 
     private func row(_ id: String) -> some View {
         let course = model.records.courses[id] ?? [:]
-        return HStack(spacing: 12) {
+        return HStack(spacing: Theme.rowGap) {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(Color(hex: overview?.colors[id] ?? model.colors[id]))
                 .frame(width: 6, height: 32)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(course.text("title") ?? id).font(.body.weight(.medium)).foregroundStyle(Theme.ink).lineLimit(2)
                 if let code = course.text("code") {
                     Text(code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.space1)
     }
 }
 
@@ -119,7 +119,7 @@ private struct TermPicker: View {
 
     var body: some View {
         let shown = term.flatMap(Self.parts)
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.space5) {
             Menu {
                 ForEach(years, id: \.self) { year in
                     Button(t("timetable.academicYear", ["year": String(year)])) {
@@ -127,7 +127,7 @@ private struct TermPicker: View {
                     }
                 }
             } label: {
-                HStack(spacing: 4) {
+                HStack(spacing: Theme.space2) {
                     Text(shown.map { t("timetable.academicYear", ["year": String($0.year)]) } ?? "")
                     Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold))
                 }

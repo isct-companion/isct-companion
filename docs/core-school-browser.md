@@ -11,7 +11,7 @@ shim, no history of its own.
 The same contract is exposed through `app-ffi` (`NativeBrowser`,
 `BrowserEvents`) for iOS and Android, and implemented directly in Rust by the
 desktop (`apps/desktop/src-tauri/src/school_browser_native.rs` with
-`school_webkit.rs` on macOS and the interim `school_windows.rs` on Windows).
+`school_webkit/mod.rs` on macOS and the interim `school_windows.rs` on Windows).
 
 ## Views, popups and pages
 
@@ -105,7 +105,7 @@ point in its frame without descending into subviews, so a popup inside it
 would never receive a file dragged onto it, and the page underneath would.
 Clicks would still work, since the ordinary `hitTest:` descends, which is why
 this is easy to miss. macOS keeps popups in the main view's superview
-(`school_webkit.rs` `arrange_popups`), iOS in the container holding the view
+(`school_webkit/mod.rs` `arrange_popups`), iOS in the container holding the view
 (`arrangePopups`), Android in the host's `FrameLayout`.
 
 ## What Core decides
@@ -379,13 +379,13 @@ nothing:
 
 | Host                             | Facts                                                                                           | History  | Popups                                                    | Drag and drop              | Print, dialogs                                                                    |
 | -------------------------------- | ----------------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------- |
-| macOS (`school_webkit.rs`)       | Full                                                                                            | Reported | Inline, siblings of the view                              | Views and popups           | Done; file panel as above                                                         |
+| macOS (`school_webkit/mod.rs`)       | Full                                                                                            | Reported | Inline, siblings of the view                              | Views and popups           | Done; file panel as above                                                         |
 | Windows (interim)                | URL only (`Unknown`, no gesture); no resubmission facts                                         | Unknown  | Separate windows (`NewWindowResponse::Create`)            | WebView2's own, per window | WebView2's own                                                                    |
 | iOS (`SchoolBrowserHost.swift`)  | Full but gesture                                                                                | Reported | Inline, siblings of the view                              | Views and popups (iPad)    | Done                                                                              |
 | Android (`SchoolBrowserHost.kt`) | URL, frame, gesture, redirect; `onFormResubmission`; `ERR_CACHE_MISS` as a load failure         | Reported | `WebViewTransport`, inline, siblings in the `FrameLayout` | WebView's own              | Dialogs and file inputs done; print from the page menu (no `window.print()` hook) |
 
 macOS popups are views of their own (`WKWebView` subclass in
-`school_webkit.rs`) with the capabilities of a main view: the file panel
+`school_webkit/mod.rs`) with the capabilities of a main view: the file panel
 above, file drops (they are siblings of the view), the opener's page zoom
 when created and the app's zoom afterwards, and no keyboard focus while
 hidden. The host logs when a popup opens, when a navigation becomes a
