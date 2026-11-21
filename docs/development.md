@@ -43,8 +43,7 @@ desktop app.
 
 ### The development app
 
-`yarn desktop:dev`, and `yarn desktop:build --debug` without the team's
-provisioning profile, build a separate app, `app.isctcompanion.dev`
+`yarn desktop:dev` and a regular `yarn desktop:build --debug` build a separate app, `app.isctcompanion.dev`
 ("IsctCompanion Dev"). It has its own data folder, single-instance lock,
 credential-vault service, course folder (`~/Documents/IsctCompanion Dev`), MCP
 port (47833) and Windows print queue (port 24762), so it runs beside the
@@ -53,20 +52,28 @@ credentials. It starts with an empty workspace: sign in to the school once
 (import an existing OTP seed in the sign-in sheet), and copy the release data
 folder into the development one by hand if you need its courses, deleting
 `course-files-root.json` from the copy. Turn on Google Drive only with a test
-Google account: the development app uses the same Drive app folder. A debug
-bundle signed with the team profile is the release app with iCloud
-(`app.isctcompanion`).
+Google account: the development app uses the same Drive app folder.
 
-On macOS each launch signs the development executable with your own Apple
-Development identity (a Personal Team works), so the keychain items it saves
-stay readable across rebuilds without prompts. Pick the identity once and keep
-it in your shell profile; `yarn desktop:dev` lists the valid ones when it is
-unset:
+On macOS both `yarn desktop:dev` and the standalone development bundle from
+`yarn desktop:build --debug --bundles app` sign with the same Apple Development
+identity (a Personal Team works), which keeps their Keychain access stable
+across rebuilds. Both commands use the only valid Apple Development identity
+automatically. With multiple identities, select one in your shell profile:
 
 ```sh
 security find-identity -v -p codesigning   # pick an "Apple Development" SHA-1
 export ISCT_MACOS_DEV_SIGNING_IDENTITY=<SHA-1>
 ```
+
+If no Apple Development identity is installed, create one in Xcode under
+Settings → Accounts, or use `yarn desktop:build --debug --no-bundle` to compile
+without creating an app bundle.
+
+Use the same target, debug flag and signing environment when packaging an
+existing binary with `yarn tauri bundle`. For a debug build, also reuse the
+`ISCT_DEV_VERSION` printed by the first build so the bundle version matches
+the version compiled into the app. For a debug build with the release
+identity, see [macOS signing](desktop-release.md#apple-developer-signing-and-notarization).
 
 A debug binary started any other way (such as `cargo run`) would use the
 release app's data and credentials, so it refuses to start.

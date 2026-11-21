@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { macDevSigningTeam } from "./macos-dev-signing.mjs";
 
 const projectTeam = "FB7AL944GK";
 const releaseHost = "app.isctcompanion";
@@ -14,7 +15,7 @@ const set = (file, key, value) =>
 // `host` is the containing app's identifier: the extension's identifier and
 // the widget group follow it, so a development bundle never shares the
 // release widgets' data.
-export function macWidgets(root, args, macConfig, version, host) {
+export function macWidgets(root, args, macOS, { version, host, debug }) {
   const requested =
     args.find((arg) => arg.startsWith("--target="))?.slice(9) ??
     args[args.indexOf("--target") + 1];
@@ -29,22 +30,10 @@ export function macWidgets(root, args, macConfig, version, host) {
   const output = path.join(root, "target/widgets-mac", arch.replace(" ", "-"));
   mkdirSync(output, { recursive: true });
 
-  const signed =
-    process.env.APPLE_SIGNING_IDENTITY ??
-    macConfig?.bundle.macOS.signingIdentity;
-  const developmentIdentity = args.includes("--debug")
-    ? process.env.ISCT_MACOS_WIDGET_DEVELOPMENT_IDENTITY
-    : undefined;
-  const developmentTeam = process.env.ISCT_MACOS_WIDGET_DEVELOPMENT_TEAM;
-  if (developmentIdentity && !developmentTeam) {
-    throw new Error(
-      "Set ISCT_MACOS_WIDGET_DEVELOPMENT_TEAM for the widget development identity",
-    );
-  }
-  const personal = developmentIdentity && (!signed || signed === "-");
-  const team = personal ? developmentTeam : projectTeam;
+  const identity = macOS?.signingIdentity ?? "-";
+  const isolated = host !== releaseHost;
+  const team = isolated ? macDevSigningTeam(identity) : projectTeam;
   const group = `${team}.${host}.widgetkit`;
-  const identity = personal ? developmentIdentity : (signed ?? "-");
   const run = (cmd, args) =>
     execFileSync(cmd, args, { cwd: widgets, stdio: "inherit" });
   run("xcodegen", ["generate"]);
@@ -85,24 +74,17 @@ export function macWidgets(root, args, macConfig, version, host) {
     entitlements,
     ...(identity === "-"
       ? []
-      : [
-          "--options",
-          "runtime",
-          ...(args.includes("--debug") ? [] : ["--timestamp"]),
-        ]),
+      : ["--options", "runtime", ...(debug ? [] : ["--timestamp"])]),
     appex,
   ]);
 
-  const config = { ...macConfig?.bundle.macOS };
-  if (personal || host !== releaseHost) {
+  const config = { ...macOS };
+  if (isolated) {
     const hostInfo = path.join(output, "WidgetHostInfo.plist");
     copyFileSync(path.join(desktop, "Info.plist"), hostInfo);
     set(hostInfo, "IsctWidgetGroup", group);
     config.infoPlist = hostInfo;
-  }
-  if (personal) {
-    // A locally signed bundle shares widget data within this development team.
-    // Its profile does not grant the release team's iCloud entitlements.
+    // The host and widget share an App Group from their development team.
     const hostEntitlements = path.join(output, "WidgetHostEntitlements.plist");
     copyFileSync(entitlements, hostEntitlements);
     execFileSync(plistBuddy, [
@@ -110,10 +92,7 @@ export function macWidgets(root, args, macConfig, version, host) {
       "Delete :com.apple.security.app-sandbox",
       hostEntitlements,
     ]);
-    Object.assign(config, {
-      signingIdentity: identity,
-      entitlements: hostEntitlements,
-    });
+    config.entitlements = hostEntitlements;
   }
   config.files = { ...config.files, [`PlugIns/${extensionName}.appex`]: appex };
   return { bundle: { macOS: config } };

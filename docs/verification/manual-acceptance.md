@@ -324,7 +324,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-COURSE-OUTLINE-STILL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/useOutlineReading.ts |
 | `COURSE-LESSON-SERIES-LABELS` | native | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/schedule/course_content.rs<br>crates/app-core/src/schedule/lms_html.rs<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/features/lms/content.ts<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/features/lms/useOutlineReading.ts<br>apps/ios/IsctCompanion/Features/Course/CourseDetailScreen.swift<br>apps/ios/IsctCompanion/Design/HTMLText.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift |
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
-| `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-signing.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs |
+| `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-dev-signing.mjs<br>scripts/desktop/macos-signing.mjs<br>scripts/desktop/macos-widgets.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs<br>apps/desktop/src-tauri/src/secrets.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/cloud_sync/restore.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
 | `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/mod.rs<br>crates/app-core/src/exam_share/library.rs |
 | `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelCloud.swift<br>apps/ios/project.yml |
@@ -4735,7 +4735,7 @@ Stop screen sharing/mirroring, or allow notifications while sharing.
      System Settings blocked the app. The packaged app must ask when
      undetermined, link to settings when denied, and refresh the real OS
      permission on return instead of trusting a stale saved value. Its
-     local bundle signature must use app.isctcompanion so macOS can match
+     local bundle signature must use its bundle identifier so macOS can match
      it to the notification authorization.
 2. On both macOS and Windows, open Settings > Notifications, click Test
    notification, then click the native banner while the app is behind
@@ -8315,7 +8315,7 @@ merge, tag-conditional write and journal behind it are covered by
 
 **Last recorded** never run
 
-### A debug bundle has iCloud exactly when this Mac can sign it (`DESKTOP-DEBUG-ICLOUD`)
+### macOS debug builds use release iCloud only with an explicit profile (`DESKTOP-DEBUG-ICLOUD`)
 
 **Area** cloud · **Persona** Two devices, interrupted work · **Result** —
 
@@ -8323,52 +8323,56 @@ merge, tag-conditional write and journal behind it are covered by
 
 **Preconditions**
 
-A Mac whose keychain holds an Apple Development identity of team
-FB7AL944GK and whose Xcode has downloaded that team's Mac profile for
-`app.isctcompanion` listing this Mac (Xcode › Settings › Accounts ›
-Download Manual Profiles).
+A Mac with an Apple Development identity and a project-team Mac
+development profile for `app.isctcompanion` listing this Mac. The
+project profile and its matching certificate are already installed.
 
 **Steps**
 
-1. Run `yarn tauri build --debug` and read the line that starts with
-   "Debug bundle:".
-   - *Why:* It must say the bundle is signed with the Apple Development profile.
-     "ad-hoc" on this Mac means the profile or identity was not matched,
-     and the build would have no iCloud.
-2. Open target/debug/bundle/macos/IsctCompanion.app, then Settings →
-   Backup.
-   - *Why:* The iCloud row must be there and sync without a crash. A launch that
-     dies with SIGILL means iCloud was compiled in but the bundle lacks
-     the entitlement, so build.rs and the signing step disagree.
-3. Move the profile out of ~/Library/Developer/Xcode/UserData/Provisioning
-   Profiles, build again, open the bundle, then put the profile back.
-   - *Why:* Without a profile the line must say ad-hoc, Backup must show no
-     iCloud row, and the app must still start: a debug build on a Mac
-     without a developer account stays usable.
+1. Run `yarn desktop:build --debug --bundles app` with
+   `APPLE_SIGNING_IDENTITY` and `ISCT_MACOS_PROVISIONING_PROFILE` unset.
+   Open IsctCompanion Dev and sign in to a school account.
+   - *Why:* A downloaded organization profile must not let a regular debug build
+     read release credentials or start CloudKit.
+2. Quit the app, rebuild and open it again. Repeat with
+   `yarn tauri bundle --debug --bundles app` using the same signing
+   settings and the rebuild's `ISCT_DEV_VERSION`. Retry the school
+   login in each build.
+   - *Why:* Recompiling the app or packaging an existing binary must preserve
+     access to the development app's Keychain items.
+3. Set `ISCT_MACOS_PROVISIONING_PROFILE` to the project-team development
+   profile's path, rebuild, and open IsctCompanion → Settings → Backup.
+   - *Why:* The explicitly selected profile must use the release identity and
+     authorize the CloudKit code compiled into the app.
 
 **Where to look**
 
-The build output, the Backup page of each bundle, and
-`codesign -d --entitlements - target/debug/bundle/macos/IsctCompanion.app`.
+The bundle identifiers, signatures and entitlements reported by
+`codesign -d -vv --entitlements -`, the two apps' Backup settings, and
+Keychain prompts when retrying the school login.
 
 **Expected**
 
-With the profile: signed by the Apple Development identity, entitlements
-include the Production iCloud environment, and iCloud syncs. Without it:
-ad-hoc, no iCloud row, no crash.
+Regular debug builds use the development identity across recompilation
+and packaging, keep access to their existing credentials, and have no
+iCloud row. The explicitly provisioned debug build uses the release
+identity, has the Production iCloud entitlement, and syncs.
 
 **Why this is manual**
 
-It depends on this Mac's keychain identities, its downloaded profiles and
-a real codesign run, none of which exist on CI; that the iCloud switch
-and history survive a build without iCloud is unit-tested in
-`unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return`.
+Needs signing identities, the project-team profile, a school login for
+the real Keychain authorization, and an iCloud account. The Core test
+`unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return`
+already covers the iCloud switch and history without the provider.
 
 **Covers**
 
+- `scripts/desktop/macos-dev-signing.mjs`
 - `scripts/desktop/macos-signing.mjs`
+- `scripts/desktop/macos-widgets.mjs`
 - `scripts/desktop/tauri.mjs`
 - `apps/desktop/src-tauri/build.rs`
+- `apps/desktop/src-tauri/src/secrets.rs`
 
 **Last recorded** never run
 

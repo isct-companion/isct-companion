@@ -3,6 +3,10 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  appleDevelopmentIdentities,
+  macDevSigningIdentity,
+} from "./macos-dev-signing.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const bundleId = "app.isctcompanion";
@@ -14,7 +18,11 @@ function decodeProfile(profilePath) {
   });
   if (decoded.status !== 0) return undefined;
   // plistlib preserves arrays, booleans and UTC dates across macOS versions.
-  const parsed = spawnSync("python3", ["-c", `
+  const parsed = spawnSync(
+    "python3",
+    [
+      "-c",
+      `
 import sys, plistlib, json, hashlib
 profile = plistlib.loads(sys.stdin.buffer.read())
 expires = profile.get("ExpirationDate")
@@ -26,7 +34,10 @@ print(json.dumps({
     "ExpirationDate": expires.isoformat() + "Z" if expires else "",
     "Entitlements": profile.get("Entitlements", {})
 }))
-`], { input: decoded.stdout, encoding: "utf8" });
+`,
+    ],
+    { input: decoded.stdout, encoding: "utf8" },
+  );
   if (parsed.status !== 0) return undefined;
   return JSON.parse(parsed.stdout);
 }
@@ -44,7 +55,8 @@ function validateProfile(
 ) {
   const profile = decodeProfile(profilePath);
   const invalid = (reason) => {
-    if (diagnostics) console.error(`Mac provisioning profile rejected: ${reason}`);
+    if (diagnostics)
+      console.error(`Mac provisioning profile rejected: ${reason}`);
     return undefined;
   };
   if (!profile) return invalid("CMS decoding failed");
@@ -54,17 +66,17 @@ function validateProfile(
   const expires = Date.parse(profile?.ExpirationDate ?? "");
   if (!platforms.includes("OSX")) return invalid("macOS platform missing");
   if (development) {
+    if (profile.ProvisionsAllDevices)
+      return invalid("expected a development profile");
     const mac = provisioningUdid();
-    if (
-      !profile.ProvisionsAllDevices &&
-      !(mac && profile.ProvisionedDevices.includes(mac))
-    ) {
+    if (!mac || !profile.ProvisionedDevices.includes(mac)) {
       return invalid("this Mac is not in the profile");
     }
   } else if (!profile.ProvisionsAllDevices) {
     return invalid("Developer ID distribution missing");
   }
-  if (!(expires > Date.now())) return invalid("expiration date invalid or expired");
+  if (!(expires > Date.now()))
+    return invalid("expiration date invalid or expired");
   if (
     appIdentifier !== `${teamId}.${bundleId}` &&
     appIdentifier !== `${teamId}.*`
@@ -76,8 +88,12 @@ function validateProfile(
   ) {
     return invalid("Keychain group missing");
   }
-  const containers = entitlements["com.apple.developer.icloud-container-identifiers"];
-  if (!Array.isArray(containers) || !containers.includes(`iCloud.${bundleId}`)) {
+  const containers =
+    entitlements["com.apple.developer.icloud-container-identifiers"];
+  if (
+    !Array.isArray(containers) ||
+    !containers.includes(`iCloud.${bundleId}`)
+  ) {
     return invalid("CloudKit container missing");
   }
   // Entitlements.plist asks for Production, the database the iPhone app uses.
@@ -97,24 +113,16 @@ function provisioningUdid() {
   return hardware.stdout?.match(/Provisioning UDID:\s*(\S+)/)?.[1];
 }
 
-function signingIdentities() {
-  const found = spawnSync(
-    "security",
-    ["find-identity", "-v", "-p", "codesigning"],
-    { encoding: "utf8" },
-  );
-  return [...(found.stdout ?? "").matchAll(/^\s*\d+\)\s+([0-9A-F]{40})\s/gm)].map(
-    (match) => match[1],
-  );
-}
-
 function profileFromSecret() {
   const encoded = process.env.APPLE_MACOS_PROVISIONING_PROFILE;
   if (!encoded) return undefined;
   const directory = path.join(root, "target", "isct-signing");
   const destination = path.join(directory, "embedded.provisionprofile");
   mkdirSync(directory, { recursive: true });
-  writeFileSync(destination, Buffer.from(encoded.replace(/\s+/g, ""), "base64"));
+  writeFileSync(
+    destination,
+    Buffer.from(encoded.replace(/\s+/g, ""), "base64"),
+  );
   return destination;
 }
 
@@ -137,45 +145,33 @@ function candidateProfiles() {
     );
 }
 
-/**
- * A debug bundle signed like the release: the Apple Development identity and
- * team profile of whoever builds it, so iCloud and CloudKit work in debug.
- * Undefined when this Mac has no such identity and profile.
- */
-export function macDevelopmentSigningConfig() {
-  if (process.platform !== "darwin") return undefined;
-  const identities = signingIdentities();
-  const selected = candidateProfiles()
-    .map((profile) => validateProfile(profile, { development: true }))
-    .filter(Boolean)
-    .map((match) => ({
-      ...match,
-      identity: match.profile.Certificates.find((hash) =>
-        identities.includes(hash),
-      ),
-    }))
-    .filter((match) => match.identity)
-    .sort(
-      (left, right) =>
-        Date.parse(right.profile.ExpirationDate) -
-        Date.parse(left.profile.ExpirationDate),
-    )[0];
-  if (!selected) return undefined;
+/** An explicitly requested project-team profile enables release behavior in debug. */
+function macDevelopmentSigningConfig(profilePath) {
+  const profile = path.resolve(profilePath);
+  const selected = validateProfile(profile, {
+    development: true,
+    diagnostics: true,
+  });
+  const identity =
+    selected &&
+    appleDevelopmentIdentities().find(({ hash }) =>
+      selected.profile.Certificates.includes(hash),
+    );
+  if (!identity) {
+    throw new Error(
+      "ISCT_MACOS_PROVISIONING_PROFILE must authorize this Mac and match an installed Apple Development identity.",
+    );
+  }
   return {
-    bundle: {
-      macOS: {
-        signingIdentity: selected.identity,
-        entitlements: "Entitlements.plist",
-        files: { "embedded.provisionprofile": selected.path },
-      },
-    },
+    signingIdentity: identity.hash,
+    entitlements: "Entitlements.plist",
+    files: { "embedded.provisionprofile": profile },
   };
 }
 
-export function macSigningConfig({ required = false } = {}) {
-  if (process.platform !== "darwin") return undefined;
+export function macSigningConfig() {
   const matches = candidateProfiles()
-    .map((profile) => validateProfile(profile, { diagnostics: required }))
+    .map((profile) => validateProfile(profile, { diagnostics: true }))
     .filter(Boolean)
     .sort(
       (left, right) =>
@@ -184,17 +180,51 @@ export function macSigningConfig({ required = false } = {}) {
     );
   const selected = matches[0];
   if (!selected) {
-    if (!required) return undefined;
     throw new Error(
       `No valid macOS provisioning profile authorizes ${bundleId}, iCloud and synchronized Keychain.`,
     );
   }
   return {
-    bundle: {
-      macOS: {
-        entitlements: "Entitlements.plist",
-        files: { "embedded.provisionprofile": selected.path },
-      },
-    },
+    entitlements: "Entitlements.plist",
+    files: { "embedded.provisionprofile": selected.path },
   };
+}
+
+/** Select one identity for the app, its widget and any bundled VPN helper. */
+export function macosBuildSigning({ dev, debug, packagesApp, noSign }) {
+  if (dev) return { developmentIdentity: macDevSigningIdentity() };
+  if (noSign) return {};
+
+  const releaseIdentity = process.env.APPLE_SIGNING_IDENTITY?.trim();
+  if (releaseIdentity) {
+    return {
+      releaseIdentity,
+      entitled: true,
+      macOS: { ...macSigningConfig(), signingIdentity: releaseIdentity },
+    };
+  }
+
+  const profile = process.env.ISCT_MACOS_PROVISIONING_PROFILE;
+  if (debug && profile) {
+    const macOS = macDevelopmentSigningConfig(profile);
+    console.log(
+      "Debug bundle: using the explicitly selected project profile and release app identity.",
+    );
+    return {
+      developmentIdentity: macOS.signingIdentity,
+      entitled: true,
+      macOS,
+    };
+  }
+  if (debug && packagesApp) {
+    const developmentIdentity = macDevSigningIdentity();
+    console.log(
+      "Debug bundle: using Apple Development signing and the development app identity.",
+    );
+    return {
+      developmentIdentity,
+      macOS: { signingIdentity: developmentIdentity, hardenedRuntime: false },
+    };
+  }
+  return {};
 }

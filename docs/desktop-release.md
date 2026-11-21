@@ -96,11 +96,20 @@ synchronizable Keychain access in the distributed desktop app.
 
 macOS bundles require Xcode and XcodeGen for the WidgetKit extension.
 The extension is signed before Tauri places it in `Contents/PlugIns`.
-For a local widget build with a personal Apple Development identity, set
-`ISCT_MACOS_WIDGET_DEVELOPMENT_IDENTITY` and
-`ISCT_MACOS_WIDGET_DEVELOPMENT_TEAM`, then run
-`yarn desktop:build --debug --bundles app`. The development team gets its
-own widget App Group and the project team's CloudKit entitlement is absent.
+For a standalone development bundle, run
+`yarn desktop:build --debug --bundles app`. The app and widget use the same
+Apple Development identity as `yarn desktop:dev`. A Mac with one valid
+development identity uses it automatically. When several are installed, set
+`ISCT_MACOS_DEV_SIGNING_IDENTITY` to the SHA-1 of the chosen certificate.
+The app and widget share an App Group within that team, and the bundled
+campus VPN helper uses the same signing identity.
+
+To exercise the release app's CloudKit and Keychain in a debug build, set
+`ISCT_MACOS_PROVISIONING_PROFILE` to the path of a project-team development
+profile that authorizes this Mac and install its matching Apple Development
+certificate. Then run `yarn desktop:build --debug --bundles app`. This
+explicitly builds `app.isctcompanion` against the release app's data and
+credentials. A regular debug build uses the separate development identity.
 
 Select `sign_macos` when dispatching a new build. For automatic signed tag
 releases, also set the repository Actions variable `MACOS_SIGNING_ENABLED`
