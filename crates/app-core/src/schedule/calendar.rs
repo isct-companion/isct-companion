@@ -35,6 +35,20 @@ pub struct QuarterRange {
     pub to: String,
 }
 
+impl QuarterRange {
+    pub(super) fn contains(&self, date: &str) -> bool {
+        (self.from.as_str()..=self.to.as_str()).contains(&date)
+    }
+
+    pub(super) fn outside_teaching(&self, date: &str) -> bool {
+        self.teaching_ranges.as_ref().is_some_and(|ranges| {
+            !ranges
+                .iter()
+                .any(|range| (range.start.as_str()..=range.end.as_str()).contains(&date))
+        })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]

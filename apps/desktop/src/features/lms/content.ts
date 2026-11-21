@@ -1,8 +1,8 @@
-import { formatJst } from "../../lib/civil-date";
-import { extension, fileFamily, previewKind } from "./file-types";
+import { formatTimestamp } from "../../lib/civil-date";
+import { extension, fileFamily, previewKind } from "../../lib/file-types";
 import { t } from "../../i18n";
 /** Render a bounded, inert subset of teacher HTML. No scripts, forms or styles. */
-export function safeContent(html: string, language?: "ja" | "en"): string {
+export function safeContent(html: string): string {
   const source = new DOMParser().parseFromString(
     html.slice(0, 100000),
     "text/html",
@@ -24,12 +24,6 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
     )
       link.remove();
   }
-  // Only explicit block language metadata can filter arbitrary content.
-  if (language && source.body.querySelector(`[lang="${language}"]`))
-    source.body.querySelectorAll("[lang]").forEach((n) => {
-      const lang = n.getAttribute("lang")?.toLowerCase();
-      if ((lang === "ja" || lang === "en") && lang !== language) n.remove();
-    });
   const out = document.createElement("div");
   const tags = new Set([
     "ARTICLE",
@@ -137,37 +131,6 @@ export function safeContent(html: string, language?: "ja" | "en"): string {
   };
   source.body.childNodes.forEach((node) => copy(node, out));
   fileLists(out);
-  if (language) {
-    // Narrow fallback: complete paired, labelled lines only. Keep mixed or
-    // unlabelled content unchanged, including tables, code and continuation.
-    out.querySelectorAll("div,p").forEach((el) => {
-      if (el.querySelector("div,p,table,pre,code,ul,ol,img")) return;
-      const lines = el.innerHTML
-        .split(/<br\s*\/?\s*>/i)
-        .filter((line) => line.trim());
-      const languages = lines.map((line) => {
-        const text =
-          new DOMParser()
-            .parseFromString(line, "text/html")
-            .body.textContent?.trim() ?? "";
-        if (/^(授業計画|課題|連絡先|オフィスアワー)\s*[：:]/.test(text))
-          return "ja";
-        if (
-          /^(Course schedule|Objectives|Contact|Office\s*hours)\s*:/i.test(text)
-        )
-          return "en";
-        return undefined;
-      });
-      if (
-        languages.includes("ja") &&
-        languages.includes("en") &&
-        languages.every(Boolean)
-      )
-        el.innerHTML = lines
-          .filter((_, index) => languages[index] === language)
-          .join("<br>");
-    });
-  }
   return out.innerHTML;
 }
 
@@ -285,13 +248,5 @@ export function formatLmsDate(value: string, locale: string) {
   const date = new Date(
     `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}T${hour.padStart(2, "0")}:${minute}:00+09:00`,
   );
-  return Number.isNaN(date.getTime())
-    ? value
-    : formatJst(date, locale, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+  return formatTimestamp(date, locale) ?? value;
 }

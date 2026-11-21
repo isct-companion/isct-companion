@@ -71,7 +71,7 @@ export function GuideTip({
       <Popover.Target>{children}</Popover.Target>
       <Popover.Dropdown className="guideTip" role="note">
         <Text size="sm">{t(text)}</Text>
-        <Group justify="flex-end" mt={8}>
+        <Group justify="flex-end" mt="space-4">
           <Button size="compact-xs" variant="light" onClick={dismiss}>
             {t("guide.gotIt")}
           </Button>
@@ -121,7 +121,7 @@ export function WelcomeSheet({
       size="md"
       classNames={{ body: "welcomeSheet" }}
     >
-      <Stack gap="md">
+      <Stack gap="space-7">
         <div className="welcomeRow">
           <Text fw={600} size="sm">
             {t("common.appLanguage")}
@@ -171,7 +171,7 @@ export function WelcomeSheet({
           <b>{t("guide.useWithClaudeCodexOr")}</b>
           <span>{t("guide.connectAnAIAssistantOver")} →</span>
         </button>
-        <Group justify="flex-end" gap="xs">
+        <Group justify="flex-end" gap="space-4">
           {/* Focus starts on the main button, not the close box, so Return
               and Space never dismiss the sheet for good by accident. */}
           <Button

@@ -62,6 +62,14 @@ pub enum Material {
         files: Vec<ResolvedFile>,
         page: SchoolWebTarget,
     },
+    /// A downloaded ZIP small enough to show as a folder
+    /// (`file_preview::archive::list`): its files open like any other source
+    /// (`archive_entry_source`), each downloaded file of its own.
+    Archive {
+        file: LocalFile,
+        files: Vec<ArchiveFile>,
+        page: SchoolWebTarget,
+    },
     /// A school page with an adapter, opened in the App's signed-in school
     /// web view of `site`: an LMS activity that is not a file (forum,
     /// feedback, page, an LTI tool, any module Core does not know), or a link
@@ -70,7 +78,9 @@ pub enum Material {
         site: SchoolSite,
         url: String,
     },
-    /// A page outside the school sites, for the system browser.
+    /// A page outside the school sites: no school view is its own. The
+    /// desktop reader shows it in the LMS view, where links out of the LMS
+    /// land as well.
     External {
         url: String,
     },
@@ -79,6 +89,50 @@ pub enum Material {
         reason: MaterialFailure,
         page: Option<SchoolWebTarget>,
     },
+}
+
+/// A file inside an archive: its path there, the source it opens as, and
+/// its unpacked size.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ArchiveFile {
+    pub name: String,
+    pub url: String,
+    pub bytes: u64,
+}
+
+/// What follows an archive's source to name one of its files.
+const ENTRY_MARK: &str = "#entry=";
+/// A path inside an archive as it appears in a source: `/` stays readable.
+const ENTRY_PATH: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUMERIC
+    .remove(b'/')
+    .remove(b'-')
+    .remove(b'.')
+    .remove(b'_')
+    .remove(b'~');
+
+/// The source of the file `name` inside the archive at `archive`.
+pub fn archive_entry_source(archive: &str, name: &str) -> String {
+    format!(
+        "{archive}{ENTRY_MARK}{}",
+        percent_encoding::utf8_percent_encode(name, ENTRY_PATH)
+    )
+}
+
+/// The archive's source and the path of the file inside it, for a source
+/// `archive_entry_source` made.
+fn archive_entry(source: &str) -> Option<(String, String)> {
+    let (archive, name) = source.split_once(ENTRY_MARK)?;
+    let name = percent_encoding::percent_decode_str(name)
+        .decode_utf8()
+        .ok()?;
+    (!name.is_empty()).then(|| (archive.to_owned(), name.into_owned()))
+}
+
+/// A ZIP by its name; Core reads no other archive format.
+fn is_zip(file: &LocalFile) -> bool {
+    Path::new(&file.path)
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("zip"))
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -140,8 +194,94 @@ impl CourseMaterials {
         read_text: bool,
         limit: Option<u64>,
     ) -> Result<Material, MaterialError> {
-        self.open_with_priority(course, source, download, read_text, limit, true)
-            .await
+        if let Some((archive, name)) = archive_entry(&source) {
+            return self
+                .open_entry(course, archive, name, source, download, read_text, limit)
+                .await;
+        }
+        let material = self
+            .open_with_priority(course, source.clone(), download, read_text, limit, true)
+            .await?;
+        Ok(match material {
+            Material::Ready { file, page } if is_zip(&file) => {
+                let path = PathBuf::from(&file.path);
+                match blocking(move || Ok(crate::file_preview::archive::list(&path))).await? {
+                    Some(entries) => Material::Archive {
+                        files: entries
+                            .into_iter()
+                            .map(|entry| ArchiveFile {
+                                url: archive_entry_source(&source, &entry.name),
+                                name: entry.name,
+                                bytes: entry.bytes,
+                            })
+                            .collect(),
+                        file,
+                        page,
+                    },
+                    None => Material::Ready { file, page },
+                }
+            }
+            material => material,
+        })
+    }
+
+    /// The file `name` of the archive `archive`, extracted next to it in the
+    /// course folder the first time and kept as a downloaded file of its own
+    /// (named after `source`), so cleanup and the file actions treat it like
+    /// any other. `limit` bounds the archive's download and the file alike.
+    #[allow(clippy::too_many_arguments)]
+    async fn open_entry(
+        &self,
+        course: String,
+        archive: String,
+        name: String,
+        source: String,
+        download: bool,
+        read_text: bool,
+        limit: Option<u64>,
+    ) -> Result<Material, MaterialError> {
+        let material = self
+            .open_with_priority(course, archive, download, false, limit, true)
+            .await?;
+        let Material::Ready { file, page } = material else {
+            return Ok(material);
+        };
+        let zip = PathBuf::from(&file.path);
+        let base = name.rsplit('/').next().unwrap_or_default().to_owned();
+        let Some(directory) = zip.parent().map(Path::to_path_buf) else {
+            return Ok(failed(MaterialFailure::Invalid, Some(page)));
+        };
+        let path = directory.join(cache_name(&base, &source));
+        let opened = blocking(move || {
+            use crate::file_preview::archive::{extract, Extracted};
+            // Extracted once, again only when the archive was downloaded anew.
+            let current = regular_file(&path)?
+                && fs::metadata(&path)
+                    .and_then(|entry| Ok(entry.modified()? >= fs::metadata(&zip)?.modified()?))
+                    .unwrap_or(false);
+            match if current {
+                Extracted::Saved
+            } else {
+                extract(&zip, &name, &path, limit)?
+            } {
+                Extracted::Saved => {
+                    let _ = fs::File::options()
+                        .write(true)
+                        .open(&path)
+                        .and_then(|file| file.set_modified(SystemTime::now()));
+                    Ok(Ok(describe(path, source, String::new(), true, read_text)?))
+                }
+                Extracted::TooLarge(bytes) => Ok(Err(Some(bytes))),
+                Extracted::Missing => Ok(Err(None)),
+            }
+        })
+        .await?;
+        Ok(match opened {
+            Ok(file) => Material::Ready { file, page },
+            Err(Some(bytes)) => Material::TooLarge { bytes, page },
+            // The archive changed and no longer has the file.
+            Err(None) => failed(MaterialFailure::Unresolved, Some(page)),
+        })
     }
 
     /// Prepare a material for the custom preview protocol. Explicit requests
@@ -407,8 +547,7 @@ pub(crate) fn course_folder(store: &DataStore, id: &str) -> Option<CourseKey> {
 }
 
 /// A link that is not an LMS resource: a school site with an adapter opens
-/// in its signed-in web view; any other HTTPS page goes to the system
-/// browser. Plain HTTP, embedded credentials or a port are refused, so a
+/// in its signed-in web view; any other HTTPS page is `External`. Plain HTTP, embedded credentials or a port are refused, so a
 /// school host over HTTP never becomes a page the web view then rejects.
 fn link(raw: &str) -> Material {
     if let Some(site) = automation_target(raw).and_then(|url| SchoolSite::for_url(url.as_str())) {
@@ -480,6 +619,12 @@ pub fn material_name(url: &Url) -> String {
         .and_then(|mut segments| segments.next_back())
         .unwrap_or("file");
     let decoded = percent_encoding::percent_decode_str(segment).decode_utf8_lossy();
+    cache_name(&decoded, url.as_str())
+}
+
+/// `<name>-<digest of key>.<ext>`: a downloaded file's name in the course
+/// folder, which cleanup recognises (`is_material_cache_name`).
+fn cache_name(decoded: &str, key: &str) -> String {
     let (stem, extension) = match decoded.rsplit_once('.') {
         Some((stem, extension))
             if !stem.is_empty()
@@ -490,7 +635,7 @@ pub fn material_name(url: &Url) -> String {
         {
             (stem, Some(extension))
         }
-        _ => (decoded.as_ref(), None),
+        _ => (decoded, None),
     };
     let stem: String = stem
         .chars()
@@ -503,7 +648,7 @@ pub fn material_name(url: &Url) -> String {
         })
         .take(80)
         .collect();
-    let digest = data_encoding::HEXLOWER.encode(&Sha256::digest(url.as_str()));
+    let digest = data_encoding::HEXLOWER.encode(&Sha256::digest(key));
     match extension {
         Some(extension) => format!(
             "{}-{}.{}",

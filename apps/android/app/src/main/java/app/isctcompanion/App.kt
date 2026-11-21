@@ -1,5 +1,6 @@
 package app.isctcompanion
 
+import app.isctcompanion.design.CollapsingBar
 import app.isctcompanion.design.reducedMotion
 import app.isctcompanion.design.LocalReducedMotion
 import android.Manifest
@@ -11,7 +12,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
 import android.net.Uri
 import android.os.Bundle
 import android.view.WindowManager
@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import kotlin.math.min
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -91,8 +90,11 @@ import app.isctcompanion.core.SchoolAuthProfile
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.WidgetRoute
+import app.isctcompanion.core.Viewer
 import app.isctcompanion.core.WebRouter
-import app.isctcompanion.features.handin.InboxTray
+import app.isctcompanion.features.handin.InboxSheet
+import app.isctcompanion.features.course.CourseArchiveScreen
+import app.isctcompanion.features.course.CourseFileScreen
 import app.isctcompanion.design.Guide
 import app.isctcompanion.design.IsctTheme
 import app.isctcompanion.design.LocalDestinationScope
@@ -152,7 +154,7 @@ class MainActivity : ComponentActivity() {
         val model = app.model
         model.browser.attachParking(this)
         model.drive.attach(this)
-        receiveShared(intent)
+        if (savedInstanceState == null) receiveShared(intent)
         widgetLink = savedInstanceState?.getString("widgetLink")
         if (savedInstanceState == null) receiveWidget(intent)
         app.scope.launch { model.start() }
@@ -185,11 +187,6 @@ class MainActivity : ComponentActivity() {
             if (largeScreen()) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
     }
 
-    override fun onResume() {
-        super.onResume()
-        lifecycleScope.launch(Dispatchers.IO) { SharedInbox.refresh(this@MainActivity) }
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         receiveShared(intent)
@@ -208,7 +205,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Copies what another app shared into the inbox while its grant lasts. */
+    /** Copies the current system share while its grant lasts. */
     private fun receiveShared(intent: Intent?) {
         val uris = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
@@ -216,7 +213,7 @@ class MainActivity : ComponentActivity() {
                 intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
             else -> return
         }
-        if (uris.isNotEmpty()) lifecycleScope.launch(Dispatchers.IO) { SharedInbox.receive(this@MainActivity, uris) }
+        if (uris.isNotEmpty()) lifecycleScope.launch { SharedInbox.receive(this@MainActivity, uris) }
     }
 }
 
@@ -233,7 +230,7 @@ class Navigator(private val controller: NavHostController) {
     fun openAssignment(id: String) = controller.navigate("assignment/${Uri.encode(id)}")
 
     fun openPage(page: WebRouter.PushedPage) = controller.navigate(
-        "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}",
+        "page/${page.site.name}?target=${Uri.encode(page.target.orEmpty())}&title=${Uri.encode(page.title)}&upload=${Uri.encode(page.uploadId.orEmpty())}",
     )
 
     var timetableDate by mutableStateOf<String?>(null)
@@ -247,6 +244,16 @@ class Navigator(private val controller: NavHostController) {
     /** A past-exam subject by its code, scoped to one class when given. */
     fun openExamSubject(code: String, classId: UInt? = null) =
         controller.navigate("past-exams/subject/${Uri.encode(code)}?class=${classId?.toString().orEmpty()}")
+
+    /** A downloaded course file in the app's own viewer for it. */
+    fun openCourseFile(path: String, title: String, viewer: Viewer) =
+        controller.navigate("course-file?path=${Uri.encode(path)}&title=${Uri.encode(title)}&viewer=${viewer.name}")
+
+    /** A downloaded ZIP's files, listed as a folder. */
+    fun openCourseArchive(courseId: String, source: String, title: String) =
+        controller.navigate(
+            "course-archive?course=${Uri.encode(courseId)}&source=${Uri.encode(source)}&title=${Uri.encode(title)}",
+        )
 
     /** A past-exam document, full screen. */
     fun openExamDocument(id: String) = controller.navigate("past-exams/document/${Uri.encode(id)}")
@@ -313,7 +320,7 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
             CircularProgressIndicator()
         }
         is AppModel.Status.Failed -> Column(
-            Modifier.fillMaxSize().padding(32.dp),
+            Modifier.fillMaxSize().padding(Theme.space11),
             verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -332,10 +339,9 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
 private fun NotificationPermissionAsk() {
     val model = LocalModel.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var asked by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) scope.launch { model.resyncNotifications() }
+        if (granted) model.resyncNotifications()
     }
     LaunchedEffect(model.notificationsBlocked) {
         // Once refused, only the settings page leads on (as iOS asks only
@@ -383,6 +389,14 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
+    // A file a school page handed over opens in the app's viewer for it,
+    // as a browser opens what it downloaded (WebView shows no PDF).
+    val viewing = model.web.viewing
+    LaunchedEffect(viewing) {
+        viewing ?: return@LaunchedEffect
+        model.web.viewing = null
+        navigator.openCourseFile(viewing.path, viewing.name, viewing.viewer)
+    }
     LaunchedEffect(widgetLink, destination != null) {
         if (widgetLink == null || destination == null) return@LaunchedEffect
         when (val route = model.widgetRoute(widgetLink)) {
@@ -434,15 +448,19 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
                 // Six entries crowd a bottom bar: a tablet's sit in the side rail.
+                // It folds away while a school page is read down, with the
+                // page's own top bar.
                 if (showsBar && !wide) {
-                    NavigationBar {
-                        for (tab in tabs) {
-                            NavigationBarItem(
-                                selected = tab == current,
-                                onClick = { select(tab) },
-                                icon = { Icon(tab.icon, null) },
-                                label = { Text(t(tab.label)) },
-                            )
+                    CollapsingBar(!(current == AppTab.Web && model.web.barsHidden)) {
+                        NavigationBar {
+                            for (tab in tabs) {
+                                NavigationBarItem(
+                                    selected = tab == current,
+                                    onClick = { select(tab) },
+                                    icon = { Icon(tab.icon, null) },
+                                    label = { Text(t(tab.label)) },
+                                )
+                            }
                         }
                     }
                 }
@@ -496,6 +514,32 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                     val code = it.arguments?.getString("code").orEmpty()
                     ExamSubjectScreen(ExamSubjectEntry.Code(code, it.arguments?.getString("class")?.toUIntOrNull()))
                 }
+                destination(
+                    "course-file?path={path}&title={title}&viewer={viewer}",
+                    listOf("path", "title", "viewer").map { name ->
+                        navArgument(name) { type = NavType.StringType; defaultValue = "" }
+                    },
+                ) {
+                    val arguments = it.arguments
+                    CourseFileScreen(
+                        arguments?.getString("path").orEmpty(),
+                        arguments?.getString("title").orEmpty(),
+                        runCatching { Viewer.valueOf(arguments?.getString("viewer").orEmpty()) }.getOrDefault(Viewer.EXTERNAL),
+                    )
+                }
+                destination(
+                    "course-archive?course={course}&source={source}&title={title}",
+                    listOf("course", "source", "title").map { name ->
+                        navArgument(name) { type = NavType.StringType; defaultValue = "" }
+                    },
+                ) {
+                    val arguments = it.arguments
+                    CourseArchiveScreen(
+                        arguments?.getString("course").orEmpty(),
+                        arguments?.getString("source").orEmpty(),
+                        arguments?.getString("title").orEmpty(),
+                    )
+                }
                 destination("past-exams/document/{id}", listOf(navArgument("id") { type = NavType.StringType })) {
                     ExamDocumentScreen(it.arguments?.getString("id").orEmpty())
                 }
@@ -529,27 +573,26 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                     CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
                 }
                 destination(
-                    "page/{site}?target={target}&title={title}",
+                    "page/{site}?target={target}&title={title}&upload={upload}",
                     listOf(
                         navArgument("site") { type = NavType.StringType },
                         navArgument("target") { type = NavType.StringType; defaultValue = "" },
                         navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("upload") { type = NavType.StringType; defaultValue = "" },
                     ),
                 ) {
                     val args = it.arguments
                     val site = runCatching { SchoolSite.valueOf(args?.getString("site").orEmpty()) }
                         .getOrDefault(SchoolSite.SCIENCE_LMS)
                     WebPageScreen(
-                        WebRouter.PushedPage(site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty()),
+                        WebRouter.PushedPage(
+                            site, args?.getString("target")?.ifEmpty { null }, args?.getString("title").orEmpty(),
+                            args?.getString("upload")?.ifEmpty { null },
+                        ),
                     )
                 }
             }
-            // What was shared into the app waits in the corner, above the
-            // navigation bar.
-            InboxTray(
-                Modifier.align(Alignment.BottomEnd)
-                    .padding(end = 16.dp, bottom = padding.calculateBottomPadding() + 12.dp),
-            )
+            InboxSheet()
             }
             }
             }

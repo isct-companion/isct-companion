@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Clone, Default)]
-struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
+pub(super) struct MemoryVault(Arc<Mutex<HashMap<String, String>>>);
 
 impl SecretVault for MemoryVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
@@ -58,131 +58,6 @@ fn reports_invalid_input_and_incompatible_storage_separately() {
         .load(SchoolAuthProfile::Science)
         .unwrap_err();
     assert!(matches!(incompatible, SchoolAuthError::Compatibility(_)));
-}
-
-#[test]
-fn otp_export_prefers_a_valid_draft_without_mutating_saved_credentials() {
-    let service = SchoolAuthService::new(MemoryVault::default());
-    assert!(service.otp_setup_text(None).is_err());
-    let saved = "otpauth://totp/School?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&digits=8&period=60";
-    service
-        .promote(
-            SchoolAuthProfile::Science,
-            &SchoolCredentials {
-                username: "user".into(),
-                password: "password".into(),
-                otp_secret: saved.into(),
-                matrix: String::new(),
-            },
-        )
-        .unwrap();
-    assert_eq!(service.otp_setup_text(None).unwrap(), saved);
-    let draft = "JBSWY3DPEHPK3PXP";
-    assert_eq!(service.otp_setup_text(Some(draft)).unwrap(), draft);
-    assert!(service.otp_setup_text(Some("123456")).is_err());
-    assert!(service.otp_setup_text(Some(&"A".repeat(1025))).is_err());
-    assert_eq!(service.otp_setup_text(Some(" ")).unwrap(), saved);
-    assert_eq!(
-        service
-            .load(SchoolAuthProfile::Science)
-            .unwrap()
-            .unwrap()
-            .otp_secret,
-        saved
-    );
-
-    // The QR export carries a link other authenticators accept: a saved link
-    // stays as is, and a bare secret gains an issuer and the account name
-    // while still producing the same codes.
-    assert_eq!(service.otp_setup_link().unwrap(), saved);
-    assert!(service.otp_setup_qr().unwrap().contains("<svg"));
-    let uri = otp_setup_uri("jbsw y3dp-ehpk3pxp", "user@example");
-    let imported = crate::school_auth::import_otp(&uri).unwrap();
-    assert_eq!(imported.len(), 1);
-    assert_eq!(imported[0].issuer, "Science Tokyo");
-    assert_eq!(imported[0].label, "Science Tokyo:user@example");
-    assert_eq!(
-        current_otp_at(&uri, 59).unwrap().otp,
-        current_otp_at(draft, 59).unwrap().otp
-    );
-}
-
-#[test]
-fn matrix_text_follows_the_editors_visual_row_order() {
-    let service = SchoolAuthService::new(MemoryVault::default());
-    assert!(service.matrix_text().is_err());
-    // Row-major A1…J1, A2…: cell i holds the i-th letter, wrapping after Z.
-    let matrix: String = (0..70u8).map(|i| (b'A' + i % 26) as char).collect();
-    service
-        .promote(
-            SchoolAuthProfile::TokyoTech,
-            &SchoolCredentials {
-                username: "user".into(),
-                password: "password".into(),
-                otp_secret: String::new(),
-                matrix,
-            },
-        )
-        .unwrap();
-    let text = service.matrix_text().unwrap();
-    let rows = text.lines().collect::<Vec<_>>();
-    assert_eq!(rows.len(), 7);
-    assert!(rows.iter().all(|row| row.len() == 10));
-    assert_eq!(rows[0], "ABCDEFGHIJ");
-    assert_eq!(rows[6], "IJKLMNOPQR");
-
-    // The copy pastes back as the same cells, lower case and tabs included.
-    let stored = service
-        .load(SchoolAuthProfile::TokyoTech)
-        .unwrap()
-        .unwrap()
-        .matrix;
-    for pasted in [text.clone(), text.to_lowercase().replace('\n', "\t")] {
-        assert_eq!(
-            parse_matrix_text(&pasted).unwrap(),
-            MatrixPaste {
-                cells: stored.clone(),
-                order: MatrixOrder::Rows
-            }
-        );
-    }
-}
-
-#[test]
-fn titech_app_export_pastes_down_columns_and_bad_pastes_are_rejected() {
-    // A titech-app export (random test data): a JSON array listing
-    // A1…A7, then B1…B7, and so on.
-    let export = "LCIVTBAQMCMJXLTIRNPLZIMLFZXHWCACIOGFNNMVOPLUNLIERRTYZUXIZCXCAOSPLMRSVI";
-    let json =
-        serde_json::to_string(&export.chars().map(String::from).collect::<Vec<_>>()).unwrap();
-    let pasted = parse_matrix_text(&format!("{json}\n")).unwrap();
-    assert_eq!(pasted.order, MatrixOrder::Columns);
-    let cells: Vec<char> = pasted.cells.chars().collect();
-    // Column A is the first seven entries; row 1 takes every seventh.
-    assert_eq!(
-        (0..7)
-            .map(|row| cells[row * MATRIX_COLUMNS])
-            .collect::<String>(),
-        "LCIVTBA"
-    );
-    assert_eq!(cells[..10].iter().collect::<String>(), "LQTIWFLRZP");
-    for (cell, &found) in cells.iter().enumerate() {
-        let (row, column) = (cell / MATRIX_COLUMNS, cell % MATRIX_COLUMNS);
-        assert_eq!(found, export.as_bytes()[column * MATRIX_ROWS + row] as char);
-    }
-
-    let entries = |count: usize, entry: &str| serde_json::to_string(&vec![entry; count]).unwrap();
-    for bad in [
-        "A".repeat(69),
-        "A".repeat(71),
-        format!("{}-", "A".repeat(69)),
-        format!("{}É", "A".repeat(69)),
-        entries(69, "A"),
-        entries(70, "AB"),
-        entries(70, "1"),
-    ] {
-        assert!(parse_matrix_text(&bad).is_err(), "{bad:?}");
-    }
 }
 
 #[test]

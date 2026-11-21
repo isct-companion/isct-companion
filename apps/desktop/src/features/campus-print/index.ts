@@ -1,0 +1,1 @@
+export { accountText } from "./account";

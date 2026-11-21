@@ -1,43 +1,40 @@
-import { ReaderTools } from "./ReaderPane";
+import { byName, FileName, fileSize, megabytes } from "./file-row";
 import {
-  lazy,
-  Suspense,
+  pageOf,
+  useCourseFile,
+  type CourseFile,
+  type OpenPage,
+} from "./course-file";
+import { ReaderTools } from "../../components/files/ReaderPane";
+import {
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
 } from "react";
-import { notify } from "../../app/notify";
-import { nativeOs, type SchoolSite } from "../../platform/desktop-bridge";
+import { notify } from "../../components/notifications/notify";
+import { nativeOs } from "../../platform/desktop-bridge";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t, type MessageKey } from "../../i18n";
-import { downloadOnly, extension, fileFamily } from "./file-types";
-import { ImageView } from "./ImageView";
-import { FileTile, LmsIcon } from "./LmsIcon";
-import { useReleaseSource } from "./useReleaseSource";
 import {
-  localFileUrl,
+  downloadOnly,
+  extension,
+  fileFamily,
+  previewOf,
+  type FileFamily,
+} from "../../lib/file-types";
+import { FileView } from "../../components/files/FileView";
+import { FileTile, LmsIcon } from "./LmsIcon";
+import {
   copyStoredFile,
   openMaterial,
   openStoredFile,
   shareStoredFile,
   previewKind,
   type LmsFileReason,
-  type SchoolPage,
+  type Material,
 } from "./files";
-const TextDocument = lazy(() =>
-  import("./TextDocument").then((m) => ({ default: m.TextDocument })),
-);
-const PdfDocument = lazy(() =>
-  import("./PdfDocument").then((m) => ({ default: m.PdfDocument })),
-);
-const MarkdownDocument = lazy(() =>
-  import("./MarkdownDocument").then((m) => ({ default: m.MarkdownDocument })),
-);
-
-const megabytes = (bytes: number) =>
-  `${Math.max(0.1, bytes / 1024 / 1024).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
 const revealLabel: MessageKey =
   nativeOs() === "macos" ? "web.showInFinder" : "web.showInFolder";
 // Only macOS and Windows have a system Copy and Share for a file (file_share.rs).
@@ -46,30 +43,6 @@ const deniedNote: MessageKey =
   nativeOs() === "windows"
     ? "lms.windowsBlockedSavingToThe"
     : "lms.theSystemBlockedSavingTo";
-
-type View =
-  | { state: "loading" }
-  | { state: "missing"; page: SchoolPage }
-  | {
-      state: "ready";
-      src: string;
-      kind?: ReturnType<typeof previewKind>;
-      text?: string;
-      page: SchoolPage;
-    }
-  | { state: "folder"; files: { name: string; url: string }[] }
-  | ({ state: "page" } & SchoolPage)
-  | { state: "external"; url: string }
-  | { state: "tooLarge"; bytes: number; page: SchoolPage }
-  | {
-      state: "failed";
-      reason: LmsFileReason;
-      page: SchoolPage | null;
-      note?: MessageKey;
-    };
-type CourseFile = ReturnType<typeof useCourseFile>;
-/** Shows a school page: the LMS in the reader, another site where it lives. */
-type OpenPage = (page: SchoolPage) => void;
 
 /** What a failure tells the person, in their language. */
 const failureNote: Record<LmsFileReason, MessageKey> = {
@@ -82,81 +55,17 @@ const failureNote: Record<LmsFileReason, MessageKey> = {
   unresolved: "lmsFile.thisCantBeShownHere",
 };
 
-/** The LMS page Core named for the item, if any. */
-const pageOf = (view: View): SchoolPage | null =>
-  "page" in view ? view.page : null;
-
-/**
- * What an item or link opens as, as Core decides (`open_material`), and a
- * file's state on disk. With `download`, a missing file within `limit` bytes
- * is downloaded at once; `fetchNow` downloads it at any size.
- */
-function useCourseFile(
-  url: string,
-  courseId: string,
-  limit: number,
-  { download, readText = false }: { download: boolean; readText?: boolean },
-) {
-  const [view, setView] = useState<View>({ state: "loading" });
-  const [request, setRequest] = useState({ download: false, attempt: 0 });
-  const loadedRequest = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const requestKey = JSON.stringify([
-      url,
-      courseId,
-      request,
-      download,
-      readText,
-    ]);
-    if (loadedRequest.current === requestKey) return;
-    let disposed = false;
-    setView({ state: "loading" });
-    const load = async () => {
-      try {
-        const material = await openMaterial(courseId, url, {
-          download: download || request.download,
-          readText,
-          limit: request.download ? undefined : limit,
-        });
-        if (disposed) return;
-        if (material.state !== "failed") loadedRequest.current = requestKey;
-        if (material.state === "ready")
-          return setView({
-            state: "ready",
-            src: localFileUrl(material.file.path),
-            kind: previewKind(material.file.name || url),
-            text: material.file.text ?? undefined,
-            page: material.page,
-          });
-        setView(material);
-      } catch {
-        // A command error is not the item's: Core refused the request.
-        if (!disposed)
-          setView({ state: "failed", reason: "invalid", page: null });
-      }
-    };
-    void load();
-    return () => {
-      disposed = true;
-    };
-  }, [url, courseId, request, download, readText]);
-  return {
-    url,
-    courseId,
-    limit,
-    view,
-    setView,
-    retry: () =>
-      setRequest((value) => ({ ...value, attempt: value.attempt + 1 })),
-    fetchNow: () =>
-      setRequest((value) => ({ download: true, attempt: value.attempt + 1 })),
-  };
-}
+/** The downloaded file an answer names: a file, or a ZIP shown as its files. */
+const storedPath = (material: Material) =>
+  material.state === "ready" || material.state === "archive"
+    ? material.file.path
+    : undefined;
 
 /**
  * Opens an item or link where Core says it belongs: a file previews when the
  * app can show it and gets the file card otherwise, a school page opens in
- * its signed-in view (`openPage`), an outside page in the system browser.
+ * its signed-in view (`openPage`), an outside page in the reader's web view
+ * (`openWeb`).
  */
 export function FilePreview({
   url,
@@ -165,7 +74,9 @@ export function FilePreview({
   limit,
   inline = false,
   openPage,
+  openWeb,
   openFile,
+  onArchive,
 }: {
   url: string;
   title: string;
@@ -175,8 +86,13 @@ export function FilePreview({
    * rather than replacing it. */
   inline?: boolean;
   openPage: OpenPage;
-  /** Opens one file of a folder in the reader. */
+  /** Shows a page outside the school sites in the reader. */
+  openWeb: (url: string) => void;
+  /** Opens one file of a folder or a ZIP in the reader. */
   openFile?: (url: string, name: string) => void;
+  /** Core answered a ZIP whose address did not say so: its files belong in
+   * the outline, as a folder's do. True when the outline took it. */
+  onArchive?: () => boolean;
 }) {
   const expected = previewKind(url);
   // A file of a type the reader cannot show waits for Download.
@@ -186,16 +102,18 @@ export function FilePreview({
   });
   const { view } = course;
   const page = view.state === "page" ? view : undefined;
+  const web = view.state === "external" ? view.url : undefined;
+  const archive = view.state === "archive";
+  const [handedOff, setHandedOff] = useState(false);
   useEffect(() => {
-    if (page && !inline) openPage(page);
+    if (inline) return;
+    if (page) openPage(page);
+    else if (web) openWeb(web);
+    else if (archive && onArchive?.()) setHandedOff(true);
     // Opening replaces this preview; it runs once per answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page?.site, page?.url, inline]);
+  }, [page?.site, page?.url, web, archive, inline]);
   const ready = view.state === "ready" ? view : undefined;
-  const kind = ready?.kind ?? expected;
-  const src = ready?.src;
-  const textTooLarge =
-    (kind === "text" || kind === "markdown") && ready && ready.text == null;
   const actions = <FileActions course={course} openPage={openPage} />;
   if (view.state === "loading") {
     return (
@@ -207,52 +125,30 @@ export function FilePreview({
       </div>
     );
   }
-  if (view.state === "folder") {
-    // Names carry the extension; folder URLs may not.
-    const byName = (name: string) =>
-      `https://file.invalid/${encodeURIComponent(name)}`;
-    return (
+  if (view.state === "archive" && handedOff) return null;
+  if (view.state === "folder" || view.state === "archive") {
+    const rows = view.files.map((file) => ({
+      key: file.url,
+      name: file.name,
+      detail: "bytes" in file ? fileSize(file.bytes) : undefined,
+      ...(openFile
+        ? { open: () => openFile(file.url, file.name) }
+        : { href: file.url }),
+    }));
+    const list = (
       <div className="lmsFolderView">
-        <header className="lmsFolderHeader">
-          <FileTile family="folder" />
-          <div>
-            <h3>{title}</h3>
-            <small>{t("lms.countFiles", { count: view.files.length })}</small>
-          </div>
-        </header>
-        <div className="lmsFolderList">
-          {view.files.map((file) => {
-            const ext = extension(byName(file.name));
-            const body = (
-              <>
-                <FileTile family={fileFamily(byName(file.name))} />
-                <span>
-                  <b>{file.name}</b>
-                  {ext && <small>{ext.toUpperCase()}</small>}
-                </span>
-                <LmsIcon name="chevron" className="lmsRowAction" />
-              </>
-            );
-            return openFile ? (
-              <button
-                type="button"
-                className="lmsItemRow"
-                key={file.url}
-                onClick={() => openFile(file.url, file.name)}
-              >
-                {body}
-              </button>
-            ) : (
-              <a className="lmsItemRow" key={file.url} href={file.url} download>
-                {body}
-              </a>
-            );
-          })}
-          {!view.files.length && (
-            <p className="lmsQuiet">{t("lms.thisFolderIsEmpty")}</p>
-          )}
-        </div>
+        <FileRows family={view.state} title={title} rows={rows} />
       </div>
+    );
+    return view.state === "archive" ? (
+      <div className="lmsAttachmentPreview">
+        <Toolbar title={title} url={url}>
+          {actions}
+        </Toolbar>
+        {list}
+      </div>
+    ) : (
+      list
     );
   }
   if (view.state === "page") {
@@ -267,82 +163,63 @@ export function FilePreview({
     ) : null;
   }
   if (view.state === "external") {
-    return (
-      <div className="lmsFileCardStage">
-        <ExternalCard title={title} url={view.url} />
-      </div>
-    );
-  }
-  if (!kind || !src || textTooLarge) {
-    return (
-      <div className="lmsFileCardStage">
-        <FileCard
-          course={course}
-          title={title}
-          openPage={openPage}
-          previewable={Boolean(kind) && !textTooLarge}
-          note={textTooLarge ? t("lms.thisTextFileExceedsThe") : undefined}
-        />
-      </div>
-    );
-  }
-  const toolbar = (
-    <Toolbar title={title} url={url} inline={kind === "pdf"}>
-      {actions}
-    </Toolbar>
-  );
-  if (kind === "pdf")
-    return (
-      <Suspense
-        fallback={
-          <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
-        }
+    return inline ? (
+      <button
+        type="button"
+        className="lmsRefresh"
+        onClick={() => openWeb(view.url)}
       >
-        <PdfDocument src={src} title={title} fileToolbar={toolbar} />
-      </Suspense>
-    );
-  return (
-    <div className="lmsAttachmentPreview">
-      {toolbar}
-      {kind === "image" ? (
-        <ImageView
-          src={src}
-          title={title}
-          onBroken={() =>
-            course.setView({
-              state: "failed",
-              reason: "network",
-              page: ready?.page ?? null,
-              note: "lms.thisImageCantBeDisplayed",
-            })
-          }
-        />
-      ) : kind === "video" ? (
-        <div className="lmsImageStage">
-          <MediaView kind="video" src={src} />
-        </div>
-      ) : kind === "audio" ? (
-        <div className="lmsAudioStage">
-          <MediaView kind="audio" src={src} />
-        </div>
-      ) : kind === "markdown" ? (
-        <Suspense
-          fallback={
-            <p className="lmsQuiet lmsLoading">{t("common.loading")}</p>
-          }
-        >
-          <MarkdownDocument value={ready?.text ?? ""} />
-        </Suspense>
-      ) : (
-        <Suspense
-          fallback={
-            <p className="lmsQuiet lmsLoading">{t("lms.loadingPreview")}</p>
-          }
-        >
-          <TextDocument value={ready?.text ?? ""} url={url} />
-        </Suspense>
-      )}
+        {t("lms.openPage")}
+      </button>
+    ) : null;
+  }
+  // Before the file is on disk its address says whether it will preview;
+  // once it is, Core's viewer does. A ZIP Core did not list (too many files,
+  // too large, unreadable) and text over the limit open with another app.
+  const card = (
+    <div className="lmsFileCardStage">
+      <FileCard
+        course={course}
+        title={title}
+        openPage={openPage}
+        previewable={
+          ready
+            ? ready.viewer !== "tooLarge" && previewOf(ready.viewer) != null
+            : Boolean(expected) && expected !== "archive"
+        }
+        note={
+          ready?.viewer === "tooLarge"
+            ? t("lms.thisTextFileExceedsThe")
+            : ready && expected === "archive"
+              ? t("lms.thisArchiveIsTooLarge")
+              : undefined
+        }
+      />
     </div>
+  );
+  if (!ready) return card;
+  return (
+    <FileView
+      viewer={ready.viewer}
+      path={ready.path}
+      name={ready.name}
+      title={title}
+      text={ready.text}
+      toolbar={
+        <Toolbar title={title} url={url} inline>
+          {actions}
+        </Toolbar>
+      }
+      fallback={card}
+      onBroken={() =>
+        course.setView({
+          state: "failed",
+          reason: "network",
+          page: ready.page,
+          note: "lms.thisImageCantBeDisplayed",
+        })
+      }
+    />
   );
 }
 
@@ -361,21 +238,20 @@ function FileActions({
   menu?: boolean;
 }) {
   const { url, courseId, view } = course;
-  const local = view.state === "ready";
+  const local = view.state === "ready" || view.state === "archive";
   const page = pageOf(view);
-  const reveal = async (open = false) => {
-    const material = await openMaterial(courseId, url, { download: true });
-    if (material.state === "ready")
-      await openStoredFile(material.file.path, !open);
-  };
   const withStored = async (act: (path: string) => Promise<void>) => {
     try {
-      const material = await openMaterial(courseId, url, { download: true });
-      if (material.state === "ready") await act(material.file.path);
+      const path = storedPath(
+        await openMaterial(courseId, url, { download: true }),
+      );
+      if (path) await act(path);
     } catch (error) {
       notify.error(error);
     }
   };
+  const reveal = (open = false) =>
+    withStored((path) => openStoredFile(path, !open));
   const copy = () =>
     withStored(async (path) => {
       await copyStoredFile(path);
@@ -393,6 +269,17 @@ function FileActions({
       : { "aria-label": t(text), title: t(text) };
   return (
     <div className="lmsFileActions" data-layout={menu ? "menu" : undefined}>
+      {/* A file card offers it as its primary action instead. */}
+      {local && !menu && (
+        <button
+          type="button"
+          {...label("lms.openWithDefaultApp")}
+          onClick={() => void reveal(true)}
+        >
+          <LmsIcon name="open" size={15} />
+          <span className="lmsToolLabel">{t("lms.openWithDefaultApp")}</span>
+        </button>
+      )}
       {local && (
         <button
           type="button"
@@ -491,7 +378,19 @@ function FileCard({
         <LmsIcon name="download" size={15} />
         {previewable ? t("lms.preview") : t("lms.download")} · {size}
       </button>
-    ) : view.state === "ready" ? null : (
+    ) : view.state === "ready" ? (
+      <button
+        type="button"
+        onClick={() =>
+          void openStoredFile(view.path, false).catch((error) =>
+            notify.error(error),
+          )
+        }
+      >
+        <LmsIcon name="open" size={15} />
+        {t("lms.openWithDefaultApp")}
+      </button>
+    ) : (
       <button
         type="button"
         disabled={view.state === "loading"}
@@ -527,6 +426,62 @@ function FileCard({
         <FileActions course={course} openPage={openPage} menu />
       </div>
     </div>
+  );
+}
+
+/**
+ * Files listed under their container, a folder or a ZIP, as rows that open
+ * in the reader (`open`) or download (`href`).
+ */
+function FileRows({
+  family,
+  title,
+  rows,
+}: {
+  family: FileFamily;
+  title: string;
+  rows: ({ key: string; name: string; detail?: string } & (
+    { open: () => void } | { href: string }
+  ))[];
+}) {
+  return (
+    <>
+      <header className="lmsFolderHeader">
+        <FileTile family={family} />
+        <div>
+          <h3>{title}</h3>
+          <small>{t("lms.countFiles", { count: rows.length })}</small>
+        </div>
+      </header>
+      <div className="lmsFolderList">
+        {rows.map((row) => {
+          const body = (
+            <>
+              <FileTile family={fileFamily(byName(row.name))} />
+              <FileName name={row.name} detail={row.detail} />
+              <LmsIcon name="chevron" className="lmsRowAction" />
+            </>
+          );
+          return "open" in row ? (
+            <button
+              type="button"
+              className="lmsItemRow"
+              key={row.key}
+              onClick={row.open}
+            >
+              {body}
+            </button>
+          ) : (
+            <a className="lmsItemRow" key={row.key} href={row.href} download>
+              {body}
+            </a>
+          );
+        })}
+        {!rows.length && (
+          <p className="lmsQuiet">{t("lms.thisFolderIsEmpty")}</p>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -640,93 +595,4 @@ function Toolbar({
     </div>
   );
   return inline ? tools : <ReaderTools>{tools}</ReaderTools>;
-}
-
-function MediaView({ kind, src }: { kind: "video" | "audio"; src: string }) {
-  const media = useReleaseSource<HTMLMediaElement>(src);
-  return kind === "video" ? (
-    <video
-      ref={media as React.RefObject<HTMLVideoElement>}
-      className="lmsMediaPreview"
-      src={src}
-      controls
-      preload="metadata"
-    />
-  ) : (
-    <audio
-      ref={media as React.RefObject<HTMLAudioElement>}
-      src={src}
-      controls
-      preload="metadata"
-    />
-  );
-}
-
-/**
- * A folder's files listed in the outline, under the folder's own row, as
- * Core lists them (kept with the folder, else read from the LMS). Each file
- * opens the way an outline item does: previews in the reader, anything else
- * as the popover card at the clicked file.
- */
-export function InlineFolder({
-  url,
-  courseId,
-  limit,
-  openFile,
-  openPage,
-}: {
-  url: string;
-  courseId: string;
-  limit: number;
-  openFile: (url: string, name: string, anchor: Element) => void;
-  openPage: OpenPage;
-}) {
-  const { view } = useCourseFile(url, courseId, limit, { download: false });
-  // Names carry the extension; folder URLs may not.
-  const byName = (name: string) =>
-    `https://file.invalid/${encodeURIComponent(name)}`;
-  if (view.state === "loading")
-    return <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>;
-  if (view.state !== "folder")
-    return (
-      <p className="lmsQuiet lmsFolderNote">
-        {t("lms.thisFolderCouldNotBe")}{" "}
-        {pageOf(view) && (
-          <button
-            type="button"
-            className="lmsTextLink"
-            onClick={() => openPage(pageOf(view)!)}
-          >
-            {t("common.openInLMS")}
-          </button>
-        )}
-      </p>
-    );
-  if (!view.files.length)
-    return (
-      <p className="lmsQuiet lmsFolderNote">{t("lms.thisFolderIsEmpty")}</p>
-    );
-  return (
-    <div className="lmsFolderFiles">
-      {view.files.map((file) => {
-        const ext = extension(byName(file.name));
-        return (
-          <button
-            type="button"
-            className="lmsFolderFile"
-            key={file.url}
-            onClick={(event) =>
-              openFile(file.url, file.name, event.currentTarget)
-            }
-          >
-            <FileTile family={fileFamily(byName(file.name))} />
-            <span>
-              <b>{file.name}</b>
-              {ext && <small>{ext.toUpperCase()}</small>}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
 }

@@ -1,6 +1,6 @@
 .examCards {
   display: grid;
-  gap: 10px;
+  gap: var(--space-5);
   min-width: 0;
 }
 /* The course is the small square every list uses, at the card's corner. */
@@ -8,7 +8,7 @@
   position: relative;
   display: grid;
   gap: 5px;
-  padding: 12px 12px 12px 30px;
+  padding: var(--space-6) var(--space-6) var(--space-6) 30px;
   border: 1px solid var(--line);
   border-radius: var(--radius-surface);
   min-width: 0;
@@ -20,7 +20,7 @@
   left: 12px;
   width: 10px;
   height: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-course-marker);
   background: var(--course);
 }
 /* A class session from the exam timetable, not an exam. */
@@ -39,8 +39,8 @@
    ways out. */
 .examConflict {
   display: grid;
-  gap: 6px;
-  padding: 10px 12px;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-6);
   border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line));
   border-radius: 10px;
   background: var(--warn-soft);
@@ -61,7 +61,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-4);
   color: var(--muted);
   font-size: calc(var(--type-block-size) * var(--text));
 }
@@ -94,7 +94,7 @@
 .examEditor,
 .examEditor form {
   display: grid;
-  gap: 14px;
+  gap: var(--space-7);
 }
 .examEditor .examEditorNote {
   margin-top: -8px;
@@ -108,15 +108,15 @@
 .examEditorTimes {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: var(--space-6);
 }
 .examEditorActions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-4);
 }
 .lectureExamScope {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-6);
 }
 .lectureExamScope p {
   color: var(--muted);
@@ -128,18 +128,16 @@
 .lectureExamDetails {
   height: 100%;
   overflow: auto;
-  padding: 18px 24px;
 }
-.lectureExamDetails > header {
-  margin: 20px 0 24px;
+.lectureExamDetails > :not(.titleRow) {
+  margin: var(--space-card) var(--space-10);
 }
-.lectureExamDetails h1 {
-  margin: 0;
-  font-size: 22px;
-}
-.lectureExamDetails > header p {
+.lectureExamHeader > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .lectureExamDetails .examEditor {
   max-width: 560px;

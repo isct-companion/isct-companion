@@ -1202,6 +1202,7 @@ fn snapshot_wire_names_match_the_shell_contract() {
     let snapshot = SyncSnapshot {
         generation: 2,
         resetting: false,
+        attention: Default::default(),
         runs: vec![RunView {
             run: "r".into(),
             dataset: "lms.course".into(),
@@ -1214,12 +1215,21 @@ fn snapshot_wire_names_match_the_shell_contract() {
             total: Some(3),
             current: None,
             scope: Some("12345".into()),
+            retry: Some(RetryPlan {
+                scopes: vec![Scope::Course {
+                    lms_course_id: 12345,
+                }],
+            }),
             held: Some(Held::HostPaused {
                 host: "lms.s.isct.ac.jp".into(),
                 until: now(),
             }),
             failure: Some(SyncFailure {
                 kind: "timeout".into(),
+                reason: Label {
+                    key: "syncStatus.failure.timedOut".into(),
+                    args: serde_json::json!({}),
+                },
                 keys_failed: 1,
                 retry_at: None,
                 detail: None,
@@ -1440,6 +1450,11 @@ impl Duty for Once {
 async fn a_suspended_engine_runs_only_what_its_opportunity_allows() {
     let (engine, _store) = engine("duties");
     engine.prepare_background_start();
+    // This exercises opportunity admission. Keep the real reference refresh
+    // out of its quiet window by reporting an offline connection.
+    engine.hint(Hint::Network {
+        network: Network::Offline,
+    });
     let local = Once::new(BackgroundWork::Local);
     let network = Once::new(BackgroundWork::Network);
     engine.register(local.clone());
@@ -1557,11 +1572,132 @@ fn a_failed_kyomu_run_names_each_page_and_its_reason() {
         run.failure.unwrap().detail.as_deref(),
         Some("gpa: http-500\ngrades: The grade page shape is unknown.")
     );
-    // The catalogs print `title`, so a key without one must not send null.
-    assert_eq!(run.current.unwrap().args["title"], "profile");
-    // Other datasets' keys are ids a person cannot read.
+    // A 教務Web page has no title; it is named by its page, never its key.
+    assert_eq!(run.current.unwrap().key, "syncStatus.kyomuPage.profile");
+    // Other datasets' keys are ids a person cannot read: no detail, and no
+    // current item rather than the key standing in for a title.
     let run = snapshot::run_view(&batch(Dataset::LmsCourse));
     assert_eq!(run.failure.unwrap().detail, None);
+    assert_eq!(run.current, None);
+}
+
+#[test]
+fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
+    let retry_at = Some(now() + Duration::minutes(5));
+    let current = key(Dataset::CatalogOfficial, "2026/LA");
+    let earlier = key(Dataset::CatalogOfficial, "2024/X");
+    let inputs = inputs(vec![
+        stored(current.dataset, &current.key, None, retry_at),
+        stored(earlier.dataset, &earlier.key, None, retry_at),
+        stored(Dataset::CatalogOfficial, "2026/LA/en", None, retry_at),
+        stored(Dataset::CatalogOfficial, "26/X", None, retry_at),
+        stored(Dataset::KyomuPage, "grades", None, retry_at),
+        stored(Dataset::KyomuPage, "gpa", None, retry_at),
+        stored(Dataset::LmsEnrolment, "all", None, retry_at),
+        stored(Dataset::LmsDeadlines, "all", None, retry_at),
+    ]);
+    let snapshot = snapshot::build(snapshot::Parts {
+        generation: 0,
+        resetting: false,
+        batches: &[],
+        leased: &HashSet::new(),
+        plan: &[],
+        sessions: &HashMap::new(),
+        inputs: &inputs,
+        now: now(),
+    });
+    let scopes_for = |name| {
+        &snapshot
+            .sources
+            .iter()
+            .find(|source| source.source == name)
+            .unwrap()
+            .retry
+            .as_ref()
+            .unwrap()
+            .scopes
+    };
+    let scopes = scopes_for("catalog");
+    assert_eq!(
+        scopes,
+        &[Scope::Catalog { year: 2024 }, Scope::Catalog { year: 2026 }]
+    );
+    let queued: HashSet<_> = scopes
+        .iter()
+        .flat_map(|scope| planner::scope_keys(scope, &inputs, now()))
+        .map(|(key, _)| key)
+        .collect();
+    assert!(queued.contains(&current) && queued.contains(&earlier));
+    assert!(queued
+        .iter()
+        .all(|key| key.dataset == Dataset::CatalogOfficial));
+    assert_eq!(
+        scopes_for("kyomu"),
+        &[Scope::Site {
+            site: SchoolSite::Kyomu,
+        }]
+    );
+    assert_eq!(
+        scopes_for("lms"),
+        &[Scope::Site {
+            site: SchoolSite::ScienceLms,
+        }]
+    );
+
+    let run = |target: Key, scope: Option<&str>| {
+        snapshot::run_view(&runner::Batch {
+            run: "retry".into(),
+            group: planner::Group {
+                dataset: target.dataset,
+                scope: scope.map(str::to_owned),
+                term: None,
+            },
+            priority: Priority::Visible,
+            pending: Default::default(),
+            running: Default::default(),
+            done: Default::default(),
+            failed: [(
+                target,
+                runner::FailedKey {
+                    kind: "timeout".into(),
+                    retry: retry_at,
+                    reason: None,
+                },
+            )]
+            .into_iter()
+            .collect(),
+            held: None,
+            finished_at: None,
+        })
+        .retry
+        .map(|plan| plan.scopes)
+    };
+    for scope in [None, Some("42")] {
+        assert_eq!(
+            run(key(Dataset::LmsAssign, "42"), scope),
+            Some(vec![Scope::Course { lms_course_id: 42 }])
+        );
+    }
+    assert!(run(key(Dataset::LmsCourse, "42"), Some("wrong")).is_none());
+    assert!(run(current.clone(), Some("26")).is_none());
+    assert!(run(current, Some("2025")).is_none());
+    assert_eq!(
+        run(Key::lms_deadlines(), None),
+        Some(vec![Scope::Site {
+            site: SchoolSite::ScienceLms
+        }])
+    );
+    assert_eq!(
+        run(key(Dataset::LmsHistory, "2025-08"), None),
+        Some(vec![Scope::LmsHistory {
+            year: 2025,
+            month: 8
+        }])
+    );
+    assert_eq!(
+        run(key(Dataset::Reference, "calendar/2026"), None),
+        Some(vec![Scope::References])
+    );
 }
 
 /// A label no catalog has is shown as the raw key on iOS and Android.
@@ -1581,6 +1717,174 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
                 "{{title}}",
                 "{name}"
             );
+        }
+        for page in snapshot::KYOMU_PAGES {
+            assert!(catalog[format!("syncStatus.kyomuPage.{page}")].is_string(), "{page}");
+        }
+    }
+}
+
+#[test]
+fn attention_prioritizes_visible_work_and_account_blockers_below_reset() {
+    let inputs = inputs(vec![stored(
+        Dataset::CatalogOfficial,
+        "2024/X",
+        None,
+        Some(now() + Duration::minutes(5)),
+    )]);
+    let batch = |run: &str, dataset, priority, held| runner::Batch {
+        run: run.into(),
+        group: planner::Group {
+            dataset,
+            scope: None,
+            term: None,
+        },
+        priority,
+        pending: Default::default(),
+        running: [(key(dataset, "all"), None)].into_iter().collect(),
+        done: Default::default(),
+        failed: Default::default(),
+        held,
+        finished_at: None,
+    };
+    let batches = [
+        batch("background", Dataset::Reference, Priority::Background, None),
+        batch(
+            "account",
+            Dataset::LmsDeadlines,
+            Priority::Visible,
+            Some(Held::Account {
+                profile: SchoolAuthProfile::Science,
+                wait: AccountWait::Person,
+            }),
+        ),
+        batch("visible", Dataset::LmsCourse, Priority::Visible, None),
+    ];
+    let build = |batches, resetting| {
+        snapshot::build(snapshot::Parts {
+            generation: 0,
+            resetting,
+            batches,
+            leased: &HashSet::new(),
+            plan: &[],
+            sessions: &HashMap::new(),
+            inputs: &inputs,
+            now: now(),
+        })
+        .attention
+    };
+    let primary = build(&batches, false);
+    assert_eq!(
+        primary.primary,
+        Some(SyncWork::Active {
+            run: "visible".into(),
+        })
+    );
+    assert!(primary.busy);
+    assert!(matches!(
+        primary.problem,
+        Some(SyncAttentionProblem::Account { .. })
+    ));
+
+    let primary = build(&batches[..2], false);
+    assert_eq!(primary.primary, Some(SyncWork::Problem));
+    assert!(!primary.busy);
+    assert!(matches!(
+        primary.problem,
+        Some(SyncAttentionProblem::Account {
+            profile: SchoolAuthProfile::Science,
+            ..
+        })
+    ));
+    assert_eq!(
+        build(&batches, true),
+        SyncAttention {
+            primary: Some(SyncWork::Resetting),
+            busy: true,
+            problem: None
+        }
+    );
+    let waiting = [batch(
+        "waiting",
+        Dataset::LmsCourse,
+        Priority::Visible,
+        Some(Held::Cellular),
+    )];
+    let attention = build(&waiting, false);
+    assert_eq!(
+        attention.primary,
+        Some(SyncWork::Held {
+            run: "waiting".into(),
+        })
+    );
+    assert!(!attention.busy);
+    assert!(
+        matches!(attention.problem, Some(SyncAttentionProblem::SourceFailed {
+            retry: Some(RetryPlan { scopes }), ..
+        }) if scopes == [Scope::Catalog { year: 2024 }])
+    );
+}
+
+#[test]
+fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
+    let catalogs = [
+        include_str!("../../../../resources/locales/en.json"),
+        include_str!("../../../../resources/locales/ja.json"),
+        include_str!("../../../../resources/locales/zh.json"),
+    ]
+    .map(|catalog| serde_json::from_str::<serde_json::Value>(catalog).unwrap());
+    for (kind, expected, arg) in [
+        (
+            "http-302",
+            "serverRedirected",
+            serde_json::json!({"status":"302"}),
+        ),
+        (
+            "http-403",
+            "serverRefused",
+            serde_json::json!({"status":"403"}),
+        ),
+        (
+            "http-503",
+            "serverFailed",
+            serde_json::json!({"status":"503"}),
+        ),
+        ("timeout", "timedOut", serde_json::json!({})),
+        ("dns", "unreachable", serde_json::json!({})),
+        ("stalled", "interrupted", serde_json::json!({})),
+        ("too-large", "tooLarge", serde_json::json!({})),
+        ("host-paused", "paused", serde_json::json!({})),
+        ("cancelled", "cancelled", serde_json::json!({})),
+        ("other", "unknownCode", serde_json::json!({})),
+    ] {
+        let mut state = stored(
+            Dataset::Reference,
+            "calendar/2026",
+            None,
+            Some(now() + Duration::minutes(5)),
+        );
+        state.1.last_error = Some(kind.into());
+        let inputs = inputs(vec![state]);
+        let projected = snapshot::build(snapshot::Parts {
+            generation: 0,
+            resetting: false,
+            batches: &[],
+            leased: &HashSet::new(),
+            plan: &[],
+            sessions: &HashMap::new(),
+            inputs: &inputs,
+            now: now(),
+        });
+        let reference = projected
+            .sources
+            .iter()
+            .find(|source| source.source == "references")
+            .unwrap();
+        let reason = &reference.failure.as_ref().unwrap().reason;
+        assert_eq!(reason.key, format!("syncStatus.failure.{expected}"));
+        assert_eq!(reason.args, arg);
+        for catalog in &catalogs {
+            assert!(catalog[&reason.key].is_string(), "{}", reason.key);
         }
     }
 }

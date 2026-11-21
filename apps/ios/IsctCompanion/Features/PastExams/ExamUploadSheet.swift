@@ -61,6 +61,13 @@ struct ExamUploadSheet: View {
     /// An upload or recovery finished.
     let onFinished: (ExamUploadOutcome) async -> Void
 
+    private struct UploadInput: Equatable {
+        let draft: ExamUploadDraft
+        let files: [ExamUploadFile]
+    }
+
+    @State private var checkedInput: UploadInput?
+    @State private var readiness: ExamUploadReadiness?
     @State private var form: ExamUploadForm?
     @State private var newTeachers: [TeacherEntry] = []
     /// Every staging, each keeping its copies alive while the form shows.
@@ -83,6 +90,10 @@ struct ExamUploadSheet: View {
     var body: some View {
         NavigationStack {
             Form {
+                if !running, upload?.phase != .pending, checkedInput == uploadInput,
+                   let reason = readiness?.reasonKey {
+                    Section { Text(t(reason)).foregroundStyle(Theme.danger) }
+                }
                 if let stageLabel {
                     Section {
                         if let upload, upload.phase == .transferring, upload.total > 0 {
@@ -171,6 +182,7 @@ struct ExamUploadSheet: View {
                 }
             }
             .task { await load() }
+            .task(id: uploadInput) { await checkReadiness() }
         }
     }
 
@@ -178,12 +190,26 @@ struct ExamUploadSheet: View {
         running || staging || cancelling || editing || upload?.phase == .pending
     }
 
+    private var uploadInput: UploadInput? {
+        guard var draft = form?.draft else { return nil }
+        draft.newTeachers = newTeachers.map {
+            ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
+        }
+        return UploadInput(draft: draft, files: files.map { ExamUploadFile(path: $0.url.path, name: $0.name) })
+    }
+
     private var canSubmit: Bool {
-        guard let draft = form?.draft else { return false }
-        return !formDisabled && !files.isEmpty
-            && newTeachers.allSatisfy { !$0.familyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            && draft.variant.utf16.count <= choices.limits.variant
-            && draft.note.utf16.count <= choices.limits.note
+        !formDisabled && checkedInput == uploadInput && readiness != nil && readiness?.reasonKey == nil
+    }
+
+    private func checkReadiness() async {
+        guard let input = uploadInput else { return }
+        let retained = selections
+        defer { withExtendedLifetime(retained) {} }
+        guard case let .uploadReadiness(result)? = try? await model.examShare(.uploadReadiness(files: input.files, draft: input.draft)),
+              !Task.isCancelled else { return }
+        checkedInput = input
+        readiness = result
     }
 
     private var stageLabel: String? {
@@ -437,14 +463,10 @@ struct ExamUploadSheet: View {
     }
 
     private func submit() async {
-        guard canSubmit, var draft = form?.draft else { return }
+        guard canSubmit, let input = uploadInput else { return }
         let selections = selections
-        draft.newTeachers = newTeachers.map {
-            ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
-        }
-        let input = files.map { ExamUploadFile(path: $0.url.path, name: $0.name) }
         // The staging directory is kept alive through the native operation.
-        await perform(.upload(files: input, draft: draft))
+        await perform(.upload(files: input.files, draft: input.draft))
         withExtendedLifetime(selections) {}
     }
 

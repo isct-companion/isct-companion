@@ -13,7 +13,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
 } from "react";
-import { usePageLayer, useTopPageLayer } from "../../app/KeptPage";
+import { usePageLayer, useTopPageLayer } from "./page-layer";
 import { t } from "../../i18n";
 import { cx, spacing, type Size } from "./layout";
 import { CloseButton } from "./controls";
@@ -27,7 +27,7 @@ type ModalProps = {
   onClose: () => void;
   title?: ReactNode;
   children: ReactNode;
-  size?: Size | string;
+  size?: string;
   centered?: boolean;
   closeOnClickOutside?: boolean;
   closeOnEscape?: boolean;
@@ -165,7 +165,14 @@ export const Drawer = ({
 }: ModalProps & { position?: "right" }) => <DialogSurface {...props} drawer />;
 
 type Placement =
-  "top" | "bottom" | "left" | "right" | "bottom-start" | "bottom-end";
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-start"
+  | "top-end"
+  | "bottom-start"
+  | "bottom-end";
 const placement = (value: Placement) => ({
   side: value.split("-")[0] as "top" | "bottom" | "left" | "right",
   align: (value.endsWith("-end")

@@ -139,9 +139,9 @@ private struct ExamSetRow: View {
     let open: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.space5) {
             Image(systemName: "doc.text").foregroundStyle(Theme.accent)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 let label = examSitting(year: set.academicYear, occasion: set.occasion,
                                         number: set.occasionNumber, variant: set.variant)
                 Text(label.isEmpty ? t("examShare.occasion.unknown") : label).foregroundStyle(Theme.ink)
@@ -155,7 +155,7 @@ private struct ExamSetRow: View {
                 pill(document)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, Theme.space1)
     }
 
     private func pill(_ document: ExamDocument) -> some View {
@@ -173,7 +173,7 @@ private struct ExamSetRow: View {
             }
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(tint)
-            .padding(.horizontal, 12)
+            .padding(.horizontal, Theme.space6)
             .padding(.vertical, 5)
             .background(answer ? Theme.okSoft : Theme.accentSoft, in: Capsule())
             .overlay { Capsule().strokeBorder(tint.opacity(0.35)) }

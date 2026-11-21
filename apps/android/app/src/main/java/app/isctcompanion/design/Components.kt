@@ -1,5 +1,6 @@
 package app.isctcompanion.design
 
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -46,6 +47,8 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -57,6 +60,10 @@ import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DeadlineItem
+import app.isctcompanion.core.TaskDeadlineView
+import java.time.Duration
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.produceState
 import app.isctcompanion.core.ExamConflict
 import app.isctcompanion.core.MaterialItem
 import app.isctcompanion.core.SchoolSite
@@ -68,15 +75,40 @@ private val tabular = androidx.compose.ui.text.TextStyle(fontFeatureSettings = "
 
 /** Text style with tabular figures, for times and countdowns. */
 @Composable
+fun BackButton(onBack: () -> Unit) {
+    IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+}
+
+@Composable
 fun androidx.compose.ui.text.TextStyle.tabular() = merge(tabular)
 
 /** Deadline chip: one per row, coloured by Core's tone. */
 @Composable
-fun DeadlineChip(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label) {
-    val (ink, fill) = toneColors(if (item.submitted) "done" else item.tone)
+fun DeadlineChip(item: DeadlineItem) {
+    AssignmentDeadlineTag(item.deadline, item.submitted, item.grade)
+}
+
+@Composable
+fun AssignmentDeadlineTag(deadline: TaskDeadlineView?, submitted: Boolean, grade: String?) {
+    val model = LocalModel.current
+    var visible by remember { mutableStateOf(false) }
+    val display by produceState(deadline, deadline, submitted, visible) {
+        value = deadline
+        if (submitted || deadline == null || !visible) return@produceState
+        var current: TaskDeadlineView = deadline
+        while (true) {
+            val next = Format.date(current.nextChangeAt) ?: break
+            delay(maxOf(1L, Duration.between(Instant.now(), next).toMillis()))
+            current = model.deadlineDisplay(current.at) ?: break
+            value = current
+        }
+    }
+    val current = display.takeIf { it?.at == deadline?.at } ?: deadline
+    val (ink, fill) = toneColors(if (submitted) "done" else current?.countdownTone ?: "normal")
     Tag(
-        if (item.submitted) item.grade ?: t("common.submitted") else Format.countdown(item.dueAt, now, overdueStyle),
+        if (submitted) grade ?: t("common.submitted") else current?.let(Format::countdown) ?: t("common.noDeadline"),
         color = ink, soft = fill,
+        modifier = Modifier.onGloballyPositioned { visible = !it.boundsInWindow().isEmpty },
     )
 }
 
@@ -94,7 +126,7 @@ fun toneColors(tone: String): Pair<Color, Color> = with(Theme.colors) {
  * user corrected it, or left the timetable. Resolving it stays on desktop. */
 @Composable
 fun ExamConflictLabel(conflict: ExamConflict) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space2)) {
         Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.warn, modifier = Modifier.size(14.dp))
         Text(
             if (conflict.removed) t("exam.noLongerInThePublished") else t("common.timetableChanged"),
@@ -128,9 +160,10 @@ fun Tag(
     ink: Color = color,
     onSolid: Color = Theme.onSolid,
     counting: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     val shape = RoundedCornerShape(Theme.radiusChip)
-    val box = Modifier
+    val box = modifier
         .clip(shape)
         .then(
             when (variant) {
@@ -139,7 +172,7 @@ fun Tag(
                 TagVariant.Solid -> Modifier.background(color)
             },
         )
-        .padding(horizontal = 6.dp, vertical = 2.dp)
+        .padding(horizontal = Theme.space3, vertical = Theme.space1)
     val tone = when (variant) {
         TagVariant.Soft -> color
         TagVariant.Outline -> ink
@@ -158,7 +191,6 @@ fun Tag(
 fun DeadlineRow(
     item: DeadlineItem,
     now: Instant,
-    overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label,
     showsCourse: Boolean = true,
 ) {
     Row(
@@ -167,7 +199,7 @@ fun DeadlineRow(
         modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         CourseSquare(item.color)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(
                 item.title,
                 style = MaterialTheme.typography.bodyLarge,
@@ -184,19 +216,8 @@ fun DeadlineRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            // Files put in its upload card wait for the person to hand them
-            // in; Core counts them until LMS shows the work submitted.
-            LocalModel.current.waiting[item.assignmentId]?.let { waiting ->
-                Text(
-                    t("components.countFilesToHandIn", "count" to waiting),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Theme.colors.accent,
-                    maxLines = 1,
-                )
-            }
         }
-        DeadlineChip(item, now, overdueStyle)
+        DeadlineChip(item)
     }
 }
 
@@ -217,7 +238,7 @@ fun DeadlineLink(item: DeadlineItem, chevron: Boolean = false, hidden: Boolean =
         if (chevron) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.weight(1f)) { content() }
-                RowChevron(Modifier.padding(end = 16.dp))
+                RowChevron(Modifier.padding(end = Theme.rowX))
             }
         } else {
             content()
@@ -277,14 +298,14 @@ fun MaterialRow(item: MaterialItem) {
     val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !opening.busy) { opening.open(item.courseId, item.url, item.title) }
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Icon(materialIcon(item.kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(item.title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             item.sectionLabel?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, maxLines = 1)
@@ -329,12 +350,12 @@ fun ActionButton(
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space3, Alignment.CenterHorizontally),
         modifier = modifier
             .clip(CircleShape)
             .background(fill)
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = Theme.space8, vertical = Theme.space5)
             .alpha(if (enabled) 1f else 0.35f),
     ) {
         icon?.let { Icon(it, null, tint = ink, modifier = Modifier.size(18.dp)) }
@@ -347,9 +368,9 @@ fun ActionButton(
 @Composable
 fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, action: Pair<String, () -> Unit>? = null) {
     Column(
-        modifier.fillMaxWidth().padding(vertical = 32.dp, horizontal = Theme.gutter),
+        modifier.fillMaxWidth().padding(vertical = Theme.space11, horizontal = Theme.gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(Theme.space5),
     ) {
         Icon(icon, null, tint = Theme.colors.muted, modifier = Modifier.size(40.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, textAlign = TextAlign.Center)
@@ -364,17 +385,17 @@ fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, a
 fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
     val model = LocalModel.current
     Row(
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space5),
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.dangerSoft)
-            .padding(start = 14.dp, top = 4.dp, bottom = 4.dp),
+            .padding(start = Theme.space7, top = Theme.space2, bottom = Theme.space2),
     ) {
-        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = 10.dp))
+        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = Theme.space5))
         Text(
             text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
-            modifier = Modifier.weight(1f).padding(vertical = 10.dp),
+            modifier = Modifier.weight(1f).padding(vertical = Theme.space5),
         )
         onRetry?.let { retry ->
             TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }

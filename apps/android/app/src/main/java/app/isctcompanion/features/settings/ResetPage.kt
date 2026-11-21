@@ -18,7 +18,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,7 +71,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
     LaunchedEffect(resetting) { onBusy(resetting) }
     DisposableEffect(Unit) { onDispose { onBusy(false) } }
     // Read before the reset, which stops cloud sync.
-    val cloudOn = model.cloud?.providers.orEmpty().filter { it.enabled }.map { it.provider }
+    val cloudOn = model.backup.state?.providers.orEmpty().filter { it.enabled }.map { it.provider }
     var restore by remember { mutableStateOf(true) }
     /** `null` while estimating; an empty text when Core cannot tell. */
     var freed by remember { mutableStateOf<String?>(null) }
@@ -101,7 +100,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         resetting = true
         val message = try {
             model.reset(if (everything) ResetRequest.Everything else ResetRequest.SchoolCaches(signOutWeb, deleteDownloads))
-            if (restoring.isEmpty() || runCatching { model.restoreFromCloud(restoring) }.isSuccess) {
+            if (restoring.isEmpty() || runCatching { model.backup.restoreAfterReset(restoring) }.isSuccess) {
                 t(if (everything) "settings.reset.full.done" else "settings.reset.caches.done")
             } else {
                 t("settings.reset.full.restoreFailed")
@@ -117,11 +116,23 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         Footer(t(if (everything) "settings.reset.full.hint" else "settings.reset.caches.hint"))
         if (!everything) {
             Card {
-                OptionRow(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), signOutWeb, !resetting) {
+                SwitchRow(
+                    title = t("settings.reset.caches.signOut"),
+                    checked = signOutWeb,
+                    detail = t("settings.reset.caches.signOutHint"),
+                    enabled = !resetting,
+                    compact = false,
+                ) {
                     signOutWeb = it
                 }
-                RowDivider(inset = 16.dp)
-                OptionRow(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), deleteDownloads, !resetting) {
+                RowDivider(inset = Theme.rowX)
+                SwitchRow(
+                    title = t("settings.reset.caches.downloads"),
+                    checked = deleteDownloads,
+                    detail = t("settings.reset.caches.downloadsHint"),
+                    enabled = !resetting,
+                    compact = false,
+                ) {
                     deleteDownloads = it
                 }
             }
@@ -129,7 +140,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         Items(t("settings.reset.deletes"), deletes, Icons.Rounded.Delete)
         Items(t("settings.reset.keeps"), keeps, Icons.Rounded.Check)
         Card {
-            Row(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY)) {
                 Text(t("settings.reset.freed"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
                 Text(freed ?: t("settings.reset.estimating"), color = Theme.colors.muted)
             }
@@ -140,7 +151,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 ChoiceRow(t("settings.reset.full.restore"), t("settings.reset.full.restoreHint"), restore, !resetting) {
                     restore = true
                 }
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 ChoiceRow(t("settings.reset.full.newDevice"), t("settings.reset.full.newDeviceHint"), !restore, !resetting) {
                     restore = false
                 }
@@ -151,7 +162,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth().clickable(enabled = !resetting) { acknowledged = !acknowledged }
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                        .padding(horizontal = Theme.space4, vertical = Theme.space4),
                 ) {
                     Checkbox(acknowledged, { acknowledged = it }, enabled = !resetting)
                     Text(t("settings.reset.full.acknowledge"), color = Theme.colors.ink)
@@ -162,7 +173,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
             onClick = { if (everything) confirming = true else reset() },
             enabled = !resetting && (!everything || acknowledged),
             colors = ButtonDefaults.buttonColors(containerColor = Theme.colors.danger),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(top = Theme.space4),
         ) { Text(if (resetting) t("settings.reset.resetting") else confirmLabel) }
     }
     if (confirming) {
@@ -182,27 +193,12 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
 }
 
 @Composable
-private fun OptionRow(title: String, hint: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            Text(hint, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-        }
-        Switch(checked, onChange, enabled = enabled)
-    }
-}
-
-@Composable
 private fun ChoiceRow(title: String, hint: String, selected: Boolean, enabled: Boolean, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space4),
         modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 8.dp),
+            .padding(horizontal = Theme.space4, vertical = Theme.space4),
     ) {
         RadioButton(selected, onClick, enabled = enabled)
         Column(Modifier.weight(1f)) {
@@ -220,8 +216,8 @@ private fun Items(title: String, keys: List<String>, icon: ImageVector) {
             if (index > 0) RowDivider(inset = 48.dp)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.space8),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = 12.dp),
             ) {
                 Icon(icon, null, tint = Theme.colors.muted)
                 Text(t(key), color = Theme.colors.ink)

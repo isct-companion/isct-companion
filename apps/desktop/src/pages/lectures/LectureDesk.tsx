@@ -1,21 +1,17 @@
 import { dayShort } from "../../components/timetable/timetable";
-import { BookOpen, PanelLeft } from "lucide-react";
-import {
-  examConflictLabel,
-  examKindLabel,
-} from "../../components/exams/ExamCards";
-import { ExamEditor } from "../../components/exams/ExamEditor";
+import { TitleRow, TitlebarNav } from "../../components/TitleRow";
+import { BookOpen } from "lucide-react";
 import { DueChip } from "../../components/DueChip";
 import { CloseButton, Input, EmptyState, Skeleton } from "../../components/ui";
-import { deadlineText } from "../../lib/deadline-text";
 import "./lectures.css";
-import { ResizableWorkspace } from "../../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../../components/ResizableWorkspace";
 import { KeptPage } from "../../app/KeptPage";
 import { usePanelRef } from "react-resizable-panels";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Assignment, TermId, Workspace } from "../../lib/model";
-import { submissionLabel } from "../../lib/academic";
-import { AssignmentGroupList } from "../../components/assignments/AssignmentGroupList";
+import type { TermId, Workspace } from "../../lib/model";
 import {
   addCivilDays as addDays,
   civilWeekday,
@@ -25,7 +21,7 @@ import {
 } from "../../lib/civil-date";
 import { UiSelect } from "../../components/ui";
 import { t } from "../../i18n";
-import type { CourseEntry } from "../../features/lms/LmsWorkspace";
+import type { CourseEntry } from "../../features/lms";
 import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQueries,
@@ -34,6 +30,9 @@ import {
   type TaskView,
 } from "../../platform/core-query";
 import { withRecords } from "../../platform/records";
+import { LectureAssignments } from "./LectureAssignments";
+import { LectureExamList, LectureExamDetails } from "./LectureExams";
+import type { TaskDeadlineView } from "../../generated/persistence";
 
 type Lecture = {
   id: string;
@@ -44,7 +43,7 @@ type Lecture = {
   rank: number;
   when?: string;
   room?: string;
-  due?: { label: string; tone: string };
+  due?: TaskDeadlineView;
 };
 
 /** This quarter's lectures, in class order, and the open lecture's workspace. */
@@ -200,8 +199,6 @@ function LectureDeskBody({
     mode === "exams"
       ? schedule?.exams?.find((exam) => exam.key === examKey)
       : undefined;
-  const taskTerm = taskView?.byTerm?.[shownTerm];
-  const byAssignment = new Map(data.assignments.map((item) => [item.id, item]));
 
   const lectures = useMemo(() => {
     const minutes = jstMinutes(now);
@@ -239,12 +236,7 @@ function LectureDeskBody({
           rank: meeting?.rank ?? Infinity,
           when: meeting?.when,
           room: meeting?.room,
-          due: due
-            ? {
-                label: deadlineText(due, data.settings.locale).countdownLabel,
-                tone: due.countdownTone,
-              }
-            : undefined,
+          due,
         };
       })
       .sort(
@@ -253,68 +245,6 @@ function LectureDeskBody({
       );
   }, [courses, now, schedule?.agendas, taskView, today]);
   const needle = query.trim().toLowerCase();
-  const courseById = new Map(data.courses.map((course) => [course.id, course]));
-  const submittedIds = new Set(taskView?.submittedIds);
-  const matchesWork = (assignment: Assignment) => {
-    return Boolean(search?.assignmentIds.includes(assignment.id));
-  };
-  const workRow = (assignment: Assignment) => {
-    const course = courseById.get(assignment.courseId);
-    const due = taskView?.deadlines?.[assignment.id];
-    const submitted = submittedIds.has(assignment.id);
-    // The same states as Today: submitted early, missed, or closed.
-    const state = due?.overdue
-      ? submitted
-        ? " closed"
-        : " missed"
-      : submitted
-        ? " done"
-        : "";
-    return (
-      <button
-        type="button"
-        key={assignment.id}
-        className={`lectureRow${state}${entry?.assignmentId === assignment.id ? " selected" : ""}`}
-        aria-current={
-          entry?.assignmentId === assignment.id ? "true" : undefined
-        }
-        style={{ "--course": course?.color } as React.CSSProperties}
-        onClick={() => choose(assignment.courseId, assignment.id)}
-      >
-        <b>{assignment.title}</b>
-        <small>
-          {course?.title ?? "LMS"} · {submissionLabel(assignment, t, submitted)}
-        </small>
-        {due && (
-          <DueChip
-            due={due}
-            submitted={submitted}
-            locale={data.settings.locale}
-          />
-        )}
-      </button>
-    );
-  };
-  const hiddenRow = (assignment: Assignment) => {
-    const course = courseById.get(assignment.courseId);
-    return (
-      <div
-        key={assignment.id}
-        className="lectureRow hidden"
-        style={{ "--course": course?.color } as React.CSSProperties}
-      >
-        <b>{assignment.title}</b>
-        <small>{course?.title ?? "LMS"}</small>
-        <button
-          type="button"
-          className="textButton"
-          onClick={() => restoreAssignment?.(assignment.id)}
-        >
-          {t("common.restore")}
-        </button>
-      </div>
-    );
-  };
   const shown = needle
     ? lectures.filter((lecture) => search?.courseIds.includes(lecture.id))
     : lectures;
@@ -338,22 +268,18 @@ function LectureDeskBody({
     : recent;
 
   const sidebarToggle = (
-    <button
-      type="button"
-      className="lectureSidebarToggle"
-      aria-label={t("lectures.toggleSidebar")}
-      aria-expanded={!collapsed}
-      aria-controls="lecture-sidebar"
-      title={t("lectures.toggleSidebar")}
-      onClick={() => {
-        setFloating(false);
-        if (sidebar.current?.isCollapsed()) sidebar.current.expand();
-        else sidebar.current?.collapse();
-      }}
-    >
-      <PanelLeft size={18} strokeWidth={1.75} aria-hidden />
-    </button>
+    <WorkspaceSidebarToggle
+      panel={sidebar}
+      collapsed={collapsed}
+      controls="lecture-sidebar"
+      onToggle={() => setFloating(false)}
+    />
   );
+  // With the list folded away the content column is first after the rail,
+  // so its title row starts with Back, Forward and the sidebar button.
+  const contentStart = collapsed ? (
+    <TitlebarNav sidebar={sidebarToggle} />
+  ) : undefined;
 
   return (
     <div
@@ -391,32 +317,33 @@ function LectureDeskBody({
               setListFocused(false);
           }}
         >
-          <header>
-            <div className="lectureListTitle">
-              {collapsed && floating && sidebarToggle}
-              <h1>{t("lectures.lectureDesk")}</h1>
-            </div>
-            <UiSelect
-              className="lectureTerm"
-              aria-label={t("common.quarter")}
-              value={shownTerm}
-              onChange={(value) => {
-                setQuery("");
-                setShownTerm(value as TermId);
-              }}
-              data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
-                (year) => ({
-                  group: year,
-                  items: terms
-                    .filter((item) => item.startsWith(`${year}-`))
-                    .map((item) => ({
-                      value: item,
-                      label: item.replace("-", " "),
-                    })),
-                }),
-              )}
-            />
-          </header>
+          <TitleRow
+            nav
+            sidebar={!collapsed || floating ? sidebarToggle : undefined}
+            className="lectureListHeader"
+          >
+            <h1>{t("lectures.lectureDesk")}</h1>
+          </TitleRow>
+          <UiSelect
+            className="lectureTerm"
+            aria-label={t("common.quarter")}
+            value={shownTerm}
+            onChange={(value) => {
+              setQuery("");
+              setShownTerm(value as TermId);
+            }}
+            data={[...new Set(terms.map((item) => item.slice(0, 4)))].map(
+              (year) => ({
+                group: year,
+                items: terms
+                  .filter((item) => item.startsWith(`${year}-`))
+                  .map((item) => ({
+                    value: item,
+                    label: item.replace("-", " "),
+                  })),
+              }),
+            )}
+          />
           <div
             className="dueScope lectureMode"
             role="group"
@@ -461,98 +388,30 @@ function LectureDeskBody({
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => event.key === "Escape" && setQuery("")}
           />
-          {mode === "exams" &&
-            (() => {
-              const exams = schedule?.exams ?? [];
-              const needle = query.trim().toLowerCase();
-              const shown = exams.filter((exam) =>
-                needle
-                  ? Boolean(search?.examKeys.includes(exam.key))
-                  : Boolean(exam.courseId) || exam.key === examKey,
-              );
-              // Classes the timetable lists in exam week are not exams.
-              const classes = shown.filter((exam) => exam.kind === "class");
-              const row = (exam: (typeof shown)[number]) => (
-                <button
-                  type="button"
-                  key={exam.key}
-                  className={`lectureRow exam${exam.kind === "class" ? " examWeekClass" : ""}${examKey === exam.key ? " selected" : ""}`}
-                  aria-current={examKey === exam.key ? "true" : undefined}
-                  style={{ "--course": exam.color } as React.CSSProperties}
-                  onClick={() => {
-                    setQuery("");
-                    setFloating(false);
-                    chosenHere.current = true;
-                    selectExam(exam.key, exam.term);
-                  }}
-                >
-                  <b>{exam.title || exam.code}</b>
-                  <small>
-                    {exam.code} · {exam.date}
-                    {exam.startTime && exam.endTime
-                      ? ` · ${exam.startTime}–${exam.endTime}`
-                      : ""}
-                  </small>
-                  <small>
-                    {exam.kind === "quiz" ? `${t("common.quiz")} · ` : ""}
-                    {exam.origin === "session"
-                      ? t("exam.markedOnTheCalendar")
-                      : exam.courseId
-                        ? t("lectures.linked")
-                        : t("common.notLinked")}
-                    {exam.status === "cancelled"
-                      ? ` · ${t("exam.status.cancelled")}`
-                      : ""}
-                  </small>
-                  {exam.conflict && (
-                    <small className="examConflictTag">
-                      {examConflictLabel(exam)}
-                    </small>
-                  )}
-                </button>
-              );
-              return (
-                <>
-                  <div className="lectureExamScope">
-                    <small>
-                      {needle
-                        ? t("lectures.searchPublishedExams")
-                        : t("lectures.myExams")}
-                    </small>
-                    {!shown.length && (
-                      <p>
-                        {t(
-                          needle
-                            ? "lectures.noMatchingExams"
-                            : "lectures.noLinkedExamsThisQuarter",
-                        )}
-                      </p>
-                    )}
-                  </div>
-                  {shown.filter((exam) => exam.kind !== "class").map(row)}
-                  {classes.length > 0 && (
-                    <div className="lectureExamScope">
-                      <small>{t("lectures.classesInExamWeek")}</small>
-                    </div>
-                  )}
-                  {classes.map(row)}
-                </>
-              );
-            })()}
+          {mode === "exams" && (
+            <LectureExamList
+              schedule={schedule}
+              query={query}
+              search={search}
+              examKey={examKey}
+              chooseExam={(key, term) => {
+                setQuery("");
+                setFloating(false);
+                chosenHere.current = true;
+                selectExam(key, term);
+              }}
+            />
+          )}
           {mode === "assignments" && (
-            <AssignmentGroupList
-              key={shownTerm}
-              groups={taskTerm?.record}
-              assignments={byAssignment}
-              row={workRow}
-              hiddenRow={restoreAssignment ? hiddenRow : undefined}
-              matches={needle ? matchesWork : undefined}
-              pastLabel={t("lectures.pastDeadline")}
-              empty={t(
-                needle
-                  ? "lectures.noMatchingAssignments"
-                  : "lectures.noAssignmentsThisQuarter",
-              )}
+            <LectureAssignments
+              data={data}
+              taskView={taskView}
+              shownTerm={shownTerm}
+              search={search}
+              needle={needle}
+              entry={entry}
+              choose={choose}
+              restoreAssignment={restoreAssignment}
             />
           )}
           {mode === "lectures" && listLoading && <Skeleton count={5} />}
@@ -576,9 +435,7 @@ function LectureDeskBody({
                     .join(" · ")}
                 </small>
                 {lecture.due && (
-                  <span className={`dueChip ${lecture.due.tone}`}>
-                    {lecture.due.label}
-                  </span>
+                  <DueChip due={lecture.due} locale={data.settings.locale} />
                 )}
               </button>
             ))}
@@ -594,36 +451,18 @@ function LectureDeskBody({
         </nav>
         <div className="lectureContent">
           {mode === "exams" && (
-            <div
-              className={`lectureExamDetails${selectedExam && entering === `exam:${selectedExam.key}` ? " entering" : ""}`}
-              onAnimationEnd={endEntrance}
-            >
-              {sidebarToggle}
-              {selectedExam ? (
-                <>
-                  <header>
-                    <h1>{selectedExam.title || selectedExam.code}</h1>
-                    <p>
-                      {selectedExam.code} ·{" "}
-                      {selectedExam.term.replace("-", " ")} ·{" "}
-                      {examKindLabel(selectedExam)}
-                    </p>
-                  </header>
-                  <ExamEditor
-                    key={selectedExam.key}
-                    exam={selectedExam}
-                    courses={courses}
-                    onRemoved={() => setExamKey(null)}
-                  />
-                </>
-              ) : (
-                <p className="emptyHint">{t("lectures.selectAnExamToEdit")}</p>
-              )}
-            </div>
+            <LectureExamDetails
+              selectedExam={selectedExam}
+              courses={courses}
+              entering={entering}
+              endEntrance={endEntrance}
+              sidebarToggle={contentStart}
+              onRemoved={() => setExamKey(null)}
+            />
           )}
           <div className="lectureCourseContent" hidden={mode === "exams"}>
             {!entry && (
-              <header className="lectureEmptyHeader">{sidebarToggle}</header>
+              <TitleRow className="lectureEmptyHeader">{contentStart}</TitleRow>
             )}
             {retained.map((item) => (
               <div
@@ -647,7 +486,7 @@ function LectureDeskBody({
                       mode !== "exams" &&
                       entry?.courseId === item.courseId,
                     entry?.courseId === item.courseId
-                      ? sidebarToggle
+                      ? contentStart
                       : undefined,
                   )}
                 </KeptPage>

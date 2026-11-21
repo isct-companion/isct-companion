@@ -20,8 +20,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Localizer
-import app.isctcompanion.features.timetable.clockMinutes
-import app.isctcompanion.features.timetable.thisWeek
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -40,7 +38,7 @@ import org.json.JSONObject
  * forwards intents and reports lifecycle facts; every decision about what is
  * due, grouped or shown stays in Core. Lives as long as the process, so state
  * survives activity recreation. Every member is used on the main thread. */
-class AppModel(private val context: Context, private val scope: CoroutineScope) {
+class AppModel(internal val context: Context, private val scope: CoroutineScope) {
     /** Newer releases from GitHub, offered on 今日 (`AppUpdater`). */
     val updater = AppUpdater(context)
 
@@ -55,10 +53,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
-        private set
-    /** Files waiting in each assignment's `submit/`, by assignment id, for
-     * 今日's rows (Core's `waitingHandIns`). */
-    var waiting: Map<String, Int> by mutableStateOf(emptyMap())
         private set
     var periods: List<TeachingPeriod> by mutableStateOf(emptyList())
         private set
@@ -79,10 +73,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         private set
     /** Core's school session per account: state, problem, retry time and
      * maintenance, rendered as they are. */
-    var sessions: SchoolSessionProfiles? by mutableStateOf(null)
-        private set
-    /** The `revision` of the snapshot [sessions] came from. */
-    private var sessionRevision: ULong? = null
+    private var schoolSession: SchoolSessionSnapshot? by mutableStateOf(null)
+    val sessions: SchoolSessionProfiles?
+        get() = schoolSession?.profiles
     /** Core's sync planner: its runs and sources, rendered as they are. */
     var syncSnapshot: SyncSnapshot? by mutableStateOf(null)
         private set
@@ -99,9 +92,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Cells read so far by a running Matrix scan, from Core's `ocr-progress`. */
     var ocrProgress: Int by mutableStateOf(0)
         private set
-    /** Core's cloud journal: providers, unfinished tasks, versions, recovery files. */
-    var cloud: SyncState? by mutableStateOf(null)
-        private set
+    private var ocrOperation: ULong? = null
     /** The ScienceTokyoExam account and its upload, as Core's `exam-account`
      * events and `Account` answers report it; null until the page reads it. */
     var examAccount: ExamAccount? by mutableStateOf(null)
@@ -114,13 +105,20 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Google Drive sign-in; the activity in front attaches its consent screen. */
     val drive = DriveTokens(context)
     val web = WebRouter(browser, scope, context)
-    private var session: Session? = null
+    internal var session: Session? = null
+        private set
+    internal val backup = CloudBackup(
+        session = { session },
+        refreshWorkspace = { refresh() },
+        reportFailure = { problem = describe(it) },
+    )
     private var revision = ""
-    /** The newest commit sequence heard from an event or a write; an answer
-     * read before it is asked for again. */
-    private var latestSeq: ULong = 0u
+    private val dashboardReads = ScheduleReads()
+    internal val timetableWeeks = TimetableWeeks()
+    private val sessionMarks = Mutex()
+    var upcomingExams by mutableStateOf(emptyList<ExamView>())
+        private set
     private var boundaryJob: Job? = null
-    private var refreshJob: Job? = null
     /** The one timer for Core's next deadline (`WakeDirective`). */
     private var deadlineJob: Job? = null
     private var directive: WakeDirective? = null
@@ -155,9 +153,13 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 authorizedCloudProviders = emptyList(),
             )
             val session = Session.open(
-                config, KeystoreVault(context), browser, null, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
+                config, KeystoreVault(context), browser, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
             )
             session.attachWidgets(WidgetStorage(context))
+            val model = java.lang.ref.WeakReference(this)
+            session.attachReminderPort(NotificationScheduler(context) { needed ->
+                model.get()?.notificationsBlocked = needed
+            })
             this.session = session
             val stream = session.subscribe()
             scope.launch { listen(stream) }
@@ -166,7 +168,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             refresh()
             refreshAccounts()
             readSync()
-            refreshCloud()
+            backup.refresh()
             status = Status.Ready
             watchNetwork()
             watchPowerSaver()
@@ -202,10 +204,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             runCatching { session.resume() }
             hint(Hint.Foreground)
             armDeadline()
-            scope.launch { refresh() }
+            scheduleRefresh(force = true)
             scope.launch { checkForUpdate() }
-            // Permission granted in the system settings while away.
-            if (notificationsBlocked) scope.launch { resyncNotifications() }
         } else {
             deadlineJob?.cancel()
             deadlineJob = null
@@ -234,7 +234,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun backgroundWake(network: Boolean, budgetSeconds: UInt, systemChange: Boolean) {
         start()
         val session = session ?: return
-        if (systemChange) runCatching { session.refreshWidgets() }
+        if (systemChange) {
+            runCatching { session.refreshWidgets() }
+            resyncNotifications()
+        }
         val id = java.util.UUID.randomUUID().toString()
         val operation = runCatching { session.beginBackgroundOpportunity(id, budgetSeconds, network) }
             .getOrNull() ?: return
@@ -262,6 +265,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     fun open(view: SyncView) = hint(Hint.Open(view))
 
     fun refresh(target: SyncScope) = hint(Hint.Refresh(target))
+
+    fun retrySync(plan: RetryPlan) = plan.scopes.forEach(::refresh)
 
     /** Takes Core's directive, unless an older one; the in-front timer and
      * the WorkManager requests follow it. */
@@ -343,36 +348,36 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
                 is StreamUpdate.Event -> when (update.event.name) {
                     "sync-snapshot" -> runCatching { decodeSyncSnapshot(update.event.payload) }
                         .onSuccess(::apply)
-                    // The whole snapshot. Credentials another device synced
-                    // change it too, so their summary is read again.
                     "school-session" -> {
-                        runCatching { decodeSchoolSession(update.event.payload) }
-                            .onSuccess(::applySchool)
-                            .onFailure { scope.launch { refreshAccounts() } }
-                        scope.launch { refreshCredentials() }
+                        val snapshot = runCatching { decodeSchoolSession(update.event.payload) }.getOrNull()
+                        if (snapshot == null) {
+                            refreshAccounts()
+                        } else {
+                            applySchool(snapshot)
+                            refreshCredentials()
+                        }
                     }
-                    "cloud-sync-state" -> refreshCloud()
+                    "cloud-sync-state" -> backup.refresh()
                     "wake-directive" -> runCatching { decodeWakeDirective(update.event.payload) }
                         .onSuccess(::applyDirective)
                     "exam-account" -> runCatching { decodeExamAccount(update.event.payload) }
                         .onSuccess { examAccount = it }
-                    "ocr-progress" -> runCatching { JSONObject(update.event.payload).getInt("completed") }
-                        .onSuccess { ocrProgress = it }
+                    "ocr-progress" -> runCatching {
+                        val progress = JSONObject(update.event.payload)
+                        if (progress.getLong("operationId").toULong() == ocrOperation) {
+                            ocrProgress = progress.getInt("completed")
+                        }
+                    }
                     "school-web-page", "school-web-notice" -> web.handle(update.event.name, update.event.payload)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
                     "school-download", "catalog-changed" -> Unit
-                    // A key re-read with nothing new renews only its freshness,
-                    // which no screen here shows.
-                    "workspace-changed" -> {
-                        latestSeq = maxOf(latestSeq, seqOf(update.event.payload))
-                        if (!onlyFreshness(update.event.payload)) scheduleRefresh()
-                    }
-                    else -> scheduleRefresh()
+                    "workspace-changed" -> scheduleRefresh()
+                    else -> Unit
                 }
                 is StreamUpdate.SnapshotRequired -> {
                     runCatching { session?.refreshWidgets() }
-                    scheduleRefresh()
+                    scheduleRefresh(force = true)
                     session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
                     web.refreshPages()
                     refreshAccounts()
@@ -384,90 +389,60 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
-    /** The commit sequence a `workspace-changed` names. */
-    private fun seqOf(payload: String): ULong =
-        runCatching { JSONObject(payload).optLong("seq").toULong() }.getOrDefault(0u)
-
-    /** What a committed intent says: where the next one starts, and the
-     * sequence answers must not be older than. */
-    private fun adopt(commit: WorkspaceCommit) {
-        revision = commit.revision
-        latestSeq = maxOf(latestSeq, commit.seq)
-    }
-
-    /** Whether a `workspace-changed` names sync freshness and nothing else.
-     * An unreadable payload counts as a real change. */
-    private fun onlyFreshness(payload: String): Boolean = runCatching {
-        val changes = JSONObject(payload).getJSONArray("changes")
-        changes.length() > 0 && (0 until changes.length()).all { changes.getString(it) == "freshness" }
-    }.getOrDefault(false)
-
-    /** Coalesces bursts of change hints into one read. */
-    private fun scheduleRefresh() {
-        refreshJob?.cancel()
-        refreshJob = scope.launch {
-            delay(150)
-            refresh()
+    private fun scheduleRefresh(force: Boolean = false): Job? {
+        val session = session ?: return null
+        if (force) {
+            dashboardReads.invalidate()
+            timetableWeeks.invalidate()
+        } else {
+            timetableWeeks.invalidateIfChanged(session)
         }
+        return dashboardReads.refresh(scope, session, { readDashboard(session, it) }, { problem = describe(it) })
     }
 
-    // Read models
+    suspend fun refresh() { scheduleRefresh(force = true)?.join() }
 
-    suspend fun refresh() {
-        val session = session ?: return
-        val now = Format.timestamp(Instant.now())
-        try {
-            revision = (session.workspaceRevision().value() as? OperationResult.Text)?.value ?: return
-            // The rows screens look up, with the read models, from one read.
-            val result = (
-                session.scheduleQuery(
-                    listOf(
-                        WorkspaceQuery.Records(listOf("courses", "assignments")),
-                        WorkspaceQuery.Today(now),
-                        WorkspaceQuery.AssignmentBoard(now, null),
-                        WorkspaceQuery.TeachingPeriods,
-                    ),
-                ).value() as? OperationResult.Schedule
-                )?.snapshot ?: return
-            // An answer read before the newest change heard is stale: ask again
-            // (`approach/query-cache-consistency`).
-            if (result.seq < latestSeq) {
-                scheduleRefresh()
-                return
-            }
-            for (value in result.values) {
-                when (value) {
-                    is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
-                    is WorkspaceQueryResult.Today -> today = value.v1
-                    is WorkspaceQueryResult.AssignmentBoard -> {
-                        board = value.v1
-                        refreshWaiting()
-                    }
-                    is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
-                    else -> Unit
+    private suspend fun readDashboard(session: Session, generation: Long) {
+        val instant = Instant.now()
+        val now = Format.timestamp(instant)
+        val date = Format.today(instant)
+        val previousRevision = revision
+        val current = (session.workspaceRevision().value() as OperationResult.Text).value
+        val queries = listOf(
+            WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
+            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14))),
+            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
+        )
+        val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
+        val overview = try {
+            (session.scheduleQuery(listOf(WorkspaceQuery.WorkspaceOverview(""))).value() as OperationResult.Schedule).snapshot
+        } catch (e: SdkException) {
+            // A new install may have no term for an overview yet.
+            null
+        }
+        val snapshot = if (overview == null) result else result.copy(reads = (result.reads + overview.reads).distinct())
+        val boundary = result.values.filterIsInstance<WorkspaceQueryResult.Today>().firstOrNull()?.v1?.nextBoundary
+        if (Format.date(boundary)?.let { !it.isAfter(Instant.now()) } == true) return
+        if (!dashboardReads.accept(snapshot, generation, session)) return
+        if (revision == previousRevision) revision = current
+        val key = "$generation-${result.seq}"
+        // Publish every view and its revision before the next suspension.
+        for (value in result.values) {
+            when (value) {
+                is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
+                is WorkspaceQueryResult.Today -> {
+                    if (today?.term?.let { it != value.v1.term } == true) timetableWeeks.invalidate()
+                    today = value.v1
                 }
+                is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
+                is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
+                is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
+                else -> Unit
             }
-            // A fresh install has no current term yet, so the overview may fail alone.
-            runCatching {
-                val overview = session.scheduleQuery(listOf(WorkspaceQuery.WorkspaceOverview(""))).value()
-                val value = (overview as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
-                if (value is WorkspaceQueryResult.WorkspaceOverview) colors = value.v1.colors
-            }
-            val changed = contentRevision != result.seq.toString()
-            contentRevision = result.seq.toString()
-            scheduleBoundary()
-            if (changed || weeks.isEmpty()) {
-                weeks.clear()
-                scope.launch { prefetchTimetable() }
-            }
-            if (changed) notificationsBlocked = NotificationScheduler.sync(context, session)
-        } catch (error: CancellationException) {
-            // A newer change hint replaced this read; it is not a failure.
-            throw error
-        } catch (error: SdkException.Cancelled) {
-        } catch (error: Exception) {
-            problem = describe(error)
         }
+        (overview?.values?.firstOrNull() as? WorkspaceQueryResult.WorkspaceOverview)?.let { colors = it.v1.colors }
+        contentRevision = key
+        scheduleBoundary()
     }
 
     /** Re-query when Core says the phase or hero changes next. */
@@ -481,11 +456,11 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         }
     }
 
-    suspend fun refreshAccounts() {
-        refreshCredentials()
+    internal suspend fun refreshAccounts() {
         val session = session ?: return
         runCatching { (session.schoolSession().value() as? OperationResult.SchoolSession)?.snapshot }
             .getOrNull()?.let(::applySchool)
+        refreshCredentials()
     }
 
     private suspend fun refreshCredentials() {
@@ -496,11 +471,24 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Keeps the higher `revision` of Core's `school-session` events and
      * `schoolSession` reads. */
-    private fun applySchool(snapshot: SchoolSessionSnapshot) {
-        val shown = sessionRevision
-        if (shown != null && snapshot.revision < shown) return
-        sessionRevision = snapshot.revision
-        sessions = snapshot.profiles
+    internal fun applySchool(snapshot: SchoolSessionSnapshot) {
+        val current = schoolSession
+        if (current != null && snapshot.revision <= current.revision) return
+        schoolSession = snapshot
+    }
+
+    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
+    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
+        val session = session ?: return emptyList()
+        ocrProgress = 0
+        val operation = session.scanMatrix(image)
+        val id = operation.id()
+        ocrOperation = id
+        return try {
+            (operation.value() as? OperationResult.Recognitions)?.cells.orEmpty()
+        } finally {
+            if (ocrOperation == id) ocrOperation = null
+        }
     }
 
     /** On start and after a missed stream; `sync-snapshot` events carry every
@@ -518,35 +506,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
-    /** Weeks already read this revision, by Monday, so the timetable draws
-     * them at once; a new revision re-reads them. */
-    private val weeks = mutableMapOf<LocalDate, ScheduleView>()
-
-    /** A week read with its neighbours, if this revision has it. */
-    fun cachedWeek(monday: LocalDate): ScheduleView? = weeks[monday]
-
-    /** The week from `monday`, read with `WEEK_REACH` weeks on either side in
-     * one query, so stepping or swiping through nearby weeks draws at once. */
     suspend fun week(monday: LocalDate): ScheduleView? {
-        weeks[monday]?.let { return it }
+        val session = session ?: return null
         val term = today?.term ?: return null
-        val first = Format.civil(monday.minusWeeks(WEEK_REACH))
-        val last = Format.civil(monday.plusWeeks(WEEK_REACH).plusDays(4))
-        val view = (query(WorkspaceQuery.ScheduleView(term, first, last, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
-            ?: return null
-        for (offset in -WEEK_REACH..WEEK_REACH) {
-            val start = monday.plusWeeks(offset)
-            val from = Format.civil(start)
-            val to = Format.civil(start.plusDays(4))
-            // Civil dates compare as text.
-            weeks[start] = view.copy(agendas = view.agendas.filter { it.date >= from && it.date <= to })
-        }
-        return weeks[monday]
-    }
-
-    /** Reads this week and its axis ahead of the timetable being opened. */
-    private suspend fun prefetchTimetable() {
-        timetableAxis(week(thisWeek()) ?: return)
+        return timetableWeeks.week(monday, term, session) { scheduleSnapshot(session, it) }
     }
 
     /** The academic year (April–March) a date belongs to. */
@@ -568,88 +531,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun assignmentDetail(id: String): AssignmentDetail? =
         (query(WorkspaceQuery.AssignmentDetail(id)) as? WorkspaceQueryResult.AssignmentDetail)?.v1
 
-    // Campus map
-
-    /** Whether Core's map knows a room string, or with null whether a map is
-     * stored at all; false (also before Core has the map's file) means no
-     * map button. A failure also hides the button, but is logged. */
-    suspend fun campusMapHas(room: String?): Boolean {
-        val session = session ?: return false
-        if (room?.isEmpty() == true) return false
-        return try {
-            (session.campusMapHas(room).value() as? OperationResult.Flag)?.value == true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            false
-        } catch (error: Exception) {
-            Log.w("isct", "campus map has", error)
-            false
-        }
-    }
-
-    /** Opens Core's map page on a room string, or on none to browse. */
-    suspend fun campusMapOpen(room: String?): CampusMapOpening {
-        val session = session ?: return CampusMapOpening.Failed(t("error.internal"))
-        return try {
-            val scene = (session.campusMapOpen(room).value() as? OperationResult.CampusMapScene)?.scene
-            if (scene != null) CampusMapOpening.Ready(scene) else CampusMapOpening.Failed(t("error.internal"))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: SdkException.Unavailable) {
-            CampusMapOpening.Missing
-        } catch (error: Exception) {
-            CampusMapOpening.Failed(describe(error))
-        }
-    }
-
-    /** One intent on an open map page; null when nothing drawn changed or
-     * the page is gone. A failure is logged: the page keeps its last scene. */
-    /** Sends one floor photo to the maintainers' inbox; `null` once stored,
-     * else what to show. */
-    suspend fun campusMapUploadPhoto(buildingId: String, jpeg: ByteArray): String? {
-        val session = session ?: return t("error.internal")
-        return try {
-            session.campusMapUploadPhoto(buildingId, jpeg).value()
-            null
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map photo", error)
-            describe(error)
-        }
-    }
-
-    suspend fun campusMapSend(page: ULong, intent: CampusMapIntent): CampusMapScene? {
-        val session = session ?: return null
-        return try {
-            (session.campusMapSend(page, intent).value() as? OperationResult.CampusMapScene)?.scene
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Log.w("isct", "campus map send", error)
-            null
-        }
-    }
-
-    /** What a map search's text names; Core echoes the text so the page can
-     * drop answers to text since changed. A failure carries the text to show. */
-    suspend fun campusMapSearch(query: String): Result<CampusMapSearch> {
-        val session = session ?: return Result.failure(IllegalStateException(t("error.internal")))
-        return try {
-            val search = (session.campusMapSearch(query).value() as? OperationResult.CampusMapSearch)?.search
-            if (search != null) Result.success(search) else Result.failure(IllegalStateException(t("error.internal")))
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            Result.failure(IllegalStateException(describe(error)))
-        }
-    }
-
-    /** Drops Core's map page, and its open if it is still loading. */
-    fun campusMapClose() {
-        session?.campusMapClose()
-    }
+    suspend fun deadlineDisplay(at: String): TaskDeadlineView? =
+        (query(WorkspaceQuery.DeadlineDisplay(at, Instant.now().toString())) as? WorkspaceQueryResult.DeadlineDisplay)?.v1
 
     /** The quarter's courses as Core lists them for the course list. */
     suspend fun overview(term: String): WorkspaceOverview? =
@@ -672,19 +555,16 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 
     /** Core's equal-row timetable axis, widened to the week's earliest start
      * and latest end when those leave the teaching day. */
-    suspend fun timetableAxis(week: ScheduleView?): TimetableAxis? {
-        val blocks = week?.agendas.orEmpty().flatMap { it.occurrences }
+    suspend fun timetableAxis(week: ScheduleView): TimetableAxis? {
+        val blocks = week.agendas.flatMap { it.occurrences }
             .filter { it.kind == OccurrenceKind.COURSE || it.kind == OccurrenceKind.EXAM }
         val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
         val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
-        val axis = (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
-        if (axis != null) lastTimetableAxis = axis
-        return axis
+        return (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
     }
 
     /** The last axis Core gave, so a timetable draws its rows at once. */
     var lastTimetableAxis: TimetableAxis? = null
-        private set
 
     /** A quarter as an iCalendar file, written by Core as the desktop's export. */
     suspend fun quarterIcs(term: String, scope: CalendarExportScope): String {
@@ -692,17 +572,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         val query = WorkspaceQuery.QuarterIcs(term, scope, Format.timestamp(Instant.now()))
         val value = (session.scheduleQuery(listOf(query)).value() as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
         return (value as? WorkspaceQueryResult.QuarterIcs)?.v1 ?: throw SdkException.Unavailable("quarter calendar")
-    }
-
-    /** Exams Core lists as upcoming (linked and scheduled) from today
-     * through `days` days ahead, for 今日. */
-    suspend fun upcomingExams(days: Long = 14): List<ExamView> {
-        val term = today?.term ?: return emptyList()
-        val from = Format.civil(Format.today())
-        val last = Format.civil(Format.today().plusDays(days))
-        val view = (query(WorkspaceQuery.ScheduleView(term, from, from, false)) as? WorkspaceQueryResult.ScheduleView)?.v1
-        // Civil dates compare as text.
-        return view?.upcomingExams.orEmpty().filter { it.date <= last }
     }
 
     /** Downloads (or reuses) a course file through the signed-in LMS session. */
@@ -714,71 +583,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         return (result as? OperationResult.Material)?.material
     }
 
-    // Hand-in (slotledger `approach/share-entry-points`): files go to the assignment's
-    // workspace `submit/`; handing in fills the LMS draft area from it. Core
-    // never submits; the person saves the page.
-
-    /** The files waiting in the assignment's `submit/`. */
-    suspend fun submitFiles(assignment: String): List<LocalFile> {
-        val session = session ?: return emptyList()
-        val result = runCatching { session.assignmentSubmitFiles(assignment).value() }.getOrNull()
-        return (result as? OperationResult.Files)?.files.orEmpty()
-    }
-
-    /** Copies the files into the assignment's `submit/`; the sources stay. */
-    suspend fun addSubmitFiles(assignment: String, files: List<SharedFile>): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.addAssignmentFiles(assignment, files).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
-    suspend fun removeSubmitFile(assignment: String, name: String): List<LocalFile> {
-        val session = session ?: throw SdkException.Closed()
-        val listed = (session.removeAssignmentFile(assignment, name).value() as? OperationResult.Files)?.files.orEmpty()
-        refreshWaiting()
-        return listed
-    }
-
     /** Asks Core for a newer release when a check is due (or now, `manual`). */
     suspend fun checkForUpdate(manual: Boolean = false) {
         val session = session ?: return
         updater.check(session, manual)
-    }
-
-    /** Re-reads which assignments have files waiting to be handed in. */
-    suspend fun refreshWaiting() {
-        val session = session ?: return
-        val result = runCatching { session.waitingHandIns().value() }.getOrNull() as? OperationResult.Waiting ?: return
-        waiting = result.assignments.groupBy({ it.assignmentId }, { it.files.toInt() }).mapValues { it.value.sum() }
-    }
-
-    /** Queues `submit/` for the LMS draft area; returns the page that receives it. */
-    suspend fun handIn(assignment: String): String {
-        val session = session ?: throw SdkException.Closed()
-        val messages = UploadMessages(
-            t("failure.preparingYourLMSUpload"),
-            t("failure.filesSentToTheUpload"),
-            t("failure.theUploadAreaIsNot"),
-        )
-        return (session.handInAssignment(assignment, messages).value() as? OperationResult.Text)?.value
-            ?: throw SdkException.Unavailable("")
-    }
-
-    /** Gives inbox items to an assignment and removes them; on failure they stay. */
-    suspend fun give(items: List<SharedInbox.Item>, assignment: String): Boolean {
-        val files = items.map { SharedFile(it.file.path, it.name) }
-        if (files.isEmpty()) return false
-        return try {
-            addSubmitFiles(assignment, files)
-            items.forEach { SharedInbox.remove(context, it) }
-            true
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Exception) {
-            problem = describe(error)
-            false
-        }
     }
 
     /** The syllabus departments, as the desktop's course finder lists them. */
@@ -795,6 +603,10 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * A cancelled caller stays cancelled rather than reading "no answer". */
     private suspend fun query(query: WorkspaceQuery): WorkspaceQueryResult? {
         val session = session ?: return null
+        return scheduleSnapshot(session, query)?.values?.firstOrNull()
+    }
+
+    private suspend fun scheduleSnapshot(session: Session, query: WorkspaceQuery): ScheduleSnapshot? {
         val result = try {
             session.scheduleQuery(listOf(query)).value()
         } catch (error: CancellationException) {
@@ -802,7 +614,7 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         } catch (error: Exception) {
             null
         }
-        return (result as? OperationResult.Schedule)?.snapshot?.values?.firstOrNull()
+        return (result as? OperationResult.Schedule)?.snapshot
     }
 
     // Intents
@@ -849,8 +661,9 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     /** Marks one session (`Occurrence.key`) as `exam`, `quiz`, `cancelled` or
      * `class` (a plain class; Core clears the mark when that is the default).
      * The commit names `calendar`, which re-queries the week. */
-    suspend fun markSession(key: String, mark: String) {
-        commit(WorkspaceIntent.MarkSession(key, mark))
+    fun markSession(key: String, mark: String): Job = scope.launch {
+        // Each mark uses the workspace revision returned by the preceding commit.
+        sessionMarks.withLock { commit(WorkspaceIntent.MarkSession(key, mark)) }
     }
 
     /** Records `sectionId` as the lesson of the class at `occurrence` (Core's
@@ -866,14 +679,14 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
         var committed = false
         try {
             (session.mutateCommit(WorkspaceMutation(revision, intent)).value() as? OperationResult.Committed)
-                ?.let { adopt(it.commit) }
+                ?.let { revision = it.commit.revision }
             committed = true
         } catch (error: SdkException.Conflict) {
             // Re-read below.
         } catch (error: Exception) {
             problem = describe(error)
         }
-        refresh()
+        if (committed) scheduleRefresh()?.join() else refresh()
         return committed
     }
 
@@ -916,8 +729,8 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     suspend fun setStudyProfile(profile: StudyProfile) {
         val session = session ?: return
         (session.mutateCommit(WorkspaceMutation(revision, WorkspaceIntent.SetStudyProfile(profile.admissionYear, profile.enrollments))).value() as? OperationResult.Committed)
-            ?.let { adopt(it.commit) }
-        refresh()
+            ?.let { revision = it.commit.revision }
+        scheduleRefresh()?.join()
     }
 
     /** Pull to refresh: Core's planner decides what to read, and the sync
@@ -925,37 +738,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
     fun refreshFromSchool() {
         problem = null
         refresh(SyncScope.Everything)
-    }
-
-    /** "Save and connect": Core signs in with the entered details and keeps
-     * them only when the school accepted them (`Connected`); every other
-     * outcome saved nothing. */
-    suspend fun connect(profile: SchoolAuthProfile, credentials: SchoolCredentials): SchoolConnectOutcome? {
-        val session = session ?: return null
-        val value = session.connectSchool(profile, credentials).value()
-        refreshAccounts()
-        return (value as? OperationResult.SchoolConnect)?.outcome
-    }
-
-    /** Retry on an account Core holds (`refused`, `needs-web`) or waits on
-     * (`unavailable`): Core reads the synced credentials again and signs in
-     * once in front; the credentials stay as they are. */
-    suspend fun retrySchool(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        (session.retrySchool(profile).value() as? OperationResult.SchoolSession)?.let { applySchool(it.snapshot) }
-    }
-
-    suspend fun schoolOtpCode(): SchoolOtpCode? {
-        val session = session ?: return null
-        return (session.schoolOtpCode().value() as? OperationResult.CurrentSchoolOtp)?.snapshot
-    }
-
-    /** The saved school OTP setup as an `otpauth://` link, read only when the
-     * person asks to add it to an authenticator or copy it. */
-    suspend fun otpSetupLink(): String {
-        val session = session ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
-        return (session.schoolOtpLink().value() as? OperationResult.Text)?.value
-            ?: throw IllegalStateException(t("failure.thisIsNotAvailableRight"))
     }
 
     /** Edits `settings.notifications` and replaces the settings object. */
@@ -970,96 +752,18 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * previous one committed, so two quick toggles cannot both copy the same
      * old object. */
     suspend fun updateSettings(edit: (JSONObject) -> Unit): Unit = settingsWrite.withLock {
-        val session = session ?: return@withLock
         val settings = JSONObject(records.settings.toString())
         edit(settings)
-        val mutation = WorkspaceMutation(revision, WorkspaceIntent.ReplaceSettings(settings.toString()))
-        try {
-            (session.mutateCommit(mutation).value() as? OperationResult.Committed)?.let { adopt(it.commit) }
-        } catch (error: Exception) {
-            problem = describe(error)
-        }
-        refresh()
-        notificationsBlocked = NotificationScheduler.sync(context, session)
+        commit(WorkspaceIntent.ReplaceSettings(settings.toString()))
+        Unit
     }
 
-    /** Schedules the plan again, after the notification permission changed. */
-    suspend fun resyncNotifications() {
-        val session = session ?: return
-        notificationsBlocked = NotificationScheduler.sync(context, session)
+    /** Reports a change in the system's reminder settings. */
+    fun resyncNotifications() {
+        runCatching { session?.refreshReminderPort() }
     }
 
-    /** Whether this build can read a Matrix card (arm64; not the x86_64 emulator). */
-    val canScanMatrix: Boolean
-        get() = runCatching { session?.capabilities()?.ocr }.getOrNull() == true
 
-    /** Reads the 70 Matrix cells from one JPEG/PNG, in row order (A1…J1, A2…). */
-    suspend fun scanMatrix(image: ByteArray): List<MatrixCell> {
-        val session = session ?: return emptyList()
-        ocrProgress = 0
-        return (session.scanMatrix(image).value() as? OperationResult.Recognitions)?.cells.orEmpty()
-    }
-
-    /** Starts a live Matrix scan; its ten-second budget starts now. */
-    fun beginMatrixCamera(): MatrixCameraSession =
-        session?.beginMatrixCamera() ?: throw SdkException.Closed()
-
-    // Backup: the desktop's Backup settings over the same Core journal. Core
-    // decides what uploads, merges and restores.
-
-    suspend fun refreshCloud() {
-        val session = session ?: return
-        (runCatching { session.cloudState().value() }.getOrNull() as? OperationResult.Cloud)
-            ?.let { cloud = it.state }
-    }
-
-    /** Turning Drive on first shows Google's consent; Core keeps it off with
-     * the reason if that fails. */
-    suspend fun setCloudEnabled(provider: CloudProvider, enabled: Boolean) =
-        cloudOperation { it.setCloudEnabled(provider, enabled) }
-
-    suspend fun setCloudAutomatic(automatic: Boolean) = cloudOperation { it.setCloudAutomatic(automatic) }
-
-    suspend fun syncCloud(direction: Direction) {
-        cloudOperation { it.syncCloud(direction) }
-        refresh()
-    }
-
-    /** Restores a cloud version or a local recovery file, on every connected device. */
-    suspend fun restoreCloud(id: String) {
-        cloudOperation { it.restoreCloud(id) }
-        refresh()
-    }
-
-    /** The current workspace as a backup file (the desktop's Export…). */
-    suspend fun exportBackup(): String? {
-        val session = session ?: return null
-        return try {
-            (session.exportBackup().value() as? OperationResult.Text)?.value
-        } catch (error: Exception) {
-            problem = describe(error)
-            null
-        }
-    }
-
-    /** Imports a backup file; Core saves a recovery file first and publishes
-     * the import like any restore. Core rejects anything that is not a backup. */
-    suspend fun importBackup(text: String) {
-        val session = session ?: return
-        session.applyBackup(text).value()
-        refreshCloud()
-        refresh()
-    }
-
-    private suspend fun cloudOperation(start: (Session) -> Operation) {
-        val session = session ?: return
-        try {
-            (start(session).value() as? OperationResult.Cloud)?.let { cloud = it.state }
-        } catch (error: Exception) {
-            problem = describe(error)
-            refreshCloud()
-        }
-    }
 
     /** Settings → Reset: what `request` would remove now, or null when Core
      * cannot tell. */
@@ -1072,71 +776,26 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
      * announces the change, which re-reads every screen. */
     suspend fun reset(request: ResetRequest) {
         val session = session ?: return
-        session.reset(request)
+        try {
+            session.reset(request)
+        } finally {
+            timetableWeeks.invalidate(discard = true)
+        }
         problem = null
         refreshAccounts()
         readSync()
-        refreshCloud()
-    }
-
-    /** After a full reset, as the desktop's: the providers that were on are
-     * turned on again, then their copy is pulled. Throws when either fails. */
-    suspend fun restoreFromCloud(providers: List<CloudProvider>) {
-        val session = session ?: return
-        for (provider in providers) session.setCloudEnabled(provider, true).value()
-        session.syncCloud(Direction.PULL).value()
-        refreshCloud()
-        refresh()
-    }
-
-    /** Forgets an account. Returns once Core's account barrier passed: its
-     * reads stopped, and its credentials, cookies and LMS token are gone, with
-     * every school web sign-in (the other account's next page writes its own
-     * again). */
-    suspend fun deleteCredentials(profile: SchoolAuthProfile) {
-        val session = session ?: return
-        try {
-            session.deleteCredentials(profile).value()
-        } finally {
-            refreshAccounts()
-        }
+        backup.refresh()
     }
 
     companion object {
-        /** Core's sign-in problem in the person's words, chosen by its kind.
-         * Core's `message` is a diagnostic for the log, never shown. */
-        fun reason(kind: SchoolSignInProblemKind): String = when (kind) {
-            SchoolSignInProblemKind.INVALID_CREDENTIALS -> t("failure.theIDOrPasswordWas")
-            SchoolSignInProblemKind.INVALID_OTP -> t("failure.theOneTimePasswordWas")
-            SchoolSignInProblemKind.OTP_NEEDED -> t("schoolSession.problem.otpNeeded")
-            SchoolSignInProblemKind.INVALID_MATRIX -> t("failure.theMatrixAnswerWasNot")
-            SchoolSignInProblemKind.EMAIL_OTP -> t("schoolSession.problem.emailOtp")
-            SchoolSignInProblemKind.PASSWORD_CHANGE -> t("schoolSession.problem.passwordChange")
-            SchoolSignInProblemKind.UNKNOWN_PAGE -> t("schoolSession.problem.unknownPage")
-            SchoolSignInProblemKind.CREDENTIAL_STORE -> t("schoolSession.problem.credentialStore")
-            SchoolSignInProblemKind.NETWORK, SchoolSignInProblemKind.UNANSWERED, SchoolSignInProblemKind.ANOMALY ->
-                t("schoolSession.state.unavailable")
+        fun sessionText(session: SchoolProfileSession): String =
+            signInText(session.presentation, session.retryAt)
+
+        fun signInText(presentation: SignInPresentation, retryAt: String? = null): String {
+            val time = Format.date(retryAt)?.let { Format.time(it) }
+            val state = if (time != null) t(presentation.stateKey, "time" to time) else t(presentation.stateKey)
+            return listOfNotNull(state, presentation.reasonKey?.let { t(it) }).joinToString(" · ")
         }
-
-        /** The school sent its emailed-code page: the account has no school
-         * OTP, so the next step is setting one up on the portal. */
-        fun otpNotSetUp(state: SchoolSessionState, problem: SchoolSignInProblem?): Boolean =
-            state == SchoolSessionState.NEEDS_WEB && problem?.kind == SchoolSignInProblemKind.EMAIL_OTP
-
-        /** One line for an account's session state, as the account row and a
-         * read waiting on it say it; `problem` and `retryAt` add what Core
-         * knows. */
-        fun sessionText(state: SchoolSessionState, problem: SchoolSignInProblem? = null, retryAt: String? = null): String =
-            if (otpNotSetUp(state, problem)) t("schoolSession.state.otpNotSetUp") else when (state) {
-                SchoolSessionState.NOT_CONFIGURED -> t("common.notConnected")
-                SchoolSessionState.NORMAL -> t("schoolSession.state.normal")
-                SchoolSessionState.SIGNING_IN -> t("common.signingIn")
-                SchoolSessionState.REFUSED -> problem?.let { reason(it.kind) } ?: t("schoolSession.state.refused")
-                SchoolSessionState.NEEDS_WEB -> t("schoolSession.state.needsWeb")
-                SchoolSessionState.UNAVAILABLE -> Format.date(retryAt)
-                    ?.let { t("schoolSession.state.unavailableRetry", "time" to Format.time(it)) }
-                    ?: t("schoolSession.state.unavailable")
-            }
 
         /** An account's site paused for maintenance (LMS for Science Tokyo,
          * 教務Web for Tokyo Tech), until when, with the school's notice. */
@@ -1149,31 +808,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
             }
             return listOfNotNull(line, maintenance.notice?.ifBlank { null }).joinToString("\n")
         }
-
-        /** Core's `school-session` payload, the snapshot in its serde names. */
-        private fun decodeSchoolSession(payload: String): SchoolSessionSnapshot {
-            val row = JSONObject(payload)
-            val profiles = row.getJSONObject("profiles")
-            return SchoolSessionSnapshot(
-                revision = row.getLong("revision").toULong(),
-                profiles = SchoolSessionProfiles(
-                    science = profileSession(profiles.getJSONObject("science")),
-                    tokyoTech = profileSession(profiles.getJSONObject("tokyoTech")),
-                ),
-            )
-        }
-
-        private fun profileSession(row: JSONObject) = SchoolProfileSession(
-            signOutPending = row.getBoolean("signOutPending"),
-            refusalUnsaved = row.getBoolean("refusalUnsaved"),
-            state = wire(row.getString("state")),
-            problem = row.optJSONObject("problem")?.let { SchoolSignInProblem(wire(it.getString("kind")), it.optString("message")) },
-            retryAt = row.text("retryAt"),
-            maintenance = row.optJSONObject("maintenance")?.let { SchoolMaintenance(it.text("notice"), it.getString("until")) },
-        )
-
-        /** A kebab-case serde name as its enum entry (`needs-web` → `NEEDS_WEB`). */
-        private inline fun <reified T : Enum<T>> wire(raw: String): T = enumValueOf(raw.uppercase().replace('-', '_'))
 
         fun describe(error: Throwable): String {
             Log.w("isct", "core error", error)
@@ -1214,9 +848,6 @@ class AppModel(private val context: Context, private val scope: CoroutineScope) 
 }
 
 data class UndoAction(val title: String, val assignmentId: String)
-
-/** Weeks read on either side of the one asked for. */
-private const val WEEK_REACH = 4L
 
 /** What opening Core's campus map page answered. */
 sealed interface CampusMapOpening {

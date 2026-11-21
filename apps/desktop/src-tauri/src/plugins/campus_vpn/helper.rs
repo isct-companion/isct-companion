@@ -29,6 +29,10 @@ pub(crate) enum Install {
     /// settings, which are open now (Login Items).
     #[cfg(target_os = "macos")]
     NeedsApproval,
+    /// The old registration would not go, so a new one cannot take its
+    /// place; launchd keeps the old copy's program.
+    #[cfg(target_os = "macos")]
+    Stuck,
 }
 
 /// Status answers at once and a stop within the helper's 5-second wait for
@@ -68,6 +72,7 @@ pub(crate) fn converse(
             .and_then(|at| chrono::DateTime::from_timestamp(at, 0)),
         revision: reply.revision,
         ended: reply.ended,
+        program: reply.program.map(std::path::PathBuf::from),
     })
 }
 
@@ -111,10 +116,15 @@ impl VpnPort for platform::HelperSocket {
     }
 }
 
-pub(crate) fn service() -> Arc<VpnService> {
-    Arc::new(VpnService::new(Arc::new(
-        platform::HelperSocket::installed(),
-    )))
+/// The service over the installed helper. `own_helper` is the helper file
+/// this app registers (macOS: the bundled one, which launchd runs in place);
+/// Core takes a helper answering from any other file for another copy's.
+pub(crate) fn service(own_helper: Option<std::path::PathBuf>) -> Arc<VpnService> {
+    let service = VpnService::new(Arc::new(platform::HelperSocket::installed()));
+    Arc::new(match own_helper {
+        Some(own) => service.with_own_helper(own),
+        None => service,
+    })
 }
 
 /// How often a tunnel that is up is checked: a local socket read.

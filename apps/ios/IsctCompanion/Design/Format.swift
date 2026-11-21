@@ -75,26 +75,19 @@ enum Format {
         Int((date.timeIntervalSince(now) / 60).rounded(.up))
     }
 
-    /// Countdown words for a deadline chip.
-    static func countdown(_ raw: String?, now: Date, overdueStyle: OverdueStyle = .label) -> String {
-        guard let due = date(raw) else { return t("common.noDeadline") }
-        let minutes = minutes(until: due, now: now)
-        if minutes < 0 {
-            switch overdueStyle {
-            case .label: return t("common.overdue")
-            case .elapsed:
-                return t("format.countDOverdue", ["count": max(1, -minutes / (60 * 24))])
+    static func countdown(_ display: TaskDeadlineView) -> String {
+        let duration = display.units.map { component in
+            let key = switch component.unit {
+            case .days: "format.durationDays"
+            case .hours: "format.durationHours"
+            case .minutes: "format.countdownMinutes"
+            case .seconds: "format.countdownSeconds"
             }
-        }
-        if minutes < 60 { return t("today.countMinLeft", ["count": max(minutes, 1)]) }
-        if minutes < 60 * 24 { return t("format.countHLeft", ["count": minutes / 60]) }
-        if Calendar.tokyo.isDate(due, inSameDayAs: Calendar.tokyo.date(byAdding: .day, value: 1, to: now) ?? now) {
-            return t("common.tomorrow")
-        }
-        return t("format.countDLeft", ["count": Int((Double(minutes) / (60 * 24)).rounded())])
+            let count = component.count.formatted(.number.locale(Localizer.shared.locale))
+            return t(key, ["count": count])
+        }.joined(separator: " ")
+        return t(display.state == .overdue ? "deadlineText.durationAgo" : "format.countdownRemaining", ["duration": duration])
     }
-
-    enum OverdueStyle { case label, elapsed }
 
     /// `3–4限`, `Periods 3–4`
     static func periods<Periods: Collection>(_ value: Periods?) -> String? where Periods.Element == UInt8 {
@@ -119,8 +112,8 @@ struct Tag: View {
             .font(.block.monospacedDigit())
             .lineLimit(1)
             .foregroundStyle(style == .solid ? Theme.onSolid : ink)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .padding(.horizontal, Theme.space3)
+            .padding(.vertical, Theme.space1)
             .background {
                 switch style {
                 case .soft: shape.fill(fill)
@@ -135,13 +128,9 @@ struct Tag: View {
 /// Deadline chip: one per row, coloured by Core's tone.
 struct DeadlineChip: View {
     let item: DeadlineItem
-    var now: Date
-    var overdueStyle: Format.OverdueStyle = .label
 
     var body: some View {
-        let (ink, fill) = Self.colors(item.submitted ? "done" : item.tone)
-        Tag(text: item.submitted ? (item.grade ?? t("common.submitted")) : Format.countdown(item.dueAt, now: now, overdueStyle: overdueStyle),
-            ink: ink, fill: fill)
+        AssignmentDeadlineTag(deadline: item.deadline, submitted: item.submitted, grade: item.grade)
     }
 
     static func colors(_ tone: String) -> (Color, Color) {
@@ -151,6 +140,36 @@ struct DeadlineChip: View {
         case "done": return (Theme.ok, Theme.okSoft)
         default: return (Theme.muted, Theme.surface2)
         }
+    }
+}
+
+struct AssignmentDeadlineTag: View {
+    let deadline: TaskDeadlineView?
+    let submitted: Bool
+    let grade: String?
+    @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scene
+    @State private var visible = true
+    @State private var display: TaskDeadlineView?
+
+    var body: some View {
+        let current = display?.at == deadline?.at ? display ?? deadline : deadline
+        let (ink, fill) = DeadlineChip.colors(submitted ? "done" : current?.countdownTone ?? "normal")
+        Tag(text: submitted ? grade ?? t("common.submitted") : current.map(Format.countdown) ?? t("common.noDeadline"),
+            ink: ink, fill: fill)
+            .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
+            .task(id: [deadline?.at, deadline?.nextChangeAt, String(submitted || !visible || scene != .active)]) {
+                display = deadline
+                guard !submitted, visible, scene == .active, var current = deadline else { return }
+                while let next = Format.date(current.nextChangeAt) {
+                    do {
+                        try await Task.sleep(for: .seconds(max(0.001, next.timeIntervalSinceNow)))
+                    } catch { return }
+                    guard let updated = await model.deadlineDisplay(at: current.at), !Task.isCancelled else { return }
+                    display = updated
+                    current = updated
+                }
+            }
     }
 }
 
@@ -180,14 +199,12 @@ struct ExamConflictLabel: View {
 struct DeadlineRow: View {
     let item: DeadlineItem
     var now: Date
-    var overdueStyle: Format.OverdueStyle = .label
     var showsCourse = true
-    @Environment(AppModel.self) private var model
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.rowGap) {
             CourseSquare(color: item.color)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(item.title)
                     .font(.body)
                     .foregroundStyle(item.submitted ? Theme.muted : Theme.ink)
@@ -196,20 +213,12 @@ struct DeadlineRow: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.muted)
                     .lineLimit(1)
-                // Files put in its upload card wait for the person to hand
-                // them in; Core counts them until LMS shows the work submitted.
-                if let waiting = model.waiting[item.assignmentId] {
-                    Label(t("components.countFilesToHandIn", ["count": waiting]), systemImage: "arrow.up.doc")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.accent)
-                        .lineLimit(1)
-                }
             }
-            Spacer(minLength: 8)
-            DeadlineChip(item: item, now: now, overdueStyle: overdueStyle)
+            Spacer(minLength: Theme.space4)
+            DeadlineChip(item: item)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 16)
+        .padding(.vertical, Theme.rowY)
+        .padding(.horizontal, Theme.rowX)
         .contentShape(Rectangle())
     }
 

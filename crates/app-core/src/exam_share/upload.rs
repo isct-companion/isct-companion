@@ -472,6 +472,25 @@ fn fits(value: &str, limit: usize) -> bool {
 pub(super) fn validate(draft: &mut ExamUploadDraft) -> Result<(), ExamError> {
     form::normalize(draft);
     let limits = form::limits();
+    if draft
+        .new_teachers
+        .iter()
+        .any(|name| name.family_name.trim().is_empty())
+    {
+        return Err(ExamError::UploadTeacherName);
+    }
+    if draft.new_teachers.iter().any(|name| {
+        !fits(&name.family_name, limits.teacher_name as usize)
+            || !fits(&name.given_name, limits.teacher_name as usize)
+    }) {
+        return Err(ExamError::UploadTeacherLength);
+    }
+    if !fits(&draft.variant, limits.variant as usize) {
+        return Err(ExamError::UploadVariantLength);
+    }
+    if !fits(draft.note.trim(), limits.note as usize) {
+        return Err(ExamError::UploadNoteLength);
+    }
     if draft.subject_codes.is_empty()
         || draft.subject_codes.len() > limits.subjects as usize
         || draft
@@ -484,17 +503,10 @@ pub(super) fn validate(draft: &mut ExamUploadDraft) -> Result<(), ExamError> {
             .teacher_ids
             .iter()
             .any(|id| id.is_empty() || !fits(id, 200))
-        || draft.new_teachers.iter().any(|name| {
-            name.family_name.trim().is_empty()
-                || !fits(&name.family_name, limits.teacher_name as usize)
-                || !fits(&name.given_name, limits.teacher_name as usize)
-        })
         || draft
             .academic_year
             .is_some_and(|year| !form::valid_year(year))
         || draft.occasion_number > limits.occasion_number
-        || !fits(&draft.variant, limits.variant as usize)
-        || !fits(draft.note.trim(), limits.note as usize)
         || draft
             .request_id
             .as_ref()

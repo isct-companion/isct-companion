@@ -1,5 +1,6 @@
 package app.isctcompanion.features.web
 
+import app.isctcompanion.design.BackButton
 import app.isctcompanion.design.t
 import android.content.ActivityNotFoundException
 import android.content.Intent
@@ -13,7 +14,14 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.ArrowDropDown
 import app.isctcompanion.design.GuideTip
 import android.net.Uri
+import android.view.View
 import android.view.ViewGroup
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.platform.LocalDensity
+import app.isctcompanion.design.CollapsingBar
+import kotlin.math.abs
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
@@ -29,7 +37,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
@@ -47,6 +54,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -76,6 +86,7 @@ import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.LoadFailure
 import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SchoolSite
+import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.core.SchoolWebAccess
 import app.isctcompanion.core.SchoolWebFailure
 import app.isctcompanion.core.SchoolWebProblem
@@ -88,10 +99,19 @@ import app.isctcompanion.design.Theme
  * position and session survive tab and route changes. A pull at the top of
  * the page reloads it through Core, as on iOS. */
 @Composable
-private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision: Int, modifier: Modifier = Modifier) {
+private fun ResidentWebView(
+    site: SchoolSite,
+    host: SchoolBrowserHost,
+    revision: Int,
+    onReading: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val web = LocalModel.current.web
     // Read so a newly created view is attached.
     val created = host.revision
+    val reading by rememberUpdatedState(onReading)
+    val travel = with(LocalDensity.current) { BarsTravel.toPx() }
+    val listener = remember(travel) { ReadingListener(travel) { reading(it) } }
     AndroidView(
         factory = { context ->
             val container = FrameLayout(context)
@@ -113,18 +133,53 @@ private fun ResidentWebView(site: SchoolSite, host: SchoolBrowserHost, revision:
             revision + created
             val webView = host.front(site)
             val shown = (0 until container.childCount).map { container.getChildAt(it) }
-            for (child in shown) if (child !== webView && child is WebView) host.park(child)
+            for (child in shown) if (child !== webView && child is WebView) {
+                child.setOnScrollChangeListener(null)
+                host.park(child)
+            }
             if (webView != null && webView.parent !== container) {
                 (webView.parent as? ViewGroup)?.removeView(webView)
                 container.addView(webView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             }
+            webView?.setOnScrollChangeListener(listener)
         },
         onRelease = { pull ->
             val container = pull.tag as FrameLayout
-            (0 until container.childCount).map { container.getChildAt(it) }.filterIsInstance<WebView>().forEach(host::park)
+            (0 until container.childCount).map { container.getChildAt(it) }.filterIsInstance<WebView>().forEach {
+                it.setOnScrollChangeListener(null)
+                host.park(it)
+            }
         },
         modifier = modifier,
     )
+}
+
+/** How far the page scrolls one way before the bars follow, so a small
+ * correction does not flick them, as on iOS. */
+private val BarsTravel = 24.dp
+
+/** Turns a page's scrolling into reading down (true) or back up or at the
+ * top (false), as iOS's resident container does. */
+private class ReadingListener(
+    private val travelPx: Float,
+    private val reading: (Boolean) -> Unit,
+) : View.OnScrollChangeListener {
+    private var travel = 0f
+
+    override fun onScrollChange(view: View, x: Int, y: Int, oldX: Int, oldY: Int) {
+        // At the top the bars always show.
+        if (y <= travelPx) {
+            travel = 0f
+            reading(false)
+            return
+        }
+        val delta = (y - oldY).toFloat()
+        travel = if ((travel >= 0f) == (delta >= 0f)) travel + delta else delta
+        if (abs(travel) >= travelPx) {
+            reading(travel > 0f)
+            travel = 0f
+        }
+    }
 }
 
 /** The page menu both web screens share, as on iOS: reload, share, open in
@@ -152,7 +207,7 @@ private fun PageMenu(site: SchoolSite) {
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {
                 DropdownMenuItem(
-                    text = { Text(t("web.textSizePercent", "percent" to percent)) },
+                    text = { Text(t("web.pageZoomPercent", "percent" to percent)) },
                     leadingIcon = { Icon(Icons.Rounded.FormatSize, null) },
                     trailingIcon = { if (percent == web.browser.textScale) Icon(Icons.Rounded.Check, null) },
                     onClick = {
@@ -208,14 +263,14 @@ private fun HistoryBack(site: SchoolSite, onExhausted: (() -> Unit)?) {
  * asks for. A page that did not load is covered by the notice, so WebView's
  * own error page never shows. */
 @Composable
-private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
+private fun SchoolPage(site: SchoolSite, onReading: (Boolean) -> Unit, modifier: Modifier = Modifier) {
     val web = LocalModel.current.web
     val context = LocalContext.current
     val page = web.pages[site]
     Column(modifier) {
         if ((page?.popups ?: 0uL) > 0uL) {
             Row(
-                Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = 16.dp),
+                Modifier.fillMaxWidth().background(Theme.colors.surface).padding(start = Theme.space8),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(t("web.popupWindow"), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
@@ -247,11 +302,12 @@ private fun SchoolPage(site: SchoolSite, modifier: Modifier = Modifier) {
             }
         }
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            ResidentWebView(site, web.browser, web.attachRevision, Modifier.fillMaxSize())
+            ResidentWebView(site, web.browser, web.attachRevision, onReading, Modifier.fillMaxSize())
             if (failure != null && failure.reason != LoadFailure.CLEARTEXT) FailedPage(site, failure)
         }
     }
     PageDialog(web.browser)
+    SignInDialog(web.browser)
     PageFiles(web.browser)
 }
 
@@ -285,10 +341,10 @@ private fun problemText(problem: SchoolWebProblem): String = when (problem) {
 @Composable
 private fun NoticeBanner(text: String, color: Color, actions: @Composable () -> Unit = {}) {
     Row(
-        Modifier.fillMaxWidth().background(color).padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth().background(color).padding(start = Theme.space8, end = Theme.space4, top = Theme.space2, bottom = Theme.space2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = 8.dp))
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = Theme.space4))
         actions()
     }
 }
@@ -300,12 +356,12 @@ private fun FailedPage(site: SchoolSite, failure: SchoolWebFailure) {
     val web = LocalModel.current.web
     val context = LocalContext.current
     Column(
-        Modifier.fillMaxSize().background(Theme.colors.bg).padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        Modifier.fillMaxSize().background(Theme.colors.bg).padding(Theme.space10),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(t(failureText(failure.reason)), style = MaterialTheme.typography.bodyLarge)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
             TextButton(onClick = { web.retry(site) }) { Text(t("web.reopenThisPage")) }
             if (goes(web.pages[site]?.back)) TextButton(onClick = { web.back(site) }) { Text(t("common.back")) }
             failure.url?.let { url -> TextButton(onClick = { openInBrowser(context, url) }) { Text(t("common.openInBrowser")) } }
@@ -337,7 +393,7 @@ private fun PageDialog(host: SchoolBrowserHost) {
             onDismissRequest = { dialog.answer(dialog.kind == SchoolBrowserHost.PageDialog.Kind.ALERT, null) },
             title = { Text(if (leave) t("web.leaveThisPage") else dialog.origin) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
                     if (dialog.message.isNotEmpty()) Text(dialog.message)
                     if (dialog.kind == SchoolBrowserHost.PageDialog.Kind.PROMPT) {
                         OutlinedTextField(text, { text = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -354,6 +410,48 @@ private fun PageDialog(host: SchoolBrowserHost) {
     }
 }
 
+/** The user name and password a server of the page on screen asks for, as
+ * a browser asks (HTTP Basic, Digest, NTLM). */
+@Composable
+private fun SignInDialog(host: SchoolBrowserHost) {
+    val request = host.signIn ?: return
+    key(request) {
+        var user by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        DisposableEffect(Unit) { onDispose { request.answer(null, null) } }
+        AlertDialog(
+            onDismissRequest = { request.answer(null, null) },
+            title = { Text(t("schoolWeb.signIn.title", "host" to request.host)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
+                    if (request.retry) Text(t("schoolWeb.signIn.retry"), color = Theme.colors.danger)
+                    OutlinedTextField(
+                        user, { user = it },
+                        singleLine = true,
+                        label = { Text(t("schoolWeb.signIn.user")) },
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        password, { password = it },
+                        singleLine = true,
+                        label = { Text(t("schoolWeb.signIn.password")) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { request.answer(user, password) }) { Text(t("schoolWeb.signIn.button")) }
+            },
+            dismissButton = {
+                TextButton(onClick = { request.answer(null, null) }) { Text(t("common.cancel")) }
+            },
+        )
+    }
+}
+
 /** ウェブ tab, as on iOS: the page fills the screen under one bar. The title
  * is the shown site and opens the site list (picking the shown site again
  * returns it to its start page); back and forward lead, the page menu
@@ -365,18 +463,25 @@ fun WebTabScreen() {
     DisposableEffect(Unit) {
         web.showTab(web.tabSite)
         web.setVisible(web.tabSite)
-        onDispose { web.setVisible(null) }
+        onDispose {
+            web.barsHidden = false
+            web.setVisible(null)
+        }
     }
     HistoryBack(web.tabSite, onExhausted = null)
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        CenterAlignedTopAppBar(
-            navigationIcon = { Row { HistoryButtons(web.tabSite) } },
-            title = { SiteTitle() },
-            actions = { PageMenu(web.tabSite) },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
-        )
+    // The status bar's inset stays when the top bar folds away.
+    Column(Modifier.fillMaxSize().background(Theme.colors.bg).statusBarsPadding()) {
+        CollapsingBar(!web.barsHidden) {
+            CenterAlignedTopAppBar(
+                navigationIcon = { Row { HistoryButtons(web.tabSite) } },
+                title = { SiteTitle() },
+                actions = { PageMenu(web.tabSite) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            )
+        }
         Box(Modifier.fillMaxSize()) {
-            SchoolPage(web.tabSite, Modifier.fillMaxSize())
+            SchoolPage(web.tabSite, { web.barsHidden = it }, Modifier.fillMaxSize())
             if (web.loading == web.tabSite && web.browser.webView(web.tabSite) == null) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
@@ -384,7 +489,7 @@ fun WebTabScreen() {
             // The one thing drawn over the page, once: how to reach the other sites.
             GuideTip(
                 "web-sites", "common.switchSites", "web.tapTheTitleToSwitch",
-                Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                Modifier.align(Alignment.BottomCenter).padding(Theme.space6),
             )
         }
     }
@@ -399,7 +504,7 @@ private fun SiteTitle() {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.clip(RoundedCornerShape(Theme.radiusChip)).clickable { open = true }
-                .padding(horizontal = 8.dp, vertical = 4.dp),
+                .padding(horizontal = Theme.space4, vertical = Theme.space2),
         ) {
             Text(WebRouter.name(web.tabSite), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Icon(Icons.Rounded.ArrowDropDown, t("common.switchSites"))
@@ -427,36 +532,68 @@ private fun SiteTitle() {
 fun WebPageScreen(page: WebRouter.PushedPage) {
     val web = LocalModel.current.web
     val navigator = LocalNavigator.current
-    val context = LocalContext.current
     DisposableEffect(page) {
         web.open(page.site, page.target)
         web.setVisible(page.site)
-        onDispose { web.setVisible(null) }
+        onDispose {
+            page.uploadId?.let { id ->
+                web.cancelHandIn(id)
+                SharedInbox.closeUpload(id)
+            }
+            web.barsHidden = false
+            web.setVisible(null)
+        }
+    }
+    LaunchedEffect(page.uploadId) {
+        page.uploadId?.let { SharedInbox.waitForUpload(it, web) }
     }
     HistoryBack(page.site) { navigator.back() }
-    Column(Modifier.fillMaxSize().background(Theme.colors.surface)) {
-        TopAppBar(
-            navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
-            },
-            title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-            actions = { PageMenu(page.site) },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
-        )
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            SchoolPage(page.site, Modifier.fillMaxSize())
-            web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
+    Column(Modifier.fillMaxSize().background(Theme.colors.surface).statusBarsPadding()) {
+        CollapsingBar(!web.barsHidden) {
+            TopAppBar(
+                navigationIcon = {
+                    BackButton { navigator.back() }
+                },
+                title = { Text(page.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                actions = { PageMenu(page.site) },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.surface),
+                windowInsets = WindowInsets(0, 0, 0, 0),
+            )
         }
-        BottomAppBar(containerColor = Theme.colors.surface) {
-            val url = web.pages[page.site]?.url
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                HistoryButtons(page.site)
-                IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
-                    Icon(Icons.Rounded.Share, t("common.share"))
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            SchoolPage(page.site, { web.barsHidden = it }, Modifier.fillMaxSize())
+            val id = page.uploadId
+            if (id != null && SharedInbox.failedUpload == id) {
+                Column(
+                    Modifier.align(Alignment.Center).background(Theme.colors.surface).padding(Theme.space6),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ProblemNote(t("failure.theDraftUploadFailed"), Modifier)
+                    TextButton(onClick = { SharedInbox.retryUpload(id) }) { Text(t("common.retry")) }
                 }
-                IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
-                    Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInBrowser"))
-                }
+            } else {
+                web.error?.let { ProblemNote(it, Modifier.align(Alignment.Center)) }
+            }
+        }
+        CollapsingBar(!web.barsHidden) { BottomBar(page.site) }
+    }
+}
+
+/** A pushed page's history, share and browser buttons, as in Safari's bottom
+ * bar. */
+@Composable
+private fun BottomBar(site: SchoolSite) {
+    val web = LocalModel.current.web
+    val context = LocalContext.current
+    BottomAppBar(containerColor = Theme.colors.surface) {
+        val url = web.pages[site]?.url
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+            HistoryButtons(site)
+            IconButton(onClick = { url?.let { share(context, it) } }, enabled = url != null) {
+                Icon(Icons.Rounded.Share, t("common.share"))
+            }
+            IconButton(onClick = { url?.let { openInBrowser(context, it) } }, enabled = url != null) {
+                Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInBrowser"))
             }
         }
     }
@@ -468,9 +605,9 @@ private fun ProblemNote(text: String, modifier: Modifier) {
         text,
         style = MaterialTheme.typography.bodyMedium,
         modifier = modifier
-            .padding(16.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .padding(Theme.space8)
+            .clip(RoundedCornerShape(Theme.radiusSurface))
             .background(Theme.colors.dangerSoft)
-            .padding(12.dp),
+            .padding(Theme.space6),
     )
 }

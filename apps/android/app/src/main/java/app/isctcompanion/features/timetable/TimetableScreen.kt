@@ -1,22 +1,16 @@
 package app.isctcompanion.features.timetable
 
+import app.isctcompanion.shared.rememberNow
 import app.isctcompanion.design.Skeleton
 import app.isctcompanion.design.Loading
 import app.isctcompanion.design.Motion
 import app.isctcompanion.design.LocalReducedMotion
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import android.content.Context
-import android.content.Intent
-import android.widget.Toast
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,16 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.EditCalendar
-import androidx.compose.material.icons.rounded.IosShare
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -67,31 +52,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
-import app.isctcompanion.core.AppModel
-import app.isctcompanion.core.CalendarExportScope
 import app.isctcompanion.core.DatedAgenda
 import app.isctcompanion.core.Occurrence
 import app.isctcompanion.core.OccurrenceKind
 import app.isctcompanion.core.ScheduleView
-import app.isctcompanion.core.SessionMark
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.core.TimetableYear
@@ -100,26 +77,19 @@ import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.ButtonLevel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
-import app.isctcompanion.design.Tag
-import app.isctcompanion.design.TagVariant
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
-import app.isctcompanion.design.courseColor
 import app.isctcompanion.design.courseMix
-import app.isctcompanion.design.courseZoomSource
 import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
-import java.io.File
 import java.time.DayOfWeek
-import java.time.Instant
 import java.time.LocalDate
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.roundToInt
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 private val minimumRow = 30.dp
 /** Space between two weeks while they pass: past the page's side margin, so
@@ -140,7 +110,8 @@ fun TimetableScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    var week by remember { mutableStateOf(model.cachedWeek(monday)) }
+    val week = model.timetableWeeks[monday]
+    val weekRevision = model.timetableWeeks.revision
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
     var year by remember { mutableStateOf<TimetableYear?>(null) }
     var picker by remember { mutableStateOf(false) }
@@ -156,17 +127,25 @@ fun TimetableScreen() {
         monday = monday(LocalDate.parse(date))
         navigator.timetableDate = null
     }
-    // A week read with its neighbours draws at once; the effect below still
-    // checks it against the current revision.
-    LaunchedEffect(monday) { model.cachedWeek(monday)?.let { week = it } }
-    LaunchedEffect(monday, model.contentRevision) {
-        // A newer revision or week cancels this read (the query rethrows), so
-        // its empty answer never replaces what is shown.
-        val loaded = model.week(monday)
-        week = loaded
-        model.timetableAxis(loaded)?.let { axis = it }
-        val number = model.academicYear(monday) ?: return@LaunchedEffect
-        if (year?.year != number || year?.quarters?.isEmpty() == true) model.timetableYear(number)?.let { year = it }
+    val requestedMonday = monday
+    LaunchedEffect(requestedMonday, weekRevision, model.today?.term) {
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        val loaded = model.week(requestedMonday) ?: return@LaunchedEffect
+        val shape = model.timetableAxis(loaded)
+        currentCoroutineContext().ensureActive()
+        if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
+        if (shape != null) {
+            axis = shape
+            model.lastTimetableAxis = shape
+        }
+        val number = model.academicYear(requestedMonday) ?: return@LaunchedEffect
+        if (year?.year != number || year?.quarters?.isEmpty() == true) {
+            val calendar = model.timetableYear(number)
+            currentCoroutineContext().ensureActive()
+            if (monday == requestedMonday && model.timetableWeeks.revision == weekRevision && calendar != null) {
+                year = calendar
+            }
+        }
     }
     val swipe = with(LocalDensity.current) { 60.dp.toPx() }
     var width by remember { mutableFloatStateOf(1f) }
@@ -175,7 +154,6 @@ fun TimetableScreen() {
     // popped in where they stand.
     fun show(to: LocalDate) {
         monday = to
-        model.cachedWeek(to)?.let { week = it }
     }
     val gap = with(LocalDensity.current) { weekGap.toPx() }
     // The weeks lie side by side and follow the finger; a swipe glides the
@@ -211,9 +189,9 @@ fun TimetableScreen() {
             .clipToBounds()
             .background(Theme.colors.bg)
             .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = 12.dp)
-            .padding(bottom = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+            .padding(horizontal = Theme.space6)
+            .padding(bottom = Theme.space4),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6),
     ) {
         Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
         GuideTip("timetable-marks", "guide.swipeToChangeWeeks", "timetable.longPressAClassTo")
@@ -264,7 +242,7 @@ fun TimetableScreen() {
                 val start = monday.plusWeeks(slot.toLong())
                 key(slot) {
                     Grid(
-                        start, if (slot == 0) week else model.cachedWeek(start), axis, rowHeight,
+                        start, model.timetableWeeks[start], axis, rowHeight,
                         Modifier
                             .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
                             .graphicsLayer { alpha = fade.value }
@@ -289,7 +267,7 @@ private val Occurrence.isBlock: Boolean
  * date range, the quarter export and 今日. Weeks change by swiping the grid. */
 @Composable
 private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, toToday: () -> Unit) {
-    Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(Modifier.padding(top = Theme.space6, start = Theme.space2, end = Theme.space2), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         // The way into the week picker, a secondary button.
         ActionButton(
             chip, openPicker,
@@ -318,50 +296,6 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
     }
 }
 
-/** The shown quarter as an .ics, written by Core as the desktop's ICSを書き出す,
- * handed to the share sheet (Calendar, Drive, Mail). */
-@Composable
-private fun ExportButton(term: String) {
-    val model = LocalModel.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var menu by remember { mutableStateOf(false) }
-    fun export(scope0: CalendarExportScope) = scope.launch {
-        menu = false
-        runCatching { share(context, term, scope0, model.quarterIcs(term, scope0)) }.onFailure {
-            Toast.makeText(context, t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)), Toast.LENGTH_LONG).show()
-        }
-    }
-    Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("common.exportICS"), tint = Theme.colors.accent) }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            Text(
-                t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
-                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-            DropdownMenuItem(
-                text = { Text(t("common.coursesOnly")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
-                onClick = { export(CalendarExportScope.COURSES) },
-            )
-            DropdownMenuItem(
-                text = { Text(t("common.coursesWeeklyEvents")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
-                onClick = { export(CalendarExportScope.COURSES_AND_EVENTS) },
-            )
-        }
-    }
-}
-
-private suspend fun share(context: Context, term: String, scope: CalendarExportScope, text: String) {
-    val suffix = if (scope == CalendarExportScope.COURSES_AND_EVENTS) "-with-events" else ""
-    val file = withContext(Dispatchers.IO) {
-        File(context.cacheDir, "exports").apply { mkdirs() }.resolve("IsctCompanion-$term$suffix.ics").apply { writeText(text) }
-    }
-    val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-    val send = Intent(Intent.ACTION_SEND).setType("text/calendar").putExtra(Intent.EXTRA_STREAM, uri)
-        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    context.startActivity(Intent.createChooser(send, file.name))
-}
-
 /** "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み. */
 private fun chip(year: TimetableYear?, monday: LocalDate): String {
     year ?: return t("common.timetable")
@@ -385,7 +319,7 @@ private fun Grid(monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, r
     val height = rowHeight * (axis?.length ?: 12.5).toFloat()
     val today = Format.today()
     val current = model.today?.takeIf { it.phase == TodayPhase.IN_CLASS }?.hero?.occurrence?.key
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             Spacer(Modifier.width(periodWidth))
             for (day in days) DayHeader(day, day == today, Modifier.weight(1f))
@@ -402,7 +336,7 @@ private fun Grid(monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, r
 
 @Composable
 private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
         Text(Format.weekday(day), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted)
         Box(
             Modifier.size(30.dp).clip(CircleShape).background(if (today) Theme.colors.accent else Color.Transparent),
@@ -416,7 +350,8 @@ private fun DayHeader(day: LocalDate, today: Boolean, modifier: Modifier) {
     }
 }
 
-/** Period numbers at their rows; each block's start time under its first. */
+/** Period numbers at their rows; each block's start time under its first
+ * period and its end time under its last. */
 @Composable
 private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier) {
     Box(modifier) {
@@ -424,32 +359,36 @@ private fun PeriodColumn(axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier
             val periods = row.periods ?: continue
             if (periods.size != 2) continue
             val first = periods[0].toInt()
-            for (period in first..maxOf(first, periods[1].toInt())) {
+            val last = maxOf(first, periods[1].toInt())
+            for (period in first..last) {
                 Column(
                     Modifier.fillMaxWidth().offset(y = rowHeight * (row.top + (period - first)).toFloat()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("$period", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-                    if (period == first) {
-                        // A time of five characters is wider than the column:
-                        // it shrinks to fit, as iOS's minimumScaleFactor(0.8).
-                        // The floor is in dp because the column is: a floor in
-                        // sp would grow past it with the system font size.
-                        val style = MaterialTheme.typography.labelSmall.tabular()
-                        Text(
-                            row.startTime.removePrefix("0"), style = style,
-                            color = Theme.colors.muted, maxLines = 1,
-                            autoSize = TextAutoSize.StepBased(
-                                minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
-                                maxFontSize = style.fontSize,
-                                stepSize = 0.25.sp,
-                            ),
-                        )
-                    }
+                    if (period == first) PeriodTime(row.startTime)
+                    if (period == last) PeriodTime(row.endTime)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun PeriodTime(time: String) {
+    // A time of five characters is wider than the column: it shrinks to
+    // fit, as iOS's minimumScaleFactor(0.8). The floor is in dp because the
+    // column is: a floor in sp would grow past it with the system font size.
+    val style = MaterialTheme.typography.labelSmall.tabular()
+    Text(
+        time.removePrefix("0"), style = style,
+        color = Theme.colors.muted, maxLines = 1,
+        autoSize = TextAutoSize.StepBased(
+            minFontSize = with(LocalDensity.current) { (style.fontSize.value * 0.8f).dp.toSp() },
+            maxFontSize = style.fontSize,
+            stepSize = 0.25.sp,
+        ),
+    )
 }
 
 @Composable
@@ -475,7 +414,9 @@ private fun DayColumn(
             // The first read of a week draws placeholder blocks, then fades in.
             Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
                 Box(Modifier.fillMaxSize()) {
-                    for (block in blocks) Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    for (block in blocks) key(block.key) {
+                        Block(block, holiday, week, axis, rowHeight, width, block.key == current)
+                    }
                 }
             }
             if (today) NowLine(axis, rowHeight)
@@ -498,163 +439,6 @@ private fun DaySkeleton(axis: TimetableAxis, rowHeight: Dp) {
         }
     }
 }
-
-/** Gap between blocks that share a time side by side. */
-private val laneGap = 2.dp
-
-@Composable
-private fun Block(
-    block: Occurrence,
-    holiday: Boolean,
-    week: ScheduleView?,
-    axis: TimetableAxis,
-    rowHeight: Dp,
-    columnWidth: Dp,
-    current: Boolean,
-) {
-    val navigator = LocalNavigator.current
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
-    var menu by remember { mutableStateOf(false) }
-    // Core's grid: a block timed inside periods fills the periods it
-    // touches, and overlapping blocks sit side by side.
-    val grid = block.grid
-    val top = rowHeight * axis.offset(grid?.startTime ?: block.startTime).toFloat()
-    val bottom = rowHeight * axis.offset(grid?.endTime ?: block.endTime).toFloat()
-    val lanes = maxOf(grid?.lanes?.toInt() ?: 1, 1)
-    val lane = grid?.lane?.toInt() ?: 0
-    val laneWidth = (columnWidth - laneGap * 2 - laneGap * (lanes - 1)) / lanes
-    val planned = block.planned == true
-    val cancelled = block.cancelled == true || holiday
-    val exam = block.kind == OccurrenceKind.EXAM && !cancelled
-    val quiz = exam && block.quiz == true
-    val tint = courseColor(block.color)
-    val surface = Theme.colors.surface
-    val shape = RoundedCornerShape(Theme.radiusBlock)
-    val id = block.courseId
-    // Core's current mark, checked in the long-press menu; none when the
-    // block takes no mark.
-    val state = block.mark
-    val ink = when {
-        cancelled -> Theme.colors.muted
-        else -> courseMix(tint, Theme.tintInk, Theme.colors.ink)
-    }
-    val fill = when {
-        cancelled -> courseMix(Theme.colors.muted, 0.10f, surface)
-        planned -> surface
-        exam && !quiz -> courseMix(tint, Theme.tintExam, surface)
-        else -> courseMix(tint, Theme.tintFill, surface)
-    }
-    Box(
-        Modifier
-            .offset(x = laneGap + (laneWidth + laneGap) * lane, y = top + 2.dp)
-            .width(laneWidth),
-    ) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .height(maxOf(bottom - top - 4.dp, 24.dp))
-                .courseZoomSource(block.key.takeIf { id != null })
-                .clip(shape)
-                .background(fill)
-                .then(if (cancelled) Modifier.stripes(Theme.colors.line) else Modifier)
-                .then(
-                    // A ring means the class in progress, nothing else
-                    // (slotledger `approach/timetable-exam-emphasis`).
-                    when {
-                        current && !cancelled -> Modifier.border(2.dp, tint, shape)
-                        planned -> Modifier.border(1.5.dp, courseMix(tint, 0.45f, surface), shape)
-                        else -> Modifier
-                    },
-                )
-                .combinedClickable(
-                    enabled = id != null || !planned,
-                    onClick = { id?.let { navigator.openCourse(it, block.key) } },
-                    onLongClick = if (state == null) null else ({
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        menu = true
-                    }),
-                )
-                .padding(4.dp),
-        ) {
-            val style = MaterialTheme.typography.labelSmall
-            // An exam or quiz names itself first, so even a short block says what it is.
-            if (exam) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    ExamTag(quiz, tint)
-                    if (block.sourceChanged == true) {
-                        Icon(Icons.Rounded.Error, t("common.timetableChanged"), tint = Theme.colors.warn, modifier = Modifier.size(12.dp))
-                    }
-                }
-            }
-            Text(
-                block.title, style = style, fontWeight = FontWeight.SemiBold, color = ink,
-                textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                maxLines = if (lanes > 1) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            // Side by side there is room for the title only.
-            if (lanes == 1) {
-                Spacer(Modifier.weight(1f))
-                // 計画, 休講, the times of a block drawn over whole periods,
-                // or the first room; every room stays on the course page.
-                val moved = grid != null && (grid.startTime != block.startTime || grid.endTime != block.endTime)
-                val line = when {
-                    planned -> t("timetable.planned")
-                    cancelled -> t("common.noClass")
-                    moved -> "${block.startTime.removePrefix("0")}–${block.endTime.removePrefix("0")}"
-                    else -> firstRoom(block.room)
-                }
-                Text(
-                    line, style = style, fontWeight = FontWeight.SemiBold, color = ink,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            Text(
-                t("timetable.thisLesson"), style = MaterialTheme.typography.labelMedium, color = Theme.colors.muted,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
-            HorizontalDivider()
-            // Choosing the checked mark again sends `class`; Core decides
-            // whether that clears the mark.
-            for ((mark, value, label) in listOf(
-                Triple(SessionMark.EXAM, "exam", t("common.markAsExam")),
-                Triple(SessionMark.QUIZ, "quiz", t("common.markAsQuiz")),
-                Triple(SessionMark.CANCELLED, "cancelled", t("common.markAsCancelled")),
-            )) {
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    trailingIcon = { if (mark == state) Icon(Icons.Rounded.Check, null, tint = Theme.colors.accent) },
-                    onClick = {
-                        menu = false
-                        scope.launch {
-                            model.markSession(block.key, if (mark == state) "class" else value)
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        }
-                    },
-                )
-            }
-        }
-    }
-}
-
-/** 試験 above an exam block's title, solid in the course colour; a quiz's
- * 小テスト is outlined. */
-@Composable
-private fun ExamTag(quiz: Boolean, tint: Color) {
-    if (quiz) {
-        Tag(t("common.quiz"), color = tint, variant = TagVariant.Outline, ink = courseMix(tint, Theme.tintInk, Theme.colors.ink))
-    } else {
-        Tag(t("common.exam"), color = tint, variant = TagVariant.Solid)
-    }
-}
-
-/** The first of several rooms joined by commas; every room stays on the course page. */
-internal fun firstRoom(room: String): String =
-    room.split(',', '、', '，').firstOrNull()?.trim() ?: room
 
 /** One rule after each teaching block (1–2, 3–4, …), never inside one, so a
  * two-period class is not cut in half; the lunch band is shaded. */
@@ -679,28 +463,12 @@ private fun RowRules(axis: TimetableAxis, rowHeight: Dp) {
 /** The current time across today's column, moving with the clock. */
 @Composable
 private fun NowLine(axis: TimetableAxis, rowHeight: Dp) {
-    var now by remember { mutableStateOf(Instant.now()) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(30_000)
-            now = Instant.now()
-        }
-    }
+    val now = rememberNow(30)
     val offset = axis.now(now) ?: return
     val danger = Theme.colors.danger
     Canvas(Modifier.fillMaxSize()) {
         val y = (offset * rowHeight.toPx()).toFloat()
         drawCircle(danger, 4.dp.toPx(), Offset(4.dp.toPx(), y))
         drawLine(danger, Offset(0f, y), Offset(size.width, y), strokeWidth = 2.dp.toPx())
-    }
-}
-
-/** Diagonal stripes over a class that does not take place. */
-private fun Modifier.stripes(color: Color): Modifier = drawBehind {
-    val step = 8.dp.toPx()
-    var x = -size.height
-    while (x < size.width) {
-        drawLine(color, Offset(x, size.height), Offset(x + size.height, 0f), strokeWidth = 3.dp.toPx())
-        x += step
     }
 }

@@ -10,11 +10,15 @@ pub use policy::{
     attachment_shown_in_place, automation_target, browsing_target, browsing_url,
     download_permitted, is_login_url, restore_record, school_file_url, DenyReason,
 };
-pub(crate) use policy::{domain_under, school_domains};
+pub(crate) use policy::{domain_under, outside_school, school_domains};
 pub use port::*;
 pub use submission::{
-    SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES,
+    DraftUpload, SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES,
+    MAX_SUBMISSION_FILES,
 };
+
+#[cfg(feature = "desktop-workspaces")]
+pub(crate) use submission::{assignment_detail_in, draft_page};
 
 use crate::lifecycle::SchoolSite;
 use serde::{Deserialize, Serialize};
@@ -90,6 +94,10 @@ pub struct SchoolWebPage {
     /// The page in front is a sign-in page Core could sign in with the saved
     /// credentials and is not signing in now: the manual way out (Reload).
     pub sign_in: bool,
+    /// The page in front is outside the school sites and their sign-in
+    /// (`outside_school`): the view has none of the person's other accounts,
+    /// so a shell offers Open in browser plainly.
+    pub outside: bool,
     pub otp: Option<SchoolOtpEnrollment>,
 }
 

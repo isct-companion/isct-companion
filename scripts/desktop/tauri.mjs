@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -10,6 +10,7 @@ import {
 import { macWidgets } from "./macos-widgets.mjs";
 import { macDevSigningIdentity } from "./macos-dev-signing.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
+import { refreshHelper } from "./bundle-vpn.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const command = process.argv.slice(2);
@@ -143,7 +144,34 @@ const vpnDaemon =
 const vpnBundle = vpnPayload
   ? { resources: withVpn(platformResources()), ...vpnDaemon }
   : undefined;
+if (vpnPayload && command[0] === "build") refreshHelper();
 if (vpnPayload) console.log("Campus VPN payload: included.");
+// launchd records the helper's code requirement when the daemon is
+// registered. An ad hoc helper is pinned to that one binary, so after a local
+// rebuild launchd refuses the new helper (EX_CONFIG, "needs LWCR update") and
+// the old one keeps answering. A local bundle signed with the person's Apple
+// Development identity signs the helper with it too, as a release signs it
+// with the Developer ID (bundle-vpn.mjs); Tauri signs nothing under Resources.
+// The registration is also bound to the copy of the app that made it, which
+// this signature does not change: the app registers afresh from its own copy
+// on every install (campus_vpn/macos.rs `run_install`).
+const helperIdentity =
+  vpnPayload && process.platform === "darwin"
+    ? macDevelopmentConfig?.bundle.macOS.signingIdentity
+    : undefined;
+if (helperIdentity) {
+  execFileSync(
+    "codesign",
+    [
+      "--force",
+      "--sign",
+      helperIdentity,
+      path.join(root, "apps/desktop/src-tauri/resources/vpn", vpnHelper),
+    ],
+    { stdio: "inherit" },
+  );
+  console.log("Campus VPN helper: signed with your Apple Development identity.");
+}
 const tauriCommand = [...process.argv.slice(2)];
 if (macConfig || windowsConfig || version || vpnBundle || isolatedApp) {
   // Keep Tauri options before the separator for additional Cargo arguments.

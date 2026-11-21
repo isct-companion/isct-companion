@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { useState } from "react";
 import { Paper, Input, Skeleton } from "../../components/ui";
 import { UiButton } from "../../components/ui";
@@ -8,7 +9,7 @@ import {
   type BlockAction,
 } from "../../components/timetable/timetable";
 import { agendaColumns } from "../../components/timetable/workspace";
-import { useScheduleQuery, type ScheduleView } from "../../platform/core-query";
+import { useScheduleQuery, type DatedAgenda } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import {
   addCivilDays,
@@ -18,10 +19,9 @@ import {
 } from "../../lib/civil-date";
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
-import { withRecords } from "../../platform/records";
 
 /** Date navigation is independent of the quarter used for course planning. */
-function CalendarViewBody({
+export function CalendarView({
   data,
   open,
   mark,
@@ -66,23 +66,29 @@ function CalendarViewBody({
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
   const to = addCivilDays(from, 6);
-  const view = useScheduleQuery<ScheduleView>({
-    kind: "scheduleView",
-    term: data.currentTerm,
+  const view = useScheduleQuery<DatedAgenda[]>({
+    kind: "calendarRange",
     from,
     to,
-    includePersonal: true,
   });
-  const visibleFrom = view.value?.agendas[0]?.date ?? from;
-  const visibleTo = view.value?.agendas.at(-1)?.date ?? to;
+  const visibleFrom = view.value?.[0]?.date ?? from;
+  const visibleTo = view.value?.at(-1)?.date ?? to;
   return (
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
-      <header className="scheduleTitleRow">
+      <TitleRow className="calendarTitle">
         <h1>{t("today.calendar")}</h1>
-      </header>
-      <Paper className="ttCard" withBorder radius="md">
-        <header className="timetableViewBar">
-          <b>
+      </TitleRow>
+      {/* Stepping through weeks is the calendar's own tool: it sits on the
+          calendar, under the title row. */}
+      <div className="calendarBar paneToolbar">
+        <div className="toolPill">
+          <UiButton
+            aria-label={t("today.previousWeek")}
+            onClick={() => step(addCivilDays(date, -7), -1)}
+          >
+            <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
+          <span className="calendarRange toolPillLabel">
             {formatCivilDate(visibleFrom, data.settings.locale, {
               month: "short",
               day: "numeric",
@@ -92,41 +98,34 @@ function CalendarViewBody({
               month: "short",
               day: "numeric",
             })}
-          </b>
-          <div className="scheduleControls">
-            <Input
-              type="date"
-              aria-label={t("common.date")}
-              value={date}
-              onChange={(event) =>
-                event.target.value &&
-                step(
-                  event.target.value,
-                  Math.sign(event.target.value.localeCompare(date)),
-                )
-              }
-            />
-            <UiButton
-              aria-label={t("today.previousWeek")}
-              onClick={() => step(addCivilDays(date, -7), -1)}
-            >
-              <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-            <UiButton
-              onClick={() =>
-                step(undefined, Math.sign(today.localeCompare(date)))
-              }
-            >
-              {t("common.thisWeek")}
-            </UiButton>
-            <UiButton
-              aria-label={t("today.nextWeek")}
-              onClick={() => step(addCivilDays(date, 7), 1)}
-            >
-              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-            </UiButton>
-          </div>
-        </header>
+          </span>
+          <UiButton
+            aria-label={t("today.nextWeek")}
+            onClick={() => step(addCivilDays(date, 7), 1)}
+          >
+            <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+          </UiButton>
+        </div>
+        <UiButton
+          className="toolPill toolPillButton"
+          onClick={() => step(undefined, Math.sign(today.localeCompare(date)))}
+        >
+          {t("common.thisWeek")}
+        </UiButton>
+        <Input
+          type="date"
+          aria-label={t("common.date")}
+          value={date}
+          onChange={(event) =>
+            event.target.value &&
+            step(
+              event.target.value,
+              Math.sign(event.target.value.localeCompare(date)),
+            )
+          }
+        />
+      </div>
+      <Paper className="ttCard">
         {view.pending && !view.value ? (
           <Skeleton shape="week" />
         ) : (
@@ -136,7 +135,7 @@ function CalendarViewBody({
             style={{ "--slide": slide } as React.CSSProperties}
           >
             <WeekTimetable
-              days={agendaColumns(view.value?.agendas ?? [], today)}
+              days={agendaColumns(view.value ?? [], today)}
               onSelect={open}
               actionsFor={actionsFor}
               now={now}
@@ -148,19 +147,3 @@ function CalendarViewBody({
     </section>
   );
 }
-
-/** CalendarView with the records it shows (`platform/records`). */
-export const CalendarView = withRecords(
-  [
-    "assignments",
-    "courses",
-    "events",
-    "memberships",
-    "planItems",
-    "exceptions",
-    "scheduleOverrides",
-    "intensiveSchedules",
-    "academicProfile",
-  ],
-  CalendarViewBody,
-);

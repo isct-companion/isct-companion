@@ -1,14 +1,14 @@
 package app.isctcompanion.design
 
+import app.isctcompanion.core.openInAnotherApp
+import app.isctcompanion.core.showsInApp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
-import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
 import android.text.format.Formatter
-import android.webkit.MimeTypeMap
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -42,7 +42,6 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.fromHtml
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -59,13 +58,15 @@ import kotlinx.coroutines.launch
  * opens as Core decides for the course `courseId` (`rememberMaterialOpening`);
  * other links (mail, phone) go to the system. */
 @Composable
-fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier) {
+fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier, originalHtml: String? = null) {
+    var original by remember(originalHtml) { mutableStateOf(false) }
+    val shown = if (original) originalHtml ?: html else html
     val context = LocalContext.current
     val opening by rememberUpdatedState(rememberMaterialOpening())
     val accent = Theme.colors.accent
-    val text = remember(html, accent) {
+    val text = remember(shown, accent) {
         AnnotatedString.fromHtml(
-            html.trim(),
+            shown.trim(),
             linkStyles = TextLinkStyles(SpanStyle(color = accent)),
             linkInteractionListener = { link ->
                 val url = (link as? LinkAnnotation.Url)?.url ?: return@fromHtml
@@ -77,8 +78,15 @@ fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier) {
             },
         ).trimmed()
     }
-    SelectionContainer(modifier) {
-        Text(text, style = MaterialTheme.typography.bodyLarge, color = Theme.colors.ink)
+    Column(modifier) {
+        if (originalHtml != null) {
+            TextButton(onClick = { original = !original }) {
+                Text(t(if (original) "lms.usePreferredLanguage" else "lms.showOriginal"))
+            }
+        }
+        SelectionContainer {
+            Text(text, style = MaterialTheme.typography.bodyLarge, color = Theme.colors.ink)
+        }
     }
 }
 
@@ -96,11 +104,11 @@ fun MaterialButton(title: String, kind: LessonItemKind, source: String?, courseI
     val opening = rememberMaterialOpening()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !opening.busy && source != null) { source?.let { opening.open(courseId, it, title) } }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         Icon(materialIcon(kind), null, tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
         Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
@@ -120,8 +128,8 @@ fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
 class MaterialOpening(val busy: Boolean, val open: (courseId: String, source: String, title: String) -> Unit)
 
 /** Opens an item or link as Core decides (`open_material`): a file Core
- * fetches with the signed-in LMS session (or from the course folder) goes to
- * the system viewer, a school page opens in its in-app view, any other page
+ * fetches with the signed-in LMS session (or from the course folder) shows
+ * as its viewer says, a ZIP as a folder of its files, a school page opens in its in-app view, any other page
  * in the browser. When the file is not shown, the dialog offers the LMS page
  * Core names for it. A download that only failed this time asks instead of
  * showing the LMS page: silently doing so made Share hand out a link where it
@@ -148,7 +156,15 @@ fun rememberMaterialOpening(): MaterialOpening {
             }
             try {
                 when (val material = model.openMaterial(courseId, source)) {
-                    is Material.Ready -> if (!view(context, File(material.file.path))) show(material.page, title)
+                    // How a file shows is Core's (`file_preview`): in the app's
+                    // own viewer, or in the app that opens its type.
+                    is Material.Ready -> {
+                        val file = material.file
+                        if (showsInApp(file.viewer)) navigator.openCourseFile(file.path, title, file.viewer)
+                        else if (!openInAnotherApp(context, File(file.path))) show(material.page, title)
+                    }
+                    // A ZIP Core lists opens as a folder of its files.
+                    is Material.Archive -> navigator.openCourseArchive(courseId, source, title)
                     is Material.Page -> navigator.openPage(WebRouter.PushedPage(material.site, material.url, title))
                     is Material.External ->
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, material.url.toUri())) }
@@ -216,16 +232,4 @@ fun rememberMaterialOpening(): MaterialOpening {
         )
     }
     return MaterialOpening(busy, open)
-}
-
-/** Hands a downloaded file to the app that views its type. */
-private fun view(context: Context, file: File): Boolean {
-    val uri = runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", file) }.getOrNull() ?: return false
-    val type = MimeTypeMap.getSingleton().getMimeTypeFromExtension(file.extension.lowercase()) ?: "*/*"
-    return try {
-        context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, type).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
-        true
-    } catch (error: ActivityNotFoundException) {
-        false
-    }
 }

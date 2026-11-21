@@ -1,6 +1,11 @@
+use super::tasks::{
+    assignment_state, deadline_view, hand_in_availability, AssignmentState, HandInAvailability,
+    TaskDeadlineView,
+};
 use super::{array, text, ExamView, SchoolReads};
 use crate::course_materials::CourseKey;
 use crate::locale::ContentLanguage;
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -175,6 +180,10 @@ pub struct AssignmentDetail {
     pub course_id: String,
     pub title: String,
     pub due_at: Option<String>,
+    pub deadline: Option<TaskDeadlineView>,
+    pub state: AssignmentState,
+    pub hand_in_availability: HandInAvailability,
+    /// Stored LMS statuses for the agent assignment read. Shells use state.
     pub submission: Option<String>,
     pub submission_status: Option<String>,
     pub grade: Option<String>,
@@ -183,6 +192,7 @@ pub struct AssignmentDetail {
     /// The description as LMS shows it, without Moodle's own date lines,
     /// which the page states already.
     pub body_html: String,
+    pub original_body_html: Option<String>,
     /// Notes the assignment row carries besides the LMS text.
     pub details: String,
     pub attachments: Vec<AssignmentAttachment>,
@@ -198,7 +208,11 @@ pub struct AssignmentAttachment {
 
 /// The rules the desktop assignment card applied in the shell
 /// (`LmsWorkspace.tsx`): its text is the LMS module row with the same cmid.
-pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<AssignmentDetail> {
+pub fn assignment_detail(
+    workspace: &Value,
+    assignment_id: &str,
+    now: DateTime<FixedOffset>,
+) -> Option<AssignmentDetail> {
     let assignment = super::visible_by_id(workspace, "assignments", assignment_id)?;
     let course_id = text(assignment, "courseId").unwrap_or_default();
     let cmid = assignment.get("lmsCmid").and_then(Value::as_u64);
@@ -211,17 +225,26 @@ pub fn assignment_detail(workspace: &Value, assignment_id: &str) -> Option<Assig
         .and_then(|row| text(row, "bodyHtml"))
         .unwrap_or_default();
     let owned = |key: &str| text(assignment, key).map(str::to_owned);
+    let state = assignment_state(assignment, now);
+    let html =
+        super::lms_html::project_html(raw, true, super::lms_html::preferred_language(workspace));
     Some(AssignmentDetail {
         assignment_id: assignment_id.into(),
         course_id: course_id.into(),
         title: text(assignment, "title").unwrap_or_default().into(),
         due_at: owned("dueAt"),
+        deadline: text(assignment, "dueAt")
+            .and_then(|due| super::parse_timestamp(due).ok())
+            .map(|due| deadline_view(due, now)),
+        state,
+        hand_in_availability: hand_in_availability(assignment, state),
         submission: owned("submission"),
         submission_status: owned("submissionStatus"),
         grade: owned("grade"),
         source_url: owned("sourceUrl"),
         attachments: attachments(raw),
-        body_html: super::lms_html::safe_html(raw, true),
+        body_html: html.preferred,
+        original_body_html: html.original,
         details: text(assignment, "details").unwrap_or_default().into(),
     })
 }

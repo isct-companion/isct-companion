@@ -1,7 +1,10 @@
 //! Project the existing serde contract into foreign records without duplicating schemas.
 //! Core remains independent of UniFFI. Only ABI representation changes live here.
 use quote::{quote, ToTokens};
-use std::{env, fs, path::PathBuf};
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
 use syn::{visit_mut::VisitMut, Attribute, GenericArgument, Item, PathArguments, Type};
 
 fn attrs(attrs: &mut Vec<Attribute>) {
@@ -141,10 +144,15 @@ impl VisitMut for SyncRenames {
         syn::visit_mut::visit_type_path_mut(self, path);
     }
 }
+fn read_items(path: &Path) -> Result<Vec<Item>, Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-changed={}", path.display());
+    Ok(syn::parse_file(&fs::read_to_string(path)?)?.items)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let core = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("../app-core/src");
     let files = [
-        "workspace.rs",
+        "workspace/mod.rs",
         "exam_share/model.rs",
         "workspace_changes.rs",
         "study_profile.rs",
@@ -153,20 +161,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/requests.rs",
         "schedule/course_detail.rs",
         "schedule/course_content.rs",
+        "schedule/lms_html.rs",
         "schedule/exam_courses.rs",
         "schedule/exams.rs",
         "schedule/search.rs",
         "schedule/calendar.rs",
-        "schedule/occurrence.rs",
+        "schedule/occurrence/mod.rs",
         "schedule/alternation.rs",
         "schedule/tasks.rs",
         "schedule/today.rs",
-        "schedule/reminders.rs",
+        "schedule/reminders/mod.rs",
+        "schedule/reminders/mobile.rs",
         "schedule/ics.rs",
         "course_query/mod.rs",
         "catalog.rs",
         "course_query/contracts.rs",
-        "school_auth.rs",
+        "school_auth/mod.rs",
         "school_service.rs",
         "school_session/mod.rs",
         "school_browser/mod.rs",
@@ -176,6 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "cloud_sync/mod.rs",
         "plan/mod.rs",
         "course_materials.rs",
+        "file_preview/mod.rs",
         "storage.rs",
         "notes.rs",
         "../../adpt-isct/src/lms.rs",
@@ -186,9 +197,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let campus_map = env::var_os("CARGO_FEATURE_CAMPUS_MAP").map(|_| "campus_map/mod.rs");
     for name in files.into_iter().chain(campus_map) {
         let path = core.join(name);
-        println!("cargo:rerun-if-changed={}", path.display());
-        let file = syn::parse_file(&fs::read_to_string(path)?)?;
-        for item in file.items {
+        let mut items = Vec::new();
+        for item in read_items(&path)? {
+            if let Item::Mod(module) = &item {
+                // Insert the selected child where its declarations were in the parent.
+                let child = module.ident.to_string();
+                if matches!(
+                    (name, child.as_str()),
+                    ("schedule/occurrence/mod.rs", "planning")
+                        | ("course_query/mod.rs", "catalog" | "personal" | "conditions")
+                        | ("school_auth/mod.rs", "matrix")
+                        | ("school_session/mod.rs", "presentation" | "snapshot")
+                ) {
+                    items.extend(read_items(&path.with_file_name(format!("{child}.rs")))?);
+                    continue;
+                }
+            }
+            items.push(item);
+        }
+        for item in items {
             match item {
                 Item::Struct(mut item)
                     if matches!(item.fields, syn::Fields::Named(_))

@@ -143,17 +143,7 @@ pub(super) fn row_version(value: &Value) -> Result<VersionedValue, DataError> {
 
 pub(super) fn read_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, DataError> {
     let sql = format!("SELECT value FROM {table} ORDER BY id");
-    let mut statement = connection.prepare(&sql).map_err(DataError::from)?;
-    let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
-        .map_err(DataError::from)?
-        .map(|row| {
-            let raw = row.map_err(DataError::from)?;
-            serde_json::from_str(&raw)
-                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))
-        })
-        .collect();
-    rows
+    read_json_rows(connection, table, &sql)
 }
 
 pub(super) fn read_visible_rows(
@@ -164,7 +154,15 @@ pub(super) fn read_visible_rows(
         return read_rows(connection, table);
     }
     let sql = format!("SELECT value FROM {table} WHERE missing_since IS NULL ORDER BY id");
-    let mut statement = connection.prepare(&sql).map_err(DataError::from)?;
+    read_json_rows(connection, table, &sql)
+}
+
+fn read_json_rows(
+    connection: &Connection,
+    table: &str,
+    sql: &str,
+) -> Result<Vec<Value>, DataError> {
+    let mut statement = connection.prepare(sql).map_err(DataError::from)?;
     let rows = statement
         .query_map([], |row| row.get::<_, String>(0))
         .map_err(DataError::from)?

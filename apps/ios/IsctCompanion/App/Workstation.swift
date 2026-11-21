@@ -14,16 +14,16 @@ struct PageRail<Menu: View>: View {
     @ViewBuilder var menu: (AppTab) -> Menu
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: Theme.space2) {
             ForEach(Array(Layout.rail.enumerated()), id: \.element) { index, tab in
                 item(tab)
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: Theme.space4)
             item(.settings).keyboardShortcut(",", modifiers: .command)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Theme.space4)
+        .padding(.vertical, Theme.space7)
         .frame(width: 72)
         .background(Theme.surface.opacity(0.7).ignoresSafeArea())
     }
@@ -33,7 +33,7 @@ struct PageRail<Menu: View>: View {
         return Button {
             selection = tab
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: Theme.space2) {
                 Image(systemName: tab.symbol)
                     .font(.title3)
                     .frame(height: 24)
@@ -43,7 +43,7 @@ struct PageRail<Menu: View>: View {
                     .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, Theme.space4)
             .foregroundStyle(selected ? Theme.accent : Theme.muted)
             .background(selected ? Theme.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -114,27 +114,28 @@ private struct BenchRoot: View {
     }
 }
 
-/// Desktop's status bar under the page: each school source's sign-in and last
-/// update, and the sync ring. Tapping it opens the connection sheet.
+/// Desktop's status bar under the page: whether each school source's account
+/// is connected, and the sync ring. When it last updated stays in the sheet,
+/// which tapping the bar opens.
 struct SchoolStatusBar: View {
     @Environment(AppModel.self) private var model
     @State private var showsSheet = false
 
     var body: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: Theme.space9) {
             Button {
                 showsSheet = true
             } label: {
-                HStack(spacing: 20) {
+                HStack(spacing: Theme.space9) {
                     ForEach(sources, id: \.source) { source in
-                        HStack(spacing: 8) {
+                        HStack(spacing: Theme.space4) {
                             Circle().fill(color(source)).frame(width: 8, height: 8)
                             VStack(alignment: .leading, spacing: 0) {
                                 Text(SyncText.source(source.source))
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Theme.ink)
-                                Text(source.lastUpdated.map { t("syncStatus.updatedDate", ["date": Format.due($0)]) } ?? t("common.neverUpdated"))
-                                    .font(.caption2.monospacedDigit())
+                                Text(state(source))
+                                    .font(.caption2)
                                     .foregroundStyle(Theme.muted)
                             }
                         }
@@ -147,7 +148,7 @@ struct SchoolStatusBar: View {
             .accessibilityLabel(t("common.schoolConnection"))
             SyncRingButton()
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, Theme.space8)
         .frame(minHeight: 48)
         .background(Theme.surface.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 0.5) }
@@ -158,6 +159,13 @@ struct SchoolStatusBar: View {
     /// stay in the sheet.
     private var sources: [SourceView] {
         model.syncSnapshot?.sources.filter { $0.session != nil } ?? []
+    }
+
+    /// The account's sign-in line: LMS signs in with Science Tokyo, 教務Web
+    /// with Tokyo Tech.
+    private func state(_ source: SourceView) -> String {
+        model.profileSession(source.source == "lms" ? .science : .tokyoTech)
+            .map { SchoolSessionText.line($0) } ?? t("common.notConnected")
     }
 
     private func color(_ source: SourceView) -> Color {

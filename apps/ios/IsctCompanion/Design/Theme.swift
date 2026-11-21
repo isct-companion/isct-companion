@@ -28,8 +28,10 @@ enum Theme {
 
     static let radiusSurface = IsctTokens.radiusSurface
     static let radiusPanel = IsctTokens.radiusPanel
+    static let radiusControl = IsctTokens.radiusControl
     static let radiusChip = IsctTokens.radiusChip
     static let radiusBlock = IsctTokens.radiusBlock
+    static let radiusCourseMarker = IsctTokens.radiusCourseMarker
     static let radiusColumn = IsctTokens.radiusColumn
 
     /// Page side margin, list row padding and gap, card padding.
@@ -38,6 +40,17 @@ enum Theme {
     static let rowY = IsctTokens.spaceRowY
     static let rowGap = IsctTokens.spaceRowGap
     static let cardPadding = IsctTokens.spaceCard
+
+    static let space1 = IsctTokens.space1
+    static let space2 = IsctTokens.space2
+    static let space3 = IsctTokens.space3
+    static let space4 = IsctTokens.space4
+    static let space5 = IsctTokens.space5
+    static let space6 = IsctTokens.space6
+    static let space7 = IsctTokens.space7
+    static let space8 = IsctTokens.space8
+    static let space9 = IsctTokens.space9
+    static let space10 = IsctTokens.space10
 
     /// Course colour strength of a block that occupies time, a quiz's
     /// included; an exam's deeper fill; text on a fill.
@@ -50,6 +63,7 @@ enum Theme {
     static let motionFast = IsctTokens.motionDurationFast
     static let motionBase = IsctTokens.motionDurationBase
     static let motionSlow = IsctTokens.motionDurationSlow
+    static let motionGuideTap = IsctTokens.motionDurationGuideTap
 
     /// The course colour mixed into `base` as a solid colour, as desktop's
     /// `color-mix`, so rules and bands under a block never show through.
@@ -107,7 +121,7 @@ extension Color {
     init(hex: String?) {
         let digits = (hex ?? "").trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard digits.count == 6, let value = UInt32(digits, radix: 16) else {
-            self = Theme.accent
+            self = Theme.muted
             return
         }
         self.init(
@@ -182,7 +196,7 @@ struct SectionLabel: View {
             .font(.section)
             .foregroundStyle(Theme.muted)
             .padding(.horizontal, Theme.rowX)
-            .padding(.top, 8)
+            .padding(.top, Theme.space4)
     }
 }
 
@@ -190,7 +204,7 @@ struct SectionLabel: View {
 struct CourseSquare: View {
     let color: String?
     var body: some View {
-        RoundedRectangle(cornerRadius: 3, style: .continuous)
+        RoundedRectangle(cornerRadius: Theme.radiusCourseMarker, style: .continuous)
             .fill(Color(hex: color))
             .frame(width: 10, height: 10)
     }

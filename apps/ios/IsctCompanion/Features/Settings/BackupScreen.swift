@@ -16,7 +16,7 @@ struct BackupScreen: View {
     @State private var importing = false
     @State private var notice: String?
 
-    private var state: SyncState? { model.cloud }
+    private var state: SyncState? { model.backup.state }
     private var providers: [ProviderState] { state?.providers ?? [] }
     private var locked: Bool { busy || state?.syncing == true }
 
@@ -50,7 +50,7 @@ struct BackupScreen: View {
         .navigationTitle(t("settings.main.backup"))
         .navigationBarTitleDisplayMode(.inline)
         .disabled(busy)
-        .task { await model.refreshCloud() }
+        .task { await model.backup.refresh() }
         .confirmationDialog(
             confirm?.message ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
             titleVisibility: .visible, presenting: confirm
@@ -77,9 +77,9 @@ struct BackupScreen: View {
             ForEach(providers, id: \.provider) { provider in
                 Toggle(isOn: Binding(
                     get: { provider.enabled },
-                    set: { on in run { await model.setCloudEnabled(provider.provider, on) } })
+                    set: { on in run { await model.backup.setEnabled(provider.provider, on) } })
                 ) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(Self.name(provider.provider))
                         if let detail = detail(provider) {
                             Text(detail).font(.subheadline)
@@ -92,9 +92,9 @@ struct BackupScreen: View {
             if providers.contains(where: \.enabled) {
                 Toggle(isOn: Binding(
                     get: { state?.automatic ?? false },
-                    set: { on in run { await model.setCloudAutomatic(on) } })
+                    set: { on in run { await model.backup.setAutomatic(on) } })
                 ) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(t("settings.backup.syncAutomatically"))
                         Text(state?.automatic == true
                             ? t("settings.backup.pullsOtherDevicesChangesWhen")
@@ -104,7 +104,7 @@ struct BackupScreen: View {
                 }
                 .disabled(locked)
                 HStack {
-                    Button(t("settings.backup.upload")) { run { await model.syncCloud(.upload) } }
+                    Button(t("settings.backup.upload")) { run { await model.backup.sync(.upload) } }
                         .buttonStyle(.borderless)
                     Spacer()
                     if state?.syncing == true {
@@ -112,7 +112,7 @@ struct BackupScreen: View {
                         Text(t("settings.backup.syncing")).foregroundStyle(Theme.muted)
                         Spacer()
                     }
-                    Button(t("settings.backup.pull")) { run { await model.syncCloud(.pull) } }
+                    Button(t("settings.backup.pull")) { run { await model.backup.sync(.pull) } }
                         .buttonStyle(.borderless)
                 }
                 .disabled(locked)
@@ -143,7 +143,7 @@ struct BackupScreen: View {
 
     private func restoreRow(_ title: String, detail: String?, id: String, savedAt: String) -> some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: Theme.space1) {
                 Text(title)
                 if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.muted) }
             }
@@ -153,7 +153,7 @@ struct BackupScreen: View {
                     "settings.backup.restoreTheVersionFromDate",
                     ["date": Format.due(savedAt)])
                 ) {
-                    await model.restoreCloud(id)
+                    await model.backup.restore(id)
                     notice = t("settings.backup.restoredTheEarlierVersion")
                 }
             }
@@ -172,7 +172,7 @@ struct BackupScreen: View {
     }
 
     private func export() async {
-        guard let text = await model.exportBackup() else { return }
+        guard let text = await model.backup.export() else { return }
         exporting = ExportFile(data: Data(text.utf8))
     }
 
@@ -182,7 +182,7 @@ struct BackupScreen: View {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            try await model.importBackup(try Data(contentsOf: url))
+            try await model.backup.importBackup(try Data(contentsOf: url))
             notice = t("settings.backup.backupRestored")
         } catch {
             notice = t("settings.backup.importFailedReason", ["reason": AppModel.describe(error)])

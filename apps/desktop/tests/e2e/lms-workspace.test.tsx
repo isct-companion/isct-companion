@@ -25,7 +25,7 @@ import {
 import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
 import type { LmsCourseRecord, LmsSection } from "@app/platform/desktop-bridge";
 import type { CourseContent, LessonItemKind } from "@app/generated/persistence";
-import type { CourseEntry } from "@app/features/lms/LmsWorkspace";
+import type { CourseEntry } from "@app/features/lms";
 
 /**
  * The LMS reading workspace and the readers it opens, over the scripted host.
@@ -50,6 +50,7 @@ const pdfjs = vi.hoisted(() => ({
 
 vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: {},
+  PasswordResponses: { NEED_PASSWORD: 1, INCORRECT_PASSWORD: 2 },
   getDocument: pdfjs.load,
   TextLayer: class {
     render() {
@@ -90,7 +91,7 @@ beforeEach(() => {
 });
 
 /**
- * Installs the scripted host, then loads the real module. `app/native` captures
+ * Installs the scripted host, then loads the real module. `platform/native` captures
  * its bridge at first import, so the fake host has to be in place first —
  * `mountApp` does the same thing for the shell.
  */
@@ -268,6 +269,7 @@ function contentFor(
         number: null,
         label: section.title,
         summaryHtml: section.bodyHtml ?? "",
+        originalSummaryHtml: null,
         summary: "",
         items: items.map((m) => ({
           materialId: m.id,
@@ -276,6 +278,7 @@ function contentFor(
           bodyHtml: ["page", "label", "forum"].includes(m.module ?? "")
             ? (m.bodyHtml ?? null)
             : null,
+          originalBodyHtml: null,
           source: m.url ?? m.resourceUrl ?? null,
           imageOnly: imageOnly.includes(m.id),
         })),
@@ -285,6 +288,14 @@ function contentFor(
         posted: items.length > 0,
       };
     }),
+    materialReaderHtml: Object.fromEntries(
+      materials.flatMap((m) =>
+        m.bodyHtml &&
+        !["page", "label", "forum", "assign", "quiz"].includes(m.module ?? "")
+          ? [[m.id, { preferred: m.bodyHtml, original: null }]]
+          : [],
+      ),
+    ),
     otherAssignmentIds: f.workspace.assignments
       .filter((a) => !placed(a))
       .map((a) => a.id),
@@ -368,7 +379,6 @@ async function openWorkspace(
     entry: { courseId: fixture.course.id, request: 1, ...options.entry },
     active: options.active ?? true,
     schoolWebAvailable: options.schoolWebAvailable ?? false,
-    close: () => {},
     markLesson: options.markLesson,
   };
   const view = await mount(
@@ -520,7 +530,7 @@ describe("the LMS reading workspace", () => {
 
     const rail = () => [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     // Core's labels, as they are: a recitation keeps its own word.
@@ -547,7 +557,7 @@ describe("the LMS reading workspace", () => {
     );
     // 一般 has no number, and the report belongs to no lesson: both are tabs.
     expect(
-      [...host.querySelectorAll(".lmsRailTab")].map((tab) => tab.textContent),
+      [...host.querySelectorAll(".lmsSectionTab")].map((tab) => tab.textContent),
     ).toEqual(["一般", "Activities"]);
 
     await click(rail()[0]);
@@ -618,6 +628,152 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
+  it("opens every ZIP in the outline with its files, each opening like an item", async () => {
+    const f = lectureFixture();
+    const zip =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
+    const readme = `${zip}#entry=OOP-2A/README.md`;
+    const report = `${zip}#entry=OOP-2A/report.docx`;
+    // An assignment's attachment in the section text, and a resource whose
+    // address does not say it is a ZIP until Core opens it.
+    const attached =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/OOP-1B-problem.zip";
+    const resource =
+      "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=55";
+    f.record.sections![0].bodyHtml = `<p><a href="${attached}">OOP 1B problem</a></p>`;
+    f.workspace.materials = [
+      material({ bodyHtml: undefined, title: "OOP 2A", resourceUrl: zip }),
+      material({
+        id: "m2",
+        bodyHtml: undefined,
+        title: "Day 3 handout",
+        resourceUrl: resource,
+      }),
+    ];
+    const { core, host } = await openWorkspace(f, {
+      entry: { request: 97 },
+      handle: (command, args) => {
+        if (command !== "open_course_material") return undefined;
+        const page = { site: "science-lms", url: zip };
+        if (args.url === readme)
+          return {
+            state: "ready",
+            file: {
+              id: readme,
+              name: "README-1a2b3c4d.md",
+              section: "",
+              path: "/course/README-1a2b3c4d.md",
+              bytes: 6,
+              cached: true,
+              viewer: "markdown",
+              text: "# Task",
+            },
+            page,
+          };
+        if (args.url === report) return { state: "missing", page };
+        return {
+          state: "archive",
+          file: {
+            id: zip,
+            name: "OOP-2A-problem-0011aabb.zip",
+            section: "",
+            path: "/course/OOP-2A-problem-0011aabb.zip",
+            bytes: 4096,
+            cached: true,
+            viewer: "external",
+          },
+          files: [
+            { name: "OOP-2A/README.md", url: readme, bytes: 6 },
+            { name: "OOP-2A/report.docx", url: report, bytes: 9000 },
+          ],
+          page,
+        };
+      },
+    });
+    const folder = (title: string) =>
+      [...host.querySelectorAll(".lmsFolder")].find(
+        (row) => row.querySelector(":scope > button b")?.textContent === title,
+      );
+    const toggle = (title: string) =>
+      click(
+        folder(title)!.querySelector<HTMLButtonElement>(":scope > button")!,
+      );
+    const listed = (title: string) =>
+      folder(title)?.querySelectorAll(".lmsFolderFiles > .lmsFolderFile")
+        .length ?? 0;
+
+    // Every ZIP is a folder row: the resource, and the attachment linked in
+    // the section text in place of its card.
+    for (const title of ["OOP 2A", "OOP 1B problem"])
+      expect(
+        folder(title)
+          ?.querySelector(".lmsFileTile")
+          ?.getAttribute("data-family"),
+        title,
+      ).toBe("folder");
+    expect(
+      [...host.querySelectorAll("a")].some(
+        (a) => a.getAttribute("href") === attached,
+      ),
+    ).toBe(false);
+
+    await toggle("OOP 2A");
+    await waitFor(() => expect(listed("OOP 2A")).toBe(2));
+    // The archive is downloaded to read its files, within the automatic limit.
+    expect(core.commands("open_course_material")[0].args).toMatchObject({
+      url: zip,
+      download: true,
+      limit: LIMIT,
+    });
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+
+    // A file the reader cannot show is its card at the row…
+    const [readmeRow, reportRow] = folder(
+      "OOP 2A",
+    )!.querySelectorAll<HTMLButtonElement>(".lmsFolderFiles > .lmsFolderFile");
+    await click(reportRow);
+    await waitFor(() =>
+      expect(
+        host.querySelector(".lmsFilePopover .lmsFileCard h3")?.textContent,
+      ).toBe("OOP-2A/report.docx"),
+    );
+    await act(async () => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    // …and one it can opens in the reader.
+    await click(readmeRow);
+    await waitFor(() =>
+      expect(host.querySelector(".lmsViewer h1")?.textContent).toBe("Task"),
+    );
+    await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
+    await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
+
+    // The linked ZIP opens and folds like the folder it is.
+    await toggle("OOP 1B problem");
+    await waitFor(() => expect(listed("OOP 1B problem")).toBe(2));
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+    expect(
+      core
+        .commands("open_course_material")
+        .some(({ args }) => args.url === attached && args.download === true),
+    ).toBe(true);
+    await toggle("OOP 1B problem");
+    expect(listed("OOP 1B problem")).toBe(0);
+
+    // A resource Core answers as a ZIP leaves the reader for its row, which
+    // now opens and folds like a folder.
+    await click(itemRow(host, "Day 3 handout"));
+    await waitFor(() =>
+      expect(
+        folder("Day 3 handout")
+          ?.querySelector(":scope > button")
+          ?.getAttribute("aria-expanded"),
+      ).toBe("true"),
+    );
+    expect(host.querySelector(".lmsViewer")).toBeNull();
+    await waitFor(() => expect(listed("Day 3 handout")).toBe(2));
+  }, 30_000);
+
   it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {
     const f = lectureFixture();
     Object.assign(f.workspace.materials[0], {
@@ -646,16 +802,17 @@ describe("the LMS reading workspace", () => {
     expect(host.querySelector(".lmsViewer")).toBeNull();
   }, 30_000);
 
-  it("filters bilingual school text by the content language, and shows the original on request", async () => {
+  it("shows Core’s preferred course text and opens the original on request", async () => {
     const f = lectureFixture();
     f.workspace.settings.locale = "en";
     f.workspace.settings.lmsBilingualFilter = true;
-    f.record.sections![0].bodyHtml =
+    const content = contentFor(f);
+    content.lessons[0].originalSummaryHtml =
       '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
-    // Core reads the content language from settings and names it here.
+    content.lessons[0].summaryHtml = '<p lang="ja">日本語の概要</p>';
     const { host } = await openWorkspace(f, {
       entry: { request: 700 },
-      detail: { contentLanguage: "ja" },
+      content,
     });
 
     const body = () => host.querySelector(".lmsSectionBody")?.textContent ?? "";
@@ -669,61 +826,6 @@ describe("the LMS reading workspace", () => {
       ),
     );
   }, 30_000);
-
-  it("filters only complete paired labels and keeps mixed continuation and code", async () => {
-    const paired =
-      "<p>授業計画：NPDA<br>課題：状態遷移<br>Course schedule: NPDA<br>Objectives: transitions</p>";
-    const mixed = paired.replace(
-      "課題：状態遷移",
-      "課題：状態遷移<br>Important unique notice",
-    );
-    const code =
-      "<pre><code>授業計画：NPDA<br>Course schedule: NPDA</code></pre>";
-
-    const english = async (bodyHtml: string) => {
-      const f = lectureFixture();
-      f.workspace.settings.locale = "en";
-      f.workspace.settings.lmsBilingualFilter = true;
-      f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, {
-        entry: { request: 701 },
-        detail: { contentLanguage: "en" },
-      });
-      return host.querySelector(".lmsSectionBody")?.textContent ?? "";
-    };
-
-    const filtered = await english(paired);
-    expect(filtered).not.toContain("授業計画");
-    expect(filtered).toContain("Objectives");
-
-    const withContinuation = await english(mixed);
-    expect(withContinuation).toContain("授業計画");
-    expect(withContinuation).toContain("Important unique notice");
-
-    const withCode = await english(code);
-    expect(withCode).toContain("授業計画");
-  }, 60_000);
-
-  it("falls back to the school language that is present when the preferred blocks are absent", async () => {
-    const only = async (bodyHtml: string, contentLanguage: "ja" | "en") => {
-      const f = lectureFixture();
-      f.workspace.settings.locale = "en";
-      f.workspace.settings.lmsBilingualFilter = true;
-      f.record.sections![0].bodyHtml = bodyHtml;
-      const { host } = await openWorkspace(f, {
-        entry: { request: 702 },
-        detail: { contentLanguage },
-      });
-      return host.querySelector(".lmsSectionBody")?.textContent ?? "";
-    };
-
-    expect(
-      await only('<p lang="en">English-only announcement</p>', "ja"),
-    ).toContain("English-only announcement");
-    expect(await only('<p lang="ja">日本語のみ</p>', "en")).toContain(
-      "日本語のみ",
-    );
-  }, 60_000);
 
   it("opens an announcement in the reader without expanding its body in the outline", async () => {
     const f = lectureFixture();
@@ -740,9 +842,7 @@ describe("the LMS reading workspace", () => {
         .querySelector(".lmsOutline")
         ?.contains(host.querySelector('[aria-label="Search course content"]')),
     ).toBe(true);
-    expect(
-      host.querySelector(".lmsWorkspaceTools")?.querySelector("input"),
-    ).toBeNull();
+    expect(host.querySelector(".lmsLessonRail input")).toBeNull();
     expect(host.querySelector(".lmsViewer")).toBeNull();
     const card = host.querySelector<HTMLElement>(".lmsAnnouncementCard")!;
     expect(card.textContent).toContain("Classroom change");
@@ -777,6 +877,7 @@ describe("the LMS reading workspace", () => {
       notice: null,
       access: null,
       signIn: false,
+      outside: false,
       otp: null,
     };
     let snapshot: unknown = page;
@@ -815,6 +916,10 @@ describe("the LMS reading workspace", () => {
         "/2025/mod/forum/view.php",
       ),
     );
+    const openInBrowser = () =>
+      host.querySelector('.lmsWebToolbar a[aria-label="Open in browser"]');
+    // On a school page Open in browser is an icon…
+    expect(openInBrowser()?.textContent).toBe("");
     const back = () =>
       host.querySelector<HTMLButtonElement>(
         '.lmsWebToolbar button[aria-label="Previous page"]',
@@ -834,6 +939,7 @@ describe("the LMS reading workspace", () => {
         revision: 5,
         url: form,
         back: "yes",
+        outside: true,
       });
       core.emit("school-web-page", { ...page, revision: 4 });
     });
@@ -843,11 +949,10 @@ describe("the LMS reading workspace", () => {
       ),
     );
     expect(back()?.disabled).toBe(false);
-    expect(
-      host
-        .querySelector('.lmsWebToolbar a[aria-label="Open in browser"]')
-        ?.getAttribute("href"),
-    ).toBe(form);
+    expect(openInBrowser()?.getAttribute("href")).toBe(form);
+    // …and named outside the school, where the view has none of the
+    // person's own accounts.
+    expect(openInBrowser()?.textContent).toBe("Open in browser");
 
     // Covered and shown again, the reader returns to its activity; Core
     // decides whether that leaves the view as it is.
@@ -911,8 +1016,8 @@ describe("the LMS reading workspace", () => {
   it("keeps an unpreviewable attachment in the outline as a popover card", async () => {
     const f = lectureFixture();
     const url =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.zip?forcedownload=1";
-    f.record.sections![0].bodyHtml = `<p><a href="${url}">Report ZIP</a></p>`;
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.rar?forcedownload=1";
+    f.record.sections![0].bodyHtml = `<p><a href="${url}">Report RAR</a></p>`;
     const popup = vi.spyOn(window, "open").mockReturnValue(null);
     const { host } = await openWorkspace(f, { entry: { request: 601 } });
 
@@ -920,14 +1025,14 @@ describe("the LMS reading workspace", () => {
       [...host.querySelectorAll("a")].find(
         (link) =>
           link.querySelector(".lmsAttachmentName")?.textContent ===
-          "Report ZIP",
+          "Report RAR",
       )!,
     );
     await waitFor(() =>
       expect(
         host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")
           ?.textContent,
-      ).toBe("Report ZIP"),
+      ).toBe("Report RAR"),
     );
     expect(popup).not.toHaveBeenCalled();
     expect(host.querySelector(".lmsViewer")).toBeNull();
@@ -963,12 +1068,12 @@ describe("the LMS reading workspace", () => {
 
     await waitFor(() =>
       expect(
-        host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+        host.querySelectorAll(".lmsLessonRail button"),
       ).toHaveLength(3),
     );
     const rail = [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     // Core puts the course at 第2回: it and the lessons before it are held.
@@ -1028,7 +1133,7 @@ describe("the LMS reading workspace", () => {
     });
     const rail = () => [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     const held = () =>
@@ -1051,16 +1156,14 @@ describe("the LMS reading workspace", () => {
     const { host } = await openWorkspace(f, {
       entry: { request: 3, assignmentId: "a1" },
       tasks: {
-        submittedIds: ["a1"],
+        states: { a1: "submitted" },
         deadlines: {
           a1: {
             at: "2026-10-10T09:00:00+09:00",
-            label: "Due 10 Oct, 09:00",
-            tone: "normal",
-            remainingMilliseconds: 172800000,
-            countdownLabel: "2d",
+            units: [{ unit: "days", count: 2 }],
+            state: "remaining",
             countdownTone: "soon",
-            overdue: false,
+            nextChangeAt: null,
           },
         },
         nearestByCourse: {},
@@ -1160,7 +1263,6 @@ describe("the LMS reading workspace", () => {
       ).toMatchObject({
         path: workspace.path,
         assignment: "a1",
-        url: f.workspace.assignments[0].sourceUrl,
       });
       if (outcome === "failed") {
         expect(host.textContent).toContain("The submit folder is empty.");
@@ -1304,6 +1406,7 @@ describe("the LMS reading workspace", () => {
                 path: `/course/${String(args.url).split("/").pop()}`,
                 bytes: 10,
                 cached: true,
+                viewer: "pdf",
               },
             }
           : undefined,
@@ -1427,7 +1530,6 @@ describe("the LMS reading workspace", () => {
         entry={{ courseId: f.course.id, request: 1 }}
         active={active}
         schoolWebAvailable={false}
-        close={() => {}}
       />
     );
     const view = await mount(node(false));
@@ -1528,7 +1630,12 @@ describe("the file preview pipeline", () => {
   async function openPreview(
     url: string,
     handle: (command: string, args: Record<string, unknown>) => unknown,
-    props: { title?: string; openPage?: (page: unknown) => void } = {},
+    props: {
+      title?: string;
+      openPage?: (page: unknown) => void;
+      openWeb?: (url: string) => void;
+      openFile?: (url: string, name: string) => void;
+    } = {},
   ) {
     const { core, real } = await scriptedHost(
       {
@@ -1547,6 +1654,8 @@ describe("the file preview pipeline", () => {
         courseId={COURSE_ID}
         limit={LIMIT}
         openPage={props.openPage ?? (() => undefined)}
+        openWeb={props.openWeb ?? (() => undefined)}
+        openFile={props.openFile}
       />,
     );
     views.push(view);
@@ -1567,6 +1676,7 @@ describe("the file preview pipeline", () => {
                 path: "/course/a.txt",
                 bytes: 14,
                 cached: true,
+                viewer: "text",
                 text: "Lecture notes",
               },
             }
@@ -1596,6 +1706,81 @@ describe("the file preview pipeline", () => {
     });
   }, 30_000);
 
+  it("asks for a protected PDF's password, again when it is wrong, then shows its pages", async () => {
+    pdfjs.load.mockReset();
+    pdfjs.render.mockReset();
+    pdfjs.render.mockReturnValue({
+      promise: Promise.resolve(),
+      cancel: vi.fn(),
+    });
+    let opened: (doc: unknown) => void = () => undefined;
+    const task: {
+      promise: Promise<unknown>;
+      destroy: () => Promise<void>;
+      onPassword?: (unlock: (password: string) => void, reason: number) => void;
+    } = {
+      promise: new Promise((resolve) => (opened = resolve)),
+      destroy: vi.fn(async () => undefined),
+    };
+    pdfjs.load.mockReturnValue(task);
+    const { host } = await openPreview(
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/exam.pdf",
+      (command) =>
+        command === "open_course_material"
+          ? {
+              state: "ready",
+              file: {
+                id: "f1",
+                name: "exam-1a2b3c4d.pdf",
+                section: "section-91",
+                path: "/course/exam-1a2b3c4d.pdf",
+                bytes: 10,
+                cached: true,
+                viewer: "pdf",
+              },
+            }
+          : undefined,
+    );
+    await waitFor(() => expect(task.onPassword).toBeTypeOf("function"));
+    const unlock = vi.fn();
+    // PDF.js asks for the open password as a browser's viewer does.
+    await act(async () => task.onPassword!(unlock, 1));
+    const field = () =>
+      host.querySelector<HTMLInputElement>(".lmsPdfPassword input")!;
+    await waitFor(() => expect(field()).not.toBeNull());
+    expect(host.querySelector(".lmsPdfPassword [role=alert]")).toBeNull();
+    await typeInto(field(), "wrong");
+    await click(buttonByText(host, "Open"));
+    expect(unlock).toHaveBeenLastCalledWith("wrong");
+    await act(async () => task.onPassword!(unlock, 2));
+    await waitFor(() =>
+      expect(
+        host.querySelector(".lmsPdfPassword [role=alert]")?.textContent,
+      ).toContain("not right"),
+    );
+    await typeInto(field(), "secret");
+    await click(buttonByText(host, "Open"));
+    expect(unlock).toHaveBeenLastCalledWith("secret");
+    await act(async () =>
+      opened({
+        numPages: 1,
+        getPage: vi.fn(async () => ({
+          getViewport: ({ scale }: { scale: number }) => ({
+            width: 600 * scale,
+            height: 800 * scale,
+          }),
+          render: pdfjs.render,
+          cleanup: vi.fn(),
+          streamTextContent: () => ({}),
+        })),
+      }),
+    );
+    await waitFor(() =>
+      expect(host.querySelectorAll("canvas")).toHaveLength(1),
+    );
+    expect(host.querySelector(".lmsPdfPassword")).toBeNull();
+  }, 30_000);
+
   it("renders a previewable image from the local file URL", async () => {
     const { host } = await openPreview(
       "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/pic.png",
@@ -1610,6 +1795,7 @@ describe("the file preview pipeline", () => {
                 path: "/course/pic.png",
                 bytes: 10,
                 cached: true,
+                viewer: "image",
               },
             }
           : undefined,
@@ -1622,6 +1808,90 @@ describe("the file preview pipeline", () => {
     expect(
       host.querySelector("img.lmsImagePreview")?.getAttribute("src"),
     ).toContain("/course/pic.png");
+  }, 30_000);
+
+  it("lists a ZIP's files and opens each as a course file of its own", async () => {
+    const zip =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/OOP-2A-problem.zip";
+    const makefile = `${zip}#entry=OOP-2A/Makefile`;
+    const openFile = vi.fn();
+    const { core, host } = await openPreview(
+      zip,
+      (command, args) => {
+        if (command !== "open_course_material") return undefined;
+        if (args.url === makefile)
+          return {
+            state: "ready",
+            file: {
+              id: makefile,
+              name: "Makefile-1a2b3c4d",
+              section: "",
+              path: "/course/Makefile-1a2b3c4d",
+              bytes: 4,
+              cached: true,
+              viewer: "text",
+              text: "all:",
+            },
+            page: { site: "science-lms", url: zip },
+          };
+        return {
+          state: "archive",
+          file: {
+            id: zip,
+            name: "OOP-2A-problem-0011aabb.zip",
+            section: "",
+            path: "/course/OOP-2A-problem-0011aabb.zip",
+            bytes: 4096,
+            cached: true,
+            viewer: "external",
+          },
+          files: [
+            {
+              name: "OOP-2A/README.md",
+              url: `${zip}#entry=OOP-2A/README.md`,
+              bytes: 2048,
+            },
+            { name: "OOP-2A/Makefile", url: makefile, bytes: 4 },
+          ],
+          page: { site: "science-lms", url: zip },
+        };
+      },
+      { title: "Problem", openFile },
+    );
+
+    await waitFor(() => expect(host.textContent).toContain("README.md"));
+    expect(host.textContent).toContain("OOP-2A · MD · 2 KB");
+    await click(itemRow(host, "Makefile"));
+    expect(openFile).toHaveBeenCalledWith(makefile, "OOP-2A/Makefile");
+    // The archive itself keeps its file actions.
+    await click(buttonByText(host, "Show in folder"));
+    await waitFor(() =>
+      expect(core.commands("open_course_file")[0]?.args).toMatchObject({
+        path: "/course/OOP-2A-problem-0011aabb.zip",
+        reveal: true,
+      }),
+    );
+
+    // A file of no known type that reads as text shows as text.
+    const entry = await openPreview(makefile, (command, args) =>
+      command === "open_course_material" && args.url === makefile
+        ? {
+            state: "ready",
+            file: {
+              id: makefile,
+              name: "Makefile-1a2b3c4d",
+              section: "",
+              path: "/course/Makefile-1a2b3c4d",
+              bytes: 4,
+              cached: true,
+              viewer: "text",
+              text: "all:",
+            },
+            page: { site: "science-lms", url: zip },
+          }
+        : undefined,
+    );
+    await waitFor(() => expect(entry.host.textContent).toContain("all:"));
   }, 30_000);
 
   it("shows an oversized file's size and previews it explicitly on request", async () => {
@@ -1642,6 +1912,7 @@ describe("the file preview pipeline", () => {
                 path: "/course/big.txt",
                 bytes: 9,
                 cached: true,
+                viewer: "text",
                 text: "Chapter 1",
               },
             };
@@ -1684,6 +1955,31 @@ describe("the file preview pipeline", () => {
         "opens the signed-in LMS here",
       ),
     );
+  }, 30_000);
+
+  it("opens a page outside the school sites in the reader's web view", async () => {
+    const f = lectureFixture();
+    const outside = "https://example.org/lecture-video";
+    f.workspace.materials = [
+      material({ bodyHtml: undefined, module: "url", resourceUrl: outside }),
+    ];
+    const popup = vi.spyOn(window, "open").mockReturnValue(null);
+    const { host } = await openWorkspace(f, {
+      entry: { request: 605 },
+      handle: (command) =>
+        command === "open_course_material"
+          ? { state: "external", url: outside }
+          : undefined,
+    });
+
+    await click(itemRow(host, "Lecture file"));
+    await waitFor(() =>
+      expect(host.querySelector(".lmsWebAddress")?.textContent).toContain(
+        "example.org",
+      ),
+    );
+    expect(host.querySelector(".lmsOfficialHost")).not.toBeNull();
+    expect(popup).not.toHaveBeenCalled();
   }, 30_000);
 
   it.each([
@@ -1753,6 +2049,7 @@ describe("the note editor", () => {
               path: "note",
               bytes: 7,
               cached: true,
+              viewer: "markdown",
               text: "initial",
             };
           if (command === "save_course_note") {
@@ -1766,6 +2063,7 @@ describe("the note editor", () => {
                   path: "note",
                   bytes: 7,
                   cached: false,
+                  viewer: "markdown",
                 };
           }
           if (command === "move_course_note") return null;
@@ -1849,6 +2147,7 @@ describe("the note editor", () => {
               path: "note",
               bytes: 7,
               cached: false,
+              viewer: "markdown",
             },
     });
     await note.edit(" keep me");
@@ -1917,7 +2216,7 @@ describe("the PDF viewer", () => {
   async function openPdf() {
     const { real } = await scriptedHost(
       { workspace: workspaceFixture() },
-      () => import("@app/features/lms/PdfDocument"),
+      () => import("@app/components/files/PdfDocument"),
     );
     function RetainedPdf() {
       const [visible, setVisible] = useState(true);
@@ -2156,6 +2455,87 @@ describe("the PDF viewer", () => {
   }, 30_000);
 });
 
+describe("a past exam's Markdown document", () => {
+  it("opens formatted, read-only, with every formula set by KaTeX", async () => {
+    await scriptedHost(
+      { workspace: workspaceFixture() },
+      async () => undefined,
+    );
+    const source = [
+      "# 問1",
+      "",
+      "Inline $E=mc^2$ and \\(x^2\\).",
+      "",
+      "\\[",
+      "\\int_0^1 x\\,dx",
+      "\\]",
+      "",
+      // Written for Markdown to unescape: every backslash doubled.
+      "Velocity \\\\(v^{\\\\prime} \\\\rightarrow v\\\\).",
+    ].join("\n");
+    const fetch = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response(source));
+    const { ExamReader } = await import("@app/pages/past-exams/ExamReader");
+    const view = await mount(
+      <ExamReader
+        file={{
+          document: {
+            id: "exam-1",
+            subjects: [],
+            teachers: [],
+            academicYear: 2025,
+            occasion: null,
+            occasionNumber: 1,
+            variant: "",
+            role: null,
+            note: null,
+            fileName: "midterm.md",
+            fileType: "text/plain",
+            number: null,
+          },
+          path: "/cache/exam-1",
+          downloaded: false,
+          saved: null,
+          offline: true,
+          webUrl: "https://example.test/exam-1",
+          viewer: "markdown",
+          exportName: "midterm.md",
+        }}
+        title="Midterm"
+        call={async () => undefined}
+        setFile={() => undefined}
+        onLibraryChanged={() => undefined}
+        close={() => undefined}
+      />,
+    );
+    views.push(view);
+    const prose = await waitFor(() => {
+      const found = view.host.querySelector(
+        ".lmsMarkdownDocument .ProseMirror",
+      );
+      expect(found).not.toBeNull();
+      return found!;
+    });
+    expect(fetch).toHaveBeenCalled();
+    expect(prose.querySelector("h1")?.textContent).toBe("問1");
+    // Both inline forms render; the display formula is a LaTeX block.
+    expect(prose.querySelectorAll("p .katex")).toHaveLength(3);
+    // KaTeX set the arrow, not the command's name as italic letters.
+    const doubled = [...prose.querySelectorAll("p")].at(-1)!;
+    expect(doubled.querySelector(".katex-mathml annotation")?.textContent).toBe(
+      "v^{\\prime} \\rightarrow v",
+    );
+    expect(doubled.querySelector(".katex-html")?.textContent).toContain("→");
+    expect(prose.querySelector(".milkdown-code-block")?.textContent).toContain(
+      "\\int_0^1 x\\,dx",
+    );
+    expect(prose.getAttribute("contenteditable")).toBe("false");
+    expect(view.host.querySelector(".examDocumentText")).toBeNull();
+    fetch.mockRestore();
+  }, 40_000);
+});
+
 describe("the markdown editor", () => {
   async function openMarkdown(
     value: string,
@@ -2167,7 +2547,7 @@ describe("the markdown editor", () => {
     );
     const { Editor, editorViewCtx } = await import("@milkdown/kit/core");
     const { MarkdownDocument } =
-      await import("@app/features/lms/MarkdownDocument");
+      await import("@app/components/files/MarkdownDocument");
     const editors: InstanceType<typeof Editor>[] = [];
     const make = Editor.make.bind(Editor);
     vi.spyOn(Editor, "make").mockImplementation(() => {

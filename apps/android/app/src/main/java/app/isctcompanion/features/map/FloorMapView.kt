@@ -504,8 +504,8 @@ private class FloorPainter(private val view: MapView) {
         const val SCALE_DP = 20f
         /** The page's control size, gap and side inset (`CampusMapScreen`). */
         const val CONTROL_DP = 44
-        const val CONTROL_GAP_DP = 8
-        const val PAGE_INSET_DP = 12
+        val CONTROL_GAP_DP = Theme.space4.value
+        val PAGE_INSET_DP = Theme.space6.value
         /** Room between the visible part's edges and what a framing shows. */
         const val FRAMING_MARGIN_DP = 16
         const val FRAMING_MS = 400

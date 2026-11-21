@@ -98,6 +98,11 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::SubmissionUnsupported
         | C::ExamUnavailable => SdkError::Unavailable { detail },
         C::InvalidInput
+        | C::ExamShareUploadNoFiles
+        | C::ExamShareUploadTeacherName
+        | C::ExamShareUploadTeacherLength
+        | C::ExamShareUploadVariantLength
+        | C::ExamShareUploadNoteLength
         | C::ExamShareUploadFile
         | C::ExamShareUploadMixed
         | C::ExamShareUploadSize
@@ -119,6 +124,7 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::LmsNotEnrolled
         | C::WorkspaceFolderMissing
         | C::HandInFilesOnly
+        | C::HandInUnavailable
         | C::HandInEmpty
         | C::HandInNeedsZip
         | C::HandInTooLarge

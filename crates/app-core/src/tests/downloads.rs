@@ -434,11 +434,14 @@ async fn a_school_file_is_staged_under_the_responses_name() {
             path,
             name,
             mime_type,
+            viewer,
         } = file
         else {
             panic!("{file:?}");
         };
         assert_eq!(mime_type, "application/pdf");
+        // A shell whose web view shows no PDF opens it in the app's reader.
+        assert_eq!(viewer, crate::file_preview::Viewer::Pdf);
         assert_eq!(std::fs::read(&path).unwrap(), b"%PDF-1.7");
         saved.push(name);
     }

@@ -24,8 +24,8 @@ struct CourseDetailScreen: View {
         let course = model.records.courses[courseId] ?? [:]
         let title = course.text("title") ?? ""
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: Theme.space7) {
+                VStack(alignment: .leading, spacing: Theme.space3) {
                     Text(title)
                         .font(.largeTitle.bold())
                         .foregroundStyle(Theme.ink)
@@ -51,8 +51,8 @@ struct CourseDetailScreen: View {
                     SkeletonRows(rows: 4)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            .padding(.horizontal, Theme.gutter)
+            .padding(.bottom, Theme.space10)
         }
         .background(Theme.bg)
         .refreshable {
@@ -216,7 +216,7 @@ struct CourseDetailScreen: View {
     /// once Core can place its string.
     private func roomLinks(_ course: [String: Any]) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.space4) {
                 ForEach(rooms(course), id: \.self) { room in
                     RoomMapButton(room: room) {
                         LinkChip(title: room, icon: "map").lineLimit(1)
@@ -269,7 +269,7 @@ struct CourseDetailScreen: View {
 
     @ViewBuilder
     private func links(title: String) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.space4) {
             if let lms = detail?.lmsUrl {
                 NavigationLink(value: WebRouter.PushedPage(site: .scienceLms, target: lms, title: title)) {
                     LinkChip(title: "LMS", icon: "globe")
@@ -311,7 +311,7 @@ private struct LessonChips: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .top, spacing: Theme.space3) {
                     ForEach(lessons, id: \.section) { lesson in
                         chip(lesson)
                     }
@@ -333,7 +333,7 @@ private struct LessonChips: View {
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
                     .frame(minWidth: 34, maxWidth: 160)
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, Theme.space5)
                     .padding(.vertical, 7)
                     .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
                     .background(selected ? Theme.accent : Theme.surface, in: Capsule())
@@ -364,7 +364,7 @@ private struct LessonPage: View {
     @Binding var opened: Set<String>
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Theme.space7) {
             // Headed by the plan's first line, as a desktop lesson is, else
             // by its title.
             if let heading = lesson.flatMap({ $0.summary.isEmpty ? $0.title : .some($0.summary) }), !heading.isEmpty {
@@ -373,7 +373,7 @@ private struct LessonPage: View {
                     .foregroundStyle(Theme.ink)
             }
             if let summary = lesson?.summaryHtml, !summary.isEmpty {
-                HTMLText(html: summary, courseId: courseId)
+                HTMLText(html: summary, courseId: courseId, originalHTML: lesson?.originalSummaryHtml)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
@@ -396,7 +396,7 @@ private struct LessonPage: View {
                 Text(t("common.assignments"))
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(Theme.muted)
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, Theme.space8)
                 ForEach(work, id: \.assignmentId) { assignment in
                     AssignmentCard(
                         assignment: assignment,
@@ -420,8 +420,8 @@ private struct LinkChip: View {
     var body: some View {
         Label(title, systemImage: icon)
             .font(.footnote.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, Theme.space5)
+            .padding(.vertical, Theme.space3)
             .foregroundStyle(Theme.accent)
             .background(Theme.accentSoft, in: Capsule())
     }
@@ -433,7 +433,7 @@ private struct InlineItem: View {
     let courseId: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Theme.space4) {
             switch item.kind {
             case .page:
                 Text(item.title).font(.headline).foregroundStyle(Theme.ink)
@@ -442,7 +442,7 @@ private struct InlineItem: View {
             default:
                 EmptyView()
             }
-            if let html = item.bodyHtml { HTMLText(html: html, courseId: courseId) }
+            if let html = item.bodyHtml { HTMLText(html: html, courseId: courseId, originalHTML: item.originalBodyHtml) }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

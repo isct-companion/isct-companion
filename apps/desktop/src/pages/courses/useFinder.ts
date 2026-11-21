@@ -1,6 +1,7 @@
+import { errorText } from "../../lib/error-text";
 import { useEffect, useReducer, useRef } from "react";
 
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import {
   finderQuery,
   type FinderAction,
@@ -13,9 +14,6 @@ import { useWorkspace } from "../../store/useWorkspace";
 const PAGE = 100;
 /** Core's largest page; a refresh keeps at most this many loaded rows. */
 const MOST = 1000;
-
-const message = (reason: unknown) =>
-  reason instanceof Error ? reason.message : String(reason);
 
 /**
  * The finder's one owner, shared by the timetable (slot highlight, placed
@@ -145,7 +143,7 @@ export function useFinder({
       commit(page.commitKey);
   };
   const fail = (reason: unknown) => {
-    s.error = message(reason);
+    s.error = errorText(reason, { nativeMessage: false }) ?? String(reason);
     render();
   };
   function search(limit = PAGE) {
@@ -187,7 +185,7 @@ export function useFinder({
     s.tail = run.catch(() => undefined);
     void run
       .catch((reason) => {
-        if (generation === s.generation) s.error = message(reason);
+        if (generation === s.generation) s.error = errorText(reason, { nativeMessage: false }) ?? String(reason);
       })
       .finally(() => {
         if (generation !== s.generation) return;
@@ -315,7 +313,7 @@ export function useFinder({
             s.rows = [...s.rows, ...more.rows];
           },
           (reason) => {
-            if (sent === s.sent) s.error = message(reason);
+            if (sent === s.sent) s.error = errorText(reason, { nativeMessage: false }) ?? String(reason);
           },
         )
         .finally(() => {

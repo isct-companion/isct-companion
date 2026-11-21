@@ -1,14 +1,7 @@
-import { Activity, createContext, use, useState, type ReactNode } from "react";
+import { Activity, use, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-const PageLayer = createContext<HTMLElement | null>(null);
-const TopPageLayer = createContext<HTMLElement | null>(null);
-
-/** All page overlays, including Radix portals, mount in this retained layer. */
-export const usePageLayer = () => use(PageLayer) ?? document.body;
-
-/** The outermost page's layer, for overlays that cover the whole window. */
-export const useTopPageLayer = () => use(TopPageLayer) ?? document.body;
+import { PageLayer, TopPageLayer } from "../components/ui/page-layer";
 
 /**
  * One retained page. `<Activity>` hides a page by hiding its own DOM, so a

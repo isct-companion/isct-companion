@@ -1,5 +1,5 @@
 /* The pane and tool bar that embedded web pages and the document reader
-   share. The reader's own header and tools are features/lms/reader.css. */
+   share. The reader's own header and tools are components/files/reader.css. */
 .workspacePane {
   display: flex;
   flex-direction: column;
@@ -16,10 +16,10 @@
   display: flex;
   align-items: flex-start;
   flex: 0 0 auto;
-  gap: 8px;
+  gap: var(--space-4);
   min-width: 0;
   min-height: var(--workspace-bar-height);
-  padding: 6px 8px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--line);
   background: var(--surface-3);
 }
@@ -28,7 +28,7 @@
   flex: 1 1 auto;
   align-items: baseline;
   min-width: 0;
-  padding: 4px 10px;
+  padding: var(--space-2) var(--space-5);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface);
@@ -53,8 +53,8 @@
 .lmsMarkdownTools {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding-top: 6px;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
 }
 .lmsMarkdownTools button {
   min-width: 30px;
@@ -66,27 +66,4 @@
 .lmsMarkdownTools button:hover {
   background: var(--accent-soft);
 }
-.webWorkspace .webToolbar {
-  flex: 0 0 auto;
-  min-height: var(--workspace-bar-height);
-  padding: 4px 8px;
-  border: 0;
-  border-bottom: 1px solid var(--line);
-  border-radius: 0;
-}
-.webWorkspace .webAddress {
-  min-height: var(--workspace-control-height);
-  padding-left: 8px;
-  border-radius: var(--radius-control);
-  background: var(--surface);
-}
-.servicesBody .webWorkspace .webHost {
-  flex: 1;
-  border: 0;
-  border-radius: 0;
-}
-@container workspace (max-width: 520px) {
-  .webToolbar {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-  }
-}
+

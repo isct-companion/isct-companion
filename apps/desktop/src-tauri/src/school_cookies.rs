@@ -153,9 +153,24 @@ fn store_view(app: &AppHandle) -> Result<Webview, String> {
     Ok(view)
 }
 
+#[cfg(any(target_os = "macos", windows))]
+use std::{cell::RefCell, rc::Rc};
+#[cfg(any(target_os = "macos", windows))]
+use tokio::sync::oneshot::Sender;
+
+#[cfg(any(target_os = "macos", windows))]
+type Done = Rc<RefCell<Option<Sender<Result<(), String>>>>>;
+
+#[cfg(any(target_os = "macos", windows))]
+fn answer(done: &Done, result: Result<(), String>) {
+    if let Some(done) = done.borrow_mut().take() {
+        let _ = done.send(result);
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod native {
-    use super::WebCookie;
+    use super::{answer, Done, WebCookie};
     use crate::school_browser_native::SCHOOL_DATA_STORE;
     use app_core::school_session::is_school_domain;
     use block2::RcBlock;
@@ -164,14 +179,6 @@ mod native {
     use objc2_web_kit::{WKWebsiteDataRecord, WKWebsiteDataStore};
     use std::{cell::RefCell, ptr::NonNull, rc::Rc};
     use tokio::sync::oneshot::Sender;
-
-    type Done = Rc<RefCell<Option<Sender<Result<(), String>>>>>;
-
-    fn answer(done: &Done, result: Result<(), String>) {
-        if let Some(done) = done.borrow_mut().take() {
-            let _ = done.send(result);
-        }
-    }
 
     /// The school views' persistent store (`data_store_identifier`).
     fn store(mtm: MainThreadMarker) -> Retained<WKWebsiteDataStore> {
@@ -278,7 +285,7 @@ mod native {
 
 #[cfg(windows)]
 mod native {
-    use super::WebCookie;
+    use super::{answer, Done, WebCookie};
     use std::{cell::RefCell, rc::Rc};
     use tauri::webview::cookie::{Cookie, SameSite};
     use tokio::sync::oneshot::Sender;
@@ -291,14 +298,6 @@ mod native {
         },
     };
     use windows::core::{Interface, HSTRING};
-
-    type Done = Rc<RefCell<Option<Sender<Result<(), String>>>>>;
-
-    fn answer(done: &Done, result: Result<(), String>) {
-        if let Some(done) = done.borrow_mut().take() {
-            let _ = done.send(result);
-        }
-    }
 
     /// Removes all browsing data (cookies, storage, caches) of the school
     /// views' own WebView2 profile, which no other view uses, and answers

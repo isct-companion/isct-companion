@@ -7,11 +7,12 @@ description = "Shared IsctCompanion domain logic and state"
 
 [features]
 default = []
-# ZIP packing of `submit/` and unpacking of attachments in assignment
-# workspaces; desktop only, the phones hand files in one by one.
-workspace-archives = ["dep:zip"]
+# Desktop assignment workspaces, including attachments and ZIP packing.
+desktop-workspaces = []
+# Phone notification scheduling through the native SDK.
+mobile-reminders = []
 # The tools of the local MCP server; only the desktop serves one.
-agent = ["dep:schemars"]
+agent = ["dep:schemars", "desktop-workspaces"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
 # The campus printer: the desktops, and Android through its print service
 # (app-ffi turns it on for that target only). iOS never prints to it.
@@ -67,7 +68,7 @@ data-encoding = "2"
 # The campus map file is gzip (`campus_map::export`).
 flate2 = { version = "1", default-features = false, features = ["rust_backend"], optional = true }
 futures-util = "0.3"
-zip = { version = "9", default-features = false, features = ["deflate"], optional = true }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 schemars = { version = "1.2", optional = true, features = ["chrono04"] }
 semver = "1"
 # Settings shows the OTP setup as a QR code for other authenticators.

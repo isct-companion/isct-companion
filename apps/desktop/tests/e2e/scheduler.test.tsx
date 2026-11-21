@@ -184,6 +184,68 @@ function eventQueries() {
  * ------------------------------------------------------------------ */
 
 describe("The weekly event editor", () => {
+  // The editors live with the shell, not the planner: a person who opens an
+  // event from Today before ever visiting Courses still gets the editor.
+  it("opens from Today before the planner has been shown", async () => {
+    const workspace = workspaceFixture();
+    workspace.events = [event];
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+
+    app = await mountApp(
+      {
+        workspace,
+        queries: {
+          ...eventQueries(),
+          upcomingExams: () => [],
+          calendarRange: () => [
+            {
+              date: today,
+              occurrences: [
+                {
+                  key: `${event.id}-${today}`,
+                  id: event.id,
+                  kind: "event",
+                  courseId: null,
+                  date: today,
+                  title: event.title,
+                  subtitle: null,
+                  room: event.room,
+                  startTime: "00:00",
+                  endTime: "24:00",
+                  color: "#556b8d",
+                },
+              ],
+              importantDates: [],
+              noClasses: false,
+            },
+          ],
+        },
+      },
+      { route: paths.home() },
+    );
+    const { core } = app;
+
+    const row = await until(() => {
+      const node = app!.host.querySelector<HTMLButtonElement>(
+        ".dayAgendaRow.event",
+      );
+      if (!node) throw new Error("Today does not show the event.");
+      return node;
+    });
+    expect(app.host.querySelector(".quarterPage")).toBeNull();
+    await click(row);
+    await click(await enabledSave());
+
+    await until(() => expect(intentsOfKind(core, "saveEvent")).toHaveLength(1));
+    expect(intentsOfKind(core, "saveEvent")[0].existingId).toBe(event.id);
+    await until(() => expect(modal()).toBeNull());
+  }, 40_000);
+
   it("saves once when Save is pressed twice before the first save settles", async () => {
     const workspace = workspaceFixture();
     workspace.events = [event];

@@ -17,13 +17,15 @@ export const outputs = {
   desktopDarkCss: "apps/desktop/src/generated/design/tokens.dark.css",
   corePalette: "crates/app-core/src/schedule/course_palette.rs",
   swiftLight: "bindings/apple-widgets/Sources/IsctWidgets/IsctTokens.swift",
-  swiftDark: "apps/ios/IsctCompanion/Design/Generated/IsctTokensDark.swift",
+  swiftDark: "bindings/apple-widgets/Sources/IsctWidgets/IsctTokensDark.swift",
   composeLight: "apps/android/app/src/main/java/app/isct/design/IsctTokens.kt",
   composeDark:
     "apps/android/app/src/main/java/app/isct/design/IsctTokensDark.kt",
   desktopThemes: "apps/desktop/src/generated/design/themes.css",
+  desktopThemePreviews: "apps/desktop/src/generated/design/theme-previews.ts",
   swiftThemes: "apps/ios/IsctCompanion/Design/Generated/IsctThemes.swift",
   composeThemes: "apps/android/app/src/main/java/app/isct/design/IsctThemes.kt",
+  androidColors: "apps/android/app/src/main/res/values/isct_tokens.xml",
 };
 
 const group =
@@ -213,6 +215,20 @@ function themesCss(themes) {
   return `/**\n * ${generated("design/tokens/theme.json")}\n */\n\n${blocks.join("\n")}\n`;
 }
 
+function themePreviews(themes) {
+  const previews = Object.fromEntries(
+    Object.entries(themes).map(([id, { light: { bg, surface } }]) => [
+      id,
+      { bg, surface },
+    ]),
+  );
+  return `// ${generated("design/tokens/color.light.json and theme.json")}\n\nexport const lightThemePreviews = ${JSON.stringify(previews, null, 2)} as const;\n`;
+}
+
+function androidColors(light) {
+  return `<!-- ${generated("design/tokens/color.light.json")} -->\n<resources>\n    <color name="isct_bg">${light.bg}</color>\n</resources>\n`;
+}
+
 const rgb = (hex) =>
   [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
 
@@ -277,8 +293,10 @@ async function buildThemes(out) {
   const themes = await readThemes();
   for (const [file, text] of [
     [outputs.desktopThemes, themesCss(themes)],
+    [outputs.desktopThemePreviews, themePreviews(themes)],
     [outputs.swiftThemes, themesSwift(themes)],
     [outputs.composeThemes, themesCompose(themes)],
+    [outputs.androidColors, androidColors(themes.warm.light)],
   ]) {
     const target = path.join(out, file);
     await mkdir(path.dirname(target), { recursive: true });
@@ -425,9 +443,6 @@ export async function staleOutputs() {
     await build(out);
     const stale = [];
     for (const file of Object.values(outputs)) {
-      // Native SDK assets are generated under ignored design/dist. Only
-      // versioned desktop/Core outputs have a committed baseline to compare.
-      if (file.startsWith("design/dist/")) continue;
       const fresh = await readFile(path.join(out, file), "utf8");
       const committed = await readFile(path.join(repoRoot, file), "utf8").catch(
         () => null,

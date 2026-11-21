@@ -8,8 +8,14 @@
 .pastExams {
   min-height: 0;
 }
-.pastExams > .pageBar .uiSegments {
+.pastExamsTitle .uiSegments {
   margin-inline-end: auto;
+}
+.pastExamsTitle .pageBarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
 }
 .examAccount {
   max-width: 260px;
@@ -24,11 +30,8 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-inline: 2px 10px;
-}
-.examDetail {
-  padding-inline: 10px 2px;
+  gap: var(--space-5);
+  padding: var(--space-5);
 }
 .examPane > .uiSegments {
   align-self: flex-start;
@@ -52,15 +55,15 @@
 .examRow {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   border-radius: var(--radius-control);
 }
 .examRow > .examRowMain {
   flex: 1;
   min-width: 0;
   display: grid;
-  gap: 2px;
-  padding: 7px 10px;
+  gap: var(--space-1);
+  padding: 7px var(--space-5);
   border: 0;
   border-radius: inherit;
   background: transparent;
@@ -85,7 +88,7 @@
 .examRow strong {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   min-width: 0;
   font-weight: 600;
   font-size: calc(var(--type-row-size) * var(--text));
@@ -108,17 +111,17 @@
   opacity: 1;
 }
 .examListHeading {
-  margin: 10px 10px 4px;
+  margin: var(--space-5) var(--space-5) var(--space-2);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
 }
 .examList + .examListHeading,
 section + section > .examListHeading {
-  margin-top: 16px;
+  margin-top: var(--space-8);
 }
 .examMore {
-  margin: 8px auto;
+  margin: var(--space-4) auto;
   display: flex;
 }
 
@@ -126,7 +129,7 @@ section + section > .examListHeading {
    each a row with a file icon and a button per document. */
 .examPanels {
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .examPanel h3 {
   margin: 0;
@@ -135,8 +138,8 @@ section + section > .examListHeading {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -150,7 +153,7 @@ section + section > .examListHeading {
   flex: 1;
   min-width: 0;
   display: grid;
-  gap: 2px;
+  gap: var(--space-1);
 }
 .examPanelTrigger strong {
   font-weight: 600;
@@ -212,31 +215,31 @@ section + section > .examListHeading {
   }
 }
 .examPanelContent > * {
-  margin-inline-start: 14px;
+  margin-inline-start: var(--space-7);
 }
 .examPanelContent > .skeleton,
 .examPanelContent > .uiBanner {
-  margin-block: 6px;
+  margin-block: var(--space-3);
 }
 .examPanelActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
-  margin: 4px 0 10px 10px;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 var(--space-5) var(--space-5);
 }
 /* Picked files as removable chips, the picker button after them. */
 .examUploadFiles {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .examUploadFile {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-3);
   max-width: 100%;
-  padding: 3px 4px 3px 10px;
+  padding: 3px var(--space-2) 3px var(--space-5);
   border: 1px solid var(--line);
   border-radius: 999px;
   font-size: calc(var(--type-note-size) * var(--text));
@@ -279,7 +282,7 @@ ol.examUploadFiles {
   font-weight: 600;
 }
 .examUploadSearch {
-  margin-top: 6px;
+  margin-top: var(--space-3);
 }
 .examUploadSearchGo {
   display: inline-grid;
@@ -294,7 +297,7 @@ ol.examUploadFiles {
   color: var(--muted);
 }
 .examUploadTeacher {
-  margin-top: 6px;
+  margin-top: var(--space-3);
   flex-wrap: nowrap;
 }
 .examUploadTeacher > :not(button) {
@@ -303,14 +306,14 @@ ol.examUploadFiles {
 }
 .examUploadAdd {
   align-self: flex-start;
-  margin-top: 4px;
+  margin-top: var(--space-2);
 }
 /* An upload's phase, its bar and a way to stop it; on the page it sits
    under the header, in the dialog above the buttons. */
 .examUploadStatus {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -321,8 +324,8 @@ ol.examUploadFiles {
 
 .examSets {
   list-style: none;
-  margin: 4px 0;
-  padding: 0 0 0 4px;
+  margin: var(--space-2) 0;
+  padding: 0 0 0 var(--space-2);
   border-inline-start: 2px solid var(--line);
 }
 /* The sitting keeps at least 12rem; when its documents do not fit beside it
@@ -332,8 +335,8 @@ ol.examUploadFiles {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0 8px;
-  padding-inline-end: 6px;
+  gap: 0 var(--space-4);
+  padding-inline-end: var(--space-3);
   border-radius: var(--radius-control);
   transition: background var(--motion-duration-fast)
     var(--motion-easing-standard);
@@ -346,8 +349,8 @@ ol.examUploadFiles {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   border: 0;
   background: transparent;
   color: var(--ink);
@@ -382,16 +385,16 @@ ol.examUploadFiles {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--space-2);
   margin-inline-start: auto;
-  padding-block: 2px;
+  padding-block: var(--space-1);
 }
 /* The documents are the buttons: a bordered pill that tints on hover,
    spins while its file loads and stays outlined while it is open. */
 .examRole {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   padding: 3px 11px;
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   border-radius: 999px;
@@ -430,14 +433,14 @@ ol.examUploadFiles {
   display: grid;
   place-content: center;
   justify-items: center;
-  gap: 10px;
+  gap: var(--space-5);
   color: var(--muted);
 }
 .examOthers {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin: 12px 10px 4px;
+  gap: var(--space-2);
+  margin: var(--space-6) var(--space-5) var(--space-2);
   padding: 0;
   border: 0;
   background: transparent;
@@ -454,7 +457,7 @@ ol.examUploadFiles {
   transform: rotate(90deg);
 }
 .examQuiet {
-  margin: 8px 10px;
+  margin: var(--space-4) var(--space-5);
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -463,20 +466,13 @@ ol.examUploadFiles {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .uiMenuItem.examDanger {
   color: var(--danger);
 }
 .uiMenuItem.examDanger[data-highlighted] {
   background: var(--danger-soft);
-}
-
-.examDocumentText {
-  margin: 0;
-  padding: var(--workspace-gutter);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 /* The header says whose service this is and opens the same page there. */
@@ -504,14 +500,14 @@ ol.examUploadFiles {
 .examRequest {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--space-5);
   max-width: 640px;
-  padding: 24px 28px;
+  padding: var(--space-10) 28px;
 }
 .examRequest > header {
   display: grid;
   justify-items: start;
-  gap: 4px;
+  gap: var(--space-2);
 }
 .examRequest > header small {
   color: var(--muted);
@@ -527,8 +523,8 @@ ol.examUploadFiles {
   color: var(--muted);
 }
 .examRequestText {
-  margin: 4px 0 0;
-  padding: 12px 14px;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-6) var(--space-7);
   border-radius: var(--radius-control);
   background: var(--surface);
   line-height: 1.7;
@@ -538,6 +534,53 @@ ol.examUploadFiles {
 .examRequestActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* Each column runs up to the window's top row (ExamList Workspace): the
+   list's carries the page title, then its tabs, the list and, at its foot,
+   the partner's site and the account. */
+.examColumn {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.examColumn > .examPane {
+  flex: 1;
+  height: auto;
+}
+.examTabs {
+  align-self: flex-start;
+  margin: var(--space-3) var(--space-5) 0;
+}
+.examFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.examFooter .examAccount {
+  margin-left: auto;
+}
+/* The reader brings its own title row; with nothing open the column keeps
+   the row's height clear so the empty state sits on the plane. */
+.examReaderColumn > .examDetail {
+  padding: 0;
+}
+.examReaderColumn > .examDetail:not(:has(.lmsViewer)) {
+  padding-top: var(--titlebar);
+}
+/* A course with an exam whose subject has no past exams: folded and quiet. */
+.examPanel[data-empty] .examPanelTrigger strong {
+  color: var(--muted);
+}
+.examWithout {
+  margin: var(--space-3) var(--space-2) 0;
 }

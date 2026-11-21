@@ -40,6 +40,8 @@ import {
   readOAuthClients,
 } from "@repo/scripts/lib/oauth-config.mjs";
 import { readVersions } from "@repo/scripts/release/versions.mjs";
+import { tsFunctionRows } from "@repo/scripts/checks/code-quality/functions.mjs";
+import { parse as parseTs } from "@babel/parser";
 
 /** A bundled module id, as Vite would report it, for a package in node_modules. */
 const bundledModule = (...parts) =>
@@ -157,6 +159,52 @@ describe("design tokens", () => {
   it("keeps every committed platform output in step with design/tokens", async () => {
     expect(await staleOutputs()).toEqual([]);
   }, 30_000);
+});
+
+describe("mobile Markdown page", () => {
+  it("keeps the committed resources/markdown-viewer in step with its source", async () => {
+    const { build } = await import("vite");
+    const root = repositoryRoot;
+    const out = mkdtempSync(path.join(os.tmpdir(), "isct-markdown-viewer-"));
+    const previous = process.env.ISCT_MARKDOWN_VIEWER_OUT;
+    process.env.ISCT_MARKDOWN_VIEWER_OUT = out;
+    try {
+      await build({
+        configFile: path.join(
+          root,
+          "apps/desktop/vite.markdown-viewer.config.ts",
+        ),
+        logLevel: "silent",
+      });
+      const names = [
+        "markdown-viewer.html",
+        "markdown-viewer.js",
+        "markdown-viewer.css",
+      ];
+      const stale = [];
+      for (const name of names) {
+        const fresh = readFileSync(path.join(out, name), "utf8");
+        const committedPath = path.join(
+          root,
+          "resources/markdown-viewer",
+          name,
+        );
+        const committed = existsSync(committedPath)
+          ? readFileSync(committedPath, "utf8")
+          : null;
+        if (
+          fresh.replaceAll("\r\n", "\n") !== committed?.replaceAll("\r\n", "\n")
+        )
+          stale.push(name);
+      }
+      // Run `yarn markdown-viewer` and commit the result.
+      expect(stale).toEqual([]);
+    } finally {
+      if (previous === undefined) delete process.env.ISCT_MARKDOWN_VIEWER_OUT;
+      else process.env.ISCT_MARKDOWN_VIEWER_OUT = previous;
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
 
 // The manual acceptance table records behaviour CI cannot reach. Its results
@@ -642,5 +690,37 @@ describe("release version bump", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("code quality audit", () => {
+  // Rankings by nesting are only useful if a flat `else if` chain reads as flat;
+  // the Rust, Swift and Kotlin parsers apply the same rule.
+  it("counts an else-if chain as one level and nested ifs as several", () => {
+    const source = `
+      function chain(x) {
+        if (x === 1) return 1;
+        else if (x === 2) return 2;
+        else if (x === 3) return 3;
+        else return 0;
+      }
+      function deep(x) {
+        if (x > 0) { if (x > 1) { if (x > 2) return 3; } }
+        return 0;
+      }
+      const inline = (items) => items.map((item) => (item ? 1 : 0));`;
+    const rows = tsFunctionRows(
+      parseTs(source, { sourceType: "module", plugins: ["typescript"] }),
+      "probe.ts",
+    );
+    const metrics = Object.fromEntries(
+      rows.map(({ name, branches, nesting }) => [name, { branches, nesting }]),
+    );
+    expect(metrics).toEqual({
+      chain: { branches: 3, nesting: 1 },
+      deep: { branches: 3, nesting: 3 },
+      // The anonymous callback has no row of its own; its branch is its caller's.
+      inline: { branches: 1, nesting: 1 },
+    });
   });
 });

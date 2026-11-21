@@ -11,12 +11,25 @@ class WorkspaceRecords(workspace: String? = null) {
     val assignments: Map<String, JSONObject>
     /** The complete settings object; forms edit a copy and replace it. */
     val settings: JSONObject
+    val reminderLeadOptions: ReminderLeadOptions?
 
     init {
         val root = workspace?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
         courses = index(root.optJSONArray("courses"))
         assignments = index(root.optJSONArray("assignments"))
         settings = root.optJSONObject("settings") ?: JSONObject()
+        reminderLeadOptions = root.optJSONObject("reminderLeadOptions")?.let { options ->
+            val assignments = options.getJSONObject("assignments")
+            ReminderLeadOptions(
+                classes = options.getJSONArray("classes").minutes().map(Int::toUInt),
+                exams = options.getJSONArray("exams").minutes().map(Int::toUInt),
+                assignments = AssignmentLeadOptions(
+                    presets = assignments.getJSONArray("presets").minutes().map(Int::toUInt),
+                    minSelected = assignments.getInt("minSelected").toUInt(),
+                    maxSelected = assignments.getInt("maxSelected").toUInt(),
+                ),
+            )
+        }
     }
 
     private fun index(rows: JSONArray?): Map<String, JSONObject> = buildMap {
@@ -30,3 +43,5 @@ class WorkspaceRecords(workspace: String? = null) {
 /** A non-empty string field. */
 fun JSONObject.text(key: String): String? =
     if (!has(key) || isNull(key)) null else optString(key).ifEmpty { null }
+
+internal fun JSONArray.minutes(): List<Int> = List(length(), ::getInt)

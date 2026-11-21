@@ -1,6 +1,10 @@
 package app.isctcompanion.design
 
 import android.text.format.DateFormat
+import app.isctcompanion.core.CountdownUnit
+import app.isctcompanion.core.DeadlineState
+import app.isctcompanion.core.TaskDeadlineView
+import java.text.NumberFormat
 import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
@@ -10,8 +14,6 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import kotlin.math.ceil
-import kotlin.math.max
-import kotlin.math.roundToInt
 
 /** School dates are Tokyo dates wherever the phone is. */
 val Tokyo: ZoneId = ZoneId.of("Asia/Tokyo")
@@ -81,22 +83,19 @@ object Format {
     fun minutes(until: Instant, now: Instant): Int =
         ceil((until.toEpochMilli() - now.toEpochMilli()) / 60_000.0).toInt()
 
-    enum class OverdueStyle { Label, Elapsed }
-
-    /** Countdown words for a deadline chip. */
-    fun countdown(raw: String?, now: Instant, overdueStyle: OverdueStyle = OverdueStyle.Label): String {
-        val due = date(raw) ?: return t("common.noDeadline")
-        val minutes = minutes(due, now)
-        if (minutes < 0) {
-            return when (overdueStyle) {
-                OverdueStyle.Label -> t("common.overdue")
-                OverdueStyle.Elapsed -> t("format.countDOverdue", "count" to max(1, -minutes / (60 * 24)))
+    fun countdown(display: TaskDeadlineView): String {
+        val number = NumberFormat.getIntegerInstance(Localizer.locale)
+        val duration = display.units.joinToString(" ") { component ->
+            val key = when (component.unit) {
+                CountdownUnit.DAYS -> "format.durationDays"
+                CountdownUnit.HOURS -> "format.durationHours"
+                CountdownUnit.MINUTES -> "format.countdownMinutes"
+                CountdownUnit.SECONDS -> "format.countdownSeconds"
             }
+            t(key, "count" to number.format(component.count.toLong()))
         }
-        if (minutes < 60) return t("today.countMinLeft", "count" to max(minutes, 1))
-        if (minutes < 60 * 24) return t("format.countHLeft", "count" to minutes / 60)
-        if (tokyo(due).toLocalDate() == today(now).plusDays(1)) return t("common.tomorrow")
-        return t("format.countDLeft", "count" to (minutes / (60.0 * 24)).roundToInt())
+        val key = if (display.state == DeadlineState.OVERDUE) "deadlineText.durationAgo" else "format.countdownRemaining"
+        return t(key, "duration" to duration)
     }
 
     /** `3–4限`, `Periods 3–4` */

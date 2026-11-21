@@ -3,7 +3,7 @@ import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
 import { ContextMenu, type ContextAction } from "../ui";
 import { GuideTip } from "../guide";
-import { zoomFrom } from "../../app/course-zoom";
+import { zoomFrom } from "./course-zoom";
 import {
   axisPosition,
   axisRows,
@@ -135,7 +135,7 @@ export function WeekTimetable({
   /** Right-click entries for a block; none leaves the native menu alone. */
   actionsFor?: (block: Block) => BlockAction[];
   /** A click on a class opens its course page, so the block morphs into
-   * that page's title (`app/course-zoom`). */
+   * that page's title (`course-zoom`). */
   zoom?: boolean;
 }) {
   // Every period is one row; Core places times on that axis
@@ -209,7 +209,10 @@ export function WeekTimetable({
                 <b>
                   {period.isBreak ? t("timetable.breakBand") : period.label}
                 </b>
+                {/* Start over end, like a printed timetable: the column is
+                    too narrow for one "08:50–10:30" line. */}
                 <small>{period.start}</small>
+                <small>{period.end}</small>
               </div>
             );
           })}

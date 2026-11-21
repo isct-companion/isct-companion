@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { errorText } from "../app/shared";
+import { errorText } from "../lib/error-text";
 import { t } from "../i18n";
 
 type Submission = () => Promise<unknown> | void;

@@ -42,11 +42,12 @@ OCR is unavailable on the Intel simulator.
 
 | Path | Content |
 |---|---|
-| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents, lifecycle facts |
+| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents and lifecycle facts |
+| `IsctCompanion/Core/AppModel*.swift` | Campus map, hand-in, cloud backup and school account adapters for the same session |
 | `IsctCompanion/Core/SchoolBrowserHost.swift` | `NativeBrowser`: one resident WKWebView per school site, driven by Core |
 | `IsctCompanion/Core/WebRouter.swift` | Which school page is on screen; `openSchool` and the visibility fact |
 | `IsctCompanion/Core/KeychainVault.swift` | `NativeVault`; item names come from Core's `vaultItem`, shared with the Mac app through iCloud Keychain |
-| `IsctCompanion/Core/NotificationScheduler.swift` | Registers Core's `notificationPlan` with `UNUserNotificationCenter` (64 pending at most) |
+| `IsctCompanion/Core/NotificationScheduler.swift` | Reports system permission and pending requests, then applies Core's reminder plan through `UNUserNotificationCenter` |
 | `IsctCompanion/Features/*` | 今日 (class stack and the quarter's assignments) · 時間割 · ウェブ · 設定, course detail |
 | `IsctCompanion/Features/Map` | The campus map: an `MKMapView` drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapSearch`, `campusMapClose`): the room string's targets, what is selected (one way in by stable id for taps, marks, search and course rooms), which building and floor the visible part of the map brings into focus, the card and its Maps links (Apple or Google, the `mapsApp` setting), and where the camera goes; each answer is a scene the screen draws by role in theme colours. The screen reports the part of the map its search bar, card and level picker leave visible, and tells its own camera moves from the person's by its framing lifecycle. Opened full screen from a course's rooms, 今日's next class, or 今日's map button to browse; no route, the blue dot is MapKit's own, asked for when the person taps the position button (when in use only). The data is Isct-Data's `campus-map/v2`, which Core downloads and keeps; until it is stored no map button shows. `yarn sdk:ios` builds the SDK with the `campus-map` feature |
 | `IsctCompanion/Resources/Assets.xcassets/CampusMap` | The map's 14 amenity and entrance icons (SVG, template), drawn 28 pt; each amenity's asset is named by Core's amenity key, as is its `campusMap.amenity.<key>` text |

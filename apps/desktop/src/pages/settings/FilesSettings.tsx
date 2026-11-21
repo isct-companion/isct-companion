@@ -6,7 +6,7 @@ import type { Workspace } from "../../lib/model";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
 import { CourseStorage } from "./CourseStorage";
 import { t } from "../../i18n";
-import { cleanWorkspaces } from "../../features/lms/assignment-workspace";
+import { cleanWorkspaces } from "../../platform/course-storage";
 
 export function FilesSettings({
   data,

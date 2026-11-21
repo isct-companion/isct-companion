@@ -72,9 +72,35 @@ fn lesson_text_reads_as_a_summary_and_labels_as_pictures() {
     assert!(!image_only(
         r#"<img src="https://lms.s.isct.ac.jp/theme/image.php/icon">"#
     ));
-    // Bilingual blocks keep their language for the shells' filter.
+    // The sanitized original preserves recognized language markers.
     assert_eq!(
         safe_html(r#"<p lang="EN">x</p><p lang="fr">y</p>"#, false),
         r#"<p lang="en">x</p><p>y</p>"#
     );
+}
+
+#[test]
+fn language_projection_uses_explicit_markers_and_preserves_the_sanitized_original() {
+    let source = concat!(
+        r#"<p>Unmarked announcement</p><p lang="ja">日本語</p>"#,
+        r#"<p lang="en-GB"><a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/sheet.pdf">English file</a></p>"#,
+        r#"<div lang="ja">別の文 <span lang="en">Nested English</span></div>"#,
+        r#"<p>連絡先：A<br>Contact: B</p><script>unsafe()</script>"#,
+    );
+    let view = project_html(source, false, Some(ContentLanguage::En));
+    assert!(view.preferred.contains("Unmarked announcement"));
+    assert!(view.preferred.contains("Nested English"));
+    assert!(view.preferred.contains("English file</a>") && view.preferred.contains("sheet.pdf"));
+    assert!(view.preferred.contains("連絡先：A<br>Contact: B"));
+    assert!(!view.preferred.contains("日本語") && !view.preferred.contains("別の文"));
+    let original = view.original.unwrap();
+    assert!(original.contains("別の文") && original.contains("English file"));
+    assert!(!original.contains("unsafe()"));
+    let only = r#"<p lang="ja">日本語</p><script lang="en">unsafe()</script>"#;
+    let view = project_html(only, false, Some(ContentLanguage::En));
+    assert_eq!(view.preferred, r#"<p lang="ja">日本語</p>"#);
+    assert!(view.original.is_none());
+    assert!(project_html(source, false, None)
+        .preferred
+        .contains("日本語"));
 }

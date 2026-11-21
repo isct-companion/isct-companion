@@ -46,6 +46,10 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         private set
     var error by mutableStateOf<String?>(null)
         private set
+    /** The web screens' bars are out of the way while the person reads down
+     * a page; scrolling back up or reaching the top brings them back. Shell
+     * state only: the screens set it, and App's navigation bar follows it. */
+    var barsHidden by mutableStateOf(false)
     /** Bumped when Core opened a page, so containers re-attach its view. */
     var attachRevision by mutableIntStateOf(0)
         private set
@@ -53,6 +57,12 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     private val opened = mutableSetOf<SchoolSite>()
 
     private val downloads = SchoolDownloads(context)
+
+    /** A file a school page handed over that the app shows itself; the
+     * screen on top opens it and clears this. */
+    var viewing by mutableStateOf<ViewedFile?>(null)
+
+    class ViewedFile(val path: String, val name: String, val viewer: Viewer)
 
     init {
         // Plain HTTP and other sites Core sends out; cleartext stays off in the app.
@@ -64,9 +74,11 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
         browser.onDownload = { url, referer, contentDisposition, mimeType ->
             session?.let { session ->
                 scope.launch {
-                    downloads.save(session, url, referer, contentDisposition, mimeType) { uri ->
-                        browser.onOpenExternal?.invoke(uri)
-                    }
+                    downloads.save(
+                        session, url, referer, contentDisposition, mimeType,
+                        openExternal = { uri -> browser.onOpenExternal?.invoke(uri) },
+                        openInApp = { file, name, viewer -> viewing = ViewedFile(file.path, name, viewer) },
+                    )
                 }
             }
         }
@@ -114,7 +126,9 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     }
 
     /** A page pushed from context (course → LMS, assignment → submission). */
-    data class PushedPage(val site: SchoolSite, val target: String?, val title: String)
+    data class PushedPage(val site: SchoolSite, val target: String?, val title: String, val uploadId: String? = null)
+
+    fun cancelHandIn(id: String) { runCatching { session?.cancelHandIn(id) } }
 
     /** The ウェブ tab shows `site`, restoring its last page. */
     fun showTab(site: SchoolSite) {

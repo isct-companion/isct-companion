@@ -78,17 +78,16 @@ export function formatTimestamp(
   locale: string,
   options: Intl.DateTimeFormatOptions = {},
 ): string | undefined {
-  const date = parseIsoTimestamp(value);
-  return date
-    ? formatJst(date, locale, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        ...options,
-      })
-    : undefined;
+  const date = value instanceof Date ? value : parseIsoTimestamp(value);
+  if (!date) return undefined;
+  return formatJst(date, locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    ...options,
+  }) || undefined;
 }
 
 /** One display boundary for academic civil dates; an ISO date is JST midnight. */
@@ -129,4 +128,21 @@ export function formatJst(
     timeZone: JST,
     calendar: "gregory",
   }).format(date);
+}
+
+/** "3 Oct" / "10月3日" for an ISO timestamp or civil date, in Japan time. */
+export function formatDay(
+  value: string,
+  locale: string,
+  options: Intl.DateTimeFormatOptions = {},
+) {
+  const date = isCivilDate(value)
+    ? new Date(`${value}T12:00:00+09:00`)
+    : parseIsoTimestamp(value);
+  if (!date) return value;
+  return formatJst(date, locale, {
+    month: "short",
+    day: "numeric",
+    ...options,
+  });
 }

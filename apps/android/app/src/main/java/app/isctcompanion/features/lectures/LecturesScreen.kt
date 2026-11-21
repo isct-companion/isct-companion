@@ -66,25 +66,25 @@ fun LecturesScreen() {
         val ids = overview?.termCourseIds.orEmpty()
         Loading(
             overview != null,
-            placeholder = { SkeletonRows(6, Modifier.padding(horizontal = Theme.gutter, vertical = 8.dp)) },
+            placeholder = { SkeletonRows(6, Modifier.padding(horizontal = Theme.gutter, vertical = Theme.space4)) },
         ) {
             if (ids.isEmpty()) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) { EmptyState(Icons.Rounded.School, t("lectures.noCoursesThisTermYet")) }
-            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = 24.dp)) {
+            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
                 overview?.term?.let { item { SectionLabel(Format.quarter(it)) } }
                 item {
-                    Card(Modifier.padding(top = 8.dp)) {
+                    Card(Modifier.padding(top = Theme.space4)) {
                         ids.forEachIndexed { index, id ->
                             if (index > 0) RowDivider(inset = 34.dp)
                             val course = model.records.courses[id]
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
                                 modifier = Modifier.fillMaxWidth().courseZoomSource("lecture-$id")
-                                    .clickable { navigator.openCourse(id, "lecture-$id") }.padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .clickable { navigator.openCourse(id, "lecture-$id") }.padding(horizontal = Theme.rowX, vertical = Theme.rowY),
                             ) {
                                 CourseSquare(overview?.colors?.get(id) ?: model.colors[id])
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
                                     Text(
                                         course?.text("title") ?: id, fontWeight = FontWeight.Medium, color = Theme.colors.ink,
                                         maxLines = 2, overflow = TextOverflow.Ellipsis,

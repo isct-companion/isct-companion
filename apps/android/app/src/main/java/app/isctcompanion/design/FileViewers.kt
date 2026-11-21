@@ -1,0 +1,352 @@
+package app.isctcompanion.design
+
+import app.isctcompanion.core.openInAnotherApp
+import android.content.Context
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color as AndroidColor
+import android.graphics.pdf.PdfRenderer
+import android.graphics.pdf.LoadParams
+import android.os.Build
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.core.content.FileProvider
+import app.isctcompanion.core.Viewer
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+// The app's own file viewers, one per `Viewer` Core decides (`file_preview`).
+// Core says how a file shows; these only draw it.
+
+/** `file` shown the way Core said; `fallback` for a viewer the app does not
+ * draw or a file it cannot read. */
+@Composable
+fun FileViewer(file: File, viewer: Viewer, fallback: @Composable () -> Unit) {
+    when (viewer) {
+        Viewer.PDF -> PdfReader(file, fallback)
+        Viewer.MARKDOWN -> TextFile(file, fallback) { MarkdownView(it, Modifier.fillMaxSize()) }
+        Viewer.TEXT -> TextFile(file, fallback) { text ->
+            SelectionContainer {
+                Text(
+                    text,
+                    color = Theme.colors.ink,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Theme.gutter),
+                )
+            }
+        }
+        Viewer.IMAGE -> ImageReader(file, fallback)
+        else -> fallback()
+    }
+}
+
+/** What a file viewer says when it cannot show the file, with another app
+ * to try. */
+@Composable
+fun FileUnavailable(file: File) {
+    val context = LocalContext.current
+    Box(Modifier.fillMaxSize(), Alignment.Center) {
+        EmptyState(
+            Icons.Rounded.Description,
+            t("lms.thisFileTypeCantBe"),
+            action = t("common.openInDefaultApp") to { openInAnotherApp(context, file) },
+        )
+    }
+}
+
+/** Sends a copy of `file` named `name` to the share sheet: a cached file
+ * has a generated name, which the people it reaches would see. The copy sits
+ * in a folder of its own under the share sheet's cache (`exports/`), emptied
+ * each time. */
+suspend fun shareCopy(context: Context, file: File, name: String, mimeType: String): Boolean {
+    val copy = withContext(Dispatchers.IO) {
+        runCatching {
+            val folder = File(context.cacheDir, "exports/shared")
+            folder.deleteRecursively()
+            folder.mkdirs()
+            file.copyTo(File(folder, File(name).name.ifEmpty { file.name }), overwrite = true)
+        }.getOrNull()
+    } ?: return false
+    val uri = runCatching { FileProvider.getUriForFile(context, "${context.packageName}.files", copy) }.getOrNull()
+        ?: return false
+    val send = Intent(Intent.ACTION_SEND)
+        .setType(mimeType)
+        .putExtra(Intent.EXTRA_STREAM, uri)
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    return runCatching { context.startActivity(Intent.createChooser(send, null)) }.isSuccess
+}
+
+@Composable
+private fun Spinner() {
+    Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+}
+
+/** A text file read whole; Core keeps text in the app under its size limit. */
+@Composable
+private fun TextFile(file: File, fallback: @Composable () -> Unit, content: @Composable (String) -> Unit) {
+    val text by produceState<Result<String>?>(null, file) {
+        value = withContext(Dispatchers.IO) { runCatching { file.readText() } }
+    }
+    when (val loaded = text) {
+        null -> Spinner()
+        else -> loaded.getOrNull()?.let { content(it) } ?: fallback()
+    }
+}
+
+/** A photo fitted to the screen; pinch zooms, drag pans while zoomed. */
+@Composable
+fun ImageReader(file: File, fallback: @Composable () -> Unit) {
+    val bitmap by produceState<Result<Bitmap>?>(null, file) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.path, bounds)
+                val options = BitmapFactory.Options().apply {
+                    inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 3000)
+                }
+                checkNotNull(BitmapFactory.decodeFile(file.path, options))
+            }
+        }
+    }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    val loaded = bitmap ?: return Spinner()
+    val shown = loaded.getOrNull() ?: return fallback()
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Theme.colors.surface2)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 8f)
+                    offset = if (scale == 1f) Offset.Zero else offset + pan
+                }
+            },
+    ) {
+        Image(
+            shown.asImageBitmap(), null,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+        )
+    }
+}
+
+/** The most a PDF is zoomed, and the widest a page is rendered (pixels):
+ * enough for small print, little enough that the pages on screen fit in
+ * memory. */
+private const val MAX_ZOOM = 4f
+private const val MAX_PAGE_PIXELS = 2000
+
+/**
+ * A PDF on the platform's PdfRenderer: every page in one scrolling column,
+ * each rendered as it scrolls in, pinch to zoom and drag sideways while
+ * zoomed.
+ *
+ * androidx.pdf has selection and search, but it is a beta whose sandboxed
+ * service has failed to start in this app (every PDF spun forever) and whose
+ * page scroller needed its internals overridden; PdfRenderer is the system's
+ * own renderer, which androidx.pdf wraps too. `.github/workflows/
+ * androidx-pdf-watch.yml` opens an issue once androidx.pdf is stable.
+ */
+@Composable
+fun PdfReader(file: File, fallback: @Composable () -> Unit) {
+    // The open password a protected PDF asked for, as a browser's viewer asks.
+    var password by remember(file) { mutableStateOf<String?>(null) }
+    val document by produceState<Result<PdfPages>?>(null, file, password) {
+        value = null
+        val opened = withContext(Dispatchers.IO) { runCatching { PdfPages.open(file, password) } }
+        value = opened
+        try {
+            awaitCancellation()
+        } finally {
+            // A page may still be rendering; it finishes before the file closes.
+            withContext(NonCancellable) { opened.getOrNull()?.close() }
+        }
+    }
+    val pages = document ?: return Spinner()
+    val failure = pages.exceptionOrNull()
+    // PdfRenderer reads a password from Android 15; before, another app opens it.
+    if (failure is SecurityException && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+        return PdfPassword(wrong = password != null) { password = it }
+    }
+    val pdf = pages.getOrNull() ?: return fallback()
+    var zoom by remember(file) { mutableFloatStateOf(1f) }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .background(Theme.colors.surface2)
+            // Two fingers zoom; one scrolls, which the column and the
+            // sideways scroll below take.
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        if (event.changes.count { it.pressed } >= 2) {
+                            zoom = (zoom * event.calculateZoom()).coerceIn(1f, MAX_ZOOM)
+                            event.changes.forEach { it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            },
+    ) {
+        val viewport = maxWidth
+        val pixels = with(LocalDensity.current) { (viewport.toPx() * 1.5f).toInt() }.coerceIn(1, MAX_PAGE_PIXELS)
+        Box(Modifier.fillMaxSize().horizontalScroll(rememberScrollState())) {
+            LazyColumn(
+                Modifier.width(viewport * zoom).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(Theme.space4),
+            ) {
+                itemsIndexed(pdf.ratios) { index, ratio ->
+                    PdfPage(pdf, index, ratio, pixels)
+                }
+            }
+        }
+    }
+}
+
+/** A protected PDF's open password, asked where its pages will show. */
+@Composable
+private fun PdfPassword(wrong: Boolean, open: (String) -> Unit) {
+    var typed by remember { mutableStateOf("") }
+    Column(
+        Modifier.fillMaxSize().padding(Theme.gutter),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            t(if (wrong) "lms.pdfPasswordWrong" else "lms.pdfNeedsPassword"),
+            color = if (wrong) Theme.colors.danger else Theme.colors.muted,
+            textAlign = TextAlign.Center,
+        )
+        OutlinedTextField(
+            typed, { typed = it },
+            singleLine = true,
+            label = { Text(t("lms.pdfPassword")) },
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { if (typed.isNotEmpty()) open(typed) }),
+        )
+        ActionButton(t("lms.openPdf"), { open(typed) }, enabled = typed.isNotEmpty())
+    }
+}
+
+@Composable
+private fun PdfPage(pdf: PdfPages, index: Int, ratio: Float, pixels: Int) {
+    val bitmap by produceState<Bitmap?>(null, pdf, index, pixels) {
+        value = runCatching { pdf.render(index, pixels) }.getOrNull()
+    }
+    Box(Modifier.fillMaxWidth().aspectRatio(ratio).background(androidx.compose.ui.graphics.Color.White)) {
+        bitmap?.let { Image(it.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
+    }
+}
+
+/** An open PdfRenderer with its pages' shapes. PdfRenderer opens one page at
+ * a time and is not thread-safe, so pages render one after another. */
+private class PdfPages(
+    private val descriptor: ParcelFileDescriptor,
+    private val renderer: PdfRenderer,
+    /** Each page's width over its height. */
+    val ratios: List<Float>,
+) {
+    private val lock = Mutex()
+
+    suspend fun render(index: Int, width: Int): Bitmap = lock.withLock {
+        withContext(Dispatchers.IO) {
+            renderer.openPage(index).use { page ->
+                val height = (width.toLong() * page.height / page.width.coerceAtLeast(1)).toInt().coerceAtLeast(1)
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also {
+                    it.eraseColor(AndroidColor.WHITE)
+                    page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                }
+            }
+        }
+    }
+
+    suspend fun close() = lock.withLock {
+        runCatching { renderer.close() }
+        runCatching { descriptor.close() }
+    }
+
+    companion object {
+        /** Opens `file`; a protected one throws SecurityException until
+         * `password` is right (Android 15 and later read one). */
+        fun open(file: File, password: String?): PdfPages {
+            val descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            val renderer = try {
+                if (password != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
+                    PdfRenderer(descriptor, LoadParams.Builder().setPassword(password).build())
+                } else {
+                    PdfRenderer(descriptor)
+                }
+            } catch (error: Exception) {
+                descriptor.close()
+                throw error
+            }
+            val ratios = (0 until renderer.pageCount).map { index ->
+                renderer.openPage(index).use { it.width.toFloat() / it.height.coerceAtLeast(1) }
+            }
+            return PdfPages(descriptor, renderer, ratios)
+        }
+    }
+}

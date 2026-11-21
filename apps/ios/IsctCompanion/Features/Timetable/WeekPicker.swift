@@ -29,7 +29,7 @@ struct WeekPicker: View {
                     Group {
                         Section {
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
+                                HStack(spacing: Theme.space4) {
                                     ForEach(year?.quarters ?? [], id: \.term) { quarter in
                                         Button(Format.quarter(quarter.term)) {
                                             if let date = Format.civilDate(quarter.firstWeek) { pick(date) }
@@ -40,7 +40,7 @@ struct WeekPicker: View {
                                 }
                             }
                             .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: Theme.space2, leading: Theme.space8, bottom: Theme.space2, trailing: Theme.space8))
                         }
                         ForEach(months(year), id: \.title) { month in
                             Section(month.title) {
@@ -75,7 +75,7 @@ struct WeekPicker: View {
         return Button {
             if let date = Format.civilDate(week.monday) { pick(date) }
         } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: Theme.space6) {
                 Text(Self.label(week, in: year) ?? "")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(tone)
@@ -83,8 +83,8 @@ struct WeekPicker: View {
                 Text(days(week.monday))
                     .font(.body.monospacedDigit())
                     .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, Theme.space5)
+                    .padding(.vertical, Theme.space2)
                     .background(selected ? Theme.accent : .clear, in: Capsule())
                 Spacer()
             }

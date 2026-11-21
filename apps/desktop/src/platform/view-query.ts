@@ -1,17 +1,23 @@
+import { errorText } from "../lib/error-text";
 import {
   keepPreviousData,
   useQuery,
   type QueryKey,
 } from "@tanstack/react-query";
-import type { ViewRevisions } from "../store/workspace";
 import type { WorkspaceChange } from "../generated/persistence";
-import type { QueryState } from "./core-query";
 import { freshAnswer, queryClient, type CoreAnswer } from "./query-client";
+
+export type QueryState<T> = {
+  value?: T;
+  error?: string;
+  pending: boolean;
+  retry?: () => void;
+};
 
 /** The revision of the records a view family reads: a reload, or a commit
  * naming any change it reads, makes a new one. */
 export const viewRevision = (
-  revisions: ViewRevisions,
+  revisions: Readonly<Partial<Record<WorkspaceChange | "all", number>>>,
   reads: readonly WorkspaceChange[],
 ) =>
   [revisions.all ?? 0, ...reads.map((change) => revisions[change] ?? 0)].join(
@@ -28,13 +34,14 @@ export function useViewQuery<T>(
   key: QueryKey,
   load: () => Promise<ViewAnswer<T>>,
   enabled = true,
+  keepPrevious = true,
 ): QueryState<T> {
   const query = useQuery(
     {
       queryKey: key,
       queryFn: ({ signal }) => freshAnswer(load, signal),
       enabled,
-      placeholderData: keepPreviousData,
+      placeholderData: keepPrevious ? keepPreviousData : undefined,
     },
     queryClient,
   );
@@ -43,9 +50,7 @@ export function useViewQuery<T>(
     value: query.data?.value,
     pending: query.isFetching || query.isPlaceholderData || query.isPending,
     error: query.error
-      ? query.error instanceof Error
-        ? query.error.message
-        : String(query.error)
+      ? (errorText(query.error, { nativeMessage: false }) ?? String(query.error))
       : undefined,
     retry: () => void query.refetch(),
   };

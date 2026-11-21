@@ -5,9 +5,11 @@
 //! read back is only a candidate: the first request finds out whether the
 //! school still honours it.
 
-use super::{Site, WebCookie};
+use super::{jar::Jar, Inner, Site, Snapshot, WebCookie};
+use crate::school_auth::SchoolAuthProfile;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const VERSION: u8 = 2;
 
@@ -48,5 +50,89 @@ impl Saved {
         serde_json::from_str::<Self>(text)
             .ok()
             .filter(|saved| saved.version == VERSION)
+    }
+}
+
+impl Inner {
+    /// Reads the account's vault items once: its identity, the sites' jars
+    /// and the refusals kept on this device. The read holds a permit until
+    /// what it read is installed, so a barrier forgets and deletes only
+    /// after it; the blocking read holds one of its own to its end, since a
+    /// shell's vault is free to write while it reads.
+    pub(super) async fn restore(&self, profile: SchoolAuthProfile) {
+        let account = self.account(profile);
+        let first = AtomicBool::new(false);
+        account
+            .restored
+            .get_or_init(|| async {
+                first.store(true, Ordering::SeqCst);
+                // A barrier is running: it deletes the item anyway.
+                let Some(permit) = account.owner.permit() else {
+                    return;
+                };
+                let Some(blocking) = account.owner.permit_of(permit.generation()) else {
+                    return;
+                };
+                let auth = self.auth.clone();
+                let loaded = tokio::task::spawn_blocking(move || {
+                    let _permit = blocking;
+                    if let Err(error) = auth.load_refusals() {
+                        log::warn!(target: "app_core::school_session", "refusals not read: {error}");
+                    }
+                    let saved = auth.load_session(profile).ok().flatten()?;
+                    Saved::decode(&saved)
+                })
+                .await
+                .ok()
+                .flatten();
+                let Some(saved) = loaded else { return };
+                let snapshot = Snapshot {
+                    cookies: saved.identity.clone(),
+                };
+                let Some(generation) = account.identity.restore(snapshot) else {
+                    return;
+                };
+                for site in &account.sites {
+                    if let Some(jar) = saved.site(site.site).and_then(Jar::load) {
+                        site.install_restored(jar, generation);
+                    }
+                }
+                log::info!(target: "app_core::school_session", "restored the saved session profile={profile:?}");
+            })
+            .await;
+        // The jars and refusals are known now, no longer unchecked.
+        if first.load(Ordering::SeqCst) {
+            self.changed();
+        }
+        self.publish();
+    }
+
+    /// Saves the identity and every site's jar of the account, for an
+    /// operation of account generation `generation`. The write holds a
+    /// permit of that generation until it lands, however the caller ends: a
+    /// barrier waits for it, so it never lands after the barrier deleted
+    /// the item, and an operation of an older generation writes nothing.
+    pub(super) async fn persist(&self, profile: SchoolAuthProfile, generation: u64) {
+        let account = self.account(profile);
+        let Some(permit) = account.owner.permit_of(generation) else {
+            return;
+        };
+        let Some(snapshot) = account.identity.persisted() else {
+            return;
+        };
+        let mut saved = Saved::new(snapshot.cookies.clone());
+        for site in &account.sites {
+            saved = saved.with_site(site.site, site.saved_jar());
+        }
+        let Some(text) = saved.encode() else { return };
+        let auth = self.auth.clone();
+        let stored = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            auth.store_session(profile, &text)
+        })
+        .await;
+        if let Ok(Err(error)) = stored {
+            log::warn!(target: "app_core::school_session", "session not saved profile={profile:?}: {error}");
+        }
     }
 }

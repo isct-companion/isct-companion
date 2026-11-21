@@ -66,7 +66,7 @@ impl WebBounds {
     }
 }
 /// What wry reports for a main view. Navigation and windows go through the
-/// platform host instead (`school_webkit.rs`; `school_windows.rs` for now).
+/// platform host instead (`school_webkit/mod.rs`; `school_windows.rs` for now).
 #[derive(Clone)]
 pub(crate) struct ViewCallbacks {
     pub loaded: Arc<dyn Fn(&str) + Send + Sync>,
@@ -884,6 +884,7 @@ impl crate::school_webkit::Host for WebKitHost {
             main_frame: request.main_frame,
             kind: request.kind,
             user_gesture: request.user_gesture,
+            elsewhere: request.elsewhere,
         })
     }
 
@@ -960,6 +961,11 @@ impl crate::school_webkit::Host for WebKitHost {
         if let Some(app) = self.native.upgrade().and_then(|native| native.app().ok()) {
             let _ = app.opener().open_url(url.as_str(), None::<&str>);
         }
+    }
+
+    fn sign_in_text(&self) -> &'static crate::native_text::SignInText {
+        let app = self.native.upgrade().and_then(|native| native.app().ok());
+        crate::native_text::sign_in(app.as_ref())
     }
 
     fn download_destination(

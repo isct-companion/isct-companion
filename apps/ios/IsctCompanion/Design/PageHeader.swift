@@ -14,12 +14,12 @@ struct PageHeader<Trailing: View>: View {
                 .foregroundStyle(Theme.ink)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
-            Spacer(minLength: 8)
+            Spacer(minLength: Theme.space4)
             trailing
         }
         .padding(.horizontal, Theme.gutter)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .padding(.top, Theme.space4)
+        .padding(.bottom, Theme.space2)
     }
 }
 

@@ -1,3 +1,4 @@
+import { errorText } from "../lib/error-text";
 import { Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -14,7 +15,7 @@ import {
 } from "./ui";
 import { t } from "../i18n";
 import { useTimeout } from "usehooks-ts";
-import { desktopBridge } from "../app/native";
+import { desktopBridge } from "../platform/native";
 import {
   importOtp,
   otpImportError,
@@ -105,7 +106,7 @@ export function OtpSetupInput({
         throw new Error(t("settings.otp.copyFailed"));
       setCopied(true);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     }
   };
   // The SVG holds the secret, so it lives only while the dialog is open.
@@ -116,7 +117,7 @@ export function OtpSetupInput({
       if (!desktopBridge) throw new Error(t("settings.otp.copyFailed"));
       setQr(await desktopBridge.schoolOtpQr());
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
+      setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
     }
   };
   const [camera, setCamera] = useState(false);
@@ -227,7 +228,7 @@ export function OtpSetupInput({
     </Button>
   );
   const exportButtons = (
-    <Group gap={6} wrap="nowrap">
+    <Group gap="space-3" wrap="nowrap">
       {copyButton}
       <Button
         variant="default"
@@ -319,7 +320,7 @@ export function OtpSetupInput({
                 <Text size="xs" c="dimmed">
                   {t("settings.credentialImport.exportFromGoogleAuthenticator")}
                 </Text>
-                <Group gap="xs">
+                <Group gap="space-4">
                   <Button
                     size="xs"
                     variant="default"
@@ -400,7 +401,7 @@ export function OtpSetupInput({
           {/* Opened with Change: fold back to the setup just read, or drop
               a wrong entry and keep the saved one. */}
           {changing && (read || saved) && (
-            <Group gap={6} className="otpKeep">
+            <Group gap="space-3" className="otpKeep">
               {read && (
                 <Button
                   variant="subtle"
@@ -436,7 +437,7 @@ export function OtpSetupInput({
         </Text>
       )}
       {error && (
-        <Alert color="red" role="alert" mt="xs">
+        <Alert color="red" role="alert" mt="space-4">
           {error}
         </Alert>
       )}
@@ -448,7 +449,7 @@ export function OtpSetupInput({
         title={t("otpEnrollment.help")}
         centered
       >
-        <Stack gap="sm">
+        <Stack gap="space-5">
           <Text size="sm">{t("otpEnrollment.confirm")}</Text>
           <Group justify="end">
             <Button variant="default" onClick={() => setConfirm(false)}>
@@ -482,7 +483,7 @@ export function OtpSetupInput({
           onClose={() => setQr("")}
           title={t("settings.otp.addToAnotherAuthenticator")}
         >
-          <Stack gap="sm" align="center">
+          <Stack gap="space-5" align="center">
             <img
               className="otpQr"
               alt={t("settings.otp.otpSetupQRCode")}
@@ -503,7 +504,7 @@ export function OtpSetupInput({
           onClose={() => setAccounts([])}
           title={t("settings.otp.chooseYourSchoolAccount")}
         >
-          <Stack gap="xs" mah={360} style={{ overflowY: "auto" }}>
+          <Stack gap="space-4" mah={360} style={{ overflowY: "auto" }}>
             {accounts.map((account, index) => (
               <Button
                 key={index}

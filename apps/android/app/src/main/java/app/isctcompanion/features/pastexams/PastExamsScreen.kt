@@ -1,5 +1,6 @@
 package app.isctcompanion.features.pastexams
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
@@ -202,7 +202,7 @@ private fun Feedback(calls: ExamCalls, modifier: Modifier) {
             .fillMaxWidth()
             .background(Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel))
             .clickable { calls.error = null; ExamViews.notice = null }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
+            .padding(horizontal = Theme.space7, vertical = Theme.space5),
     )
 }
 
@@ -251,7 +251,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
         TabPage(
             t("examShare.title"),
             navigationIcon = {
-                if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                if (onBack != null) BackButton(onBack)
             },
             actions = {
                 ExamLinkButton(links) {
@@ -267,9 +267,9 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                 ExamAccountStatus.CONNECTED -> Column(Modifier.fillMaxSize()) {
                     // An upload the site may have half-taken waits for recovery.
                     account.upload.takeIf { it.phase == ExamUploadPhase.PENDING }?.let { upload ->
-                        Card(Modifier.padding(horizontal = Theme.gutter, vertical = 4.dp)) {
+                        Card(Modifier.padding(horizontal = Theme.gutter, vertical = Theme.space2)) {
                             Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                Modifier.padding(horizontal = Theme.space8, vertical = Theme.space4),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Box(Modifier.weight(1f)) { ExamUploadProgress(upload, false) }
@@ -284,7 +284,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                             }
                         }
                     }
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Theme.gutter, vertical = 4.dp)) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = Theme.gutter, vertical = Theme.space2)) {
                         Tab.entries.forEachIndexed { index, choice ->
                             SegmentedButton(
                                 selected = tab == choice,
@@ -314,8 +314,8 @@ internal fun AccountGate(calls: ExamCalls, reload: suspend (ExamAction) -> Unit)
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
     Column(
-        Modifier.fillMaxSize().padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        Modifier.fillMaxSize().padding(Theme.space11),
+        verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(t("examShare.title"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -361,7 +361,7 @@ internal fun ExamCredit() {
     Image(
         painterResource(R.drawable.past_exams_credit),
         "Supported by ScienceTokyoExam · teduryu",
-        Modifier.fillMaxWidth().padding(top = 12.dp).height(11.dp),
+        Modifier.fillMaxWidth().padding(top = Theme.space6).height(11.dp),
         alignment = Alignment.CenterEnd,
         contentScale = ContentScale.Fit,
         colorFilter = ColorFilter.tint(Theme.colors.muted),
@@ -381,12 +381,12 @@ internal fun ExamRow(
         Modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 16.dp, vertical = 11.dp),
+            .padding(horizontal = Theme.rowX, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.space5),
     ) {
         leading?.invoke()
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Theme.space1)) {
             Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (!meta.isNullOrBlank()) {
                 Text(meta, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -401,7 +401,7 @@ internal fun <T> LazyListScope.cardRows(items: List<T>, key: (T) -> Any, row: @C
     item(key = "card-${items.firstOrNull()?.let(key)}") {
         Card {
             items.forEachIndexed { index, item ->
-                if (index > 0) HorizontalDivider(color = Theme.colors.line, modifier = Modifier.padding(start = 16.dp))
+                if (index > 0) HorizontalDivider(color = Theme.colors.line, modifier = Modifier.padding(start = Theme.rowX))
                 row(item)
             }
         }
@@ -450,7 +450,7 @@ private fun BrowseList(calls: ExamCalls, choices: ExamChoices?) {
         delay(300)
         (calls.call(ExamAction.Search(trimmed)) as? ExamAnswer.Subjects)?.v1?.let { hits = query to it }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         item {
             OutlinedTextField(
                 query, { query = it.take(choices?.limits?.query?.toInt() ?: 100) },
@@ -500,7 +500,7 @@ private fun RequestList(calls: ExamCalls) {
         onPauseOrDispose { refresh.cancel() }
     }
     val page = pages[mine]
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         item {
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf(false to "examShare.openRequests", true to "examShare.myRequests").forEachIndexed { index, (value, key) ->
@@ -513,7 +513,7 @@ private fun RequestList(calls: ExamCalls) {
             }
         }
         if (page == null) {
-            if (calls.busy) item { Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() } }
+            if (calls.busy) item { Box(Modifier.fillMaxWidth().padding(Theme.space10), Alignment.Center) { CircularProgressIndicator() } }
         } else {
             if (page.items.isEmpty()) item {
                 Text(t("examShare.noItems"), color = Theme.colors.muted)
@@ -549,10 +549,10 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
         val refresh = scope.launch { load() }
         onPauseOrDispose { refresh.cancel() }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         val content = library
         if (content == null) {
-            if (calls.busy) item { Box(Modifier.fillMaxWidth().padding(24.dp), Alignment.Center) { CircularProgressIndicator() } }
+            if (calls.busy) item { Box(Modifier.fillMaxWidth().padding(Theme.space10), Alignment.Center) { CircularProgressIndicator() } }
         } else {
             val groups = buildList {
                 if (!content.offline) add(Triple("examShare.saved", content.saved, null))
@@ -593,7 +593,7 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
                 TextButton(
                     enabled = !calls.busy,
                     onClick = { confirm = Confirmation("examShare.disconnectHint", ExamAction.Disconnect) },
-                    modifier = Modifier.padding(horizontal = 4.dp),
+                    modifier = Modifier.padding(horizontal = Theme.space2),
                 ) { Text(t("examShare.disconnect"), color = Theme.colors.danger) }
             }
             ExamCredit()

@@ -64,7 +64,6 @@ impl Fixture {
             None,
             None,
             None,
-            None,
         )
         .await
         .unwrap();
@@ -603,6 +602,68 @@ fn generated_contract_preserves_intents_fixed_arrays_and_unknown_payloads() {
     ));
 }
 
+#[test]
+fn school_session_event_decodes_to_the_same_snapshot_type_as_a_query() {
+    use app_core::school_session as core;
+    let unavailable = core::SchoolProfileSession {
+        sign_out_pending: false,
+        refusal_unsaved: false,
+        state: core::SchoolSessionState::Unavailable,
+        presentation: core::SignInPresentation {
+            state_key: "schoolSession.state.unavailableRetry".into(),
+            reason_key: Some("schoolSession.problem.network".into()),
+            recovery: vec![core::SignInRecovery::Retry],
+        },
+        problem: Some(core::SchoolSignInProblem {
+            kind: core::SchoolSignInProblemKind::Network,
+            message: "connection lost".into(),
+        }),
+        retry_at: Some(
+            chrono::DateTime::parse_from_rfc3339("2026-11-20T04:30:00Z")
+                .unwrap()
+                .to_utc(),
+        ),
+        maintenance: None,
+    };
+    let not_configured = core::SchoolProfileSession {
+        state: core::SchoolSessionState::NotConfigured,
+        presentation: core::SignInPresentation {
+            state_key: "common.notConnected".into(),
+            reason_key: None,
+            recovery: Vec::new(),
+        },
+        problem: None,
+        retry_at: None,
+        ..unavailable.clone()
+    };
+    let snapshot = core::SchoolSessionSnapshot {
+        revision: 7,
+        profiles: core::SchoolSessionProfiles {
+            science: not_configured,
+            tokyo_tech: unavailable,
+        },
+    };
+    let event = app_core::events::CoreEvent::SchoolSession(snapshot.clone());
+    let from_event = crate::decode_school_session(JsonValue(event.payload())).unwrap();
+    let from_query: SchoolSessionSnapshot = crate::json::project(snapshot).unwrap();
+    assert_eq!(from_event.revision, 7);
+    assert!(matches!(
+        from_event.profiles.tokyo_tech.presentation.recovery.as_slice(),
+        [SignInRecovery::Retry]
+    ));
+    assert_eq!(
+        serde_json::to_value(from_event).unwrap(),
+        serde_json::to_value(from_query).unwrap()
+    );
+
+    let mut malformed = event.payload();
+    malformed.as_object_mut().unwrap().remove("revision");
+    assert!(matches!(
+        crate::decode_school_session(JsonValue(malformed)),
+        Err(SdkError::InvalidInput { .. })
+    ));
+}
+
 /// The sync types are renamed for the shells (`SyncView`, `SyncNetwork`, …)
 /// and carry timestamps as text; the JSON both sides agree on must not change.
 #[test]
@@ -614,6 +675,15 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
     let snapshot = core::SyncSnapshot {
         generation: 3,
         resetting: false,
+        attention: core::SyncAttention {
+            primary: Some(core::SyncWork::Held { run: "run-1".into() }),
+            problem: Some(core::SyncAttentionProblem::Account {
+                profile: app_core::school_auth::SchoolAuthProfile::TokyoTech,
+                presentation: None,
+                retry_at: Some(retry),
+            }),
+            busy: false,
+        },
         runs: vec![core::RunView {
             run: "run-1".into(),
             dataset: "lms.course".into(),
@@ -626,9 +696,14 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
             total: Some(9),
             current: None,
             scope: Some("123".into()),
+            retry: None,
             held: Some(core::Held::Backoff { until: retry }),
             failure: Some(core::SyncFailure {
                 kind: "http-503".into(),
+                reason: core::Label {
+                    key: "syncStatus.failure.serverFailed".into(),
+                    args: json!({ "status": "503" }),
+                },
                 keys_failed: 1,
                 retry_at: Some(retry),
                 detail: Some("grades: parse".into()),
@@ -638,6 +713,18 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
     };
     let payload = serde_json::to_value(&snapshot).unwrap();
     let decoded = crate::decode_sync_snapshot(crate::JsonValue(payload.clone())).unwrap();
+    assert!(matches!(
+        &decoded.attention.primary,
+        Some(SyncWork::Held { run }) if run == "run-1"
+    ));
+    assert!(matches!(
+        &decoded.attention.problem,
+        Some(SyncAttentionProblem::Account {
+            profile: SchoolAuthProfile::TokyoTech,
+            retry_at: Some(at),
+            ..
+        }) if at == "2026-10-20T03:00:00Z"
+    ));
     assert!(matches!(
         decoded.runs[0].priority,
         SyncPriority::Interactive
@@ -815,7 +902,6 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -932,7 +1018,6 @@ async fn shutdown_reports_native_failure_and_rejects_retained_browser_callbacks(
         config,
         Arc::new(Vault::default()),
         Some(browser.clone()),
-        None,
         None,
         None,
         None,
@@ -1223,7 +1308,6 @@ async fn drive_signs_in_through_the_token_port_and_stays_authorized_after_restar
                 authorized_cloud_providers: vec![],
             },
             vault.clone(),
-            None,
             None,
             None,
             None,

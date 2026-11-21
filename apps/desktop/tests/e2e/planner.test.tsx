@@ -594,6 +594,11 @@ describe("the course planner", () => {
         app!.core.emit("sync-snapshot", {
           generation: runs.length + 1,
           resetting: false,
+          attention: {
+            primary: runs.length ? { kind: "active", run: "catalog" } : null,
+            problem: null,
+            busy: runs.length > 0,
+          },
           runs,
           sources: [],
         }),

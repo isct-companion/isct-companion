@@ -312,7 +312,7 @@ impl DataStore {
         &self,
         expected_revision: &str,
         operation: impl FnOnce(&WorkspaceWrite<'_, '_>, &Value, &SchoolReads) -> Result<T, DataError>,
-    ) -> Result<(T, String, BTreeSet<String>), DataError> {
+    ) -> Result<(T, String, u64, BTreeSet<String>), DataError> {
         // Lock order: view reader, then the write connection.
         let mut reader = self
             .view_reader
@@ -373,14 +373,16 @@ impl DataStore {
         )?;
         reader.exams = Some(shared);
         self.committed_tables(&tables);
+        let seq = self.commit_seq();
         drop(writer);
         drop(reader);
         self.observer.committed(
             WorkspaceChangeSource::UserIntent,
             Some(revision.clone()),
+            seq,
             &tables,
         );
-        Ok((result, revision, tables))
+        Ok((result, revision, seq, tables))
     }
 
     /// The workspace fields `fields` names (every one when `None`), each read
@@ -580,7 +582,7 @@ impl DataStore {
         // Shells and reminders read one resolved value per preference.
         if let Some(notifications) = workspace.pointer_mut("/settings/notifications") {
             let resolved = crate::schedule::notification_preferences(notifications);
-            let leads = crate::schedule::assignment_lead_minutes(notifications)?;
+            let assignment_leads = crate::schedule::assignment_lead_minutes(notifications)?;
             for (name, value) in [
                 ("classes", json!(resolved.classes)),
                 ("classLeadMinutes", json!(resolved.class_lead_minutes)),
@@ -588,7 +590,7 @@ impl DataStore {
                 ("examLeadMinutes", json!(resolved.exam_lead_minutes)),
                 ("quizzes", json!(resolved.quizzes)),
                 ("assignments", json!(resolved.assignments)),
-                ("assignmentLeadMinutes", json!(leads)),
+                ("assignmentLeadMinutes", json!(assignment_leads)),
             ] {
                 notifications[name] = value;
             }

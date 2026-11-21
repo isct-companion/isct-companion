@@ -128,19 +128,6 @@ pub(crate) async fn notify(
     Ok(true)
 }
 
-#[tauri::command]
-pub(crate) async fn bootstrap_reminders(
-    webview: tauri::Webview,
-    app: tauri::AppHandle,
-    fired: serde_json::Value,
-) -> Result<bool, CommandError> {
-    require_local_main(&webview)?;
-    crate::core_ports::core(&app)
-        .import_legacy_reminders(fired, chrono::Utc::now().fixed_offset())
-        .await
-        .map_err(coded)
-}
-
 #[cfg(target_os = "macos")]
 #[tauri::command]
 pub(crate) async fn request_notification_permission(

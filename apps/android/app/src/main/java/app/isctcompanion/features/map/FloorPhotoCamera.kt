@@ -1,24 +1,20 @@
 package app.isctcompanion.features.map
 
-import android.content.pm.PackageManager
+import app.isctcompanion.core.campusMapUploadPhoto
+import app.isctcompanion.shared.StillCameraResult
+import app.isctcompanion.shared.rememberStillCamera
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.design.t
 import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** A building's photo uploads during this map visit. */
@@ -40,59 +36,36 @@ class FloorPhotoCamera(
 @Composable
 fun rememberFloorPhotoCamera(): FloorPhotoCamera {
     val model = LocalModel.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     var uploads by remember { mutableStateOf(mapOf<String, FloorPhotoUploads>()) }
     var failure by remember { mutableStateOf<String?>(null) }
-    // The building and file of the photo the camera is taking.
-    var pending by remember { mutableStateOf<Pair<String, File>?>(null) }
-    val available = remember { context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY) }
 
     fun update(building: String, change: (FloorPhotoUploads) -> FloorPhotoUploads) {
         uploads = uploads + (building to change(uploads[building] ?: FloorPhotoUploads()))
     }
 
-    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
-        val (building, shot) = pending ?: return@rememberLauncherForActivityResult
-        pending = null
-        if (!taken) {
-            shot.delete()
-            return@rememberLauncherForActivityResult
-        }
-        scope.launch {
-            val jpeg = withContext(Dispatchers.Default) { runCatching { encode(shot) }.getOrNull() }
-            shot.delete()
-            if (jpeg == null) {
-                failure = t("error.internal")
-                return@launch
+    val camera = rememberStillCamera<String> { building, result ->
+        when (result) {
+            is StillCameraResult.Captured -> {
+                val jpeg = withContext(Dispatchers.Default) { runCatching { encode(result.file) }.getOrNull() }
+                if (jpeg == null) {
+                    failure = t("error.internal")
+                    return@rememberStillCamera
+                }
+                update(building) { it.copy(sending = it.sending + 1) }
+                val refused = model.campusMapUploadPhoto(building, jpeg)
+                update(building) { it.copy(sending = it.sending - 1, sent = if (refused == null) it.sent + 1 else it.sent) }
+                failure = refused
             }
-            update(building) { it.copy(sending = it.sending + 1) }
-            val refused = model.campusMapUploadPhoto(building, jpeg)
-            update(building) { it.copy(sending = it.sending - 1, sent = if (refused == null) it.sent + 1 else it.sent) }
-            failure = refused
-        }
-    }
-    // An app that declares the camera permission must hold it to start the
-    // system camera.
-    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { allowed ->
-        val shot = pending?.second ?: return@rememberLauncherForActivityResult
-        if (allowed) {
-            takePicture.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", shot))
-        } else {
-            pending = null
-            failure = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+            StillCameraResult.Denied -> failure = t("settings.matrixCamera.cameraAccessWasDeniedAllow")
+            StillCameraResult.Cancelled -> Unit
         }
     }
 
     return FloorPhotoCamera(
-        available = available,
+        available = camera.available,
         uploads = uploads,
         failure = failure,
-        take = { building ->
-            val shot = File(context.cacheDir, "photos").apply { mkdirs() }.resolve("floor-${System.nanoTime()}.jpg")
-            pending = building to shot
-            permission.launch(android.Manifest.permission.CAMERA)
-        },
+        take = camera.take,
         dismissFailure = { failure = null },
     )
 }

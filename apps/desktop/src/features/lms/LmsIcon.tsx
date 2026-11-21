@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ArrowLeft,
   ChevronRight,
   Code,
@@ -28,7 +29,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import type { FileFamily } from "./file-types";
+import type { FileFamily } from "../../lib/file-types";
 
 /** LMS glyphs, all from lucide (slotledger approach/icons-per-platform). */
 const glyphs: Record<
@@ -42,6 +43,7 @@ const glyphs: Record<
   | "back"
   | "download"
   | "external"
+  | "open"
   | "copy"
   | "share"
   | "trash"
@@ -75,6 +77,7 @@ const glyphs: Record<
   trash: Trash2,
   code: Code,
   external: ExternalLink,
+  open: AppWindow,
   copy: Copy,
   share: Share,
 };

@@ -1,5 +1,6 @@
 package app.isctcompanion.features.timetable
 
+import app.isctcompanion.core.clockMinutes
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.design.Format
 import java.time.Instant
@@ -30,9 +31,4 @@ fun TimetableAxis.now(instant: Instant): Double? {
     val first = stops.firstOrNull() ?: return null
     if (minutes < first.minutes.toInt() || minutes > stops.last().minutes.toInt()) return null
     return offset(minutes)
-}
-
-fun clockMinutes(clock: String): Int {
-    val parts = clock.split(":").mapNotNull { it.toIntOrNull() }
-    return if (parts.size == 2) parts[0] * 60 + parts[1] else 0
 }

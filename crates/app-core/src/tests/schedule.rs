@@ -5,7 +5,7 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use super::calendar::quarter_range;
 use super::*;
 
-fn workspace() -> Value {
+pub(super) fn workspace() -> Value {
     json!({
         "currentTerm":"2026-1Q", "selectedTerm":"2026-1Q", "terms":[],
         "settings":{"contentLanguage":"en","notifications":{"classes":true,"assignments":true,"classLeadMinutes":10}},
@@ -483,7 +483,7 @@ fn advanced_calendar_and_course_rules_match_desktop_cases() {
 #[test]
 fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
     let mut data = workspace();
-    data["memberships"][0]["evidence"] = json!({"provider":"school"});
+    data["courses"][0]["meetings"][0]["days"] = json!([2]);
     data["exams"] = json!([{"id":"exam","academicYear":2026,"level":"undergraduate","quarter":"1Q","courseCode":"CSC.T241","date":"2026-04-13","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1]}]);
     let rows = resolve_day_agenda(
         &data,
@@ -551,7 +551,7 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
     );
 
     data["exams"] = json!([]);
-    data["events"] = json!([]);
+    data["courses"][0]["meetings"][0]["days"] = json!([1]);
     data["scheduleOverrides"] = json!([{"id":"override","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","date":"2026-04-14","periods":[5,6],"room":"Moved","hidden":false}]);
     assert!(resolve_day_agenda(
         &data,
@@ -868,6 +868,80 @@ fn assignment_reminders_preserve_leads_and_open_work_filter() {
 }
 
 #[test]
+fn deadline_display_truncates_adjacent_units_and_changes_at_the_projected_instant() {
+    use CountdownUnit::*;
+    let due: DateTime<FixedOffset> = "2026-04-14T00:00:00+09:00".parse().unwrap();
+    for (seconds, expected, tone) in [
+        (59, vec![(Seconds, 59)], "urgent"),
+        (60, vec![(Minutes, 1)], "urgent"),
+        (61, vec![(Minutes, 1), (Seconds, 1)], "urgent"),
+        (3660, vec![(Hours, 1), (Minutes, 1)], "urgent"),
+        (3630, vec![(Hours, 1)], "urgent"),
+        (86_400 + 5 * 60, vec![(Days, 1)], "soon"),
+        (86_400, vec![(Days, 1)], "soon"),
+        (259_200, vec![(Days, 3)], "normal"),
+    ] {
+        for elapsed in [false, true] {
+            let delta = chrono::Duration::seconds(seconds);
+            let at = if elapsed { due + delta } else { due - delta };
+            let view = deadline_view(due, at);
+            let parts = |view: &TaskDeadlineView| {
+                view.units
+                    .iter()
+                    .map(|unit| (unit.unit, unit.count))
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(parts(&view), expected);
+            assert_eq!(view.countdown_tone, if elapsed { "past" } else { tone });
+            let next = view
+                .next_change_at
+                .as_ref()
+                .unwrap()
+                .parse::<DateTime<FixedOffset>>()
+                .unwrap();
+            assert!(next > at);
+            assert_eq!(
+                parts(&deadline_view(
+                    due,
+                    next - chrono::Duration::milliseconds(1)
+                )),
+                expected
+            );
+            assert_ne!(parts(&deadline_view(due, next)), expected);
+        }
+    }
+    let remaining = deadline_view(due, due - chrono::Duration::milliseconds(1));
+    assert_eq!(remaining.state, DeadlineState::Remaining);
+    assert_eq!(
+        remaining
+            .next_change_at
+            .unwrap()
+            .parse::<DateTime<FixedOffset>>()
+            .unwrap(),
+        due
+    );
+    let exact = deadline_view(due, due);
+    assert_eq!(
+        (exact.state, exact.countdown_tone.as_str()),
+        (DeadlineState::Overdue, "past")
+    );
+    assert_eq!(
+        exact.units,
+        [CountdownComponent {
+            unit: Seconds,
+            count: 0
+        }]
+    );
+    assert_eq!(
+        deadline_view(due, due + chrono::Duration::seconds(1)).units,
+        [CountdownComponent {
+            unit: Seconds,
+            count: 1
+        }]
+    );
+}
+
+#[test]
 fn task_view_strictly_classifies_today_and_lecture_work() {
     let mut data = workspace();
     data["assignments"] = json!([
@@ -886,6 +960,11 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
         {"id":"lms-done","courseId":"course","title":"LMS done","dueAt":"2026-04-15T10:00:00+09:00","submissionStatus":"submitted"},
         {"id":"graded","courseId":"course","title":"Graded","dueAt":"2026-04-01T10:00:00+09:00","submission":"graded","deletedAt":"2026-04-02T00:00:00Z"}
     ]);
+    for row in data["assignments"].as_array_mut().unwrap() {
+        if row["id"] != "undated" {
+            row["sourceUrl"] = json!("https://lms.s.isct.ac.jp/2026/mod/assign/view.php?id=7");
+        }
+    }
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap();
     let view = task_view(&data, now).unwrap();
     let term = &view.by_term["2026-1Q"];
@@ -917,23 +996,54 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert!(!view.deadlines.contains_key("undated-done"));
     // One submitted rule for every shell, including the LMS status field.
     assert_eq!(
-        view.submitted_ids,
+        view.states
+            .iter()
+            .filter_map(|(id, state)| state.is_submitted().then_some(id.as_str()))
+            .collect::<Vec<_>>(),
         vec!["done", "lms-done", "old", "past-done", "undated-done"]
     );
-    // Closed for hand-in: submitted work, and past deadlines unless LMS last
-    // showed the page still taking late work ("missed").
-    assert_eq!(
-        view.closed_ids,
-        vec![
-            "done",
+    for (id, state, availability) in [
+        (
+            "soon",
+            AssignmentState::Open,
+            HandInAvailability::PrepareDraft,
+        ),
+        ("past", AssignmentState::Closed, HandInAvailability::OpenLms),
+        (
+            "missed",
+            AssignmentState::Overdue,
+            HandInAvailability::PrepareDraft,
+        ),
+        (
             "lms-done",
-            "old",
-            "orphan",
-            "past",
+            AssignmentState::Submitted,
+            HandInAvailability::OpenLms,
+        ),
+        (
             "past-done",
-            "undated-done"
-        ]
-    );
+            AssignmentState::Graded,
+            HandInAvailability::OpenLms,
+        ),
+        (
+            "undated",
+            AssignmentState::Open,
+            HandInAvailability::Unavailable,
+        ),
+    ] {
+        let row = visible_by_id(&data, "assignments", id).unwrap();
+        let item = super::today::deadline_item(&data, row, now).unwrap();
+        let detail = assignment_detail(&data, id, now).unwrap();
+        assert_eq!(view.states[id], state);
+        assert_eq!(view.hand_in_availability[id], availability);
+        assert_eq!(
+            (item.state, item.hand_in_availability),
+            (state, availability)
+        );
+        assert_eq!(
+            (detail.state, detail.hand_in_availability),
+            (state, availability)
+        );
+    }
     // Another quarter lists all of its past work at once; unlinked work
     // belongs only to the current quarter.
     let mut ended = data.clone();
@@ -947,7 +1057,13 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
     assert!(ended.past_earlier_ids.is_empty());
     assert_eq!(ended.hidden_ids, vec!["hidden"]);
     assert_eq!(view.nearest_by_course["course"], "soon");
-    assert_eq!(view.deadlines["soon"].countdown_label, "2h");
+    assert_eq!(
+        view.deadlines["soon"].units,
+        [CountdownComponent {
+            unit: CountdownUnit::Hours,
+            count: 2
+        }]
+    );
     assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");
     assert!(!view.deadlines.contains_key("invalid"));
 }
@@ -992,6 +1108,8 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
         {"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301"}
     ]);
     data["lmsCourses"] = json!([{"lmsId":7,"shortname":"ENT.B101(LAS.F101)-01 [2026]"}]);
+    // The exam timetable names one of them; the page folds away the rest.
+    data["exams"] = json!([{"id":"final","academicYear":2026,"level":"undergraduate","quarter":"4Q","courseCode":"LAW.X376","date":"2027-01-25","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1]}]);
     data["memberships"] = json!([
         {"courseId":"cross","termId":"2026-4Q","status":"registered"},
         {"courseId":"alias-only","termId":"2026-4Q","status":"lms-member"},
@@ -1001,7 +1119,7 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
     ]);
 
     let WorkspaceQueryResult::ExamCourses(list) =
-        query(&data, &SchoolReads::default(), WorkspaceQuery::ExamCourses).unwrap()
+        query(&data, &SchoolReads::fixture(&data), WorkspaceQuery::ExamCourses).unwrap()
     else {
         panic!("expected this quarter's past-exam courses");
     };
@@ -1020,6 +1138,13 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
             ("manual", vec![]),
         ]
     );
+    let examined: Vec<_> = list
+        .courses
+        .iter()
+        .filter(|course| course.has_exam)
+        .map(|course| course.course_id.as_str())
+        .collect();
+    assert_eq!(examined, ["alias-only"]);
 }
 
 #[test]
@@ -1448,8 +1573,22 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(ids(&board.today.later), ["next-week"]);
     // Overdue for a week at most, hidden and submitted work never.
     assert_eq!(ids(&board.today.past_recent), ["late"]);
-    assert_eq!(board.today.past_recent[0].tone, "past");
-    assert_eq!(board.today.due_this_week[0].tone, "urgent");
+    assert_eq!(
+        board.today.past_recent[0]
+            .deadline
+            .as_ref()
+            .unwrap()
+            .countdown_tone,
+        "past"
+    );
+    assert_eq!(
+        board.today.due_this_week[0]
+            .deadline
+            .as_ref()
+            .unwrap()
+            .countdown_tone,
+        "urgent"
+    );
     assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
     assert_eq!(
         ids(&board.record.due_this_week),
@@ -1636,40 +1775,8 @@ async fn failed_delivery_rolls_back_claim_and_can_retry_after_next_wake() {
 }
 
 #[tokio::test]
-async fn legacy_fired_history_is_merged_before_delivery_starts() {
-    let root = std::env::temp_dir().join(format!("isct-reminders-import-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize_dir(root.clone())
-        .unwrap()
-        .0;
-    let service = ReminderService::new(store.clone());
-    let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-
-    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
-    assert!(service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
-        .await
-        .unwrap());
-    assert!(!service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis() - 1}), now)
-        .await
-        .unwrap());
-    assert!(
-        super::reminders::read_fired(&store.paths().local(super::reminders::REMINDER_LOG))
-            .unwrap()
-            .contains_key("assignment:one")
-    );
-    service.shutdown().await;
-    // Windows cannot delete a folder with files still open.
-    drop(service);
-    drop(store);
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[tokio::test(start_paused = true)]
-async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges() {
-    let root =
-        std::env::temp_dir().join(format!("isct-reminders-no-import-{}", uuid::Uuid::new_v4()));
+async fn reminder_service_opens_current_history_on_its_first_pass_and_stops_after_shutdown() {
+    let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let store = crate::data::DataStore::initialize_dir(root.clone())
         .unwrap()
@@ -1677,36 +1784,9 @@ async fn delivery_starts_without_a_legacy_import_and_a_late_import_still_merges(
     let path = store.paths().local(super::reminders::REMINDER_LOG);
     let service = ReminderService::new(store);
     let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-
+    assert!(!path.exists());
     assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
-    assert!(!path.is_file());
-    tokio::time::advance(std::time::Duration::from_secs(61)).await;
-    service.deliver_due(Arc::new(NoopSink), now).await.unwrap();
     assert!(path.is_file());
-    assert!(super::reminders::read_fired(&path).unwrap().is_empty());
-
-    assert!(!service
-        .import_legacy_fired(json!({"assignment:one": now.timestamp_millis()}), now)
-        .await
-        .unwrap());
-    assert!(super::reminders::read_fired(&path)
-        .unwrap()
-        .contains_key("assignment:one"));
-    service.shutdown().await;
-    drop(service);
-    std::fs::remove_dir_all(root).unwrap();
-}
-
-#[tokio::test]
-async fn reminder_passes_after_shutdown_are_rejected_as_stopped() {
-    let root = std::env::temp_dir().join(format!("isct-reminder-service-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&root).unwrap();
-    let store = crate::data::DataStore::initialize_dir(root.clone())
-        .unwrap()
-        .0;
-    let service = ReminderService::new(store);
-    let now = DateTime::parse_from_rfc3339("2026-04-13T08:40:00+09:00").unwrap();
-    assert!(!service.deliver_due(Arc::new(NoopSink), now).await.unwrap());
     service.shutdown().await;
     assert!(matches!(
         service.deliver_due(Arc::new(NoopSink), now).await,
@@ -2144,6 +2224,11 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
     )
     .unwrap();
     assert_eq!(ja.items[1].body, "締切まで30分");
+    for selected in [vec![17], vec![17, 1, 2, 3, 4, 5, 6, 7]] {
+        data["settings"]["notifications"]["assignmentLeadMinutes"] = json!(selected);
+        let plan = notification_plan(&data, &SchoolReads::fixture(&data), from, to, None).unwrap();
+        assert_eq!(plan.items.len(), selected.len());
+    }
     for invalid in [
         json!([]),
         json!([0]),
@@ -2364,23 +2449,25 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
 }
 
 #[test]
-fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
+fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_edits() {
     let mut data = workspace();
     data["academicCalendar"][0]["examRanges"] = json!([{"start":"2026-05-28","end":"2026-06-09"}]);
+    let exam_week_monday = "2026-06-01";
     let row = |id: &str, kind: &str, date: &str, periods: [u8; 2]| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":periods,"room":{"ja":"W8E-E207"},"label":{"ja":"授業"},"status":"scheduled"});
     data["exams"] = json!([
         // The weekly class meets Mondays 1-2.
         row("moved", "class", "2026-04-13", [3, 4]),
         row("extra", "class", "2026-04-15", [5, 6]),
-        row("final", "exam", "2026-04-16", [3, 4]),
+        row("final", "exam", "2026-04-13", [5, 6]),
         row("kept", "class", "2026-04-20", [7, 8]),
-        row("exam-week", "class", "2026-05-28", [1, 2]),
+        row("exam-week", "class", exam_week_monday, [1, 2]),
         row("monday-exam", "exam", "2026-04-27", [5, 6]),
         row("edited-monday-exam", "exam", "2026-05-11", [5, 6]),
     ]);
-    // A hand-edited weekly session outranks the timetable.
+    // A session the person re-roomed outranks the timetable. A stored row
+    // without `targetKind` names a class session too.
     data["scheduleOverrides"] = json!([
-        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","targetKind":"course","room":"My room","hidden":false},
+        {"id":"mine","targetKey":"course-weekly-0-2026-04-20","room":"My room","hidden":false},
         {"id":"mine-too","targetKey":"course-weekly-0-2026-05-11","targetKind":"course","room":"My room","hidden":false}
     ]);
     let agenda = |date| {
@@ -2406,13 +2493,20 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     };
     assert_eq!(
         agenda("2026-04-13"),
-        [session("reference:moved", "10:45", "W8E-E207")]
+        [
+            session("reference:moved", "10:45", "W8E-E207"),
+            (
+                OccurrenceKind::Exam,
+                "reference:final".into(),
+                "13:30".into(),
+                "W8E-E207".into(),
+            ),
+        ]
     );
     assert_eq!(
         agenda("2026-04-15"),
         [session("reference:extra", "13:30", "W8E-E207")]
     );
-    assert_eq!(agenda("2026-04-16")[0].0, OccurrenceKind::Exam);
     assert_eq!(
         agenda("2026-04-20"),
         [
@@ -2421,7 +2515,8 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
         ]
     );
 
-    // An exam replaces the weekly class too, unless the user edited it.
+    // An exam replaces the weekly class of its day too, unless the person
+    // edited that session.
     let kinds = |date| {
         agenda(date)
             .into_iter()
@@ -2438,8 +2533,8 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
-        "2026-05-28",
-        "2026-05-29",
+        exam_week_monday,
+        "2026-06-02",
     )
     .unwrap();
     assert_eq!(
@@ -2473,6 +2568,25 @@ fn exam_timetable_sessions_outrank_the_weekly_pattern_but_not_manual_edits() {
     .conflicts
     .iter()
     .all(|view| view.kind == "exam"));
+
+    // Marking the published class as a quiz must not bring back the
+    // cancelled weekly session it replaces.
+    mark_session(&mut data, "reference:exam-week", "quiz");
+    let days = calendar_between(
+        &data,
+        &SchoolReads::fixture(&data),
+        exam_week_monday,
+        exam_week_monday,
+    )
+    .unwrap();
+    assert_eq!(
+        days[0]
+            .occurrences
+            .iter()
+            .map(|block| (block.key.as_str(), block.mark))
+            .collect::<Vec<_>>(),
+        [("reference:exam-week", Some(SessionMark::Quiz))]
+    );
 }
 
 #[test]
@@ -2624,15 +2738,24 @@ fn a_user_mark_decides_what_a_session_is() {
     .is_err());
     mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-21"), [(OccurrenceKind::Exam, None)]);
-    // The session gives way to the published exam of its course that day.
+    // The session gives way to the published exam of its course that day;
+    // the mark stays and counts again once that exam leaves the timetable.
     data["exams"].as_array_mut().unwrap().push(json!({"id":"monday","kind":"exam","sourceKey":"reference:monday","academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":"2026-05-11","periods":[1,2],"room":{"ja":"W8E-E207"},"label":{"ja":"中間"},"status":"scheduled"}));
     mark_session(&mut data, "course-weekly-0-2026-05-11", "exam");
     assert_eq!(agenda(&data, "2026-05-11"), [(OccurrenceKind::Exam, None)]);
     assert!(!listed(&data)
         .iter()
         .any(|row| row.0 == "course-weekly-0-2026-05-11"));
-    // A session the exam period cancels runs when the user says it does.
+    let monday = data["exams"].as_array_mut().unwrap().pop().unwrap();
+    assert!(listed(&data).contains(&session("course-weekly-0-2026-05-11", "exam")));
+    data["exams"].as_array_mut().unwrap().push(monday);
+    // The exam period cancels the weekly session; it stays in the calendar
+    // so the person can say it runs.
     assert!(agenda(&data, "2026-06-01").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-01"),
+        [(OccurrenceKind::Course, Some(true))]
+    );
     mark_session(&mut data, "course-weekly-0-2026-06-01", "class");
     assert_eq!(
         agenda(&data, "2026-06-01"),
@@ -2643,14 +2766,30 @@ fn a_user_mark_decides_what_a_session_is() {
         .unwrap()
         .iter()
         .any(|row| row["targetKey"] == "course-weekly-0-2026-06-01" && row["mark"] == "class"));
-    let day = calendar_between(
+    let days = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
         "2026-06-01",
-        "2026-06-01",
+        "2026-06-08",
     )
     .unwrap();
-    assert!(!day[0].no_classes);
+    assert!(!days[0].no_classes);
+    assert!(days[7].no_classes);
+    assert_eq!(
+        days[7]
+            .occurrences
+            .iter()
+            .map(|block| (block.kind, block.cancelled))
+            .collect::<Vec<_>>(),
+        [(OccurrenceKind::Course, Some(true))]
+    );
+    // Moved to another day, the session takes place there.
+    data["scheduleOverrides"].as_array_mut().unwrap().push(json!({"id":"moved-out","targetKey":"course-weekly-0-2026-06-08","targetKind":"course","date":"2026-06-09","hidden":false}));
+    assert!(calendar(&data, "2026-06-08").is_empty());
+    assert_eq!(
+        calendar(&data, "2026-06-09"),
+        [(OccurrenceKind::Course, None)]
+    );
 
     // Exam-timetable rows: cancel, turn into a class, then back to the source.
     mark_session(&mut data, "reference:final", "cancelled");
@@ -3023,6 +3162,10 @@ fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
     ));
 }
 
+// Teacher-authored HTML is arbitrary. Exercise both read models with the
+// same language markers the sanitizer handles, independent of Moodle markup.
+const LANGUAGE_SAMPLE: &str = r#"<p lang="ja">日本語</p><p lang="en">English</p>"#;
+
 #[test]
 fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     let body = concat!(
@@ -3065,7 +3208,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert!(assignment_detail(&data, "gone").is_none());
+    assert!(assignment_detail(&data, "gone", chrono::Utc::now().fixed_offset()).is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.
     let mut named = data.clone();
@@ -3075,7 +3218,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
         r#"<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>"#,
         r#"<a href="/pluginfile.php/relative.zip">relative</a>"#,
     ));
-    let names: Vec<_> = assignment_detail(&named, "a")
+    let names: Vec<_> = assignment_detail(&named, "a", chrono::Utc::now().fixed_offset())
         .unwrap()
         .attachments
         .into_iter()
@@ -3085,9 +3228,23 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     // Without a module row the page still shows the assignment's own fields.
     let mut bare = data.clone();
     bare["materials"] = json!([]);
-    let view = assignment_detail(&bare, "a").unwrap();
+    let view = assignment_detail(&bare, "a", chrono::Utc::now().fixed_offset()).unwrap();
     assert!(view.body_html.is_empty() && view.attachments.is_empty());
     assert_eq!(view.title, "Report");
+
+    let mut localized = data;
+    localized["materials"][0]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    let now = DateTime::parse_from_rfc3339("2026-10-22T00:00:00Z").unwrap();
+    for (language, preferred) in [("en", "English"), ("ja", "日本語")] {
+        localized["settings"] =
+            json!({"locale":"en","contentLanguage":language,"lmsBilingualFilter":true});
+        let view = assignment_detail(&localized, "a", now).unwrap();
+        assert_eq!(
+            view.body_html,
+            format!(r#"<p lang="{language}">{preferred}</p>"#)
+        );
+        assert_eq!(view.original_body_html.as_deref(), Some(LANGUAGE_SAMPLE));
+    }
 }
 
 #[test]
@@ -3202,6 +3359,28 @@ fn course_content_follows_the_desktop_lecture_desk() {
     assert!(view.lessons[3].items.is_empty());
     let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
     assert!(course_content(&data, &SchoolReads::fixture(&data), "unknown", now).is_none());
+
+    let mut localized = data.clone();
+    localized["lmsCourses"][0]["sections"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    localized["materials"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
+    for (language, preferred) in [("en", "English"), ("ja", "日本語")] {
+        localized["settings"] =
+            json!({"locale":"en","contentLanguage":language,"lmsBilingualFilter":true});
+        let view = course_content(&localized, &SchoolReads::fixture(&localized), "c", now).unwrap();
+        let filtered = format!(r#"<p lang="{language}">{preferred}</p>"#);
+        assert_eq!(view.lessons[2].summary_html, filtered);
+        assert_eq!(
+            view.lessons[2].original_summary_html.as_deref(),
+            Some(LANGUAGE_SAMPLE)
+        );
+        let label = view.lessons[1]
+            .items
+            .iter()
+            .find(|item| item.material_id == "l")
+            .unwrap();
+        assert_eq!(label.body_html.as_deref(), Some(filtered.as_str()));
+        assert_eq!(label.original_body_html.as_deref(), Some(LANGUAGE_SAMPLE));
+    }
 
     // Linear Algebra II【X】's sections: lectures and recitations interleave.
     // The series with more lessons shows bare numbers, the other its own

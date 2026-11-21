@@ -1,16 +1,15 @@
-//! Assignment workspace storage, archive and cleanup rules, and the one
-//! service every shell and the MCP tools create and fill workspaces through.
-//! Desktop opens a workspace in Finder or VS Code; the phones fill its
-//! `submit/` with what was shared into the app; an agent writes into it.
-//! Either way the hand-in reads `submit/`.
+//! Desktop assignment workspace storage, archive and cleanup rules shared
+//! by the app and the MCP tools.
 
 use crate::{
     course_materials::{course_folder, CourseKey, CourseMaterials, Material},
     data::DataStore,
     downloads::Downloader,
+    file_preview::archive::is_junk,
     notes::NoteStore,
-    schedule::AssignmentDetail,
-    storage::{self, LocalFile, StorageError},
+    schedule::{AssignmentDetail, HandInAvailability},
+    school_browser::{assignment_detail_in, draft_page},
+    storage::{self, StorageError},
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -26,7 +25,6 @@ pub use crate::school_browser::{SubmissionFile, MAX_SUBMISSION_BYTES, MAX_SUBMIS
 const META: &str = ".workspace.json";
 pub(crate) const SUBMIT_DIR: &str = "submit";
 const BRIEF: &str = "ASSIGNMENT.md";
-#[cfg(feature = "workspace-archives")]
 const MAX_UNPACK_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 50_000;
 const STALE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -49,6 +47,8 @@ pub enum WorkspaceError {
 pub enum HandInError {
     #[error(transparent)]
     Workspace(#[from] WorkspaceError),
+    #[error("This assignment is no longer available for draft upload.")]
+    Unavailable,
     #[error("Only files can be handed in.")]
     FilesOnly,
     #[error("The submit folder is empty")]
@@ -92,29 +92,18 @@ pub struct WorkspaceInfo {
     pub zip_name: String,
 }
 
-/// What the assignment's main button does.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum HandIn {
-    /// Open the assignment's LMS page; nothing local is read.
-    OpenLms,
-    /// Upload `submit/` to the LMS draft area, then open it.
-    PrepareDraft,
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HandInView {
     pub workspace: Option<WorkspaceInfo>,
-    pub hand_in: HandIn,
+    pub hand_in: HandInAvailability,
 }
 
 impl HandInView {
-    fn of(workspace: Option<WorkspaceInfo>, closed: bool) -> Self {
-        let hand_in = if closed || workspace.is_none() {
-            HandIn::OpenLms
-        } else {
-            HandIn::PrepareDraft
+    fn of(workspace: Option<WorkspaceInfo>, availability: HandInAvailability) -> Self {
+        let hand_in = match availability {
+            HandInAvailability::PrepareDraft if workspace.is_none() => HandInAvailability::OpenLms,
+            availability => availability,
         };
         Self { workspace, hand_in }
     }
@@ -219,131 +208,6 @@ impl Workspaces {
         let meta = read_meta(&dir)
             .ok_or_else(|| WorkspaceError::Storage("Workspace metadata is missing".into()))?;
         Ok(info(&dir, &meta))
-    }
-
-    /// Assignments with files waiting to be handed in: a workspace whose
-    /// `submit/` holds files, for an assignment LMS does not show as submitted
-    /// or graded in `workspace` (the stored workspace fields Core reads). By assignment id.
-    pub fn waiting(&self, workspace: &serde_json::Value) -> Vec<(String, usize)> {
-        let done: std::collections::HashSet<&str> = workspace
-            .get("assignments")
-            .and_then(serde_json::Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|row| {
-                matches!(
-                    row.get("submission").and_then(serde_json::Value::as_str),
-                    Some("submitted" | "graded")
-                )
-            })
-            .filter_map(|row| row.get("id").and_then(serde_json::Value::as_str))
-            .collect();
-        let tree = storage::workspace_root(&self.root);
-        let mut waiting = Vec::new();
-        for term in child_directories(&tree) {
-            for course in child_directories(&term) {
-                for dir in child_directories(&course) {
-                    let Some(meta) = read_meta(&dir) else {
-                        continue;
-                    };
-                    if done.contains(meta.assignment.as_str()) {
-                        continue;
-                    }
-                    let files = submit_listing(&dir).map(|files| files.len()).unwrap_or(0);
-                    if files > 0 {
-                        waiting.push((meta.assignment, files));
-                    }
-                }
-            }
-        }
-        waiting.sort();
-        waiting
-    }
-
-    /// The files in an assignment's `submit/`, empty while it has no workspace.
-    pub fn submit_files(
-        &self,
-        course: &CourseKey,
-        assignment: &str,
-    ) -> Result<Vec<LocalFile>, WorkspaceError> {
-        match self.find(course, assignment)? {
-            Some(info) => submit_listing(Path::new(&info.path)),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    /// Copies files a person shared into the assignment's `submit/`, creating
-    /// its workspace with `title` and `brief` on first use. A name already
-    /// taken gets a numbered one, so nothing is overwritten; the sources are
-    /// left as they are.
-    fn add_submit_files(
-        &self,
-        course: &CourseKey,
-        assignment: &str,
-        title: &str,
-        brief: &str,
-        files: Vec<(PathBuf, String)>,
-    ) -> Result<Vec<LocalFile>, HandInError> {
-        let info = match self.find(course, assignment)? {
-            Some(info) => info,
-            None => self.create(
-                course,
-                assignment.into(),
-                title.into(),
-                brief.into(),
-                Vec::new(),
-            )?,
-        };
-        let dir = PathBuf::from(&info.path);
-        let submit = dir.join(SUBMIT_DIR);
-        fs::create_dir_all(&submit).map_err(storage_error)?;
-        for (source, name) in files {
-            let kind = fs::symlink_metadata(&source).map_err(storage_error)?;
-            if !kind.is_file() {
-                return Err(HandInError::FilesOnly);
-            }
-            let destination = unused_name(&submit, &safe_name(&name, "file"));
-            // Copied beside `submit/` and renamed in whole, so a preparation
-            // never snapshots half a file.
-            let partial = dir.join(format!(".{}.partial", uuid::Uuid::new_v4()));
-            let copied = fs::copy(&source, &partial)
-                .and_then(|_| crate::storage::sync_file(&partial))
-                .and_then(|()| fs::rename(&partial, destination));
-            if let Err(error) = copied {
-                let _ = fs::remove_file(&partial);
-                return Err(storage_error(error).into());
-            }
-        }
-        Ok(submit_listing(&dir)?)
-    }
-
-    /// Removes one file from the assignment's `submit/`.
-    pub fn remove_submit_file(
-        &self,
-        course: &CourseKey,
-        assignment: &str,
-        name: &str,
-    ) -> Result<Vec<LocalFile>, WorkspaceError> {
-        let info = self
-            .find(course, assignment)?
-            .ok_or(WorkspaceError::Missing)?;
-        if safe_name(name, "") != name {
-            return Err(WorkspaceError::Input(
-                "Invalid submission file name.".into(),
-            ));
-        }
-        let dir = PathBuf::from(&info.path);
-        let path = dir.join(SUBMIT_DIR).join(name);
-        if !fs::symlink_metadata(&path)
-            .map_err(storage_error)?
-            .is_file()
-        {
-            return Err(WorkspaceError::Input(
-                "Invalid submission file name.".into(),
-            ));
-        }
-        fs::remove_file(path).map_err(storage_error)?;
-        submit_listing(&dir)
     }
 
     /// Validates a shell-provided workspace path before any native opener use.
@@ -561,7 +425,7 @@ fn info(dir: &Path, meta: &Meta) -> WorkspaceInfo {
     }
 }
 
-/// Assignment workspaces for every shell and the MCP tools: one
+/// Assignment workspaces for the desktop shell and its MCP tools: one
 /// `ASSIGNMENT.md`, the attachment downloads, and the course storage root
 /// as Core last selected it, fixed for the whole of each operation.
 #[derive(Clone)]
@@ -617,17 +481,10 @@ impl AssignmentWorkspaces {
 
     /// The assignment as its page shows it, with its course's title.
     pub fn detail(&self, assignment: &str) -> Result<(AssignmentDetail, String), WorkspaceError> {
-        let fields = crate::workspace_changes::loaded_fields(crate::schedule::reads_of(&[
-            crate::schedule::WorkspaceQuery::AssignmentDetail {
-                assignment_id: assignment.into(),
-            },
-        ]));
-        let (workspace, _, _) = self
-            .store
-            .view(&fields)
+        let (workspace, detail) = assignment_detail_in(&self.store, assignment)
             .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
-        let detail = crate::schedule::assignment_detail(&workspace, assignment)
-            .ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
+        let detail =
+            detail.ok_or_else(|| WorkspaceError::Input("The assignment was not found.".into()))?;
         let course = workspace
             .get("courses")
             .and_then(serde_json::Value::as_array)
@@ -706,11 +563,34 @@ impl AssignmentWorkspaces {
         }
     }
 
-    /// The workspace and main action for one assignment. `closed` is the
-    /// assignment's membership in `TaskView::closed_ids`: closed work, and
-    /// open work without a workspace, go straight to LMS.
-    pub fn hand_in(&self, assignment: &str, closed: bool) -> Result<HandInView, WorkspaceError> {
-        Ok(HandInView::of(self.find(assignment)?, closed))
+    /// The workspace and main action for one assignment.
+    pub fn hand_in(&self, assignment: &str) -> Result<HandInView, WorkspaceError> {
+        let (detail, _) = self.detail(assignment)?;
+        Ok(HandInView::of(
+            self.find(assignment)?,
+            detail.hand_in_availability,
+        ))
+    }
+
+    /// Resolve eligibility and the LMS destination from the current store before
+    /// preparing the files. The browser still verifies the remote draft area.
+    pub fn prepare_draft(
+        &self,
+        assignment: &str,
+        workspace_path: Option<&str>,
+    ) -> Result<(String, PreparedUpload), HandInError> {
+        let (detail, _) = self.detail(assignment)?;
+        let page = draft_page(&detail).ok_or(HandInError::Unavailable)?;
+        let workspaces = self.at()?;
+        let workspace;
+        let path = match workspace_path {
+            Some(path) => path,
+            None => {
+                workspace = self.find(assignment)?.ok_or(HandInError::Empty)?;
+                &workspace.path
+            }
+        };
+        Ok((page, workspaces.prepare_upload(path, assignment)?))
     }
 
     /// Creates the assignment's workspace once: downloads its attachments
@@ -781,53 +661,6 @@ impl AssignmentWorkspaces {
             .map(|name| digest(&submit.join(name), name))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(Some((workspace, files)))
-    }
-
-    /// Copies files a person shared into the assignment's `submit/`, creating
-    /// its workspace on first use without downloading anything.
-    pub fn add_submit_files(
-        &self,
-        assignment: &str,
-        files: Vec<(PathBuf, String)>,
-    ) -> Result<Vec<LocalFile>, HandInError> {
-        let workspaces = self.at()?;
-        let (detail, course_title) = self.detail(assignment)?;
-        let course = self.known_folder(assignment)?;
-        let pending = detail
-            .attachments
-            .iter()
-            .map(|attachment| MissingAttachment {
-                name: attachment.name.clone(),
-                reason: "not downloaded".into(),
-            })
-            .collect::<Vec<_>>();
-        let text = brief(&detail, &course_title, &pending);
-        workspaces.add_submit_files(&course, assignment, &detail.title, &text, files)
-    }
-
-    pub fn submit_files(&self, assignment: &str) -> Result<Vec<LocalFile>, WorkspaceError> {
-        match self.course_folder_of(assignment)? {
-            Some(course) => self.at()?.submit_files(&course, assignment),
-            None => Ok(Vec::new()),
-        }
-    }
-
-    pub fn remove_submit_file(
-        &self,
-        assignment: &str,
-        name: &str,
-    ) -> Result<Vec<LocalFile>, WorkspaceError> {
-        let course = self.known_folder(assignment)?;
-        self.at()?.remove_submit_file(&course, assignment, name)
-    }
-
-    /// Assignments with files waiting to be handed in, by assignment id.
-    pub fn waiting(&self) -> Result<Vec<(String, usize)>, WorkspaceError> {
-        let workspace = self
-            .store
-            .load_fields(&["assignments"])
-            .map_err(|error| WorkspaceError::Storage(error.to_string()))?;
-        Ok(self.at()?.waiting(&workspace))
     }
 }
 
@@ -919,53 +752,11 @@ pub fn brief(detail: &AssignmentDetail, course: &str, missing: &[MissingAttachme
         + "\n"
 }
 
-/// The regular files of a workspace's `submit/`, by name.
-fn submit_listing(dir: &Path) -> Result<Vec<LocalFile>, WorkspaceError> {
-    let mut files = Vec::new();
-    for entry in fs::read_dir(dir.join(SUBMIT_DIR)).map_err(storage_error)? {
-        let entry = entry.map_err(storage_error)?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if is_junk(&name) || !entry.file_type().map_err(storage_error)?.is_file() {
-            continue;
-        }
-        files.push(storage::describe(
-            entry.path(),
-            name,
-            String::new(),
-            true,
-            false,
-        )?);
-    }
-    files.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(files)
-}
-
-/// `name` in `dir`, or `name (2)`, `name (3)`… before its extension when taken.
-fn unused_name(dir: &Path, name: &str) -> PathBuf {
-    let path = Path::new(name);
-    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
-    let extension = path
-        .extension()
-        .map(|extension| format!(".{}", extension.to_string_lossy()))
-        .unwrap_or_default();
-    (1..)
-        .map(|index| match index {
-            1 => dir.join(name),
-            _ => dir.join(format!("{stem} ({index}){extension}")),
-        })
-        .find(|candidate| fs::symlink_metadata(candidate).is_err())
-        .unwrap_or_else(|| dir.join(name))
-}
-
 fn default_zip_name(dir: &Path) -> String {
     format!(
         "{}.zip",
         dir.file_name().unwrap_or_default().to_string_lossy()
     )
-}
-
-fn is_junk(name: &str) -> bool {
-    name == ".DS_Store" || name == "__MACOSX" || name == "Thumbs.db"
 }
 
 fn safe_name(raw: &str, fallback: &str) -> String {
@@ -1032,24 +823,6 @@ fn reserve_workspace(parent: &Path, base: &str) -> Result<PathBuf, WorkspaceErro
     ))
 }
 
-/// Without ZIP support (the phones), a workspace meant as an archive is
-/// refused rather than handed in some other way.
-#[cfg(not(feature = "workspace-archives"))]
-fn no_archives() -> WorkspaceError {
-    WorkspaceError::Archive("ZIP archives are handled on the desktop.".into())
-}
-
-#[cfg(not(feature = "workspace-archives"))]
-fn unpack(_: &Path, _: &Path, _: &str) -> Result<(), WorkspaceError> {
-    Err(no_archives())
-}
-
-#[cfg(not(feature = "workspace-archives"))]
-fn pack(_: &Path, _: &Path) -> Result<(), WorkspaceError> {
-    Err(no_archives())
-}
-
-#[cfg(feature = "workspace-archives")]
 fn unpack(archive: &Path, dir: &Path, stem: &str) -> Result<(), WorkspaceError> {
     let file = fs::File::open(archive).map_err(storage_error)?;
     let mut zip = zip::ZipArchive::new(file).map_err(archive_error)?;
@@ -1119,7 +892,6 @@ fn unpack(archive: &Path, dir: &Path, stem: &str) -> Result<(), WorkspaceError> 
     Ok(())
 }
 
-#[cfg(feature = "workspace-archives")]
 fn pack(source: &Path, output: &Path) -> Result<(), WorkspaceError> {
     use std::io::Write;
     let partial = output.with_extension("zip.partial");
@@ -1230,7 +1002,6 @@ fn storage_error(error: impl std::fmt::Display + 'static) -> WorkspaceError {
     WorkspaceError::Storage(storage::failure_text(error))
 }
 
-#[cfg(feature = "workspace-archives")]
 fn archive_error(error: impl ToString) -> WorkspaceError {
     WorkspaceError::Archive(error.to_string())
 }

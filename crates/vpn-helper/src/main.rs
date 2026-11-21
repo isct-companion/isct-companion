@@ -319,6 +319,7 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
                     expires: st.expires,
                     revision: Some(HELPER_REVISION),
                     ended: None,
+                    program: None,
                 })
             } else {
                 None
@@ -431,7 +432,17 @@ fn status(cfg: &Config, state: &State) -> Reply {
         expires: st.expires.filter(|_| st.routed),
         revision: Some(HELPER_REVISION),
         ended: st.ended,
+        program: own_program(),
     }
+}
+
+/// The file this helper runs from, links resolved, for the app to tell its
+/// own helper from another copy's (`Reply::program`). A file deleted since
+/// it started does not resolve and is sent as launched.
+fn own_program() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    Some(exe.to_string_lossy().into_owned())
 }
 
 fn log(cfg: &Config, msg: &str) {

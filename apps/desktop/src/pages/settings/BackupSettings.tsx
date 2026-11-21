@@ -2,8 +2,9 @@ import { useEffect, useState } from "react";
 import { Pagination } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
-import { errorText } from "../../app/shared";
-import { desktopBridge, saveExportFile } from "../../app/native";
+import { errorText } from "../../lib/error-text";
+import { desktopBridge } from "../../platform/native";
+import { saveExportFile } from "../../platform/save-export";
 import { workspaceActions } from "../../store/workspace";
 import { resolveCapabilities } from "../../platform/capabilities";
 import type {
@@ -20,7 +21,7 @@ import {
   Toggle,
 } from "../../components/forms";
 import { CREDENTIAL_PASSWORD_LENGTH } from "../../generated/persistence";
-import { formatDay } from "./subscription-status";
+import { formatDay } from "../../lib/civil-date";
 import { ResetSettings } from "./ResetSettings";
 
 const providerName: Record<CloudSyncProvider, string> = {

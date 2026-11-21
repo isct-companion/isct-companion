@@ -309,6 +309,9 @@ async fn the_relay_folds_school_sessions_into_the_sync_snapshot() {
     let session = |state, maintenance| SchoolProfileSession {
         sign_out_pending: false,
         refusal_unsaved: false,
+        presentation: crate::school_session::SignInPresentation::for_profile(
+            state, None, false, false,
+        ),
         state,
         problem: None,
         retry_at: None,

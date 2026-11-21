@@ -102,14 +102,25 @@ pub(super) async fn local(
     language: ContentLanguage,
 ) -> Result<ExamLocalDocument, ExamError> {
     let path = file_path(base, &cached)?;
-    let path = blocking(move || {
+    // The cached file has a generated name; the upload's name and validated
+    // type say what it is.
+    let (name, mime) = (
+        cached.document.file_name.clone(),
+        cached.document.file_type.clone(),
+    );
+    let (path, viewer) = blocking(move || {
         touch(&path)?;
-        path.into_os_string()
+        let viewer = crate::file_preview::viewer_of_file(&path, &name, Some(&mime));
+        let path = path
+            .into_os_string()
             .into_string()
-            .map_err(|_| ExamError::Storage)
+            .map_err(|_| ExamError::Storage)?;
+        Ok((path, viewer))
     })
     .await?;
     Ok(ExamLocalDocument {
+        export_name: document_export_name(&cached.document)?,
+        viewer,
         web_url: super::client::site_page(&format!("view/{}", cached.document.id)),
         document: cached.document.present(language),
         path,
@@ -154,7 +165,12 @@ async fn retain(base: &Path, opened_path: &Path) -> Result<bool, ExamError> {
 /// `text/plain` upload named `answers.bat`) gets the type's own suffix.
 async fn export_name(base: &Path, opened_path: &Path) -> Result<String, ExamError> {
     let (cached, _) = opened(base, opened_path).await?;
-    let document = &cached.document;
+    document_export_name(&cached.document)
+}
+
+/// [`export_name`] of a document already in hand: every shell saves or
+/// shares the opened copy under it.
+fn document_export_name(document: &RemoteDocument) -> Result<String, ExamError> {
     let allowed = extensions(&document.file_type)?;
     let name = crate::download_names::safe_name(&document.file_name, &document.file_type);
     let (_, extension) = crate::download_names::split_extension(&name);

@@ -1,49 +1,37 @@
+import { downloadLimit } from "../../lib/course-file-policy";
+import { TitleRow } from "../../components/TitleRow";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { dueRole } from "../../components/DueChip";
-import { Tag } from "../../components/ui";
 import { GuideTip } from "../../components/guide";
-import { deadlineText } from "../../lib/deadline-text";
-import { formatJst } from "../../lib/civil-date";
 import { useResizeObserver } from "usehooks-ts";
-import { ReaderPane } from "./ReaderPane";
+import { LmsReader } from "./LmsReader";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
-import {
-  loadReading,
-  persistReading,
-  type ReadingState,
-  type OpenedContent,
-} from "./reading-state";
+import { type OpenedContent } from "./reading-state";
 import { useCourseNotes } from "./useCourseNotes";
-import { ImageThumbnail, RichContent, type FileAccess } from "./RichContent";
+import {
+  ImageThumbnail,
+  RichContent,
+  type FileAccess,
+  type LinkedFolders,
+} from "./RichContent";
+import { FolderRow } from "./FolderRow";
 import "./lms.css";
 import {
   lazy,
   Suspense,
-  useCallback,
-  useLayoutEffect,
-  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import type { Assignment, Course, Material, Workspace } from "../../lib/model";
-import type { LessonContent, LessonItem } from "../../generated/persistence";
+import type { LessonItem } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { detectPlatform } from "../../platform/capabilities";
 import { useClock } from "../../platform/use-clock";
 import type { PageProgress } from "../../platform/sync";
-import { ageText } from "../../app/sync-text";
-import { AssignmentWorkspaceFooter } from "./AssignmentWorkspaceCard";
+import { ageText } from "../../lib/sync-text";
 import { announcements, formatLmsDate, contentText, safeUrl } from "./content";
-import { OfficialLmsView } from "./OfficialLmsView";
-import { SyllabusFrame } from "../../pages/courses/syllabus-frame";
 import { FileTile, LmsIcon } from "./LmsIcon";
-import {
-  gravityTarget,
-  springScroll,
-  type SpringScroll,
-} from "./spring-scroll";
 import {
   useScheduleQueries,
   useScheduleQuery,
@@ -52,29 +40,21 @@ import {
   type CourseDetail,
   type TaskView,
 } from "../../platform/core-query";
-/** The rail's entry for course activities outside any section. */
-const ACTIVITIES = -1;
-/** The lesson the course is at, for marking rows of schedule tables. */
-
-import { downloadOnly, fileFamily, extension } from "./file-types";
+import { extension, fileFamily, listsAsFolder } from "../../lib/file-types";
 import { withRecords } from "../../platform/records";
+import { moveNote, type LocalFile } from "./files";
 import {
-  downloadLimit,
-  moveNote,
-  type LocalFile,
-  type SchoolPage,
-} from "./files";
+  ACTIVITIES,
+  useOutlineReadingState,
+  useOutlineReading,
+  useOutlineEntrance,
+  type Section,
+} from "./useOutlineReading";
+import { useLmsReader } from "./useLmsReader";
+import { LmsAssignmentCard } from "./LmsAssignmentCard";
+
 const FilePopover = lazy(() =>
   import("./FilePreview").then((m) => ({ default: m.FilePopover })),
-);
-const InlineFolder = lazy(() =>
-  import("./FilePreview").then((m) => ({ default: m.InlineFolder })),
-);
-const FilePreview = lazy(() =>
-  import("./FilePreview").then((m) => ({ default: m.FilePreview })),
-);
-const NoteEditor = lazy(() =>
-  import("./NoteEditor").then((m) => ({ default: m.NoteEditor })),
 );
 
 export type CourseEntry = {
@@ -86,11 +66,6 @@ export type CourseEntry = {
   endTime?: string;
   assignmentId?: string;
 };
-/**
- * A section as Core lays it out (`courseContent`), keyed by its LMS section
- * id (its number in a course without an LMS record) and named by its title.
- */
-type Section = Omit<LessonContent, "title"> & { id: number; title: string };
 
 /** Consecutive image-only labels share one grid instead of a block each. */
 function groupImageLabels(items: LessonItem[]): (LessonItem | LessonItem[])[] {
@@ -109,27 +84,25 @@ export function LmsWorkspaceBody({
   entry,
   active,
   schoolWebAvailable,
-  close,
   refresh,
   progress,
   updatedAt,
   markLesson,
-  navigationProvided = false,
   headerStart,
   openPastExams,
   openWeb,
+  openAccounts,
 }: {
   course: Course;
   data: Workspace;
   entry: CourseEntry;
   active: boolean;
   schoolWebAvailable: boolean;
-  navigationProvided?: boolean;
   headerStart?: ReactNode;
   openPastExams?: () => void;
   /** Opens a school page on the Web page. */
   openWeb?: (url: string) => void;
-  close: () => void;
+  openAccounts?: () => void;
   /** Asks Core to refresh this course now (`Refresh { course }`). */
   refresh?: () => void;
   /** Core's runs for this course; null while nothing reads it. */
@@ -140,18 +113,23 @@ export function LmsWorkspaceBody({
   markLesson?: (sectionId: number, occurrence: string, label: string) => void;
 }) {
   const key = `${data.deviceId}:${course.id}`;
-  const [saved] = useState(() => loadReading(key));
-  const [expanded, setExpanded] = useState<string[]>(saved?.expanded ?? []);
+  const outlineState = useOutlineReadingState(key);
+  const {
+    saved,
+    expanded,
+    setExpanded,
+    readingSection,
+    query,
+    setQuery,
+    outline,
+  } = outlineState;
   const [opened, setOpened] = useState<OpenedContent | undefined>(
     saved?.opened,
   );
   const selected = opened?.id;
-  const [readingSection, setReadingSection] = useState(saved?.anchor?.id);
-  const [query, setQuery] = useState("");
-  const [focusLesson, setFocusLesson] = useState<number | undefined>(
-    saved?.lesson,
-  );
   const [openFolders, setOpenFolders] = useState<string[]>([]);
+  /** Items Core answered as a ZIP though their address did not say so. */
+  const [archiveItems, setArchiveItems] = useState<string[]>([]);
   const [openDetails, setOpenDetails] = useState<string[]>([]);
   const flip = (list: string[], id: string) =>
     list.includes(id) ? list.filter((item) => item !== id) : [...list, id];
@@ -159,7 +137,6 @@ export function LmsWorkspaceBody({
   // Outline and viewer take turns when the workspace pane is narrow. A saved
   // reader restored into a narrow pane starts on the viewer, not hidden.
   const [viewing, setViewing] = useState(Boolean(saved?.opened));
-  const outline = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null!);
   const workspaceSize = useResizeObserver({ ref: workspaceRef });
   const narrow =
@@ -173,19 +150,6 @@ export function LmsWorkspaceBody({
   );
   /** Assignment workspaces are a desktop feature (folders, VS Code). */
   const workspaces = detectPlatform() === "native-desktop";
-  const current = useRef<ReadingState>({
-    version: 3,
-    expanded,
-    opened,
-    scroll: saved?.scroll ?? 0,
-    anchor: saved?.anchor,
-  });
-  current.current = {
-    ...current.current,
-    expanded,
-    opened,
-    lesson: focusLesson,
-  };
   // The course's records by id: what a row shows of its material (file
   // type, folder files, announcements) and the document it opens.
   const materials = useMemo(
@@ -214,10 +178,6 @@ export function LmsWorkspaceBody({
     opened?.id === "syllabus"
       ? { ...opened, title: t("common.syllabus"), url: syllabus ?? opened.url }
       : opened;
-  const language =
-    data.settings.lmsBilingualFilter && !original
-      ? courseDetail?.contentLanguage
-      : undefined;
   const assignments = useMemo(
     () =>
       data.assignments.filter(
@@ -265,8 +225,17 @@ export function LmsWorkspaceBody({
         ...lesson,
         id: lesson.sectionId ?? lesson.section,
         title: lesson.title || lesson.label,
+        summaryHtml: original
+          ? (lesson.originalSummaryHtml ?? lesson.summaryHtml)
+          : lesson.summaryHtml,
+        items: original
+          ? lesson.items.map((item) => ({
+              ...item,
+              bodyHtml: item.originalBodyHtml ?? item.bodyHtml,
+            }))
+          : lesson.items,
       })),
-    [content],
+    [content, original],
   );
   const lessons = useMemo(
     () => sections.filter((section) => section.number != null),
@@ -278,7 +247,7 @@ export function LmsWorkspaceBody({
         section.items.flatMap((item) => {
           const m = materials.get(item.materialId);
           return item.kind === "forum" && m
-            ? announcements(m.bodyHtml).map((post) => ({
+            ? announcements(item.bodyHtml ?? undefined).map((post) => ({
                 ...post,
                 id: `announcement:${m.id}:${post.id}`,
                 section: section.title,
@@ -297,27 +266,30 @@ export function LmsWorkspaceBody({
     () => new Set(taskView?.byTerm?.[course.termId]?.pendingIds ?? []),
     [course.termId, taskView],
   );
-  const submittedIds = useMemo(
-    () => new Set(taskView?.submittedIds),
-    [taskView],
-  );
-  const closedIds = useMemo(() => new Set(taskView?.closedIds), [taskView]);
   const classAt = content?.classAt ?? undefined;
+  /** The lesson the course is at, for marking rows of schedule tables. */
   const at = lessons.find((l) => l.section === content?.currentSection);
   const atIndex = lessons.findIndex((l) => l.id === at?.id);
-  // The whole course is laid out at once; lessons behave as pages of it.
-  // Sections without a number (一般, 連絡先 …) sit in the flow and are
-  // reached from the rail, like Activities outside any section.
-  const pinned = useMemo(
-    () => sections.filter((s) => !lessons.some((l) => l.id === s.id)),
-    [sections, lessons],
+  const reading = useOutlineReading(
+    outlineState,
+    sections,
+    lessons,
+    at,
+    opened,
   );
-  const paged = lessons.length > 0 && !query.trim();
-  // The page being read: set by arriving, the rail, a pull, or scrolling.
-  const [page, setPage] = useState<number | undefined>(focusLesson);
-  const shownId =
-    page === ACTIVITIES || sections.some((s) => s.id === page) ? page : at?.id;
-  const lessonId = lessons.some((l) => l.id === shownId) ? shownId : undefined;
+  const {
+    pinned,
+    paged,
+    shownId,
+    lessonId,
+    rail,
+    railIndicator,
+    goLesson,
+    revealAssignment,
+    recordPosition,
+    followScroll,
+    restAfterScroll,
+  } = reading;
   const markThisClass = (sectionId: number) => {
     if (!markLesson || !classAt) return;
     // Named by its rail label, not by the teacher's title: a bare number in
@@ -334,160 +306,6 @@ export function LmsWorkspaceBody({
   };
   const pendingIn = (section: Section) =>
     section.assignmentIds.some((id) => pendingAssignmentIds.has(id));
-  const pageElement = (id: number | undefined) =>
-    id == null
-      ? null
-      : (outline.current?.querySelector<HTMLElement>(
-          id === ACTIVITIES
-            ? '[data-page="activities"]'
-            : `[data-page="${id}"]`,
-        ) ?? null);
-  const goLesson = (id: number) => {
-    const host = outline.current;
-    const target = pageElement(id);
-    setPage(id);
-    setFocusLesson(id);
-    if (!host || !target) return;
-    // The page follows the scroll again once this scroll has arrived.
-    const state = pull.current;
-    state.turning = target.offsetTop;
-    state.motion?.cancel();
-    // Only where the spring arrives counts as placed: a jump the person
-    // interrupts rests where they stopped it, and gravity pulls as usual.
-    state.placed = Math.min(
-      target.offsetTop,
-      Math.max(0, host.scrollHeight - host.clientHeight),
-    );
-    state.motion = springScroll(host, target.offsetTop, {
-      onDone: () => {
-        state.turning = null;
-        state.motion = null;
-      },
-    });
-  };
-  // Sections attract like gravity wells. Scrolling itself stays native, with
-  // its own speed and momentum, so a fast flick can fly over several
-  // sections. Where it comes to rest decides: inside a section (the middle
-  // of the outline) nothing pulls; with a section boundary near an edge of
-  // the outline, the nearer section draws the outline to it, the new one by
-  // bringing its start to the top, the old one by bringing its end back to
-  // the bottom.
-  const pull = useRef({
-    turning: null as number | null,
-    rest: 0,
-    motion: null as SpringScroll | null,
-    placed: null as number | null,
-  });
-  // Where the app itself puts the outline (arriving, revealing an assignment,
-  // restoring the reading position) is where the person asked to be, so
-  // gravity pulls only an outline the person scrolled. Every programmatic
-  // placement of the outline goes through here.
-  const placeOutline = (apply: (host: HTMLDivElement) => void) => {
-    const host = outline.current;
-    if (!host) return;
-    const state = pull.current;
-    state.motion?.cancel();
-    clearTimeout(state.rest);
-    apply(host);
-    state.placed = host.scrollTop;
-  };
-  // An assignment already in full view stays where it is, so asking for it
-  // again never moves the outline.
-  const revealAssignment = (id: string) =>
-    placeOutline((host) => {
-      const card = host.querySelector<HTMLElement>(
-        `[data-assignment="${CSS.escape(id)}"]`,
-      );
-      if (!card) return;
-      const view = host.getBoundingClientRect();
-      const box = card.getBoundingClientRect();
-      if (box.height > 0 && box.top >= view.top && box.bottom <= view.bottom)
-        return;
-      card.scrollIntoView?.({
-        block: box.height > view.height ? "start" : "center",
-      });
-    });
-  const pageRef = useRef(shownId);
-  pageRef.current = shownId;
-  const settleInto = (host: HTMLDivElement) => {
-    const state = pull.current;
-    if (!paged || state.turning != null) return;
-    if (state.placed != null && Math.abs(host.scrollTop - state.placed) < 1)
-      return;
-    state.placed = null;
-    const boundaries = [...host.querySelectorAll<HTMLElement>("[data-page]")]
-      .slice(1)
-      .map((element) => element.offsetTop);
-    const target = gravityTarget(
-      host.scrollTop,
-      host.clientHeight,
-      boundaries,
-      host.scrollHeight,
-    );
-    if (target == null) return;
-    state.motion?.cancel();
-    state.motion = springScroll(host, target, {
-      onDone: () => (state.motion = null),
-    });
-  };
-  // Scrolling has come to rest once its events stop (momentum included).
-  const restAfterScroll = (host: HTMLDivElement) => {
-    const state = pull.current;
-    // The app's own spring scrolls do not count as coming to rest.
-    if (state.motion) return;
-    clearTimeout(state.rest);
-    state.rest = window.setTimeout(() => settleInto(host), 90);
-  };
-  // Scrolling keeps the page in step with what is read:
-  // the last page whose top has reached the upper third of the outline.
-  const followScroll = (host: HTMLDivElement) => {
-    const state = pull.current;
-    if (state.turning != null) {
-      if (Math.abs(host.scrollTop - state.turning) > 2) return;
-      state.turning = null;
-    }
-    if (!paged) return;
-    const line = host.scrollTop + host.clientHeight / 3;
-    let found: number | undefined;
-    for (const element of host.querySelectorAll<HTMLElement>("[data-page]")) {
-      if (element.offsetTop > line) break;
-      const key = element.dataset.page!;
-      found = key === "activities" ? ACTIVITIES : Number(key);
-    }
-    if (found != null && found !== pageRef.current) setPage(found);
-  };
-  // One accent bar slides along the rail to the page being read.
-  const rail = useRef<HTMLElement>(null);
-  const railIndicator = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const nav = rail.current;
-    const bar = railIndicator.current;
-    if (!nav || !bar) return;
-    const place = () => {
-      const current = nav.querySelector<HTMLElement>("button.current");
-      bar.style.opacity = current ? "1" : "0";
-      if (!current) return;
-      bar.style.transform = `translateX(${current.offsetLeft + 2}px)`;
-      bar.style.width = `${Math.max(0, current.offsetWidth - 4)}px`;
-      // Keep the current entry in view on a rail that scrolls sideways.
-      if (
-        current.offsetLeft < nav.scrollLeft ||
-        current.offsetLeft + current.offsetWidth >
-          nav.scrollLeft + nav.clientWidth
-      )
-        nav.scrollTo?.({
-          left: current.offsetLeft - nav.clientWidth / 2,
-          behavior: "smooth",
-        });
-    };
-    place();
-    const resize =
-      typeof ResizeObserver === "function"
-        ? new ResizeObserver(place)
-        : undefined;
-    resize?.observe(nav);
-    return () => resize?.disconnect();
-  }, [shownId, paged, lessons, pinned.length]);
   // Assignments outside any section get one rail entry of their own.
   const otherAssignments = assignmentsIn(content?.otherAssignmentIds ?? []);
   const hasActivities = otherAssignments.length > 0;
@@ -510,14 +328,34 @@ export function LmsWorkspaceBody({
     `${title} ${html ? searchable.get(html) || contentText(html) : ""}`
       .toLocaleLowerCase()
       .includes(query.trim().toLocaleLowerCase());
-  const open = useCallback(
-    (content: OpenedContent) => {
-      if (outline.current) recordPosition(outline.current);
-      setOpened(content);
-      setViewing(true);
-    },
-    [query],
-  );
+  const reader = useLmsReader({
+    data,
+    query,
+    outline,
+    recordPosition,
+    setOpened,
+    setViewing,
+    revealAssignment,
+    openWeb,
+    setArchiveItems,
+    setOpenFolders,
+    opened,
+    materials,
+    content,
+    sections,
+    original,
+  });
+  const {
+    open,
+    openMaterial,
+    openPage,
+    materialAt,
+    openLink,
+    fileMenu,
+    closeFileMenu,
+    material,
+    materialBody,
+  } = reader;
   // Notes are listed again only when the sections change, not with every
   // answer Core gives as the clock moves.
   const noteKey = sections.map((s) => `${s.id}:${s.title}`).join("\n");
@@ -536,338 +374,75 @@ export function LmsWorkspaceBody({
     refreshNotes,
     newNote,
   } = useCourseNotes(course.id, noteSections, active, open);
-  const [fileMenu, setFileMenu] = useState<{
-    url: string;
-    title: string;
-    anchor: Element;
-  }>();
-  const closeFileMenu = useCallback(() => setFileMenu(undefined), []);
   /**
-   * Files the app cannot preview open as a popover at the clicked item, so the
-   * reading pane is only used for content. Returns false for previewable ones.
+   * A link in course text that is a ZIP (its own address, or the resource it
+   * points at) is that ZIP's folder row, in place of its card.
    */
-  const showFileMenu = (
-    url: string | undefined,
-    title: string,
-    anchor?: Element,
-  ) => {
-    if (!url || !anchor || !downloadOnly(url)) return false;
-    setFileMenu({ url, title, anchor });
-    return true;
-  };
-  const openMaterial = useCallback(
-    (m: Material, anchor?: Element) => {
-      if (showFileMenu(safeUrl(m.resourceUrl), m.title, anchor)) return;
-      open({ id: m.id, title: m.title, kind: "material" });
+  const linkedFolders: LinkedFolders = {
+    of: (url) => {
+      const material = materialAt(url);
+      const zip = material?.resourceUrl ?? url;
+      return listsAsFolder(zip) ? zip : undefined;
     },
-    [open],
-  );
-  /**
-   * A school page Core named: the LMS in the reader's signed-in view, the
-   * syllabus in its frame, any other school site on the Web page (the reader
-   * lets the item go, so coming back does not open it there again).
-   */
-  const openPage = ({ site, url }: SchoolPage, title: string) => {
-    if (site === "science-lms")
-      open({ id: `official:${url}`, title, kind: "official", url });
-    else if (site === "syllabus")
-      open({ id: `syllabus:${url}`, title, kind: "syllabus", url });
-    else {
-      closeContent();
-      openWeb?.(url);
-    }
+    render: (url, title) => (
+      <FolderRow
+        title={title}
+        url={url}
+        archive
+        courseId={course.id}
+        limit={limit}
+        openFile={(fileUrl, name, anchor) => openLink(fileUrl, name, anchor)}
+        openPage={(page) => openPage(page, title)}
+      />
+    ),
   };
-  const openAssignment = useCallback((a: Assignment) => {
-    setViewing(false);
-    requestAnimationFrame(() => revealAssignment(a.id));
-  }, []);
-  const openLink = useCallback(
-    (url: string, title: string, anchor?: Element) => {
-      const material = data.materials.find(
-        (m) => m.url === url || m.resourceUrl === url,
-      );
-      if (material) return openMaterial(material, anchor);
-      const assignment = data.assignments.find((a) => a.sourceUrl === url);
-      if (assignment) return openAssignment(assignment);
-      if (showFileMenu(url, title, anchor)) return;
-      open({ id: `link:${url}`, title, kind: "link", url });
-    },
-    [data.materials, data.assignments, openMaterial, openAssignment, open],
-  );
-  const positionedRequest = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    // Revealing Activity resumes the retained DOM; only a new entrance repositions it.
-    if (positionedRequest.current === entry.request || !contentRead) return;
-    const assignment = assignments.find((a) => a.id === entry.assignmentId);
-    if (assignment) {
-      const section = sections.find((s) =>
-        s.assignmentIds.includes(assignment.id),
-      );
-      if (section) {
-        const key = `section:${section.id}`;
-        setExpanded((previous) =>
-          previous.includes(key)
-            ? previous.filter((id) => id !== key)
-            : previous,
-        );
-        if (lessons.some((l) => l.id === section.id)) {
-          setFocusLesson(section.id);
-          setPage(section.id);
-        }
-      }
-      // Arriving at one assignment shows its requirements at once.
-      setOpenDetails((list) =>
-        list.includes(assignment.id) ? list : [...list, assignment.id],
-      );
-      setViewing(false);
-    }
-    // No date→section association exists in the current importer. Resume the
-    // real reading position rather than guessing the lesson from the week.
-    const frame = requestAnimationFrame(() => {
-      positionedRequest.current = entry.request;
-      if (assignment) return revealAssignment(assignment.id);
-      placeOutline((host) => {
-        const anchor = current.current.anchor;
-        const element =
-          anchor &&
-          [
-            ...host.querySelectorAll<HTMLElement>("[data-reading-section]"),
-          ].find((el) => el.dataset.readingSection === anchor.id);
-        if (element && anchor) {
-          const panel = host.getBoundingClientRect();
-          const rect = element.getBoundingClientRect();
-          host.scrollTop +=
-            rect.top -
-            panel.top +
-            rect.height * anchor.ratio -
-            panel.height / 2;
-        } else if (lessons.length && at) {
-          // Arriving at a lesson course opens the page the course is at.
-          const page = host.querySelector<HTMLElement>(
-            `[data-page="${at.id}"]`,
-          );
-          host.scrollTop = page?.offsetTop ?? 0;
-          setPage(at.id);
-        } else host.scrollTop = current.current.scroll;
-      });
-    });
-    return () => cancelAnimationFrame(frame);
-    // Explicit entrance only; refreshing content must never jump the reader.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.request, contentRead]);
-  const saveReading = () => persistReading(key, data.deviceId, current.current);
-  useEffect(() => {
-    window.addEventListener("pagehide", saveReading);
-    return () => {
-      window.removeEventListener("pagehide", saveReading);
-      saveReading();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-  const recordPosition = (host: HTMLDivElement) => {
-    current.current.scroll = host.scrollTop;
-    if (query) return;
-    const viewport = host.getBoundingClientRect();
-    if (viewport.height <= 0) return;
-    const center = viewport.top + viewport.height / 2;
-    let closest:
-      { el: HTMLElement; rect: DOMRect; distance: number } | undefined;
-    // Scan once without allocating and sorting a second array on every scroll.
-    for (const el of host.querySelectorAll<HTMLElement>(
-      "[data-reading-section]",
-    )) {
-      const rect = el.getBoundingClientRect();
-      if (rect.height <= 0) continue;
-      const distance =
-        center < rect.top
-          ? rect.top - center
-          : center > rect.bottom
-            ? center - rect.bottom
-            : 0;
-      if (!closest || distance < closest.distance)
-        closest = { el, rect, distance };
-      if (distance === 0) break;
-    }
-    if (!closest || !closest.rect.height) return;
-    const id = closest.el.dataset.readingSection!;
-    current.current.anchor = {
-      id,
-      ratio: Math.max(
-        0,
-        Math.min(1, (center - closest.rect.top) / closest.rect.height),
-      ),
-    };
-    setReadingSection(id);
-  };
-  useLayoutEffect(() => {
-    const host = outline.current;
-    const anchor = current.current.anchor;
-    if (!host || !anchor) return;
-    const element = [
-      ...host.querySelectorAll<HTMLElement>("[data-reading-section]"),
-    ].find((el) => el.dataset.readingSection === anchor.id);
-    if (!element) return;
-    const panel = host.getBoundingClientRect();
-    const rect = element.getBoundingClientRect();
-    if (panel.height > 0 && rect.height > 0)
-      placeOutline(() => {
-        host.scrollTop +=
-          rect.top - panel.top + rect.height * anchor.ratio - panel.height / 2;
-      });
-  }, [Boolean(opened)]);
-  const material =
-    opened?.kind === "material" ? materials.get(opened.id) : undefined;
+  useOutlineEntrance({
+    key,
+    deviceId: data.deviceId,
+    state: outlineState,
+    reading,
+    contentRead,
+    entry,
+    assignments,
+    sections,
+    lessons,
+    at,
+    opened,
+    setOpenDetails,
+    setViewing,
+  });
   const toggle = (id: string) =>
     setExpanded((previous) =>
       previous.includes(id)
         ? previous.filter((item) => item !== id)
         : [...previous, id],
     );
-  const closeContent = () => {
-    if (outline.current) recordPosition(outline.current);
-    setOpened(undefined);
-    setViewing(false);
-  };
-  /** Assignment card: state and deadline first, the teacher's text on request. */
   const assignmentContent = (a: Assignment) => {
     const detail = details.get(a.id);
-    const done = submittedIds.has(a.id);
-    const deadline = taskView?.deadlines?.[a.id];
-    const due = deadline ? new Date(deadline.at) : undefined;
-    const past = deadline?.overdue ?? false;
-    const state =
-      a.submission === "graded"
-        ? "graded"
-        : done
-          ? "done"
-          : past
-            ? "missed"
-            : "open";
-    const countdown =
-      deadline && !done && !past
-        ? {
-            label: deadlineText(deadline, data.settings.locale).countdownLabel,
-            tone: deadline.countdownTone,
-          }
-        : undefined;
-    const body = detail?.bodyHtml ?? "";
-    const hasBody = Boolean(contentText(body).trim() || a.details?.trim());
+    const assignmentState = taskView?.states?.[a.id] ?? detail?.state;
+    const availability =
+      taskView?.handInAvailability?.[a.id] ?? detail?.handInAvailability;
+    const deadline = detail?.deadline ?? taskView?.deadlines?.[a.id];
     const showBody = openDetails.includes(a.id) || Boolean(query.trim());
-    const submit = (preparedUrl?: string) =>
-      open({
-        id: `official:${a.id}`,
-        title: a.title,
-        kind: "official",
-        url: preparedUrl ?? a.sourceUrl!,
-      });
     return (
-      <article
-        className={`lmsAssignmentCard ${state}`}
-        data-assignment={a.id}
+      <LmsAssignmentCard
         key={a.id}
-      >
-        <header>
-          <span className="lmsAssignmentMark" aria-hidden="true" />
-          <div className="lmsAssignmentTitle">
-            <h4>
-              {hasBody && !query.trim() ? (
-                <button
-                  type="button"
-                  aria-expanded={showBody}
-                  onClick={() => setOpenDetails((list) => flip(list, a.id))}
-                >
-                  {a.title}
-                  <LmsIcon
-                    name="chevron"
-                    size={12}
-                    className="lmsAssignmentChevron"
-                  />
-                </button>
-              ) : (
-                a.title
-              )}
-            </h4>
-            {due && (
-              <time dateTime={deadline?.at}>
-                {t("lms.due")}{" "}
-                {formatJst(due, data.settings.locale, {
-                  month: "short",
-                  day: "numeric",
-                  weekday: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </time>
-            )}
-          </div>
-          {countdown ? (
-            <Tag
-              tone={dueRole(countdown.tone)}
-              className={`dueChip ${countdown.tone}`}
-            >
-              {countdown.label}
-            </Tag>
-          ) : (
-            <Tag
-              tone={
-                state === "graded" || state === "done"
-                  ? "ok"
-                  : state === "missed"
-                    ? "danger"
-                    : "neutral"
-              }
-              className={`lmsAssignmentState ${state}`}
-            >
-              {t(
-                state === "graded"
-                  ? "common.graded"
-                  : state === "done"
-                    ? "common.submitted"
-                    : state === "missed"
-                      ? "lms.notSubmitted"
-                      : "common.noDeadline",
-              )}
-              {state === "graded" && a.grade && (
-                <span className="lmsAssignmentGrade">{a.grade}</span>
-              )}
-            </Tag>
-          )}
-        </header>
-        {showBody && hasBody && (
-          <div className="lmsAssignmentBody">
-            {body ? (
-              <RichContent
-                files={files}
-                html={body}
-                language={language}
-                openLink={openLink}
-              />
-            ) : (
-              <p>{a.details}</p>
-            )}
-          </div>
-        )}
-        {workspaces ? (
-          <AssignmentWorkspaceFooter
-            assignment={a}
-            closed={closedIds.has(a.id)}
-            submit={a.sourceUrl ? submit : undefined}
-          />
-        ) : (
-          <footer>
-            {a.sourceUrl && (
-              <button
-                type="button"
-                className={done ? "lmsTextLink" : "lmsSubmit"}
-                onClick={() => submit()}
-              >
-                {t(done ? "lms.viewInLMS" : "common.submit")}{" "}
-                <LmsIcon name="external" size={13} />
-              </button>
-            )}
-          </footer>
-        )}
-      </article>
+        assignment={a}
+        detail={detail}
+        assignmentState={assignmentState}
+        availability={availability}
+        deadline={deadline}
+        original={original}
+        showBody={showBody}
+        query={query}
+        toggleDetails={() => setOpenDetails((list) => flip(list, a.id))}
+        locale={data.settings.locale}
+        open={open}
+        files={files}
+        openLink={openLink}
+        linkedFolders={linkedFolders}
+        workspaces={workspaces}
+      />
     );
   };
   const forumCards = (m: Material) => {
@@ -933,44 +508,29 @@ export function LmsWorkspaceBody({
     const url = m.resourceUrl || m.url || "";
     const family = fileFamily(m.resourceUrl || "", m.module);
     const ext = extension(m.resourceUrl || "");
-    // A folder opens in place: its files list under its row.
-    if (m.module === "folder" && safeUrl(m.url)) {
-      const isOpen = openFolders.includes(m.id);
+    // A folder or a ZIP opens in place: its files list under its row.
+    const archive = family === "archive" || archiveItems.includes(m.id);
+    const listed =
+      m.module === "folder"
+        ? safeUrl(m.url)
+        : archive
+          ? safeUrl(m.resourceUrl || m.url)
+          : undefined;
+    if (listed)
       return (
-        <div className={`lmsFolder${isOpen ? " open" : ""}`} key={m.id}>
-          <button
-            type="button"
-            className="lmsItemRow"
-            aria-expanded={isOpen}
-            onClick={() => setOpenFolders((list) => flip(list, m.id))}
-          >
-            <FileTile family="folder" />
-            <span>
-              <b>{m.title}</b>
-              <small>{t("lms.folder")}</small>
-            </span>
-            <LmsIcon name="chevron" className="lmsRowAction lmsFolderChevron" />
-          </button>
-          {isOpen && (
-            <Suspense
-              fallback={
-                <p className="lmsQuiet lmsFolderNote">{t("common.loading")}</p>
-              }
-            >
-              <InlineFolder
-                url={safeUrl(m.url)!}
-                courseId={course.id}
-                limit={limit}
-                openFile={(fileUrl, name, anchor) =>
-                  openLink(fileUrl, name, anchor)
-                }
-                openPage={(page) => openPage(page, m.title)}
-              />
-            </Suspense>
-          )}
-        </div>
+        <FolderRow
+          key={m.id}
+          title={m.title}
+          url={listed}
+          archive={archive}
+          courseId={course.id}
+          limit={limit}
+          openFile={(fileUrl, name, anchor) => openLink(fileUrl, name, anchor)}
+          openPage={(page) => openPage(page, m.title)}
+          open={openFolders.includes(m.id)}
+          onToggle={() => setOpenFolders((list) => flip(list, m.id))}
+        />
       );
-    }
     return (
       <button
         type="button"
@@ -1052,8 +612,8 @@ export function LmsWorkspaceBody({
               <RichContent
                 files={files}
                 html={section.summaryHtml}
-                language={language}
                 openLink={openLink}
+                folders={linkedFolders}
               />
             )}
             {groupImageLabels(
@@ -1072,8 +632,8 @@ export function LmsWorkspaceBody({
                         key={label.materialId}
                         files={files}
                         html={label.bodyHtml ?? ""}
-                        language={language}
                         openLink={openLink}
+                        folders={linkedFolders}
                       />
                     ))}
                   </div>
@@ -1091,8 +651,8 @@ export function LmsWorkspaceBody({
                     <RichContent
                       files={files}
                       html={item.bodyHtml}
-                      language={language}
                       openLink={openLink}
+                      folders={linkedFolders}
                     />
                   </article>
                 );
@@ -1156,149 +716,6 @@ export function LmsWorkspaceBody({
     <div
       className={`lmsWorkspace${narrow ? " narrowReader" : ""}${opened ? " hasViewer" : ""}${viewing ? " viewing" : ""}`}
     >
-      <header className="lmsWorkspaceHeader">
-        {headerStart}
-        {!navigationProvided && (
-          <button type="button" className="lmsBack" onClick={close}>
-            <LmsIcon name="back" /> {t("common.today")}
-          </button>
-        )}
-        <div className="lmsCourseIdentity">
-          <h1 title={course.title}>{course.title}</h1>
-          <small>{course.code}</small>
-        </div>
-        {/* One group, so the actions move to their own row together when
-            the title would otherwise get less than its minimum width. */}
-        <div className="lmsHeaderActions">
-          {entry.date && (
-            <span className="lmsEntryTime">
-              {entry.date}{" "}
-              {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
-            </span>
-          )}
-          {syllabus && (
-            <button
-              type="button"
-              className="lmsRefresh"
-              aria-pressed={selected === "syllabus"}
-              onClick={() =>
-                open({
-                  id: "syllabus",
-                  title: t("common.syllabus"),
-                  kind: "syllabus",
-                  url: syllabus,
-                })
-              }
-            >
-              <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
-            </button>
-          )}
-          {openPastExams && (
-            <button
-              type="button"
-              className="lmsRefresh"
-              onClick={openPastExams}
-            >
-              {t("examShare.openCourse")}
-            </button>
-          )}
-          {(progress != null || refresh) && (
-            <div className="lmsPullControls">
-              {progress != null && (
-                // Local data stays on screen; the whole course switches when
-                // Core commits it.
-                <span className="syncPageStatus" role="status">
-                  <i className="schoolStatusSpinner" aria-hidden="true" />
-                  {updatedAt
-                    ? `${t("lms.showingDataFromAge", {
-                        age: ageText(
-                          updatedAt,
-                          timelineNow,
-                          data.settings.locale,
-                        ),
-                      })} · `
-                    : null}
-                  {progress.total !== null
-                    ? t("lms.updatingThisCourseDoneTotal", {
-                        done: progress.done,
-                        total: progress.total,
-                      })
-                    : t("lms.updatingThisCourse")}
-                </span>
-              )}
-              {refresh && (
-                <button
-                  type="button"
-                  className="lmsRefresh"
-                  disabled={progress != null || opened?.kind === "official"}
-                  onClick={refresh}
-                >
-                  {t("lms.pullFromLMS")}
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
-      <div className="lmsWorkspaceTools">
-        {lessons.length > 0 && !query.trim() && (
-          <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
-            <nav
-              className="lmsLessonRail"
-              aria-label={t("lms.lessons")}
-              ref={rail}
-            >
-              <span
-                className="lmsRailIndicator"
-                ref={railIndicator}
-                aria-hidden="true"
-              />
-              {pinned.map((section) => (
-                <button
-                  type="button"
-                  key={section.id}
-                  className={`lmsRailTab${paged && shownId === section.id ? " current" : ""}`}
-                  aria-current={
-                    paged && shownId === section.id ? "step" : undefined
-                  }
-                  title={section.title}
-                  onClick={() => goLesson(section.id)}
-                >
-                  {section.title}
-                </button>
-              ))}
-              {hasActivities && (
-                <button
-                  type="button"
-                  className={`lmsRailTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
-                  aria-current={
-                    paged && shownId === ACTIVITIES ? "step" : undefined
-                  }
-                  onClick={() => goLesson(ACTIVITIES)}
-                >
-                  {t("lms.activities")}
-                </button>
-              )}
-              {(pinned.length > 0 || hasActivities) && (
-                <span className="lmsRailDivider" aria-hidden="true" />
-              )}
-              {lessons.map((l, index) => (
-                <button
-                  type="button"
-                  key={l.id}
-                  className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l) ? " due" : ""}`}
-                  aria-current={l.id === lessonId && paged ? "step" : undefined}
-                  title={l.title}
-                  onClick={() => goLesson(l.id)}
-                  onDoubleClick={() => markThisClass(l.id)}
-                >
-                  {l.label}
-                </button>
-              ))}
-            </nav>
-          </GuideTip>
-        )}
-      </div>
       <div className="lmsWorkspaceBody" ref={workspaceRef}>
         <ResizableWorkspace
           id={`reading-${course.id}`}
@@ -1308,232 +725,303 @@ export function LmsWorkspaceBody({
           secondMin={260}
         >
           <aside className="lmsOutline">
-            <div className="lmsOutlineTools">
-              <input
-                aria-label={t("lms.searchCourseContent")}
-                placeholder={t("lms.searchThisCourse")}
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              {lessons.length ? null : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpanded(
-                      expanded.length
-                        ? []
-                        : sections.map((s) => `section:${s.id}`),
-                    )
-                  }
-                >
-                  {expanded.length ? t("lms.expandAll") : t("lms.collapseAll")}
-                </button>
-              )}
-            </div>
-
-            <div
-              className={`lmsOutlineScroll${query ? " searching" : ""}`}
-              ref={outline}
-              onScroll={(event) => {
-                recordPosition(event.currentTarget);
-                followScroll(event.currentTarget);
-                restAfterScroll(event.currentTarget);
-              }}
-            >
-              {fileMenu && (
-                <Suspense fallback={null}>
-                  <FilePopover
-                    key={fileMenu.url}
-                    url={fileMenu.url}
-                    title={fileMenu.title}
-                    courseId={course.id}
-                    limit={limit}
-                    anchor={fileMenu.anchor}
-                    onClose={closeFileMenu}
-                    openPage={(page) => openPage(page, fileMenu.title)}
-                  />
-                </Suspense>
-              )}
-              {noteError && <p role="alert">{noteError}</p>}
-              {deletedNote && (
-                <div className="lmsNoteUndo" role="status">
-                  <span>{t("lms.noteDeleted")}</span>
+            <TitleRow className="lmsWorkspaceHeader">
+              {headerStart}
+              <div className="lmsCourseIdentity">
+                <h1 title={course.title}>{course.title}</h1>
+                <small>{course.code}</small>
+              </div>
+              {/* The course's own actions, on the title row's right. */}
+              <div className="lmsHeaderActions">
+                {entry.date && (
+                  <span className="lmsEntryTime">
+                    {entry.date}{" "}
+                    {entry.startTime && `· ${entry.startTime}–${entry.endTime}`}
+                  </span>
+                )}
+                {syllabus && (
                   <button
                     type="button"
-                    onClick={() => {
-                      const note = deletedNote;
-                      void moveNote(
-                        { courseId: course.id, section: note.section },
-                        note.id,
-                        true,
-                      )
-                        .then(() => {
-                          setDeletedNote(null);
-                          refreshNotes();
-                          open({ ...note, kind: "note" });
-                        })
-                        .catch((error) => setNoteError(String(error)));
-                    }}
+                    className="lmsRefresh"
+                    aria-pressed={selected === "syllabus"}
+                    onClick={() =>
+                      open({
+                        id: "syllabus",
+                        title: t("common.syllabus"),
+                        kind: "syllabus",
+                        url: syllabus,
+                      })
+                    }
                   >
-                    {t("common.undo")}
+                    <LmsIcon name="doc" size={14} /> {t("common.syllabus")}
                   </button>
-                </div>
+                )}
+                {openPastExams && (
+                  <button
+                    type="button"
+                    className="lmsRefresh"
+                    onClick={openPastExams}
+                  >
+                    {t("examShare.openCourse")}
+                  </button>
+                )}
+                {(progress != null || refresh) && (
+                  <div className="lmsPullControls">
+                    {progress != null && (
+                      // Local data stays on screen; the whole course switches when
+                      // Core commits it.
+                      <span className="syncPageStatus" role="status">
+                        <i className="schoolStatusSpinner" aria-hidden="true" />
+                        {updatedAt
+                          ? `${t("lms.showingDataFromAge", {
+                              age: ageText(
+                                updatedAt,
+                                timelineNow,
+                                data.settings.locale,
+                              ),
+                            })} · `
+                          : null}
+                        {progress.total !== null
+                          ? t("lms.updatingThisCourseDoneTotal", {
+                              done: progress.done,
+                              total: progress.total,
+                            })
+                          : t("lms.updatingThisCourse")}
+                      </span>
+                    )}
+                    {refresh && (
+                      <button
+                        type="button"
+                        className="lmsRefresh"
+                        disabled={
+                          progress != null || opened?.kind === "official"
+                        }
+                        onClick={refresh}
+                      >
+                        {t("common.refreshNow")}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </TitleRow>
+            {/* The lessons run down the outline's left edge: a narrow
+                column of numbers instead of a full-width rail. */}
+            <div className="lmsOutlineBody">
+              {lessons.length > 0 && !query.trim() && (
+                <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
+                  <nav
+                    className="lmsLessonRail"
+                    aria-label={t("lms.lessons")}
+                    ref={rail}
+                  >
+                    <span
+                      className="lmsRailIndicator"
+                      ref={railIndicator}
+                      aria-hidden="true"
+                    />
+                    {lessons.map((l, index) => (
+                      <button
+                        type="button"
+                        key={l.id}
+                        className={`${atIndex >= 0 && index <= atIndex ? "held" : ""}${l.id === lessonId && paged ? " current" : ""}${pendingIn(l) ? " due" : ""}`}
+                        aria-current={
+                          l.id === lessonId && paged ? "step" : undefined
+                        }
+                        title={l.title}
+                        onClick={() => goLesson(l.id)}
+                        onDoubleClick={() => markThisClass(l.id)}
+                      >
+                        {l.label}
+                      </button>
+                    ))}
+                  </nav>
+                </GuideTip>
               )}
-              {courseExams.length > 0 && (
-                <section
-                  className="lmsCourseExams"
-                  aria-label={t("common.exams")}
-                >
-                  <h2>{t("common.exams")}</h2>
-                  <ExamCards
-                    exams={courseExams}
-                    courses={data.courses.filter((row) => row.id === course.id)}
+              <div className="lmsOutlineMain">
+                <div className="lmsOutlineTools">
+                  <input
+                    aria-label={t("lms.searchCourseContent")}
+                    placeholder={t("lms.searchThisCourse")}
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
                   />
-                </section>
-              )}
-              {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
-              {sections.map((section) => sectionView(section))}
-              {!sections.length && (
-                <p className="lmsQuiet">{t("lms.noCourseContentSyncedYet")}</p>
-              )}
-              <div data-page={paged ? "activities" : undefined}>
-                {/* Only assignments outside any section; the rest sit in their lesson. */}
-                {(() => {
-                  const loose = otherAssignments.filter((a) =>
-                    matches(a.title, a.details),
-                  );
-                  return loose.length ? (
-                    <section
-                      data-reading-section="assignments"
-                      className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
+                  {lessons.length ? null : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpanded(
+                          expanded.length
+                            ? []
+                            : sections.map((s) => `section:${s.id}`),
+                        )
+                      }
                     >
-                      <h2>{t("common.assignments")}</h2>
-                      {loose.map(assignmentContent)}
+                      {expanded.length
+                        ? t("lms.expandAll")
+                        : t("lms.collapseAll")}
+                    </button>
+                  )}
+                </div>
+                {/* Sections without a number (一般, 連絡先 …) and the
+                    course's activities: a row of tabs over the outline; the
+                    rail beside it holds only the numbered lessons. */}
+                {lessons.length > 0 &&
+                  !query.trim() &&
+                  (pinned.length > 0 || hasActivities) && (
+                    <nav
+                      className="lmsSectionTabs"
+                      aria-label={t("lms.lessons")}
+                    >
+                      {pinned.map((section) => (
+                        <button
+                          type="button"
+                          key={section.id}
+                          className={`lmsSectionTab${paged && shownId === section.id ? " current" : ""}`}
+                          aria-current={
+                            paged && shownId === section.id ? "step" : undefined
+                          }
+                          title={section.title}
+                          onClick={() => goLesson(section.id)}
+                        >
+                          {section.title}
+                        </button>
+                      ))}
+                      {hasActivities && (
+                        <button
+                          type="button"
+                          className={`lmsSectionTab${paged && shownId === ACTIVITIES ? " current" : ""}`}
+                          aria-current={
+                            paged && shownId === ACTIVITIES ? "step" : undefined
+                          }
+                          onClick={() => goLesson(ACTIVITIES)}
+                        >
+                          {t("lms.activities")}
+                        </button>
+                      )}
+                    </nav>
+                  )}
+
+                <div
+                  className={`lmsOutlineScroll${query ? " searching" : ""}`}
+                  ref={outline}
+                  onScroll={(event) => {
+                    recordPosition(event.currentTarget);
+                    followScroll(event.currentTarget);
+                    restAfterScroll(event.currentTarget);
+                  }}
+                >
+                  {fileMenu && (
+                    <Suspense fallback={null}>
+                      <FilePopover
+                        key={fileMenu.url}
+                        url={fileMenu.url}
+                        title={fileMenu.title}
+                        courseId={course.id}
+                        limit={limit}
+                        anchor={fileMenu.anchor}
+                        onClose={closeFileMenu}
+                        openPage={(page) => openPage(page, fileMenu.title)}
+                      />
+                    </Suspense>
+                  )}
+                  {noteError && <p role="alert">{noteError}</p>}
+                  {deletedNote && (
+                    <div className="lmsNoteUndo" role="status">
+                      <span>{t("lms.noteDeleted")}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const note = deletedNote;
+                          void moveNote(
+                            { courseId: course.id, section: note.section },
+                            note.id,
+                            true,
+                          )
+                            .then(() => {
+                              setDeletedNote(null);
+                              refreshNotes();
+                              open({ ...note, kind: "note" });
+                            })
+                            .catch((error) => setNoteError(String(error)));
+                        }}
+                      >
+                        {t("common.undo")}
+                      </button>
+                    </div>
+                  )}
+                  {courseExams.length > 0 && (
+                    <section
+                      className="lmsCourseExams"
+                      aria-label={t("common.exams")}
+                    >
+                      <h2>{t("common.exams")}</h2>
+                      <ExamCards
+                        exams={courseExams}
+                        courses={data.courses.filter(
+                          (row) => row.id === course.id,
+                        )}
+                      />
                     </section>
-                  ) : null;
-                })()}
+                  )}
+                  {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
+                  {sections.map((section) => sectionView(section))}
+                  {!sections.length && (
+                    <p className="lmsQuiet">
+                      {t("lms.noCourseContentSyncedYet")}
+                    </p>
+                  )}
+                  <div data-page={paged ? "activities" : undefined}>
+                    {/* Only assignments outside any section; the rest sit in their lesson. */}
+                    {(() => {
+                      const loose = otherAssignments.filter((a) =>
+                        matches(a.title, a.details),
+                      );
+                      return loose.length ? (
+                        <section
+                          data-reading-section="assignments"
+                          className={`lmsActivityGroup${readingSection === "assignments" ? " reading" : ""}`}
+                        >
+                          <h2>{t("common.assignments")}</h2>
+                          {loose.map(assignmentContent)}
+                        </section>
+                      ) : null;
+                    })()}
+                  </div>
+                </div>
+                {data.settings.lmsBilingualFilter && (
+                  <button
+                    type="button"
+                    className="lmsOriginal"
+                    onClick={() => setOriginal((value) => !value)}
+                  >
+                    {original
+                      ? t("lms.usePreferredLanguage")
+                      : t("lms.showOriginal")}
+                  </button>
+                )}
               </div>
             </div>
-            {data.settings.lmsBilingualFilter && (
-              <button
-                type="button"
-                className="lmsOriginal"
-                onClick={() => setOriginal((value) => !value)}
-              >
-                {original
-                  ? t("lms.usePreferredLanguage")
-                  : t("lms.showOriginal")}
-              </button>
-            )}
           </aside>
           {opened && shown && (
-            <ReaderPane title={shown.title} close={closeContent}>
-              {/* Hidden readers release their documents; the official view keeps its webview. */}
-              {!viewerActive &&
-              opened.kind !== "official" ? null : opened.kind ===
-                "announcement" ? (
-                <div className="lmsDocument">
-                  <div className="lmsDocumentHeading">
-                    <small>
-                      {formatLmsDate(
-                        announcement?.date || "",
-                        data.settings.locale,
-                      )}
-                    </small>
-                    <h2>{opened.title}</h2>
-                  </div>
-                  {announcement && (
-                    <RichContent
-                      files={files}
-                      html={announcement.html}
-                      language={language}
-                      openLink={openLink}
-                    />
-                  )}
-                </div>
-              ) : opened.kind === "syllabus" ? (
-                <div className="lmsDocument lmsSyllabus">
-                  <SyllabusFrame url={shown.url} />
-                </div>
-              ) : opened.kind === "note" ? (
-                <Suspense fallback={<p>{t("lms.loadingEditor")}</p>}>
-                  <NoteEditor
-                    key={opened.id}
-                    id={opened.id}
-                    context={{ courseId: course.id, section: opened.section! }}
-                    onSaved={refreshNotes}
-                    onDeleted={() => {
-                      setDeletedNote({
-                        id: opened.id,
-                        section: opened.section!,
-                        title: opened.title,
-                      });
-                      closeContent();
-                      refreshNotes();
-                    }}
-                  />
-                </Suspense>
-              ) : opened.kind === "official" ? (
-                <>
-                  <OfficialLmsView
-                    url={opened.url!}
-                    active={viewerActive}
-                    available={schoolWebAvailable}
-                  />
-                </>
-              ) : (
-                <div className="lmsDocument lmsFileDocument">
-                  <div className="lmsDocumentHeading">
-                    <small>{material?.sectionTitle || course.code}</small>
-                    <h2>{opened.title}</h2>
-                  </div>
-                  {material?.bodyHtml && (
-                    <RichContent
-                      files={files}
-                      html={material.bodyHtml}
-                      language={language}
-                      openLink={openLink}
-                    />
-                  )}
-                  {(() => {
-                    // The item's own address, as Core's read models pick it;
-                    // Core decides what it opens as (`open_material`).
-                    const url = safeUrl(
-                      material?.url ||
-                        material?.resourceUrl ||
-                        (opened.kind === "link" ? opened.url : undefined),
-                    );
-                    if (!url)
-                      return material && !material.bodyHtml ? (
-                        <p className="lmsQuiet">
-                          {t("lms.noContentInThisSection")}
-                        </p>
-                      ) : null;
-                    return (
-                      <Suspense fallback={<p>{t("lms.loadingPreview")}</p>}>
-                        <FilePreview
-                          key={url}
-                          url={url}
-                          title={opened.title}
-                          courseId={course.id}
-                          limit={limit}
-                          inline={Boolean(material?.bodyHtml)}
-                          openPage={(page) => openPage(page, opened.title)}
-                          openFile={(fileUrl, name) =>
-                            open({
-                              id: `link:${fileUrl}`,
-                              title: name,
-                              kind: "link",
-                              url: fileUrl,
-                            })
-                          }
-                        />
-                      </Suspense>
-                    );
-                  })()}
-                </div>
-              )}
-            </ReaderPane>
+            <LmsReader
+              opened={opened}
+              shown={shown}
+              viewerActive={viewerActive}
+              course={course}
+              locale={data.settings.locale}
+              announcement={announcement}
+              files={files}
+              linkedFolders={linkedFolders}
+              material={material}
+              materialBody={materialBody}
+              limit={limit}
+              schoolWebAvailable={schoolWebAvailable}
+              openAccounts={openAccounts}
+              refreshNotes={refreshNotes}
+              setDeletedNote={setDeletedNote}
+              reader={reader}
+            />
           )}
         </ResizableWorkspace>
       </div>

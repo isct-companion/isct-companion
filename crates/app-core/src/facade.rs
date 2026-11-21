@@ -27,6 +27,7 @@ pub struct Core {
     #[cfg(feature = "agent")]
     pub agent: AgentService,
     /// Assignment workspaces under the selected course storage root.
+    #[cfg(feature = "desktop-workspaces")]
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
     /// LMS writes, or why the service could not open; the MCP tools share
     /// it. Only the desktop's agents write to the LMS.
@@ -110,7 +111,6 @@ impl EventSink for CoreEvents {
 /// folder's lock, alive after Core is gone.
 struct StoreChanges {
     events: Option<StoreEvents>,
-    seq: crate::data::CommitSeq,
     runtime: std::sync::Weak<CoreRuntime>,
     /// The deadline services a commit can bring forward.
     reminders: crate::schedule::ReminderChanges,
@@ -133,6 +133,7 @@ impl CommitObserver for StoreChanges {
         &self,
         source: WorkspaceChangeSource,
         revision: Option<String>,
+        seq: u64,
         tables: &BTreeSet<String>,
     ) {
         if let Some(runtime) = self.runtime.upgrade() {
@@ -179,7 +180,7 @@ impl CommitObserver for StoreChanges {
                     source,
                     revision,
                     changes: changes.into_iter().collect(),
-                    seq: self.seq.get(),
+                    seq,
                 });
         } else if !changes.is_empty() {
             events.workspace.push(source, changes);
@@ -270,7 +271,6 @@ impl Core {
         let sync = Arc::new(sync);
         let seq = store.commit_seq_handle();
         store.observe(Arc::new(StoreChanges {
-            seq: seq.clone(),
             events: events.clone().map(|events| {
                 let sink = events.clone();
                 // Delivered after every commit it merges has landed.
@@ -295,17 +295,13 @@ impl Core {
             }),
             runtime: Arc::downgrade(&runtime),
             reminders: reminders.changes(),
-            reminder_reads: crate::schedule::WorkspaceQuery::NotificationPlan {
-                now: String::new(),
-                horizon: String::new(),
-                locale: None,
-            }
-            .reads(),
+            reminder_reads: crate::schedule::REMINDER_FIELDS.to_vec(),
             plan: plan_hints.clone(),
             widgets: Arc::downgrade(&widgets),
             #[cfg(feature = "agent")]
             agent_access: Arc::downgrade(&agent_access),
         }));
+        #[cfg(feature = "desktop-workspaces")]
         let assignment_workspaces = crate::workspaces::AssignmentWorkspaces::new(
             store.clone(),
             runtime.notes.clone(),
@@ -366,6 +362,7 @@ impl Core {
         Self {
             #[cfg(feature = "agent")]
             agent,
+            #[cfg(feature = "desktop-workspaces")]
             assignment_workspaces,
             #[cfg(feature = "agent")]
             submissions,
@@ -398,13 +395,14 @@ impl Core {
         }
         if matches!(hint, Hint::Foreground | Hint::Resume) {
             self.widgets.changed();
+            #[cfg(feature = "mobile-reminders")]
+            self.refresh_reminder_port();
         }
         self.sync.hint(hint);
     }
 
     /// The shell's ports for the deadline duties, attached once: the
-    /// scheduled-export port, local notifications (the desktop's; phones
-    /// schedule the plan with their OS) and the cloud providers.
+    /// scheduled-export port, direct local notifications and the cloud providers.
     pub fn attach_ports(&self, ports: PlatformPorts) {
         if let Some(exporter) = ports.exporter {
             self.runtime.attach_exporter(exporter);
@@ -416,6 +414,24 @@ impl Core {
             sync.attach(cloud);
         }
         self.sync.duties_changed();
+    }
+
+    #[cfg(feature = "mobile-reminders")]
+    pub fn attach_reminder_port(
+        &self,
+        port: Arc<dyn crate::schedule::ReminderPort>,
+    ) -> Result<(), crate::schedule::ReminderError> {
+        self.reminders.attach_mobile(port)?;
+        self.sync.duties_changed();
+        Ok(())
+    }
+
+    /// The OS may have changed permission or discarded scheduled reminders.
+    #[cfg(feature = "mobile-reminders")]
+    pub fn refresh_reminder_port(&self) {
+        if self.reminders.mobile_changed() {
+            self.sync.duties_changed();
+        }
     }
 
     /// Open the ScienceTokyoExam client with the shell's vault and, where
@@ -726,14 +742,6 @@ impl Core {
         )?;
         page.seq = seq;
         Ok(page)
-    }
-
-    pub async fn import_legacy_reminders(
-        &self,
-        fired: serde_json::Value,
-        now: chrono::DateTime<chrono::FixedOffset>,
-    ) -> Result<bool, crate::schedule::ReminderError> {
-        self.reminders.import_legacy_fired(fired, now).await
     }
 
     pub async fn shutdown(&self) {

@@ -1,5 +1,6 @@
 package app.isctcompanion.features.assignments
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import app.isctcompanion.core.AssignmentBoard
@@ -29,14 +30,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
 import app.isctcompanion.design.EmptyState
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -76,7 +75,7 @@ import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
-import app.isctcompanion.features.today.rememberNow
+import app.isctcompanion.shared.rememberNow
 import java.time.Instant
 import kotlinx.coroutines.launch
 
@@ -89,8 +88,8 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     item(key = "assignments-header") {
         Row(
             verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth().padding(top = 20.dp, start = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+            modifier = Modifier.fillMaxWidth().padding(top = Theme.space9, start = Theme.space2),
         ) {
             Text(t("common.assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
             Text(
@@ -104,13 +103,13 @@ fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRe
     val today = board.today
     if (!today.isEmpty()) {
         item(key = "assignments-tip") {
-            GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = 8.dp))
+            GuideTip("assignment-swipe", "guide.pinOrHide", "guide.swipeRightToPinAn", Modifier.padding(top = Theme.space4))
         }
     }
-    group(t("common.pinned"), today.pinned, now, Format.OverdueStyle.Elapsed)
-    group(t("common.thisWeek"), today.dueThisWeek, now, Format.OverdueStyle.Elapsed)
-    group(t("assignments.nextWeekAndLater"), today.later, now, Format.OverdueStyle.Elapsed)
-    group(t("common.overdue"), today.pastRecent, now, Format.OverdueStyle.Elapsed)
+    group(t("common.pinned"), today.pinned, now)
+    group(t("common.thisWeek"), today.dueThisWeek, now)
+    group(t("assignments.nextWeekAndLater"), today.later, now)
+    group(t("common.overdue"), today.pastRecent, now)
     if (today.isEmpty()) {
         item(key = "assignments-empty") {
             EmptyState(Icons.Rounded.CheckCircle, t("assignments.noUnsubmittedAssignments"))
@@ -126,11 +125,10 @@ private fun LazyListScope.group(
     title: String,
     items: List<DeadlineItem>,
     now: Instant,
-    overdueStyle: Format.OverdueStyle = Format.OverdueStyle.Label,
     restores: Boolean = false,
 ) {
     if (items.isEmpty()) return
-    item(key = "label-$title") { Box(Modifier.padding(top = 12.dp, bottom = 6.dp)) { SectionLabel(title) } }
+    item(key = "label-$title") { Box(Modifier.padding(top = Theme.space6, bottom = Theme.space3)) { SectionLabel(title) } }
     items.forEachIndexed { index, row ->
         item(key = "$title-${row.assignmentId}") {
             val shape = RoundedCornerShape(
@@ -141,7 +139,7 @@ private fun LazyListScope.group(
             )
             Column(Modifier.clip(shape).background(Theme.colors.surface)) {
                 if (index > 0) RowDivider()
-                if (restores) RestoreRow(row, now) else SwipeRow(row, now, overdueStyle)
+                if (restores) RestoreRow(row, now) else SwipeRow(row, now)
             }
         }
     }
@@ -156,7 +154,7 @@ private fun GroupCard(content: @Composable () -> Unit) {
  * Core's refreshed board moves it. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.OverdueStyle) {
+private fun SwipeRow(item: DeadlineItem, now: Instant) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val haptics = LocalHapticFeedback.current
@@ -201,7 +199,7 @@ private fun SwipeRow(item: DeadlineItem, now: Instant, overdueStyle: Format.Over
         },
     ) {
         Box(Modifier.background(Theme.colors.surface)) {
-            DeadlineLink(item) { DeadlineRow(item, now, overdueStyle) }
+            DeadlineLink(item) { DeadlineRow(item, now) }
         }
     }
 }
@@ -231,8 +229,8 @@ private fun RestoreRow(item: DeadlineItem, now: Instant) {
 
 @Composable
 private fun SwipeAction(fill: Color, label: String, icon: ImageVector, alignment: Alignment, ink: Color = Theme.colors.accentInk) {
-    Box(Modifier.fillMaxSize().background(fill).padding(horizontal = 20.dp), contentAlignment = alignment) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+    Box(Modifier.fillMaxSize().background(fill).padding(horizontal = Theme.space9), contentAlignment = alignment) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
             Icon(icon, null, tint = ink)
             Text(label, color = ink, fontWeight = FontWeight.SemiBold)
         }
@@ -250,11 +248,11 @@ fun AssignmentListScreen() {
         TopAppBar(
             title = { Text(t("widget.assignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                BackButton { navigator.back() }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             todayAssignments(model.board, now, navigator::openRecord)
         }
     }
@@ -275,11 +273,11 @@ fun RecordScreen() {
         TopAppBar(
             title = { Text(t("common.allAssignments")) },
             navigationIcon = {
-                IconButton(onClick = { navigator.back() }) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) }
+                BackButton { navigator.back() }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
         )
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             if (record != null) {
                 group(t("common.pinned"), record.pinned, now)
                 group(t("common.thisWeek"), record.dueThisWeek, now)
@@ -291,11 +289,11 @@ fun RecordScreen() {
                         group(t("common.earlier"), record.pastEarlier, now)
                     } else {
                         item {
-                            Box(Modifier.padding(top = 12.dp)) {
+                            Box(Modifier.padding(top = Theme.space6)) {
                                 GroupCard {
                                     Text(
                                         t("assignments.showCountEarlier", "count" to record.pastEarlier.size), color = Theme.colors.accent,
-                                        modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(16.dp),
+                                        modifier = Modifier.fillMaxWidth().clickable { unfolded = true }.padding(horizontal = Theme.rowX, vertical = 16.dp),
                                     )
                                 }
                             }

@@ -1,12 +1,10 @@
+import { errorText } from "../../lib/error-text";
 import { MultiSelect } from "../../components/ui";
 import { t } from "../../i18n";
 import type { Workspace } from "../../lib/model";
-import { desktopBridge } from "../../app/native";
+import { desktopBridge } from "../../platform/native";
 import { resolveCapabilities } from "../../platform/capabilities";
-import {
-  CLASS_LEAD_CHOICES,
-  ASSIGNMENT_LEAD_CHOICES,
-} from "../../platform/reminders";
+import type { ShellRecords } from "../../platform/records";
 import { UiButton, UiSelect } from "../../components/ui";
 import {
   Row,
@@ -22,14 +20,14 @@ export function NotificationSettings({
   caps,
   notify,
 }: {
-  data: Workspace;
+  data: ShellRecords;
   update: (f: (d: Workspace) => Workspace) => void;
   caps: ReturnType<typeof resolveCapabilities>;
   notify: (message: string) => void;
 }) {
   const settings = data.settings.notifications;
-  // Core resolves every preference's default before the workspace arrives.
-  const assignmentLeads = settings.assignmentLeadMinutes;
+  const leadOptions = data.reminderLeadOptions;
+  const assignmentLeads = leadOptions.assignments;
   const leadLabel = (minutes: number) =>
     minutes % 1440 === 0
       ? minutes === 1440
@@ -68,7 +66,7 @@ export function NotificationSettings({
         );
       } else notify(t("settings.notification.notificationsAreOff"));
     } catch (error) {
-      notify(error instanceof Error ? error.message : String(error));
+      notify(errorText(error, { nativeMessage: false }) ?? String(error));
     }
   };
 
@@ -133,7 +131,7 @@ export function NotificationSettings({
                   const minutes = Number(value);
                   set((n) => (n.classLeadMinutes = minutes));
                 }}
-                data={CLASS_LEAD_CHOICES.map((minutes) => ({
+                data={leadOptions.classes.map((minutes) => ({
                   value: String(minutes),
                   label: t("settings.notification.minutesBefore", { minutes }),
                 }))}
@@ -159,21 +157,10 @@ export function NotificationSettings({
                 onChange={(value) =>
                   set((n) => (n.examLeadMinutes = Number(value)))
                 }
-                data={[
-                  ...new Set([
-                    10,
-                    30,
-                    60,
-                    1440,
-                    2880,
-                    settings.examLeadMinutes,
-                  ]),
-                ]
-                  .sort((a, b) => a - b)
-                  .map((minutes) => ({
-                    value: String(minutes),
-                    label: leadLabel(minutes),
-                  }))}
+                data={leadOptions.exams.map((minutes) => ({
+                  value: String(minutes),
+                  label: leadLabel(minutes),
+                }))}
               />
             </Row>
           </div>
@@ -204,18 +191,14 @@ export function NotificationSettings({
               <MultiSelect
                 className="assignmentTimes"
                 aria-label={t("settings.notification.assignmentReminderTimes")}
-                value={assignmentLeads.map(String)}
-                data={[
-                  ...new Set([...ASSIGNMENT_LEAD_CHOICES, ...assignmentLeads]),
-                ]
-                  .sort((a, b) => b - a)
-                  .map((minutes) => ({
-                    value: String(minutes),
-                    label: leadLabel(minutes),
-                  }))}
-                maxValues={8}
+                value={settings.assignmentLeadMinutes.map(String)}
+                data={assignmentLeads.presets.map((minutes) => ({
+                  value: String(minutes),
+                  label: leadLabel(minutes),
+                }))}
+                maxValues={assignmentLeads.maxSelected}
                 onChange={(values) => {
-                  if (!values.length) return;
+                  if (values.length < assignmentLeads.minSelected) return;
                   const minutes = values.map(Number);
                   set((n) => (n.assignmentLeadMinutes = minutes));
                 }}

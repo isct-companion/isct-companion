@@ -6,10 +6,12 @@ import {
   Scale,
   type LucideIcon,
 } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { Switch, UiButton } from "../../components/ui";
 import { useResetGuide } from "../../components/guide";
-import { desktopBridge } from "../../app/native";
-import { lastInstallText, useAppUpdate } from "../../app/useDesktopUpdates";
+import { desktopBridge } from "../../platform/native";
+import { lastInstallText } from "../../lib/app-update-text";
+import { useAppUpdate } from "../../store/app-update";
 import { workspaceStore } from "../../store/workspace";
 import type { Workspace } from "../../lib/model";
 import { t, type MessageKey } from "../../i18n";
@@ -90,6 +92,7 @@ export function About({
   const [release, build] = splitVersion(__APP_VERSION__);
   return (
     <div className="page">
+      <TitleRow nav />
       <div className="aboutCanvas">
         <div className="aboutLayout">
           <section className="aboutIntro">

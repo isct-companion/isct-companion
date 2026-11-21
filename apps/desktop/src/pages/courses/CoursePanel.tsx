@@ -1,6 +1,6 @@
 import { Button, Paper } from "../../components/ui";
 import type { ReactNode } from "react";
-import { openExternalUrl } from "../../components/ExternalLink";
+import { openExternalUrl } from "../../platform/external-url";
 import { examWhen } from "../../components/exams/ExamCards";
 import { dayShort } from "../../components/timetable/timetable";
 import { t } from "../../i18n";
@@ -8,12 +8,12 @@ import type { ClassGroupChoice, Course, Workspace } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
 import { DAYS, type FinderCourse } from "../../lib/course-query";
 import type { CourseConflict } from "../../generated/persistence";
-import { notify } from "../../app/notify";
+import { notify } from "../../components/notifications/notify";
 import { useScheduleQuery, type CourseDetail } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import { workspaceActions } from "../../store/workspace";
 import { ClassGroupSwitch } from "./ClassGroupPicker";
-import { SyllabusFrame } from "./syllabus-frame";
+import { SyllabusFrame } from "../../components/courses/syllabus-frame";
 import { withRecords } from "../../platform/records";
 
 /**
@@ -44,7 +44,6 @@ function PlanningPanel({
       className="listCard coursePanel"
       withBorder
       shadow="xs"
-      radius="md"
       style={color ? ({ "--course": color } as React.CSSProperties) : undefined}
     >
       <header>

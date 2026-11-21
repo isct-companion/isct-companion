@@ -15,7 +15,7 @@ private struct SourceTiles<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        HStack(spacing: 8) { content }
+        HStack(spacing: Theme.space4) { content }
             .buttonStyle(SourceTile())
             .fixedSize(horizontal: false, vertical: true)
     }
@@ -28,9 +28,9 @@ private struct SourceTile: ButtonStyle {
         configuration.label
             .labelStyle(TileLabel())
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.vertical, 10)
+            .padding(.vertical, Theme.space5)
             .foregroundStyle(enabled ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: Theme.radiusControl, style: .continuous))
             .contentShape(Rectangle())
             .opacity(configuration.isPressed ? 0.6 : 1)
     }
@@ -45,11 +45,11 @@ private struct TileLabel: LabelStyle {
         @ScaledMetric(relativeTo: .title3) private var icon: CGFloat = 26
 
         var body: some View {
-            VStack(spacing: 4) {
+            VStack(spacing: Theme.space2) {
                 configuration.icon.font(.title3).frame(height: icon)
                 configuration.title.font(.caption).lineLimit(1).minimumScaleFactor(0.7)
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, Theme.space2)
         }
     }
 }
@@ -66,8 +66,8 @@ private struct OtpBranchRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: Theme.space6) {
+                VStack(alignment: .leading, spacing: Theme.space1) {
                     Text(title).foregroundStyle(Theme.ink)
                     Text(hint).font(.footnote).foregroundStyle(Theme.muted)
                 }
@@ -523,7 +523,7 @@ struct MatrixImportSection: View {
     }
 
     private var legend: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Theme.space6) {
             swatch(Theme.okSoft, t("settings.credentialImport.certain"))
             swatch(Theme.warnSoft, t("settings.credentialImport.check"))
             swatch(Theme.dangerSoft, t("settings.credentialImport.unreadable"))
@@ -533,7 +533,7 @@ struct MatrixImportSection: View {
     }
 
     private func swatch(_ color: Color, _ text: String) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Theme.space2) {
             RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 12, height: 12)
             Text(text)
         }
@@ -647,7 +647,7 @@ private struct MatrixGrid: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, Theme.space2)
     }
 
     private func cell(_ index: Int) -> some View {
@@ -678,34 +678,6 @@ private struct MatrixGrid: View {
         case .medium: return Theme.warnSoft
         case .low: return Theme.dangerSoft
         }
-    }
-}
-
-/// The system camera: one still, or nil when cancelled.
-private struct SystemCamera: UIViewControllerRepresentable {
-    let done: (UIImage?) -> Void
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(done: done) }
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let done: (UIImage?) -> Void
-        init(done: @escaping (UIImage?) -> Void) { self.done = done }
-
-        func imagePickerController(_ picker: UIImagePickerController,
-                                   didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            done(info[.originalImage] as? UIImage)
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { done(nil) }
     }
 }
 

@@ -26,10 +26,10 @@ import {
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import type {
-  CloudSyncState,
   SchoolCredentialStatus,
   SchoolProfileSession,
-} from "@app/platform/desktop-bridge";
+} from "@app/generated/persistence";
+import type { CloudSyncState } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
 import { schoolSessions } from "@app/platform/school-session";
@@ -48,7 +48,7 @@ import { schoolSessions } from "@app/platform/school-session";
  * - ZXing camera/canvas decoding is replaced by controlled results; account
  *   selection, draft replacement and explicit credential saves remain real.
  *
- * `mountApp` must stay the first thing that imports the shell: `app/native.ts`
+ * `mountApp` must stay the first thing that imports the shell: `platform/native.ts`
  * captures its bridge at first import.
  */
 
@@ -123,14 +123,6 @@ function emitNative(core: FakeCore, event: string, payload: unknown): void {
   core.emit(event, payload);
 }
 
-/** The host starts every suite with the reminder bootstrap reporting success. */
-function withDefaults(handler?: Handler): Handler {
-  return (command, args, core) => {
-    if (command === "bootstrap_reminders") return true;
-    return handler?.(command, args, core);
-  };
-}
-
 function mountSettings(
   route: string,
   options: {
@@ -156,7 +148,7 @@ function mountSettings(
         academicYears: { currentYear: YEAR },
         ...options.queries,
       },
-      handle: withDefaults(options.handle),
+      handle: options.handle,
       apply: options.apply,
     },
     { route },
@@ -263,7 +255,15 @@ describe("School accounts", () => {
               },
               { label: "School account", issuer: "School", setup },
             ];
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });
@@ -395,9 +395,32 @@ describe("School accounts", () => {
         tokyoTech: notConfigured(),
       };
       const answers = [
-        { kind: "refused", reason: "invalid-otp", refusalUnsaved: false },
-        { kind: "not-saved" },
-        { kind: "connected" },
+        {
+          kind: "refused",
+          reason: "invalid-otp",
+          refusalUnsaved: false,
+          presentation: {
+            stateKey: "schoolSession.state.refused",
+            reasonKey: "failure.theOneTimePasswordWas",
+            recovery: [],
+          },
+        },
+        {
+          kind: "not-saved",
+          presentation: {
+            stateKey: "schoolSession.connect.saveFailed",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
+        {
+          kind: "connected",
+          presentation: {
+            stateKey: "schoolSession.connect.connected",
+            reasonKey: null,
+            recovery: [],
+          },
+        },
       ];
       const mounted = await mountAccounts({
         handle: (command) => {
@@ -513,6 +536,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(2, {
             state: "refused",
+            presentation: {
+              stateKey: "schoolSession.state.refused",
+              reasonKey: "failure.theIDOrPasswordWas",
+              recovery: ["retry"],
+            },
             problem: { kind: "invalid-credentials", message: "HTTP 401" },
           }),
         ),
@@ -550,6 +578,11 @@ describe("School accounts", () => {
           "school-session",
           snapshot(5, {
             state: "needs-web",
+            presentation: {
+              stateKey: "schoolSession.state.otpNotSetUp",
+              reasonKey: "schoolSession.problem.emailOtp",
+              recovery: ["set-up-otp-on-portal"],
+            },
             problem: { kind: "email-otp", message: "email" },
           }),
         ),
@@ -903,7 +936,15 @@ describe("Matrix scan and paste", () => {
               stable: false,
               level: index === 0 ? "high" : index === 1 ? "medium" : "low",
             }));
-          if (command === "connect_school") return { kind: "connected" };
+          if (command === "connect_school")
+            return {
+              kind: "connected",
+              presentation: {
+                stateKey: "schoolSession.connect.connected",
+                reasonKey: null,
+                recovery: [],
+              },
+            };
           return undefined;
         },
       });
@@ -1895,7 +1936,7 @@ describe("Study profile", () => {
       );
       await act(async () =>
         emitNative(mounted.core, "workspace-changed", {
-          seq: 1,
+          seq: mounted.core.commit().seq,
           source: "cloud-sync",
           changes: ["settings"],
         }),
@@ -2537,6 +2578,106 @@ describe("Campus VPN", () => {
       } finally {
         delete window.__ISCT_COMPANION_NATIVE_OS__;
       }
+    },
+    TIMEOUT,
+  );
+
+  // A macOS daemon registered from a copy of the app that is gone is
+  // enabled yet never runs. The card names that and offers Repair; a repair
+  // that does not bring the helper up says what to try next instead of
+  // showing the same button as if nothing happened, and no login is spent.
+  it(
+    "repairs a helper macOS does not start, and says what to try when it does not take",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const notStarting = {
+        ...status,
+        state: "error",
+        error: "helper_not_starting",
+        detail:
+          "the campus VPN helper is registered but the system does not start it",
+      };
+      let repaired = false;
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status") return notStarting;
+          if (command === "plugin:campus-vpn|install")
+            return repaired
+              ? { ...status, state: "disconnected", error: null, detail: null }
+              : notStarting;
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await wait(() =>
+        expect(pane.textContent).toContain(
+          "The VPN component is registered, but macOS can't start it",
+        ),
+      );
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "macOS still didn't start the VPN component.",
+        ),
+      );
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
+      repaired = true;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(buttonIn(pane, "Connect")).toBeTruthy());
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
+
+  // A system record that will not let go of the old registration is past
+  // anything the app can do: the card gives the reset and restart, offers
+  // neither another Repair nor a Connect that would spend a login, and the
+  // install is not retried.
+  it(
+    "gives the reset steps when macOS keeps an old helper registration",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_not_starting",
+              detail: null,
+            };
+          if (command === "plugin:campus-vpn|install")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_registration_stuck",
+              detail: null,
+            };
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(pane.textContent).toContain("sfltool resetbtm"));
+      expect(buttonByText(pane, "Repair")).toBeFalsy();
+      expect(buttonByText(pane, "Connect")).toBeFalsy();
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
     },
     TIMEOUT,
   );

@@ -8,8 +8,6 @@ import {
   click,
   chooseOption,
   emptySchoolRecords,
-  installFakeCore,
-  mount,
   mountApp,
   overviewFor,
   planningWeekFor,
@@ -19,7 +17,6 @@ import {
   until,
   workspaceFixture,
   type FakeCore,
-  type Mounted,
   type MountedApp,
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
@@ -43,19 +40,10 @@ import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
  * through the shipped routes and the harness answers the real query path, so a
  * passing test says something about the app instead of about a mock.
  *
- * Two local helpers stand in where the harness has no equivalent:
- *
- * - `mountCompactToday`: the shipped `Today` is never rendered with `compact`
- *   (the dev-only `?preview=lms` workbench that passed it is gone), so the Today course
- *   list is mounted as the real page over the same scripted host, inside the
- *   same shell tokens.
- * - `taskViewFor`: the harness has no `TaskView` builder, so the scripted Core
- *   derives one from the workspace the same way Core decides those sets.
+ * `taskViewFor` supplies the assignment views needed by these journeys.
  */
 
 let app: MountedApp | undefined;
-let standalone: Mounted | undefined;
-let standaloneCore: FakeCore | undefined;
 
 /**
  * The shell's first import builds the whole App module graph, which takes far
@@ -75,10 +63,6 @@ beforeAll(async () => {
 }, 180_000);
 
 afterEach(async () => {
-  await standalone?.unmount();
-  standalone = undefined;
-  standaloneCore?.restore();
-  standaloneCore = undefined;
   await app?.unmount();
   app = undefined;
 });
@@ -187,18 +171,26 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
           row.id,
           {
             at: row.dueAt ?? "",
-            label: "Due soon",
-            tone: "normal",
-            remainingMilliseconds: 86400000,
-            countdownLabel: "1d",
+            units: [{ unit: "days" as const, count: 1 }],
+            state: overdue.includes(row.id)
+              ? ("overdue" as const)
+              : ("remaining" as const),
             countdownTone: "soon",
-            overdue: overdue.includes(row.id),
+            nextChangeAt: null,
           },
         ]),
     ),
-    submittedIds: pick("closed", "handed-in"),
-    // Core closes submitted work and past-due work that takes no late hand-in.
-    closedIds: pick("closed", "handed-in", "missed", "early"),
+    states: Object.fromEntries(
+      workspace.assignments.map((row) => [
+        row.id,
+        pick("closed", "handed-in").includes(row.id)
+          ? "submitted"
+          : overdue.includes(row.id)
+            ? "closed"
+            : "open",
+      ]),
+    ),
+    handInAvailability: {},
     nearestByCourse: {},
     byTerm: {
       [term]: {
@@ -216,6 +208,8 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
 }
 
 const homeQueries = {
+  calendarRange: () => [],
+  upcomingExams: () => [],
   workspaceOverview: (_query: unknown, core: FakeCore) =>
     overviewFor(core.workspace),
   planningWeek: (_query: unknown, core: FakeCore) =>
@@ -385,113 +379,6 @@ describe("Today's assignment scopes", () => {
 });
 
 /* ------------------------------------------------------------------ *
- * The Today course list.
- * ------------------------------------------------------------------ */
-
-async function mountCompactToday(opened: string[]): Promise<Mounted> {
-  const data = workspaceFixture({
-    courses: [
-      courseRow("a", "Old Algebra", { termId: "2025-4Q", code: "MTH.A201" }),
-      courseRow("b", "Signals", { termId: "2026-3Q", code: "EEE.S301" }),
-      courseRow("c", "Linear Algebra", { termId: "2026-1Q", code: "MTH.A101" }),
-    ],
-  });
-  const core = installFakeCore({
-    workspace: data,
-    queries: {
-      scheduleView: (_query, fake) => scheduleViewFor(fake.workspace),
-      taskView: (_query, fake) => taskViewFor(fake.workspace),
-      lectureSearch: (query, fake) => lectureSearchFor(fake.workspace, query),
-    },
-    handle: nativeNoise,
-  });
-  standaloneCore = core;
-  const { TodayBody: Today } = await import("@app/pages/today/TodayPage");
-  standalone = await mount(
-    <>
-      <Today
-        compact
-        data={data}
-        term={TERM}
-        open={(courseId) => opened.push(courseId)}
-        openEvent={() => undefined}
-        openTask={() => undefined}
-        hideAssignment={() => undefined}
-        openSchedule={() => undefined}
-      />
-    </>,
-  );
-  return standalone;
-}
-
-function finderGroups(): (string | null | undefined)[][] {
-  return [...document.querySelectorAll(".courseFinderList section")].map(
-    (section) => [
-      section.querySelector("small")?.textContent,
-      ...[...section.querySelectorAll("button span")].map(
-        (span) => span.textContent,
-      ),
-    ],
-  );
-}
-
-describe("the Today course list", () => {
-  it("lists this term first and older quarters newest first", async () => {
-    const mounted = await mountCompactToday([]);
-    const input = await required(
-      () =>
-        mounted.host.querySelector<HTMLInputElement>('input[type="search"]'),
-      "the course finder input",
-    );
-    await act(async () => input.focus());
-    await required(
-      () => document.querySelector(".courseFinderList"),
-      "the course list",
-    );
-
-    expect(finderGroups()).toEqual([
-      ["This term · 2026 · 3Q", "Signals"],
-      ["2026 · 1Q", "Linear Algebra"],
-      ["2025 · 4Q", "Old Algebra"],
-    ]);
-  }, 20_000);
-
-  it("filters by title or code and opens the chosen course with Enter", async () => {
-    const opened: string[] = [];
-    const mounted = await mountCompactToday(opened);
-    const input = await required(
-      () =>
-        mounted.host.querySelector<HTMLInputElement>('input[type="search"]'),
-      "the course finder input",
-    );
-    await act(async () => input.focus());
-    await typeInto(input, "algebra");
-
-    await until(() =>
-      expect(finderGroups()).toEqual([
-        ["2026 · 1Q", "Linear Algebra"],
-        ["2025 · 4Q", "Old Algebra"],
-      ]),
-    );
-
-    await act(async () => {
-      input.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
-    expect(opened).toEqual(["c"]);
-    // The list closes behind the choice and the query clears.
-    await until(() => expect(input.value).toBe(""));
-
-    // A course code narrows the list just like part of a title.
-    await typeInto(input, "MTH.A201");
-    await until(() =>
-      expect(finderGroups()).toEqual([["2025 · 4Q", "Old Algebra"]]),
-    );
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
  * The lecture desk.
  * ------------------------------------------------------------------ */
 
@@ -586,12 +473,13 @@ function lectureTasks(workspace: Workspace): TaskView {
       ...view.deadlines,
       a1: {
         at: "2026-10-08T15:00:00Z",
-        label: "Due soon",
-        tone: "normal",
-        remainingMilliseconds: 129600000,
-        countdownLabel: "1d 12h",
+        units: [
+          { unit: "days", count: 1 },
+          { unit: "hours", count: 12 },
+        ],
+        state: "remaining",
         countdownTone: "soon",
-        overdue: false,
+        nextChangeAt: null,
       },
     },
   };
@@ -704,6 +592,9 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
+          upcomingExams: () => [upcoming],
           scheduleView: (query, core) => ({
             ...lectureSchedule(core.workspace),
             allTerms: [TERM, "2026-2Q"],
@@ -715,7 +606,6 @@ describe("the lecture desk", () => {
               (query as { term: string }).term === "2026-2Q"
                 ? [exam, bound, weekClass]
                 : [],
-            upcomingExams: [upcoming],
           }),
           examAssociation: () => ({ conflicts: [exam] }),
           // Core owns search; this script matches the exam titles above.
@@ -904,7 +794,8 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
-          scheduleView: (_query, core) => lectureSchedule(core.workspace),
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
           taskView: (_query, core) => lectureTasks(core.workspace),
         },
         handle: nativeNoise,

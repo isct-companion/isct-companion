@@ -222,7 +222,9 @@ struct RootView: View {
             .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
             .onOpenURL { url in
                 if url.isFileURL {
-                    inbox.receive(url)
+                    Task { await inbox.receiveOpenIn(url) }
+                } else if url.scheme == "isctcompanion", url.host == "inbox" {
+                    inbox.refresh()
                 } else if url.scheme == "isctcompanion", url.host == "widget" {
                     widgetURL = url
                 }
@@ -256,11 +258,8 @@ struct RootView: View {
             }
         }
         .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
-        // What was shared into the app waits in the corner, above the
-        // tab bar or the status bar.
-        .overlay { InboxTray(bottom: stacked ? 64 : 60) }
-        .task(id: scenePhase) {
-            if scenePhase == .active { await inbox.refresh(model) }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            if phase == .active { inbox.refresh() }
         }
         .task(id: widgetURL) {
             guard let url = widgetURL else { return }
@@ -275,15 +274,11 @@ struct RootView: View {
                 NSLog("Widget link: %@", String(describing: error))
             }
         }
-        .sheet(isPresented: Binding(get: { inbox.presenting }, set: { inbox.presenting = $0 })) {
-            InboxSheet()
-        }
-        // A share-sheet pick was handed in: show that assignment.
-        .onChange(of: inbox.handedTo) { _, assignment in
-            guard let assignment else { return }
-            navigator.tab = .today
-            navigator.open(AssignmentRoute(id: assignment))
-            inbox.handedTo = nil
+        .sheet(item: Binding(
+            get: { inbox.transfer },
+            set: { _ in }
+        ), onDismiss: inbox.refresh) { selection in
+            InboxSheet(selection: selection)
         }
         .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
             Button("OK", role: .cancel) {}
@@ -471,6 +466,8 @@ extension View {
             CourseDetailScreen(courseId: route.id).courseZoomDestination(route.zoom)
         }
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
+        .navigationDestination(for: CourseMarkdownRoute.self) { CourseMarkdownScreen(route: $0) }
+        .navigationDestination(for: CourseArchiveRoute.self) { CourseArchiveScreen(route: $0) }
         .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
@@ -488,6 +485,7 @@ extension View {
 /// the person skips this version for good. Turning the checks off is in
 /// Settings › About.
 private struct UpdateOffer: ViewModifier {
+    @Environment(\.openURL) private var openURL
     let model: AppModel
 
     func body(content: Content) -> some View {
@@ -498,10 +496,9 @@ private struct UpdateOffer: ViewModifier {
         ) { release in
             Button(t("common.later"), role: .cancel) {}
             Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
-            if let url = URL(string: release.url) {
+            if let button = OpenReleaseButton(release: release, openURL: openURL) {
                 // The preferred action: bold, and Return picks it.
-                Button(t("appUpdate.openAppStore")) { UIApplication.shared.open(url) }
-                    .keyboardShortcut(.defaultAction)
+                button.keyboardShortcut(.defaultAction)
             }
         }
     }

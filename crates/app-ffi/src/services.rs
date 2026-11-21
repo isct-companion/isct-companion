@@ -123,10 +123,12 @@ impl Session {
                         path,
                         name,
                         mime_type,
+                        viewer,
                     } => SchoolFile::Saved {
                         path: path.to_string_lossy().into_owned(),
                         name,
                         mime_type,
+                        viewer: crate::json::project_input(viewer)?,
                     },
                     app_core::school_files::SchoolFile::External { url } => {
                         SchoolFile::External { url }
@@ -274,14 +276,6 @@ impl Session {
     }
 }
 
-/// A file the shell received (shared into the app, dropped on an assignment),
-/// by its path and the name it is handed in under.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct SharedFile {
-    pub path: String,
-    pub name: String,
-}
-
 /// What became of a file a school page handed over (`save_school_file`).
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum SchoolFile {
@@ -290,6 +284,8 @@ pub enum SchoolFile {
         path: String,
         name: String,
         mime_type: String,
+        /// How the app shows it once saved (Core's `file_preview`).
+        viewer: Viewer,
     },
     /// Not on a school host: Core fetches only school files, so the shell
     /// opens it in the system browser.
@@ -329,53 +325,6 @@ pub struct AppRelease {
     pub url: String,
 }
 
-/// An assignment whose `submit/` holds files not yet handed in.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct WaitingHandIn {
-    pub assignment_id: String,
-    pub files: u32,
-}
-
-/// What the LMS page says while Core fills its draft area, in the app's language.
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct UploadMessages {
-    pub waiting: String,
-    pub queued: String,
-    pub failed: String,
-}
-
-fn workspace_error(e: app_core::workspaces::WorkspaceError) -> SdkError {
-    crate::error::coded(&e)
-}
-
-fn submission_error(e: app_core::school_browser::SubmissionError) -> SdkError {
-    crate::error::coded(&e)
-}
-
-/// Core's reading of one assignment, which names its course folder and page.
-fn assignment_detail(
-    inner: &crate::session::Inner,
-    id: &str,
-) -> Result<app_core::schedule::AssignmentDetail, SdkError> {
-    let snapshot =
-        inner
-            .core
-            .schedule_query(vec![app_core::schedule::WorkspaceQuery::AssignmentDetail {
-                assignment_id: id.into(),
-            }])?;
-    match snapshot.values.into_iter().next() {
-        Some(app_core::schedule::WorkspaceQueryResult::AssignmentDetail(Some(detail))) => {
-            Ok(detail)
-        }
-        _ => Err(SdkError::InvalidInput {
-            detail: "The assignment was not found.".into(),
-        }),
-    }
-}
-
-/// The phones' hand-in: files shared into the app go to the assignment's
-/// workspace `submit/` (the desktop's folder layout), and handing in fills the
-/// LMS draft area from it. Core never submits; the person saves the page.
 #[uniffi::export]
 impl Session {
     /// The update check of a phone or tablet: a newer release, when a check
@@ -419,120 +368,6 @@ impl Session {
                 }),
                 prompt,
             })
-        })
-    }
-    /// Assignments with files waiting to be handed in, for 今日's rows.
-    pub fn waiting_hand_ins(&self) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let assignments = i
-                .core
-                .assignment_workspaces
-                .waiting()
-                .map_err(workspace_error)?
-                .into_iter()
-                .map(|(assignment_id, files)| WaitingHandIn {
-                    assignment_id,
-                    files: u32::try_from(files).unwrap_or(u32::MAX),
-                })
-                .collect();
-            Ok(OperationResult::Waiting { assignments })
-        })
-    }
-    /// The files waiting in the assignment's `submit/`.
-    pub fn assignment_submit_files(
-        &self,
-        assignment_id: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let files = i
-                .core
-                .assignment_workspaces
-                .submit_files(&assignment_id)
-                .map_err(workspace_error)?;
-            Ok(OperationResult::Files {
-                files: project(files)?,
-            })
-        })
-    }
-    /// Copies the files into the assignment's `submit/`, creating its
-    /// workspace on first use; the sources stay where they are.
-    pub fn add_assignment_files(
-        &self,
-        assignment_id: String,
-        files: Vec<SharedFile>,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let files = files
-                .into_iter()
-                .map(|file| (std::path::PathBuf::from(file.path), file.name))
-                .collect();
-            Ok(OperationResult::Files {
-                files: project(
-                    i.core
-                        .assignment_workspaces
-                        .add_submit_files(&assignment_id, files)
-                        .map_err(|e| crate::error::coded(&e))?,
-                )?,
-            })
-        })
-    }
-    pub fn remove_assignment_file(
-        &self,
-        assignment_id: String,
-        name: String,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            Ok(OperationResult::Files {
-                files: project(
-                    i.core
-                        .assignment_workspaces
-                        .remove_submit_file(&assignment_id, &name)
-                        .map_err(workspace_error)?,
-                )?,
-            })
-        })
-    }
-    /// Queues `submit/` for the assignment's LMS draft area and returns the
-    /// page to show; Core fills the draft area when that page loads.
-    pub fn hand_in_assignment(
-        &self,
-        assignment_id: String,
-        messages: UploadMessages,
-    ) -> Result<Arc<Operation>, SdkError> {
-        self.blocking(move |i| {
-            let detail = assignment_detail(&i, &assignment_id)?;
-            let page = detail
-                .source_url
-                .clone()
-                .ok_or_else(|| SdkError::Unavailable {
-                    detail: "This assignment has no LMS page.".into(),
-                })?;
-            let workspaces = i.core.assignment_workspaces.at().map_err(workspace_error)?;
-            let workspace = i
-                .core
-                .assignment_workspaces
-                .find(&assignment_id)
-                .map_err(workspace_error)?
-                .ok_or_else(|| SdkError::InvalidInput {
-                    detail: "There are no files to hand in.".into(),
-                })?;
-            let prepared = workspaces
-                .prepare_upload(&workspace.path, &assignment_id)
-                .map_err(|e| crate::error::coded(&e))?;
-            let url = i
-                .core
-                .school_browser()?
-                .prepare_submission(
-                    &page,
-                    prepared.files,
-                    app_core::school_browser::SubmissionMessages {
-                        waiting: messages.waiting,
-                        queued: messages.queued,
-                        failed: messages.failed,
-                    },
-                )
-                .map_err(submission_error)?;
-            Ok(OperationResult::Text { value: url })
         })
     }
 }
@@ -610,5 +445,86 @@ impl Session {
     /// nothing afterwards.
     pub fn campus_map_close(&self) {
         self.inner.core.campus_map.close();
+    }
+}
+
+fn credential_backup_error(e: app_core::cloud_credentials::CredentialBackupError) -> SdkError {
+    crate::error::coded(&e)
+}
+
+/// How many characters a new school-login backup password must have.
+#[derive(Clone, Copy, Debug, uniffi::Record)]
+pub struct CredentialPasswordLength {
+    pub min: u32,
+    pub max: u32,
+}
+
+#[uniffi::export]
+pub fn credential_password_length() -> CredentialPasswordLength {
+    let length = app_core::cloud_credentials::PASSWORD_LENGTH;
+    CredentialPasswordLength {
+        min: u32::try_from(length.min).unwrap_or(u32::MAX),
+        max: u32::try_from(length.max).unwrap_or(u32::MAX),
+    }
+}
+
+/// School logins in an encrypted Google Drive file, as on the desktop. Core
+/// decides whether a password restores an existing backup or encrypts this
+/// device's logins under a new one, and keeps it only when that succeeded.
+#[uniffi::export]
+impl Session {
+    /// Whether this device holds the backup password.
+    pub fn credential_backup_configured(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            Ok(OperationResult::Flag {
+                value: backup.configured().map_err(credential_backup_error)?,
+            })
+        })
+    }
+    /// Whether Drive holds a backup that some device made.
+    pub fn credential_backup_exists(&self) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, |i, _| async move {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            Ok(OperationResult::Flag {
+                value: backup.exists().await.map_err(credential_backup_error)?,
+            })
+        })
+    }
+    /// Restores the Drive backup with `password` on a device without one;
+    /// otherwise encrypts this device's logins under `password`, a new one.
+    /// Answers `restored` or `uploaded`. Restored logins reach sync through
+    /// the sessions' own credential signal.
+    pub fn enable_credential_backup(&self, password: String) -> Result<Arc<Operation>, SdkError> {
+        self.start(false, move |i, _| async move {
+            let files = i.credential_files()?;
+            let backup =
+                app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files);
+            let outcome = backup
+                .enable(&password, i.core.sessions())
+                .await
+                .map_err(credential_backup_error)?;
+            Ok(OperationResult::Text {
+                value: match outcome {
+                    app_core::cloud_credentials::BackupOutcome::Restored => "restored",
+                    app_core::cloud_credentials::BackupOutcome::Uploaded => "uploaded",
+                }
+                .into(),
+            })
+        })
+    }
+    /// Forgets this device's password; the Drive file stays for other devices.
+    pub fn disable_credential_backup(&self) -> Result<Arc<Operation>, SdkError> {
+        self.blocking(|i| {
+            let files = i.credential_files()?;
+            app_core::cloud_credentials::CredentialBackup::new(&i.credential_vault, &files)
+                .disable()
+                .map_err(credential_backup_error)?;
+            Ok(OperationResult::Done)
+        })
     }
 }

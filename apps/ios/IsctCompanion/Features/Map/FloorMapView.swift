@@ -8,8 +8,8 @@ import SwiftUI
 /// stays reserved when a floor picker is not shown.
 struct CampusMapChrome: Equatable {
     static let controlSide: CGFloat = 44
-    static let controlGap: CGFloat = 8
-    static let pageInset: CGFloat = 12
+    static let controlGap: CGFloat = Theme.space4
+    static let pageInset: CGFloat = Theme.space6
     /// The compass, at the top of the rail.
     static let railHeaderHeight = controlSide + controlGap
 

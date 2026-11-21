@@ -124,10 +124,10 @@ async fn connect_and_read(
         .connect(profile, credentials.clone())
         .await
         .unwrap();
-    assert_eq!(
+    assert!(matches!(
         outcome,
-        crate::school_session::SchoolConnectOutcome::Connected
-    );
+        crate::school_session::SchoolConnectOutcome::Connected { .. }
+    ));
     assert_eq!(
         auth.load(profile).unwrap(),
         Some(credentials),

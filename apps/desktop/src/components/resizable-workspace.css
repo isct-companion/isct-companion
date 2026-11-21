@@ -17,26 +17,52 @@
   min-width: 0;
   min-height: 0;
 }
+/* Columns meet at a hairline (the shell's flat-plane rule); a wider,
+   invisible strip around it takes the drag. */
 .workspaceSeparator {
   position: relative;
-  width: var(--workspace-splitter-width);
+  z-index: 1;
+  width: 1px;
+  background: var(--line);
   touch-action: none;
   cursor: col-resize;
   outline: none;
+  transition: background var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .workspaceSeparator::after {
   content: "";
   position: absolute;
-  inset: 4px 9px;
-  border-radius: 2px;
-  background: var(--line);
-  transition: background var(--motion-duration-fast) var(--motion-easing-standard);
+  inset: 0 -4px;
 }
 .workspaceSeparator:focus-visible { outline: none; }
-.workspaceSeparator:hover::after,
-.workspaceSeparator:focus-visible::after,
-.workspaceSeparator[data-separator="active"]::after {
+.workspaceSeparator:hover,
+.workspaceSeparator:focus-visible,
+.workspaceSeparator[data-separator="active"] {
   background: var(--accent);
+}
+/* The collapsible first panel's button (WorkspaceSidebarToggle). */
+.workspaceSidebarToggle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--muted);
+  cursor: default;
+}
+.workspaceSidebarToggle:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+/* A folded first panel leaves no separator behind; the page that holds the
+   workspace marks the state. */
+[data-sidebar-collapsed="true"] > .splitWorkspace > .workspaceSeparator {
+  width: 0;
+  visibility: hidden;
 }
 /* With resizing off, the page's own layout owns presentation. Keeping these
    wrappers avoids remounting a note or native webview on resize. */
@@ -57,7 +83,7 @@
   gap: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-  .workspaceSeparator::after {
+  .workspaceSeparator {
     transition: none;
   }
 }

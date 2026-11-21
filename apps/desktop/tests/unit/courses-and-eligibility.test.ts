@@ -169,63 +169,11 @@ describe("the course file limits the settings page edits", () => {
 });
 
 describe("the state label shown beside an assignment", () => {
-  it("shows the grade as the LMS displays it next to the graded label", () => {
-    expect(
-      submissionLabel(
-        assignment({ submission: "graded", grade: "A" }),
-        label,
-        false,
-      ),
-    ).toBe("graded A");
-    expect(
-      submissionLabel(
-        assignment({ submission: "graded", grade: "秀" }),
-        label,
-        true,
-      ),
-    ).toBe("graded 秀");
-  });
-
-  it("shows only the graded label when the record carries no grade", () => {
-    expect(
-      submissionLabel(assignment({ submission: "graded" }), label, false),
-    ).toBe("graded");
-    expect(
-      submissionLabel(
-        assignment({ submission: "graded", grade: "" }),
-        label,
-        false,
-      ),
-    ).toBe("graded");
-  });
-
-  it("keeps a recorded grade hidden until Core reports the assignment graded", () => {
-    expect(
-      submissionLabel(
-        assignment({ submission: "submitted", grade: "A" }),
-        label,
-        true,
-      ),
-    ).toBe("submitted");
-  });
-
-  it("shows the submitted label once the caller marks it submitted", () => {
-    expect(
-      submissionLabel(assignment({ submission: "open" }), label, true),
-    ).toBe("submitted");
-  });
-
-  it("shows the state Core recorded while the caller has not submitted it", () => {
-    expect(
-      submissionLabel(assignment({ submission: "open" }), label, false),
-    ).toBe("open");
-    expect(
-      submissionLabel(assignment({ submission: "submitted" }), label, false),
-    ).toBe("submitted");
-  });
-
-  it("shows the unknown label when Core recorded no state at all", () => {
-    expect(submissionLabel(assignment(), label, false)).toBe("unknown");
+  it("only appends a grade after Core marks the work as graded", () => {
+    const graded = assignment({ grade: "秀" });
+    expect(submissionLabel(graded, label, "graded")).toBe("graded 秀");
+    expect(submissionLabel(graded, label, "submitted")).toBe("submitted");
+    expect(submissionLabel(assignment(), label, "graded")).toBe("graded");
   });
 });
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   Bookmark,
   BookmarkCheck,
@@ -6,13 +6,12 @@ import {
   Flag,
   SquareArrowOutUpRight,
 } from "lucide-react";
-import { desktopBridge } from "../../app/native";
-import { notify } from "../../app/notify";
+import { desktopBridge } from "../../platform/native";
+import { notify } from "../../components/notifications/notify";
 import { notifyDownload } from "../../components/DownloadNotice";
-import { ErrorBanner, Skeleton, Tag } from "../../components/ui";
-import { localFileUrl } from "../../features/lms/files";
-import { ImageView } from "../../features/lms/ImageView";
-import { ReaderPane, ReaderTools } from "../../features/lms/ReaderPane";
+import { ErrorBanner, Tag } from "../../components/ui";
+import { FileView } from "../../components/files/FileView";
+import { ReaderPane, ReaderTools } from "../../components/files/ReaderPane";
 import type {
   ExamAction,
   ExamAnswer,
@@ -21,12 +20,6 @@ import type {
 } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { ReportDialog } from "./ExamDialogs";
-
-const Pdf = lazy(() =>
-  import("../../features/lms/PdfDocument").then((m) => ({
-    default: m.PdfDocument,
-  })),
-);
 
 /** The opened document in the shared LMS reader frame, with its own tools.
  * Every type Core accepts shows here; the system application is one of
@@ -52,7 +45,6 @@ export function ExamReader({
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const { document } = file;
-  const pdf = document.fileType === "application/pdf";
   const openInApp = async () => {
     try {
       if (!desktopBridge?.examOpenFile) throw new Error(t("error.unavailable"));
@@ -158,20 +150,28 @@ export function ExamReader({
   );
   return (
     <ReaderPane title={title} close={close}>
-      {!pdf && <ReaderTools>{toolbar}</ReaderTools>}
-      {pdf ? (
-        <Suspense fallback={<Skeleton count={6} />}>
-          <Pdf
-            src={localFileUrl(file.path)}
-            title={title}
-            fileToolbar={toolbar}
-          />
-        </Suspense>
-      ) : document.fileType === "text/plain" ? (
-        <PlainTextPreview key={file.path} path={file.path} />
-      ) : (
-        <ImageView src={localFileUrl(file.path)} title={title} />
-      )}
+      <div className="lmsDocument lmsFileDocument">
+        <FileView
+          key={file.path}
+          viewer={file.viewer}
+          path={file.path}
+          name={document.fileName}
+          title={title}
+          toolbar={toolbar}
+          fallback={
+            <>
+              <ReaderTools>{toolbar}</ReaderTools>
+              <ErrorBanner>
+                {t(
+                  file.viewer === "tooLarge"
+                    ? "lms.thisTextFileExceedsThe"
+                    : "lms.thisFileTypeCantBe",
+                )}
+              </ErrorBanner>
+            </>
+          }
+        />
+      </div>
       {choices && (
         <ReportDialog
           opened={reporting}
@@ -188,28 +188,5 @@ export function ExamReader({
         />
       )}
     </ReaderPane>
-  );
-}
-
-function PlainTextPreview({ path }: { path: string }) {
-  const [text, setText] = useState<string>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetch(localFileUrl(path), { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error();
-        return response.text();
-      })
-      .then(setText, () => {
-        if (!controller.signal.aborted) setFailed(true);
-      });
-    return () => controller.abort();
-  }, [path]);
-  if (failed) return <ErrorBanner>{t("error.storage")}</ErrorBanner>;
-  return text === undefined ? (
-    <Skeleton count={6} />
-  ) : (
-    <pre className="examDocumentText">{text}</pre>
   );
 }

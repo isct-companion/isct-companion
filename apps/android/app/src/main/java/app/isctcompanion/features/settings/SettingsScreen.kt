@@ -1,9 +1,7 @@
 package app.isctcompanion.features.settings
 
+import app.isctcompanion.design.BackButton
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.automirrored.rounded.MenuBook
-import androidx.compose.material.icons.rounded.Translate
-import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -35,13 +33,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import app.isct.design.IsctThemes
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.Role
-import androidx.compose.material.icons.rounded.Palette
-import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -54,64 +45,36 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ChevronRight
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.autofill.ContentType
-import androidx.compose.ui.semantics.contentType
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.AppModel
-import app.isctcompanion.core.CredentialAvailability
-import app.isctcompanion.core.CredentialSummary
 import app.isctcompanion.core.SchoolAuthProfile
-import app.isctcompanion.core.SchoolConnectOutcome
-import app.isctcompanion.core.SchoolCredentials
 import app.isctcompanion.core.SchoolBrowserHost
-import app.isctcompanion.core.SchoolProfileSession
-import app.isctcompanion.core.SchoolSessionState
-import app.isctcompanion.core.SchoolSignInProblemKind
-import app.isctcompanion.core.SchoolSite
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
@@ -239,7 +202,7 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
     TopAppBar(
         title = { Text(title) },
         navigationIcon = {
-            back?.let { IconButton(onClick = it) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, t("common.back")) } }
+            if (back != null) BackButton(back)
         },
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
     )
@@ -248,8 +211,8 @@ private fun Bar(title: String, back: (() -> Unit)? = null) {
 @Composable
 internal fun Page(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = Theme.gutter).padding(bottom = Theme.space11),
+        verticalArrangement = Arrangement.spacedBy(Theme.space4),
         content = content,
     )
 }
@@ -273,7 +236,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 model.syncSource("kyomu")?.lastUpdated,
             ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech)) }
         }
-        Card(Modifier.padding(top = 16.dp)) {
+        Card(Modifier.padding(top = Theme.space8)) {
             NavRow(
                 t("common.notifications"), ReminderLeads.summary(model.records.settings.optJSONObject("notifications")),
                 Icons.Rounded.Notifications, Theme.colors.danger,
@@ -285,21 +248,21 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 open(SettingsPage.DataUpdates)
             }
             RowDivider(inset = ICON_ROW_INSET)
-            NavRow(t("settings.main.backup"), backupSummary(model.cloud), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
+            NavRow(t("settings.main.backup"), backupSummary(model.backup.state), Icons.Rounded.Cloud) { open(SettingsPage.Backup) }
         }
         ThemeCard()
         LanguageCard()
-        MapCard()
+        // No maps-app choice: Android has no Apple Maps, and Core opens Google Maps.
         WebCard()
         // As on iOS: About holds the version, the tips and the logs, then the
         // desktop note; the destructive Reset group comes last.
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Theme.space4))
         SectionLabel(t("settings.main.about"))
         Card {
             Row(
-                Modifier.fillMaxWidth().padding(16.dp),
+                Modifier.fillMaxWidth().padding(horizontal = Theme.rowX, vertical = Theme.rowY),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
             ) {
                 SettingsIcon(Icons.Rounded.Info, Theme.colors.muted)
                 Text("IsctCompanion", color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -322,13 +285,10 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
     }
 }
 
-private fun accountName(profile: SchoolAuthProfile) =
-    if (profile == SchoolAuthProfile.SCIENCE) "Science Tokyo" else t("settings.main.tokyoTechFormer")
-
 /** The desktop's Reset group: each row opens its confirmation page. */
 @Composable
 private fun ResetCard(open: (SettingsPage) -> Unit) {
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(Theme.space4))
     SectionLabel(t("settings.reset.group"))
     Card {
         ResetRow(t("settings.reset.caches.title"), t("settings.reset.caches.hint"), Theme.colors.ink, Icons.Rounded.Restore, Theme.colors.warn) {
@@ -345,8 +305,8 @@ private fun ResetCard(open: (SettingsPage) -> Unit) {
 private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVector, tint: Color, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         SettingsIcon(icon, tint)
         Column(Modifier.weight(1f)) {
@@ -440,8 +400,8 @@ private fun UpdateRows() {
 private fun ActionRow(title: String, icon: ImageVector? = null, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = onClick).padding(horizontal = Theme.rowX, vertical = Theme.rowY),
     ) {
         icon?.let { SettingsIcon(it, Theme.colors.muted) }
         Text(
@@ -457,8 +417,8 @@ private fun ActionRow(title: String, icon: ImageVector? = null, enabled: Boolean
 
 /** A heading inside a card, with its settings icon. */
 @Composable
-private fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+internal fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space6)) {
         SettingsIcon(icon, tint)
         Text(title, color = Theme.colors.ink)
     }
@@ -466,7 +426,7 @@ private fun IconHeading(title: String, icon: ImageVector, tint: Color, modifier:
 
 @Composable
 internal fun Footer(text: String, color: Color = Theme.colors.muted) {
-    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = 16.dp))
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color, modifier = Modifier.padding(horizontal = Theme.space8))
 }
 
 /** Off, or when the cloud copy last synced; every connected provider counts,
@@ -482,11 +442,11 @@ private fun backupSummary(cloud: SyncState?): String {
 @Composable
 private fun WebCard() {
     val web = LocalModel.current.web
-    Spacer(Modifier.height(8.dp))
+    Spacer(Modifier.height(Theme.space4))
     SectionLabel(t("common.web"))
     Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("common.textSize"), Icons.Rounded.FormatSize, Theme.colors.muted)
+        Column(Modifier.padding(Theme.space8), verticalArrangement = Arrangement.spacedBy(Theme.space5)) {
+            IconHeading(t("web.pageZoom"), Icons.Rounded.FormatSize, Theme.colors.muted)
             Choices(SchoolBrowserHost.textScales.map { "$it" to "$it%" }, "${web.browser.textScale}") {
                 web.browser.chooseTextScale(it.toInt())
             }
@@ -496,8 +456,8 @@ private fun WebCard() {
         Box {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(Theme.rowGap),
+                modifier = Modifier.fillMaxWidth().clickable { picking = true }.padding(horizontal = Theme.rowX, vertical = Theme.rowY),
             ) {
                 SettingsIcon(Icons.Rounded.Language, Theme.colors.accent)
                 Text(t("settings.main.firstSite"), color = Theme.colors.ink, modifier = Modifier.weight(1f))
@@ -515,379 +475,6 @@ private fun WebCard() {
                     )
                 }
             }
-        }
-    }
-}
-
-/** The colour of an account's state: green while connected, red when the
- * school turned the details down, amber while it waits on the school page or
- * the network. */
-@Composable
-private fun stateColor(state: SchoolSessionState): Color = when (state) {
-    SchoolSessionState.NORMAL -> Theme.colors.ok
-    SchoolSessionState.REFUSED -> Theme.colors.danger
-    SchoolSessionState.NEEDS_WEB, SchoolSessionState.UNAVAILABLE -> Theme.colors.warn
-    SchoolSessionState.NOT_CONFIGURED, SchoolSessionState.SIGNING_IN -> Theme.colors.muted
-}
-
-@Composable
-private fun AccountRow(
-    profile: SchoolAuthProfile,
-    name: String,
-    credential: CredentialSummary?,
-    session: SchoolProfileSession?,
-    lastRun: String?,
-    onClick: () -> Unit,
-) {
-    val connected = credential?.availability == CredentialAvailability.AVAILABLE ||
-        credential?.availability == CredentialAvailability.SAVED_LOCKED
-    val (label, color) = when {
-        session?.signOutPending == true -> t("error.sign-out-incomplete") to Theme.colors.danger
-        !connected -> t("common.notConnected") to Theme.colors.muted
-        session == null -> t("settings.main.checking") to Theme.colors.muted
-        session.state == SchoolSessionState.NORMAL -> (
-            lastRun?.let { t("settings.main.connectedUpdatedTime", "time" to Format.due(it)) } ?: AppModel.sessionText(session.state)
-            ) to Theme.colors.ok
-        else -> AppModel.sessionText(session.state, session.problem, session.retryAt) to stateColor(session.state)
-    }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(16.dp),
-    ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(if (connected) color else Theme.colors.line))
-        Column(Modifier.weight(1f)) {
-            Text(name, color = Theme.colors.ink)
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-            session?.maintenance?.takeIf { connected }?.let {
-                Text(AppModel.maintenanceText(profile, it), style = MaterialTheme.typography.bodySmall, color = Theme.colors.warn)
-            }
-        }
-        Icon(Icons.Rounded.ChevronRight, null, tint = Theme.colors.muted)
-    }
-}
-
-/** Where the account's session stands when it needs a word: why the school
- * turned the details down, why it wants its own page, or when Core tries
- * again, each with Retry; and the site's maintenance. */
-@Composable
-private fun SessionStatus(
-    profile: SchoolAuthProfile,
-    session: SchoolProfileSession,
-    retrying: Boolean,
-    enabled: Boolean,
-    openPortal: () -> Unit,
-    retry: () -> Unit,
-) {
-    val state = session.state
-    val retryable = state == SchoolSessionState.REFUSED || state == SchoolSessionState.NEEDS_WEB ||
-        state == SchoolSessionState.UNAVAILABLE
-    val maintenance = session.maintenance
-    if (!retryable && maintenance == null) return
-    Card {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (AppModel.otpNotSetUp(state, session.problem)) {
-                // No school OTP: Retry would only get the emailed code again,
-                // so the way on is setting it up on the portal.
-                Text(AppModel.sessionText(state, session.problem), color = stateColor(state))
-                Text(t("schoolSession.problem.emailOtp"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-                OutlinedButton(onClick = openPortal, modifier = Modifier.fillMaxWidth()) {
-                    Text(t("schoolSession.openPortal"))
-                }
-            } else if (retryable) {
-                // The kind says what the school page asks for; signing in there
-                // is the person's own and serves only that page.
-                val headline = if (state == SchoolSessionState.NEEDS_WEB) session.problem?.let { AppModel.reason(it.kind) } else null
-                Text(headline ?: AppModel.sessionText(state, session.problem, session.retryAt), color = stateColor(state))
-                if (state == SchoolSessionState.NEEDS_WEB) {
-                    Text(t("schoolSession.needsWeb.signInYourself"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-                }
-                OutlinedButton(onClick = retry, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-                    if (retrying) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("common.retry"))
-                }
-                if (state == SchoolSessionState.REFUSED) {
-                    Text(t("schoolSession.retry.otherDevice"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
-                }
-            }
-            maintenance?.let {
-                Text(AppModel.maintenanceText(profile, it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.warn)
-            }
-        }
-    }
-}
-
-/** Sign in, change or forget a school account. The password goes straight to
- * Core, which signs in with it and stores it in the Keystore vault only when
- * the school accepted it. */
-@Composable
-private fun AccountPage(profile: SchoolAuthProfile, done: () -> Unit) {
-    val model = LocalModel.current
-    val navigator = LocalNavigator.current
-    val scope = rememberCoroutineScope()
-    val summary = if (profile == SchoolAuthProfile.SCIENCE) model.credentials?.science else model.credentials?.tokyoTech
-    var username by remember { mutableStateOf(summary?.username.orEmpty()) }
-    var password by remember { mutableStateOf("") }
-    var otpSecret by remember { mutableStateOf("") }
-    var matrix by remember { mutableStateOf("") }
-    var saving by remember { mutableStateOf(false) }
-    var retrying by remember { mutableStateOf(false) }
-    var removing by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var outcome by remember { mutableStateOf<SchoolConnectOutcome?>(null) }
-    // Bumped when a Connect saved the entries, which clears the OTP and
-    // Matrix sections' own state along with the fields.
-    var entries by remember { mutableIntStateOf(0) }
-    val busy = saving || retrying || removing
-    val saved = summary?.saved == true
-    val session = if (profile == SchoolAuthProfile.SCIENCE) model.sessions?.science else model.sessions?.tokyoTech
-    // The portal's start page as it is, where the person signs in and sets up
-    // school OTP by hand.
-    val openPortal: () -> Unit = {
-        model.web.openUnsigned(SchoolSite.SCIENCE_PORTAL)
-        navigator.openTab("tab/web")
-    }
-    Page {
-        if (session?.signOutPending == true) {
-            Footer(t("error.sign-out-incomplete"), Theme.colors.danger)
-        } else if (saved && session != null) {
-            SessionStatus(profile, session, retrying, enabled = !busy, openPortal = openPortal) {
-                scope.launch {
-                    retrying = true
-                    error = null
-                    try {
-                        model.retrySchool(profile)
-                    } catch (failure: Exception) {
-                        error = AppModel.describe(failure)
-                    }
-                    retrying = false
-                }
-            }
-        }
-        OutlinedTextField(
-            username, { username = it }, label = { Text(t("settings.schoolAccounts.id")) }, singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false, keyboardType = KeyboardType.Ascii,
-            ),
-            // Compose fields join system Autofill only when they say what they hold.
-            modifier = Modifier.fillMaxWidth().semantics { contentType = ContentType.Username },
-        )
-        Secret(password, { password = it }, if (saved) t("settings.main.passwordEnterOnlyToChange") else t("settings.main.password"), login = true)
-        Footer(t("settings.main.thePasswordIsEncryptedIn"))
-        key(entries) {
-            if (profile == SchoolAuthProfile.SCIENCE) {
-                SectionLabel(t("settings.main.oneTimePassword"))
-                OtpImportField(
-                    saved = summary?.hasOtp == true,
-                    verifiedAccount = summary?.saved == true,
-                    canShowCode = session?.signOutPending != true,
-                    setup = otpSecret,
-                    openSetup = {
-                        model.web.openOtpSetup(username)
-                        navigator.openTab("tab/web")
-                    },
-                ) { otpSecret = it }
-            } else {
-                SectionLabel(t("settings.main.matrixCard"))
-                MatrixImportSection(summary?.hasMatrix == true) { matrix = it }
-            }
-        }
-        outcome?.let { ConnectOutcome(it) }
-        error?.let { Footer(it, Theme.colors.danger) }
-        Button(
-            onClick = {
-                scope.launch {
-                    saving = true
-                    error = null
-                    outcome = null
-                    try {
-                        outcome = model.connect(profile, SchoolCredentials(username, password, otpSecret, matrix))
-                        // Only Connected saved the entries; after any other
-                        // outcome they stay, so the person can fix them and
-                        // press Connect again.
-                        if (outcome is SchoolConnectOutcome.Connected) {
-                            password = ""
-                            otpSecret = ""
-                            matrix = ""
-                            entries++
-                        }
-                    } catch (failure: Exception) {
-                        error = AppModel.describe(failure)
-                    }
-                    saving = false
-                }
-            },
-            enabled = !busy && session?.signOutPending != true && username.isNotEmpty() && (password.isNotEmpty() || saved),
-            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        ) {
-            if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text(t("settings.main.saveAndConnect"))
-        }
-        if (saved || session?.signOutPending == true) {
-            // Core stops the account's reads and clears the web sign-in
-            // before this returns, which can take a moment.
-            TextButton(
-                onClick = {
-                    scope.launch {
-                        removing = true
-                        error = null
-                        try {
-                            model.deleteCredentials(profile)
-                            done()
-                        } catch (failure: Exception) {
-                            error = AppModel.describe(failure)
-                        }
-                        removing = false
-                    }
-                },
-                enabled = !busy,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                if (removing) {
-                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Theme.colors.danger)
-                } else {
-                    Text(t("settings.main.removeSignInDetailsFrom"), color = Theme.colors.danger)
-                }
-            }
-        }
-    }
-}
-
-/** What a Connect ended with, under the form. */
-@Composable
-private fun ConnectOutcome(outcome: SchoolConnectOutcome) {
-    val notSaved = t("schoolSession.connect.notSaved")
-    val (text, color) = when (outcome) {
-        is SchoolConnectOutcome.Connected -> t("schoolSession.connect.connected") to Theme.colors.ok
-        is SchoolConnectOutcome.Refused -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.danger
-        is SchoolConnectOutcome.NeedsWeb -> "${AppModel.reason(outcome.reason)}\n$notSaved" to Theme.colors.warn
-        is SchoolConnectOutcome.Unreachable -> t("schoolSession.connect.unreachable") to Theme.colors.warn
-        is SchoolConnectOutcome.NotSaved -> t("schoolSession.connect.saveFailed") to Theme.colors.danger
-        is SchoolConnectOutcome.Stopped -> t("schoolSession.connect.stopped") to Theme.colors.muted
-    }
-    Footer(text, color)
-
-}
-
-@Composable
-private fun Secret(
-    value: String,
-    onChange: (String) -> Unit,
-    label: String,
-    capitalization: KeyboardCapitalization = KeyboardCapitalization.None,
-    login: Boolean = false,
-) {
-    // Only the login password is offered to password managers; the TOTP secret
-    // and matrix are pasted keys and stay out of Autofill.
-    OutlinedTextField(
-        value, onChange, label = { Text(label) }, singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(
-            capitalization = capitalization, autoCorrectEnabled = false,
-            keyboardType = if (login) KeyboardType.Password else KeyboardType.Ascii,
-        ),
-        modifier = Modifier.fillMaxWidth().then(
-            if (login) Modifier.semantics { contentType = ContentType.Password } else Modifier,
-        ),
-    )
-}
-
-/** A switch with its title, and an optional line under it saying what it does. */
-@Composable
-internal fun SwitchRow(title: String, checked: Boolean, detail: String? = null, onChange: (Boolean) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted) }
-        }
-        Switch(checked, onChange)
-    }
-}
-
-/** The background theme: five round swatches, each its light background
- * with a surface dot; choosing one saves `settings.theme` at once and syncs
- * (slotledger `approach/neutral-themes`). */
-@Composable
-private fun ThemeCard() {
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    val selected = model.records.settings.optString("theme").ifEmpty { "warm" }
-    val themes = listOf("warm" to t("settings.main.warm"), "cool" to t("settings.main.cool"), "paper" to t("settings.main.paper"), "mist" to t("settings.main.mist"), "moss" to t("settings.main.moss"))
-    Card(Modifier.padding(top = 16.dp)) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        ) {
-            IconHeading(t("settings.main.theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
-            Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for ((id, label) in themes) {
-                    val neutrals = (IsctThemes[id] ?: continue).first
-                    val chosen = id == selected
-                    Box(
-                        Modifier
-                            .size(32.dp)
-                            .border(2.dp, if (chosen) Theme.colors.accent else Color.Transparent, CircleShape)
-                            .padding(2.dp)
-                            .clip(CircleShape)
-                            .background(neutrals.bg)
-                            .border(1.dp, neutrals.line, CircleShape)
-                            .selectable(chosen, role = Role.RadioButton) {
-                                if (!chosen) scope.launch { model.updateSettings { it.put("theme", id) } }
-                            }
-                            .semantics { contentDescription = label },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(neutrals.surface))
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** The desktop's language rows: the UI language and the language of school
- * text. Both are workspace settings, so they follow the person to desktop. */
-@Composable
-private fun LanguageCard() {
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    val settings = model.records.settings
-    fun set(key: String, value: String) = scope.launch { model.updateSettings { it.put(key, value) } }
-    Card(Modifier.padding(top = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("common.language"), Icons.Rounded.Translate, Theme.colors.accent)
-            Choices(
-                listOf("en" to "English", "ja" to "日本語", "zh" to "中文"),
-                settings.optString("locale").ifEmpty { "en" },
-            ) { set("locale", it) }
-            IconHeading(t("settings.main.schoolContentLanguage"), Icons.AutoMirrored.Rounded.MenuBook, Theme.colors.accent, Modifier.padding(top = 6.dp))
-            Choices(
-                listOf("auto" to t("common.automatic"), "en" to "English", "ja" to "日本語"),
-                settings.optString("contentLanguage").ifEmpty { "auto" },
-            ) { set("contentLanguage", it) }
-            Text(
-                t("settings.main.courseNamesRoomsAndSyllabus"),
-                style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
-            )
-        }
-    }
-}
-
-/** Which maps app the campus map's "Open in Maps" links open in. Core builds
- * the link from this device setting, which on Android reads as Google Maps
- * until the person chooses. */
-@Composable
-private fun MapCard() {
-    val model = LocalModel.current
-    val scope = rememberCoroutineScope()
-    Card(Modifier.padding(top = 16.dp)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            IconHeading(t("settings.main.openPlacesIn"), Icons.Rounded.Map, Theme.colors.ok)
-            Choices(
-                listOf("google" to t("settings.main.googleMaps"), "apple" to t("settings.main.appleMaps")),
-                model.records.settings.optString("mapsApp").ifEmpty { "google" },
-            ) { value -> scope.launch { model.updateSettings { it.put("mapsApp", value) } } }
         }
     }
 }

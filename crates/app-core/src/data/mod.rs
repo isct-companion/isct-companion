@@ -876,9 +876,10 @@ impl DataStore {
         let mut writer = self.connections.writer();
         let (value, tables) = commit_on(&mut writer, operation)?;
         self.committed_tables(&tables);
+        let seq = self.commit_seq();
         drop(writer);
         if let Some(source) = source {
-            self.observer.committed(source, None, &tables);
+            self.observer.committed(source, None, seq, &tables);
         }
         Ok(value)
     }
@@ -913,6 +914,25 @@ impl DataStore {
     /// The sequence of the latest commit that changed rows (`CommitSeq`).
     pub fn commit_seq(&self) -> u64 {
         self.commit_seq.get()
+    }
+
+    /// Latest committed write affecting these read dependencies. No database read.
+    pub fn read_version(&self, reads: &[crate::workspace_changes::WorkspaceChange]) -> u64 {
+        let versions = self
+            .table_versions
+            .0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        versions
+            .iter()
+            .filter_map(|(table, seq)| {
+                crate::workspace_changes::table_changes(table)
+                    .iter()
+                    .any(|change| reads.contains(change))
+                    .then_some(*seq)
+            })
+            .max()
+            .unwrap_or(0)
     }
 
     /// A handle that reads `commit_seq` without holding the store.

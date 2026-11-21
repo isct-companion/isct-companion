@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -69,19 +71,20 @@ const SOURCE_ROOTS = [
 ];
 const SOURCE_FILE = /\.(tsx?|rs|swift|kt)$|^resources\/otp-guide\/.*\.json$/;
 
-/** Sources that spell keys: tracked files of the four shells, without tests,
- * generated code and the Rust shell's test modules. */
+/** Working-tree sources that spell keys, including unstaged moves. */
 function sources(): { file: string; text: string }[] {
-  const listed = execFileSync("git", ["ls-files", "--", ...SOURCE_ROOTS], {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-  })
-    .split("\n")
+  const listed = execFileSync(
+    "git",
+    ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...SOURCE_ROOTS],
+    { cwd: repositoryRoot, encoding: "utf8" },
+  )
+    .split("\0")
     .filter(
       (file) =>
         SOURCE_FILE.test(file) &&
-        !file.includes("/generated/") &&
-        !file.includes("/tests/"),
+        !/\/generated\//i.test(file) &&
+        !file.includes("/tests/") &&
+        existsSync(join(repositoryRoot, file)),
     );
   return listed.map((file) => ({
     file,

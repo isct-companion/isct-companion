@@ -77,6 +77,16 @@ pub enum ExamError {
     Quota,
     #[error("The ScienceTokyoExam input is invalid")]
     InvalidInput,
+    #[error("Choose at least one file to upload")]
+    UploadNoFiles,
+    #[error("Enter a family name for every unlisted teacher")]
+    UploadTeacherName,
+    #[error("An unlisted teacher name exceeds the length limit")]
+    UploadTeacherLength,
+    #[error("The exam variant exceeds the length limit")]
+    UploadVariantLength,
+    #[error("The upload note exceeds the length limit")]
+    UploadNoteLength,
     #[error("The selected upload files could not be prepared")]
     UploadFile,
     #[error("Only images can be combined into one upload")]
@@ -93,6 +103,17 @@ pub enum ExamError {
     UploadInUse,
     #[error("The upload is already registered")]
     UploadRegistered,
+}
+
+/// Check the current draft and staged file selection without preparing a PDF
+/// or contacting the upload service. Sending validates them again.
+pub fn upload_readiness(draft: &ExamUploadDraft, files: &[ExamUploadFile]) -> ExamUploadReadiness {
+    use crate::error_code::Coded;
+    let reason_key = upload::validate(&mut draft.clone())
+        .and_then(|()| upload_file::validate_selection(files))
+        .err()
+        .map(|error| format!("error.{}", error.code().name()));
+    ExamUploadReadiness { reason_key }
 }
 
 impl ExamError {
@@ -296,6 +317,12 @@ impl ExamShare {
             // These answer without waiting for the session gate: the first
             // needs no account, the others stop work that holds the gate.
             ExamAction::Choices => ExamAnswer::Choices(form::choices()),
+            ExamAction::UploadReadiness { draft, files } => {
+                let ready = tokio::task::spawn_blocking(move || upload_readiness(&draft, &files))
+                    .await
+                    .map_err(|_| ExamError::Storage)?;
+                ExamAnswer::UploadReadiness(ready)
+            }
             ExamAction::CancelUpload => {
                 self.upload.cancel()?;
                 ExamAnswer::Done
@@ -464,6 +491,7 @@ impl ExamShare {
                 | ExamAction::Disconnect
                 | ExamAction::Connect
                 | ExamAction::Upload { .. }
+                | ExamAction::UploadReadiness { .. }
                 | ExamAction::RecoverUpload
                 | ExamAction::Account
                 | ExamAction::AcceptTerms => return Err(ExamError::InvalidInput),
@@ -816,6 +844,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamLimits::decl(cfg),
         ExamUploadSubject::decl(cfg),
         ExamUploadForm::decl(cfg),
+        ExamUploadReadiness::decl(cfg),
         ExamUploadStart::decl(cfg),
         ExamUploadEdit::decl(cfg),
         ExamUploadPhase::decl(cfg),

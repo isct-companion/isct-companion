@@ -739,6 +739,275 @@ export type SchoolPageAvailability = {
   message: string;
 };
 
+export type SchoolAuthProfile = "science" | "tokyo-tech";
+
+export type SchoolCredentials = {
+  username: string;
+  password: string;
+  otpSecret: string;
+  matrix: string;
+};
+
+export type CredentialAvailability =
+  "not-configured" | "saved-locked" | "available" | "missing" | "access-denied";
+
+export type CredentialSummary = {
+  /**
+   * Authoritative vault state. `saved` is retained for older clients, but
+   * new callers must render this state instead of inferring availability.
+   */
+  availability: CredentialAvailability;
+  saved: boolean;
+  username: string;
+  hasOtp: boolean;
+  hasMatrix: boolean;
+};
+
+export type SchoolCredentialStatus = {
+  suggestedAdmissionYear?: number;
+  science: CredentialSummary;
+  tokyoTech: CredentialSummary;
+};
+
+export type SchoolOtpCode = { otp: string; expiresAt: number; period: number };
+
+export type SchoolSessionState =
+  | "not-configured"
+  | "normal"
+  | "signing-in"
+  | "refused"
+  | "needs-web"
+  | "unavailable";
+
+export type SchoolSignInProblemKind =
+  | "invalid-credentials"
+  | "invalid-otp"
+  | "otp-needed"
+  | "invalid-matrix"
+  | "email-otp"
+  | "password-change"
+  | "unknown-page"
+  | "network"
+  | "unanswered"
+  | "anomaly"
+  | "credential-store";
+
+export type SignInRecovery =
+  "retry" | "open-school-page" | "set-up-otp-on-portal" | "finish-sign-out";
+
+export type SignInPresentation = {
+  stateKey: string;
+  reasonKey: string | null;
+  recovery: Array<SignInRecovery>;
+};
+
+export type SchoolSignInProblem = {
+  kind: SchoolSignInProblemKind;
+  /**
+   * Core's short diagnostic, for logs; shells show text for `kind`.
+   */
+  message: string;
+};
+
+export type SchoolConnectOutcome =
+  | { kind: "connected"; presentation: SignInPresentation }
+  | {
+      kind: "refused";
+      reason: SchoolSignInProblemKind;
+      refusalUnsaved: boolean;
+      presentation: SignInPresentation;
+    }
+  | {
+      kind: "needs-web";
+      reason: SchoolSignInProblemKind;
+      refusalUnsaved: boolean;
+      presentation: SignInPresentation;
+    }
+  | { kind: "unreachable"; presentation: SignInPresentation }
+  | { kind: "not-saved"; presentation: SignInPresentation }
+  | { kind: "stopped"; presentation: SignInPresentation };
+
+export type SchoolMaintenance = { notice: string | null; until: string };
+
+export type SchoolProfileSession = {
+  signOutPending: boolean;
+  state: SchoolSessionState;
+  presentation: SignInPresentation;
+  problem: SchoolSignInProblem | null;
+  refusalUnsaved: boolean;
+  /**
+   * When Core tries again on its own (`unavailable` only).
+   */
+  retryAt: string | null;
+  /**
+   * The account's site (LMS, 教務Web) is paused for maintenance.
+   */
+  maintenance: SchoolMaintenance | null;
+};
+
+export type SchoolSessionProfiles = {
+  science: SchoolProfileSession;
+  tokyoTech: SchoolProfileSession;
+};
+
+export type SchoolSessionSnapshot = {
+  revision: number;
+  profiles: SchoolSessionProfiles;
+};
+
+export type SchoolSite =
+  | "science-portal"
+  | "science-lms"
+  | "tokyo-portal"
+  | "tokyo-mail"
+  | "kyomu"
+  | "library"
+  | "tsubame"
+  | "syllabus"
+  | "study-guide";
+
+export type SyncPriority = "background" | "visible" | "interactive";
+
+export type SyncNetwork = "offline" | "wifi" | "cellular" | "unknown";
+
+export type SyncHint =
+  | { kind: "foreground" }
+  | { kind: "background" }
+  | { kind: "suspend" }
+  | { kind: "resume" }
+  | { kind: "network"; network: SyncNetwork }
+  | { kind: "power-saver"; on: boolean }
+  | { kind: "open"; view: SyncView }
+  | { kind: "refresh"; scope: SyncScope };
+
+export type SyncView =
+  | { kind: "today" }
+  | { kind: "assignments" }
+  | { kind: "timetable" }
+  | { kind: "course"; lmsCourseId: number }
+  | { kind: "finder"; year: number }
+  | { kind: "grades" };
+
+export type SyncScope =
+  | { kind: "everything" }
+  | { kind: "site"; site: SchoolSite }
+  | { kind: "course"; lmsCourseId: number }
+  | { kind: "timetable" }
+  | { kind: "references" }
+  | { kind: "catalog"; year: number }
+  | { kind: "lms-history"; year: number; month: number };
+
+export type SyncLabel = { key: string; args: Record<string, unknown> | null };
+
+export type SyncHeld =
+  | { kind: "offline" }
+  | { kind: "cellular" }
+  | { kind: "power-saver" }
+  | { kind: "background" }
+  | { kind: "backoff"; until: string }
+  | { kind: "host-paused"; host: string; until: string }
+  | { kind: "account"; profile: SchoolAuthProfile; wait: AccountWait }
+  | { kind: "resetting" }
+  | { kind: "prerequisite" };
+
+export type RetryPlan = { scopes: Array<SyncScope> };
+
+export type AccountWait =
+  { kind: "person" } | { kind: "paused"; until: string };
+
+export type SyncFailure = {
+  /**
+   * `sync_runs.error_kind` code (`timeout`, `http-503`, …).
+   */
+  kind: string;
+  reason: SyncLabel;
+  keysFailed: number;
+  retryAt: string | null;
+  /**
+   * Which pages of a run failed and why, one `page: reason` line each.
+   * Diagnostic text a person can quote in a report, not translated; only
+   * the runs of this launch hold it, `kind` is what is stored.
+   */
+  detail: string | null;
+};
+
+export type RunView = {
+  run: string;
+  dataset: string;
+  label: SyncLabel;
+  priority: SyncPriority;
+  done: number;
+  total: number | null;
+  current: SyncLabel | null;
+  /**
+   * Narrows a run to a page: `lms.course` key, offering id, year.
+   */
+  scope: string | null;
+  held: SyncHeld | null;
+  failure: SyncFailure | null;
+  retry: RetryPlan | null;
+};
+
+export type SourceView = {
+  /**
+   * `lms`, `kyomu`, `references`, `catalog`.
+   */
+  source: string;
+  lastUpdated: string | null;
+  running: boolean;
+  held: SyncHeld | null;
+  failure: SyncFailure | null;
+  retry: RetryPlan | null;
+  /**
+   * The account's session state for school sources.
+   */
+  session: SchoolSessionState | null;
+  /**
+   * The school's maintenance notice for the source's site.
+   */
+  maintenance: string | null;
+};
+
+export type SyncWork =
+  | { kind: "resetting" }
+  | { kind: "active"; run: string }
+  | { kind: "held"; run: string }
+  | { kind: "problem" };
+
+export type SyncAttentionProblem =
+  | {
+      kind: "account";
+      profile: SchoolAuthProfile;
+      presentation: SignInPresentation | null;
+      retryAt: string | null;
+    }
+  | {
+      kind: "run-failed";
+      dataset: string;
+      failure: SyncFailure;
+      retry: RetryPlan | null;
+    }
+  | {
+      kind: "source-failed";
+      source: string;
+      failure: SyncFailure;
+      retry: RetryPlan | null;
+    };
+
+export type SyncAttention = {
+  primary: SyncWork | null;
+  problem: SyncAttentionProblem | null;
+  busy: boolean;
+};
+
+export type SyncSnapshot = {
+  generation: number;
+  resetting: boolean;
+  attention: SyncAttention;
+  runs: Array<RunView>;
+  sources: Array<SourceView>;
+};
+
 export type ExamSubject = { code: string; name: string };
 
 export type ExamTeacher = { id: string; name: string };
@@ -846,6 +1115,16 @@ export type ExamLocalDocument = {
    * This document on the ScienceTokyoExam website.
    */
   webUrl: string;
+  /**
+   * How the shells show it (`file_preview`).
+   */
+  viewer: Viewer;
+  /**
+   * The name a saved or shared copy takes: the uploader's name, with the
+   * validated type's suffix when its own extension is not one that type
+   * allows. The cached file at `path` has a generated name.
+   */
+  exportName: string;
 };
 
 export type ExamLibrary = {
@@ -980,6 +1259,8 @@ export type ExamUploadForm = {
   request: ExamRequest | null;
 };
 
+export type ExamUploadReadiness = { reasonKey: string | null };
+
 export type ExamUploadStart =
   { kind: "subject"; code: string } | { kind: "request"; request: ExamRequest };
 
@@ -1035,6 +1316,11 @@ export type ExamAction =
   | { kind: "deleteRequest"; id: string; mine: boolean }
   | { kind: "uploadForm"; start: ExamUploadStart }
   | { kind: "editUpload"; form: ExamUploadForm; edit: ExamUploadEdit }
+  | {
+      kind: "uploadReadiness";
+      files: Array<ExamUploadFile>;
+      draft: ExamUploadDraft;
+    }
   | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
   | { kind: "cancelUpload" }
   | { kind: "recoverUpload" };
@@ -1049,6 +1335,7 @@ export type ExamAnswer =
   | { kind: "requests"; value: ExamRequestPage }
   | { kind: "choices"; value: ExamChoices }
   | { kind: "uploadForm"; value: ExamUploadForm }
+  | { kind: "uploadReadiness"; value: ExamUploadReadiness }
   | { kind: "uploaded"; value: string | null }
   | { kind: "done" };
 
@@ -1341,6 +1628,18 @@ export type NotificationPlan = {
   items: Array<NotificationItem>;
 };
 
+export type ReminderLeadOptions = {
+  classes: Array<number>;
+  exams: Array<number>;
+  assignments: AssignmentLeadOptions;
+};
+
+export type AssignmentLeadOptions = {
+  presets: Array<number>;
+  minSelected: number;
+  maxSelected: number;
+};
+
 export type GlanceSnapshot = {
   term: string;
   date: string;
@@ -1451,6 +1750,12 @@ export type AssignmentDetail = {
   courseId: string;
   title: string;
   dueAt: string | null;
+  deadline: TaskDeadlineView | null;
+  state: AssignmentState;
+  handInAvailability: HandInAvailability;
+  /**
+   * Stored LMS statuses for the agent assignment read. Shells use state.
+   */
   submission: string | null;
   submissionStatus: string | null;
   grade: string | null;
@@ -1463,12 +1768,18 @@ export type AssignmentDetail = {
    * which the page states already.
    */
   bodyHtml: string;
+  originalBodyHtml: string | null;
   /**
    * Notes the assignment row carries besides the LMS text.
    */
   details: string;
   attachments: Array<AssignmentAttachment>;
 };
+
+export type AssignmentState =
+  "open" | "overdue" | "closed" | "submitted" | "graded";
+
+export type HandInAvailability = "unavailable" | "openLms" | "prepareDraft";
 
 export type CourseContent = {
   courseId: string;
@@ -1477,6 +1788,7 @@ export type CourseContent = {
    * numbers its lessons, in section order.
    */
   lessons: Array<LessonContent>;
+  materialReaderHtml: { [key in string]: LocalizedLmsHtml };
   /**
    * The course's assignments set outside any section (their LMS activity
    * is not among the materials).
@@ -1530,6 +1842,7 @@ export type LessonContent = {
    * `lmsRowOff`.
    */
   summaryHtml: string;
+  originalSummaryHtml: string | null;
   /**
    * The first line of that text without a short leading label
    * (授業計画：, Course schedule:), which heads a folded lesson.
@@ -1557,6 +1870,7 @@ export type LessonItem = {
    * schedule tables marked as in `LessonContent.summary_html`.
    */
   bodyHtml: string | null;
+  originalBodyHtml: string | null;
   /**
    * The LMS page or file Core resolves and downloads.
    */
@@ -1570,6 +1884,14 @@ export type LessonItem = {
 
 export type LessonItemKind =
   "file" | "link" | "folder" | "page" | "label" | "forum" | "other";
+
+export type LocalizedLmsHtml = {
+  preferred: string;
+  /**
+   * Present when filtering changed what the reader sees.
+   */
+  original: string | null;
+};
 
 export type AssignmentAttachment = { name: string; url: string };
 
@@ -1658,13 +1980,17 @@ export type LectureSearch = {
 
 export type TaskDeadlineView = {
   at: string;
-  remainingMilliseconds: number;
-  label: string;
-  tone: string;
-  countdownLabel: string;
+  state: DeadlineState;
+  units: Array<CountdownComponent>;
   countdownTone: string;
-  overdue: boolean;
+  nextChangeAt: string | null;
 };
+
+export type DeadlineState = "remaining" | "overdue";
+
+export type CountdownUnit = "days" | "hours" | "minutes" | "seconds";
+
+export type CountdownComponent = { unit: CountdownUnit; count: number };
 
 export type AssignmentGroups = {
   pinnedIds: Array<string>;
@@ -1702,18 +2028,8 @@ export type TermTaskView = {
 
 export type TaskView = {
   deadlines: { [key in string]: TaskDeadlineView };
-  /**
-   * Visible assignments Core treats as submitted (`submission` submitted
-   * or graded, or LMS `submissionStatus` submitted). Shells render this
-   * instead of applying their own rule.
-   */
-  submittedIds: Array<string>;
-  /**
-   * Visible assignments that no longer take a hand-in: submitted, or past
-   * the deadline unless the LMS page last showed it still accepting late
-   * work. Shells open the LMS page for these instead of preparing a draft.
-   */
-  closedIds: Array<string>;
+  states: { [key in string]: AssignmentState };
+  handInAvailability: { [key in string]: HandInAvailability };
   nearestByCourse: { [key in string]: string };
   byTerm: { [key in string]: TermTaskView };
 };
@@ -1738,13 +2054,11 @@ export type DeadlineItem = {
   color: string | null;
   title: string;
   dueAt: string | null;
-  overdue: boolean;
-  /**
-   * `past`, `urgent` (< 24 h), `soon` (< 72 h) or `normal`.
-   */
-  tone: string;
+  deadline: TaskDeadlineView | null;
   pinned: boolean;
   submitted: boolean;
+  state: AssignmentState;
+  handInAvailability: HandInAvailability;
   hidden: boolean;
   grade: string | null;
   sourceUrl: string | null;
@@ -1866,6 +2180,12 @@ export type ExamCourse = {
    * then it cannot be opened.
    */
   subjectCodes: Array<string>;
+  /**
+   * The quarter's exams this app keeps (the exam timetable with the
+   * person's corrections and marked sessions) include one for this
+   * course. A course without one is listed after the rest, folded away.
+   */
+  hasExam: boolean;
 };
 
 export type ExamCourseList = { courses: Array<ExamCourse> };
@@ -1876,7 +2196,6 @@ export type ScheduleView = {
   courses: unknown[];
   agendas: Array<DatedAgenda>;
   exams: Array<ExamView>;
-  upcomingExams: Array<ExamView>;
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
@@ -1899,9 +2218,12 @@ export type WorkspaceQuery =
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
+  | { kind: "upcomingExams"; from: string; to: string | null }
+  | { kind: "calendarRange"; from: string; to: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string }
   | { kind: "courseContent"; courseId: string; now: string }
+  | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
@@ -1961,7 +2283,10 @@ export type WorkspaceQueryResult =
   | { kind: "planningWeek"; value: PlanningWeek }
   | { kind: "academicYears"; value: AcademicYearIndex }
   | { kind: "taskView"; value: TaskView }
+  | { kind: "deadlineDisplay"; value: TaskDeadlineView }
   | { kind: "today"; value: TodayView }
+  | { kind: "upcomingExams"; value: Array<ExamView> }
+  | { kind: "calendarRange"; value: Array<DatedAgenda> }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "assignmentDetail"; value: AssignmentDetail | null }
@@ -2279,6 +2604,38 @@ export type FinderPage = {
   seq: number;
 };
 
+export type FileKind =
+  | "pdf"
+  | "markdown"
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "doc"
+  | "slides"
+  | "sheet"
+  | "zip"
+  | "archive"
+  | "notebook"
+  | "web";
+
+export type Viewer =
+  | "pdf"
+  | "markdown"
+  | "text"
+  | "image"
+  | "video"
+  | "audio"
+  | "document"
+  | "tooLarge"
+  | "external";
+
+export type FileKindEntry = {
+  kind: FileKind;
+  extensions: Array<string>;
+  viewer: Viewer;
+};
+
 export type MatrixPoint = { x: number; y: number };
 
 export type MatrixReading = { text: string; confidence: number };
@@ -2370,6 +2727,7 @@ export type ErrorCode =
   | "host-paused"
   | "workspace-folder-missing"
   | "hand-in-files-only"
+  | "hand-in-unavailable"
   | "hand-in-empty"
   | "hand-in-needs-zip"
   | "hand-in-too-large"
@@ -2427,6 +2785,11 @@ export type ErrorCode =
   | "exam-share-identity"
   | "exam-share-already-reported"
   | "exam-share-quota"
+  | "exam-share-upload-no-files"
+  | "exam-share-upload-teacher-name"
+  | "exam-share-upload-teacher-length"
+  | "exam-share-upload-variant-length"
+  | "exam-share-upload-note-length"
   | "exam-share-upload-file"
   | "exam-share-upload-mixed"
   | "exam-share-upload-size"
@@ -2462,6 +2825,133 @@ export const COURSE_FILE_POLICY: CourseFilePolicy = {
   },
 };
 
+export const FILE_KINDS: FileKindEntry[] = [
+  {
+    kind: "pdf",
+    extensions: ["pdf"],
+    viewer: "pdf",
+  },
+  {
+    kind: "markdown",
+    extensions: ["md", "markdown"],
+    viewer: "markdown",
+  },
+  {
+    kind: "notebook",
+    extensions: ["ipynb"],
+    viewer: "external",
+  },
+  {
+    kind: "web",
+    extensions: ["html", "htm"],
+    viewer: "external",
+  },
+  {
+    kind: "text",
+    extensions: [
+      "txt",
+      "tex",
+      "bib",
+      "js",
+      "jsx",
+      "ts",
+      "tsx",
+      "java",
+      "py",
+      "r",
+      "m",
+      "c",
+      "cpp",
+      "cxx",
+      "cc",
+      "h",
+      "hpp",
+      "rs",
+      "go",
+      "rb",
+      "sh",
+      "sql",
+      "json",
+      "yaml",
+      "yml",
+      "toml",
+      "xml",
+      "css",
+      "csv",
+      "tsv",
+      "log",
+      "v",
+      "sv",
+      "vhd",
+      "vhdl",
+      "asm",
+      "s",
+      "hs",
+      "ml",
+      "scala",
+      "kt",
+      "swift",
+    ],
+    viewer: "text",
+  },
+  {
+    kind: "image",
+    extensions: [
+      "png",
+      "apng",
+      "jpg",
+      "jpeg",
+      "jpe",
+      "gif",
+      "webp",
+      "avif",
+      "bmp",
+      "ico",
+      "svg",
+      "tif",
+      "tiff",
+      "heic",
+      "heif",
+    ],
+    viewer: "image",
+  },
+  {
+    kind: "video",
+    extensions: ["mp4", "m4v", "mov", "webm", "ogv"],
+    viewer: "video",
+  },
+  {
+    kind: "audio",
+    extensions: ["mp3", "m4a", "aac", "wav", "ogg", "oga", "flac", "opus"],
+    viewer: "audio",
+  },
+  {
+    kind: "doc",
+    extensions: ["doc", "docx", "odt", "rtf", "pages"],
+    viewer: "external",
+  },
+  {
+    kind: "slides",
+    extensions: ["ppt", "pptx", "odp", "key"],
+    viewer: "external",
+  },
+  {
+    kind: "sheet",
+    extensions: ["xls", "xlsx", "xlsm", "ods", "numbers"],
+    viewer: "external",
+  },
+  {
+    kind: "zip",
+    extensions: ["zip"],
+    viewer: "external",
+  },
+  {
+    kind: "archive",
+    extensions: ["7z", "rar", "tar", "gz", "tgz", "bz2", "xz"],
+    viewer: "external",
+  },
+];
+
 export const COURSE_PALETTE = [
   "#355ba7",
   "#4f8a8b",
@@ -2474,8 +2964,6 @@ export const COURSE_PALETTE = [
 ] as const;
 
 export const CREDENTIAL_PASSWORD_LENGTH = { min: 12, max: 128 } as const;
-
-export const DEFAULT_ASSIGNMENT_LEADS = [1440, 60] as const;
 
 export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
   {
@@ -2509,6 +2997,16 @@ export const DEFAULT_TEACHING_PERIODS: TeachingPeriod[] = [
     endTime: "20:45",
   },
 ];
+
+export const DEFAULT_REMINDER_LEAD_OPTIONS: ReminderLeadOptions = {
+  classes: [5, 10, 15, 30],
+  exams: [10, 30, 60, 1440, 2880],
+  assignments: {
+    presets: [10080, 4320, 2880, 1440, 720, 360, 180, 60, 30, 15],
+    minSelected: 1,
+    maxSelected: 8,
+  },
+};
 
 export const EMPTY_WORKSPACE: Workspace = {
   academicCalendar: [],

@@ -115,6 +115,9 @@ pub struct NavigationRequest {
     pub main_frame: bool,
     pub kind: NavigationKind,
     pub user_gesture: bool,
+    /// A link ⌘-clicked or middle-clicked (iPadOS with a keyboard or
+    /// pointer); always false on Android.
+    pub elsewhere: bool,
 }
 /// A window a page asks for. The host keeps the engine's request and
 /// configuration to build it from; Core sees the facts.
@@ -302,6 +305,7 @@ impl BrowserEvents {
                 main_frame: request.main_frame,
                 kind: request.kind.into(),
                 user_gesture: request.user_gesture,
+                elsewhere: request.elsewhere,
             });
         Ok(match decision {
             browser::NavigationDecision::Allow => NavigationDecision::Allow,
@@ -456,33 +460,6 @@ pub(crate) fn parse_url(text: &str) -> Result<Url, SdkError> {
     })
 }
 
-#[uniffi::export(rust, foreign)]
-#[async_trait::async_trait]
-pub trait NativeNotifications: Send + Sync {
-    async fn deliver(&self, item: NotificationItem) -> Result<(), SdkError>;
-}
-pub(crate) struct Notifications(pub Arc<dyn NativeNotifications>);
-impl app_core::schedule::NotificationSink for Notifications {
-    fn deliver<'a>(
-        &'a self,
-        item: app_core::schedule::NotificationItem,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<(), app_core::schedule::NotificationSinkError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            self.0
-                .deliver(project(item).map_err(|e| {
-                    app_core::schedule::NotificationSinkError::Delivery(e.to_string())
-                })?)
-                .await
-                .map_err(|e| app_core::schedule::NotificationSinkError::Delivery(e.to_string()))
-        })
-    }
-}
 /// One identity cookie as the school sent it: the response URL and the raw
 /// `Set-Cookie` value.
 #[derive(Clone, Debug, uniffi::Record)]
@@ -496,6 +473,14 @@ pub struct WebCookie {
 #[uniffi::export]
 pub fn is_school_domain(domain: String) -> bool {
     app_core::school_session::is_school_domain(&domain)
+}
+
+/// Whether a school attachment (`Content-Disposition: attachment`) of
+/// `mime` is shown in its view, where the engine's own viewer (a PDF's
+/// password field included) opens it, instead of saved.
+#[uniffi::export]
+pub fn attachment_shown_in_place(mime: String) -> bool {
+    app_core::school_browser::attachment_shown_in_place(&mime)
 }
 
 /// The shell's web cookie store, written only. Core writes an account's

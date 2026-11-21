@@ -1,4 +1,6 @@
-import { notify as appNotify } from "../../app/notify";
+import type { SchoolAuthProfile } from "../../generated/persistence";
+import { TitleRow } from "../../components/TitleRow";
+import { notify as appNotify } from "../../components/notifications/notify";
 import { settingsSection } from "../../app/routes";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { english, t, type MessageKey } from "../../i18n";
@@ -8,8 +10,9 @@ import type {
   Workspace,
 } from "../../lib/model";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
-import type { Platform, Section } from "../../app/shared";
-import type { SchoolAuthProfile } from "../../platform/desktop-bridge";
+import type { Section } from "../../lib/route-contract";
+import type { Platform } from "../../platform/capabilities";
+
 import { performAction } from "../../platform/actions";
 import { resolveCapabilities } from "../../platform/capabilities";
 import { workspaceActions } from "../../store/workspace";
@@ -38,7 +41,7 @@ import {
   type SectionContext,
 } from "./registry";
 import "./settings.css";
-import { withRecords } from "../../platform/records";
+import { withRecords, type ShellRecords } from "../../platform/records";
 
 type Update = (f: (d: Workspace) => Workspace) => void;
 
@@ -95,7 +98,7 @@ function SettingsBody({
   capabilitiesReady = true,
 }: {
   platform: Platform;
-  data: Workspace;
+  data: ShellRecords;
   mutate: (intent: WorkspaceIntent) => Promise<unknown>;
   /** Preferences and device state. */
   update: Update;
@@ -262,70 +265,84 @@ function SettingsBody({
 
   return (
     <div className="page settings">
-      <nav
-        className="settingsNav"
-        aria-label={t("settings.main.settingsSections")}
-      >
-        <UiInput
-          className="settingsSearch"
-          type="search"
-          value={query}
-          placeholder={t("settings.main.searchSettings")}
-          aria-label={t("settings.main.searchSettings")}
-          onChange={(event) => setQuery(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && results[0])
-              open(results[0].section, results[0].id);
-            if (event.key === "Escape") setQuery("");
-          }}
-        />
-        {query.trim() ? (
-          <div className="settingsResults" role="list">
-            {results.length === 0 && (
-              <span className="settingsNoResults">
-                {t("settings.main.noMatchingSettings")}
-              </span>
-            )}
-            {results.map((result) => (
-              <UiButton
-                key={`${result.section}:${result.id ?? ""}`}
-                role="listitem"
-                onClick={() => open(result.section, result.id)}
-              >
-                <b>{t(result.title)}</b>
-                {result.id && <small>{t(sectionLabel(result.section))}</small>}
-              </UiButton>
-            ))}
-          </div>
-        ) : (
-          <div className="settingsNavList">
-            {sections.map((item, index) => (
-              <Fragment key={item.id}>
-                {item.tier !== sections[index - 1]?.tier &&
-                  item.tier !== "basic" && (
-                    <span className="settingsNavGroup">
-                      {t(
-                        item.tier === "advanced"
-                          ? "settings.main.advanced"
-                          : "settings.main.developer",
-                      )}
-                    </span>
-                  )}
+      <div className="settingsNavColumn">
+        <TitleRow nav>
+          <h1>{t("common.settings")}</h1>
+        </TitleRow>
+        <nav
+          className="settingsNav pageBody"
+          aria-label={t("settings.main.settingsSections")}
+        >
+          <UiInput
+            className="settingsSearch"
+            type="search"
+            value={query}
+            placeholder={t("settings.main.searchSettings")}
+            aria-label={t("settings.main.searchSettings")}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && results[0])
+                open(results[0].section, results[0].id);
+              if (event.key === "Escape") setQuery("");
+            }}
+          />
+          {query.trim() ? (
+            <div className="settingsResults" role="list">
+              {results.length === 0 && (
+                <span className="settingsNoResults">
+                  {t("settings.main.noMatchingSettings")}
+                </span>
+              )}
+              {results.map((result) => (
                 <UiButton
-                  className={sectionParent(current) === item.id ? "active" : ""}
-                  aria-current={current === item.id ? "page" : undefined}
-                  onClick={() => open(item.id)}
+                  key={`${result.section}:${result.id ?? ""}`}
+                  role="listitem"
+                  onClick={() => open(result.section, result.id)}
                 >
-                  {t(item.label)}
+                  <b>{t(result.title)}</b>
+                  {result.id && (
+                    <small>{t(sectionLabel(result.section))}</small>
+                  )}
                 </UiButton>
-              </Fragment>
-            ))}
-          </div>
-        )}
-      </nav>
-      <section className="settingsPane" key={current}>
-        {page}
-      </section>
+              ))}
+            </div>
+          ) : (
+            <div className="settingsNavList">
+              {sections.map((item, index) => (
+                <Fragment key={item.id}>
+                  {item.tier !== sections[index - 1]?.tier &&
+                    item.tier !== "basic" && (
+                      <span className="settingsNavGroup">
+                        {t(
+                          item.tier === "advanced"
+                            ? "settings.main.advanced"
+                            : "settings.main.developer",
+                        )}
+                      </span>
+                    )}
+                  <UiButton
+                    className={
+                      sectionParent(current) === item.id ? "active" : ""
+                    }
+                    aria-current={current === item.id ? "page" : undefined}
+                    onClick={() => open(item.id)}
+                  >
+                    {t(item.label)}
+                  </UiButton>
+                </Fragment>
+              ))}
+            </div>
+          )}
+        </nav>
+      </div>
+      <div className="settingsPaneColumn">
+        {/* The section names itself below; the row stays free to move
+            the window. */}
+        <TitleRow />
+        <section className="settingsPane pageBody" key={current}>
+          {page}
+        </section>
+      </div>
     </div>
   );
 }

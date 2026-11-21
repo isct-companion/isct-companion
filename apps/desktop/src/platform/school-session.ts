@@ -1,11 +1,10 @@
-import { useEffect, useSyncExternalStore } from "react";
-
 import type {
-  DesktopBridge,
   SchoolAuthProfile,
   SchoolProfileSession,
   SchoolSessionSnapshot,
-} from "./desktop-bridge";
+} from "../generated/persistence";
+import { useEffect, useSyncExternalStore } from "react";
+import type { DesktopBridge } from "./desktop-bridge";
 
 type SessionBridge = Pick<
   DesktopBridge,

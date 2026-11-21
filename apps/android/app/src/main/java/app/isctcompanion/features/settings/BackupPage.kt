@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -56,7 +55,7 @@ internal fun BackupPage() {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
     var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
-    val state = model.cloud
+    val state = model.backup.state
     val locked = busy || state?.syncing == true
     fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     fun run(work: suspend () -> Unit) {
@@ -65,12 +64,12 @@ internal fun BackupPage() {
             try { work() } finally { busy = false }
         }
     }
-    LaunchedEffect(Unit) { model.refreshCloud() }
+    LaunchedEffect(Unit) { model.backup.refresh() }
 
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         run {
-            val text = model.exportBackup() ?: return@run
+            val text = model.backup.export() ?: return@run
             runCatching {
                 withContext(Dispatchers.IO) {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
@@ -87,7 +86,7 @@ internal fun BackupPage() {
                     context.contentResolver.openInputStream(uri)?.use { String(it.readBytes()) }
                         ?: throw IOException("No input stream")
                 }
-                model.importBackup(text)
+                model.backup.importBackup(text)
             }.onSuccess { toast(t("settings.backup.backupRestored")) }
                 .onFailure { toast(t("settings.backup.importFailedReason", "reason" to AppModel.describe(it))) }
         }
@@ -98,50 +97,65 @@ internal fun BackupPage() {
         Card {
             val providers = state?.providers.orEmpty()
             providers.forEachIndexed { index, provider ->
-                if (index > 0) RowDivider(inset = 16.dp)
-                SwitchRow(providerName(provider.provider), providerDetail(provider), provider.error != null, provider.enabled, !locked) {
-                    run { model.setCloudEnabled(provider.provider, it) }
+                if (index > 0) RowDivider(inset = Theme.rowX)
+                SwitchRow(
+                    title = providerName(provider.provider),
+                    checked = provider.enabled,
+                    detail = providerDetail(provider),
+                    enabled = !locked,
+                    detailColor = if (provider.error != null) Theme.colors.danger else Theme.colors.muted,
+                    compact = false,
+                ) {
+                    run { model.backup.setEnabled(provider.provider, it) }
                 }
             }
             if (providers.any { it.enabled }) {
-                RowDivider(inset = 16.dp)
+                RowDivider(inset = Theme.rowX)
                 val automatic = state?.automatic == true
                 SwitchRow(
                     t("settings.backup.syncAutomatically"),
-                    if (automatic) t("settings.backup.pullsOtherDevicesChangesWhen")
-                    else t("settings.backup.uploadAndPullByHand"),
-                    false, automatic, !locked,
-                ) { run { model.setCloudAutomatic(it) } }
-                RowDivider(inset = 16.dp)
+                    checked = automatic,
+                    detail = if (automatic) t("settings.backup.pullsOtherDevicesChangesWhen")
+                        else t("settings.backup.uploadAndPullByHand"),
+                    enabled = !locked,
+                    compact = false,
+                ) { run { model.backup.setAutomatic(it) } }
+                RowDivider(inset = Theme.rowX)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space2),
                 ) {
-                    TextButton(onClick = { run { model.syncCloud(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
+                    TextButton(onClick = { run { model.backup.sync(Direction.UPLOAD) } }, enabled = !locked) { Text(t("settings.backup.upload")) }
                     Spacer(Modifier.weight(1f))
                     if (state?.syncing == true) {
                         CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                         Text(t("settings.backup.syncing"), color = Theme.colors.muted)
                         Spacer(Modifier.weight(1f))
                     }
-                    TextButton(onClick = { run { model.syncCloud(Direction.PULL) } }, enabled = !locked) { Text(t("settings.backup.pull")) }
+                    TextButton(onClick = { run { model.backup.sync(Direction.PULL) } }, enabled = !locked) { Text(t("settings.backup.pull")) }
                 }
             }
         }
+        // As on the desktop: with Drive on, school logins can follow in an
+        // encrypted file (Android has no iCloud Keychain).
+        if (state?.providers.orEmpty().any { it.provider == CloudProvider.GOOGLE_DRIVE && it.enabled }) {
+            Spacer(Modifier.height(Theme.space4))
+            BackupCredentials(::toast)
+        }
         val versions = state?.versions.orEmpty().sortedByDescending { it.savedAt }
         if (versions.isNotEmpty()) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Theme.space4))
             SectionLabel(t("settings.backup.earlierVersions"))
             Card {
                 versions.forEachIndexed { index, version ->
-                    if (index > 0) RowDivider(inset = 16.dp)
+                    if (index > 0) RowDivider(inset = Theme.rowX)
                     RestoreRow(Format.due(version.savedAt), version.device, !locked) {
                         confirm = t(
                             "settings.backup.restoreTheVersionFromDate",
                             "date" to Format.due(version.savedAt),
                         ) to {
-                            model.restoreCloud(version.id)
+                            model.backup.restore(version.id)
                             toast(t("settings.backup.restoredTheEarlierVersion"))
                         }
                     }
@@ -149,11 +163,11 @@ internal fun BackupPage() {
             }
             Footer(t("settings.backup.historyKeepsHourlyThenDaily"))
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Theme.space4))
         SectionLabel(t("settings.backup.backupFile"))
         Card {
             Action(t("settings.backup.export"), !busy) { save.launch("IsctCompanion.json") }
-            RowDivider(inset = 16.dp)
+            RowDivider(inset = Theme.rowX)
             Action(t("settings.backup.import"), !busy) { open.launch(arrayOf("application/json")) }
         }
     }
@@ -189,38 +203,10 @@ private fun providerDetail(provider: ProviderState): String? {
 }
 
 @Composable
-private fun SwitchRow(
-    title: String,
-    detail: String?,
-    failed: Boolean,
-    checked: Boolean,
-    enabled: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, color = Theme.colors.ink)
-            detail?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (failed) Theme.colors.danger else Theme.colors.muted,
-                )
-            }
-        }
-        Switch(checked, onChange, enabled = enabled)
-    }
-}
-
-@Composable
 private fun RestoreRow(title: String, detail: String?, enabled: Boolean, onRestore: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(start = Theme.rowX, end = Theme.space2, top = Theme.space2, bottom = Theme.space2),
     ) {
         Column(Modifier.weight(1f)) {
             Text(title, color = Theme.colors.ink)
@@ -233,7 +219,7 @@ private fun RestoreRow(title: String, detail: String?, enabled: Boolean, onResto
 
 @Composable
 private fun Action(title: String, enabled: Boolean, onClick: () -> Unit) {
-    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+    TextButton(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().padding(horizontal = Theme.space2)) {
         Text(title, modifier = Modifier.fillMaxWidth())
     }
 }

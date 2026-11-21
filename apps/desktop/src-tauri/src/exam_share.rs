@@ -34,7 +34,9 @@ pub(crate) async fn exam_share(
 ) -> Result<ExamAnswer, CommandError> {
     require_local_main(&webview)?;
     let _selected_files = match &mut action {
-        ExamAction::Upload { files, .. } => Some(selection.resolve(files).map_err(coded)?),
+        ExamAction::Upload { files, .. } | ExamAction::UploadReadiness { files, .. } => {
+            Some(selection.resolve(files).map_err(coded)?)
+        }
         _ => None,
     };
     let cancel = CancellationToken::new();
@@ -48,7 +50,8 @@ pub(crate) async fn exam_share(
         app.asset_protocol_scope()
             .allow_file(&file.path)
             .map_err(|_| coded(ExamError::Storage))?;
-        app.state::<crate::exam_files::ExamFiles>().allow(&file.path)?;
+        app.state::<crate::exam_files::ExamFiles>()
+            .allow(&file.path)?;
     }
     Ok(answer)
 }

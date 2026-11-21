@@ -1,5 +1,6 @@
 //! Calendar and schedule read models shared by every application shell.
 
+mod agenda_layout;
 pub mod alternation;
 mod calendar;
 mod civil;
@@ -10,11 +11,13 @@ mod credits;
 mod exam_courses;
 mod exams;
 mod ics;
-mod lms_html;
+pub mod lms_html;
 mod occurrence;
+mod profile_validation;
 mod range;
 mod reminders;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
+pub use reminders::{reminder_lead_options, ReminderLeadOptions};
 mod requests;
 mod school;
 mod search;
@@ -62,13 +65,14 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
+#[cfg(test)]
+pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use occurrence::placement_terms;
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, occurrences_on_date, planning_week,
-    resolve_day_agenda, schedule_problems, scheduled_courses, term_courses,
-    validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline, EventCarryOver,
-    GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek, ScheduleProblem,
-    ScheduleProblemKind, SessionMark,
+    course_terms, course_timeline, intensive_days, planning_week, resolve_day_agenda,
+    schedule_problems, scheduled_courses, term_courses, validate_academic_profile, AgendaOptions,
+    CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
+    PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
 pub use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
@@ -77,13 +81,22 @@ pub use reminders::{
     NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
     ReminderService, DEFAULT_ASSIGNMENT_LEADS, REMINDER_LOG,
 };
+#[cfg(any(test, feature = "mobile-reminders"))]
+pub use reminders::{
+    PendingReminder, PendingReminderState, ReminderDeliveryPlan, ReminderPort, ReminderPortFacts,
+    ReminderReceipt,
+};
 pub use requests::{ColorCourse, ColorOverrides};
 pub use school::SchoolReads;
 pub(crate) use school::{CatalogEntry, ExamTimetable};
 pub(crate) use search::subject_codes;
 pub use search::LectureSearch;
 pub(crate) use tasks::assignment_submitted;
-pub use tasks::{task_view, AssignmentGroups, TaskDeadlineView, TaskView, TermTaskView};
+pub use tasks::{
+    assignment_state, deadline_view, task_view, AssignmentGroups, AssignmentState,
+    CountdownComponent, CountdownUnit, DeadlineState, HandInAvailability, TaskDeadlineView,
+    TaskView, TermTaskView,
+};
 pub(crate) use timing::{clock_for_periods, validate_period_range};
 pub use timing::{
     default_teaching_periods, teaching_periods, timetable_axis, validate_teaching_periods, AxisRow,
@@ -158,6 +171,16 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
+    /// Upcoming exams in this inclusive range of civil dates.
+    UpcomingExams {
+        from: String,
+        to: Option<String>,
+    },
+    /// All visible items in an inclusive civil-date range, across terms.
+    CalendarRange {
+        from: String,
+        to: String,
+    },
     /// Phone assignment lists: a quarter's timeline as rows, the current
     /// quarter's unless `term` names another (the iPad 授業 page's 課題).
     AssignmentBoard {
@@ -171,6 +194,10 @@ pub enum WorkspaceQuery {
     /// A course's LMS content lesson by lesson.
     CourseContent {
         course_id: String,
+        now: String,
+    },
+    DeadlineDisplay {
+        at: String,
         now: String,
     },
     /// One assignment with its LMS text and files, for an in-app page.
@@ -277,6 +304,19 @@ const AGENDA: &[WorkspaceChange] = &[
     Settings,
 ];
 const CALENDAR: &[WorkspaceChange] = &[Calendar, Settings];
+pub(crate) const REMINDER_FIELDS: &[WorkspaceChange] = &[
+    Courses,
+    Registrations,
+    Finder,
+    Calendar,
+    Materials,
+    Assignments,
+    Plans,
+    Events,
+    Subscriptions,
+    Settings,
+    Exams,
+];
 
 impl WorkspaceQuery {
     /// The changes whose records this query's result is computed from. A
@@ -292,7 +332,7 @@ impl WorkspaceQuery {
         // The exam timetable lives in `SchoolReads` and loads no field, so no
         // check can tell which answers it reaches. Every query that reads the
         // workspace re-runs when it changes; it changes a few times a quarter.
-        if !reads.is_empty() {
+        if !reads.is_empty() && !reads.contains(&Exams) {
             reads.push(Exams);
         }
         reads
@@ -337,7 +377,11 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
-            Self::PlanningWeek { .. } | Self::DayAgenda { .. } | Self::QuarterIcs { .. } => AGENDA,
+            Self::CalendarRange { .. }
+            | Self::UpcomingExams { .. }
+            | Self::PlanningWeek { .. }
+            | Self::DayAgenda { .. }
+            | Self::QuarterIcs { .. } => AGENDA,
             Self::ExamAssociation { .. } => {
                 &[Courses, Registrations, Finder, Calendar, Plans, Settings]
             }
@@ -350,6 +394,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
+            Self::DeadlineDisplay { .. } => &[],
             Self::AssignmentDetail { .. } => &[
                 Courses,
                 Registrations,
@@ -379,10 +424,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::Today { .. }
-            | Self::CourseContent { .. }
-            | Self::Glance { .. }
-            | Self::NotificationPlan { .. } => &[
+            Self::Today { .. } | Self::CourseContent { .. } | Self::Glance { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -394,6 +436,7 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
+            Self::NotificationPlan { .. } => REMINDER_FIELDS,
         }
     }
 }
@@ -434,7 +477,6 @@ pub struct ScheduleView {
     pub courses: Vec<Value>,
     pub agendas: Vec<DatedAgenda>,
     pub exams: Vec<ExamView>,
-    pub upcoming_exams: Vec<ExamView>,
     pub declared_credits: Option<f64>,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
@@ -490,7 +532,10 @@ pub enum WorkspaceQueryResult {
     PlanningWeek(PlanningWeek),
     AcademicYears(AcademicYearIndex),
     TaskView(TaskView),
+    DeadlineDisplay(TaskDeadlineView),
     Today(TodayView),
+    UpcomingExams(Vec<ExamView>),
+    CalendarRange(Vec<DatedAgenda>),
     AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
     AssignmentDetail(Option<AssignmentDetail>),
@@ -602,6 +647,15 @@ pub fn query(
             school,
             parse_timestamp(&now)?,
         )?)),
+        WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
+            calendar_between(workspace, school, &from, &to)?,
+        )),
+        WorkspaceQuery::UpcomingExams { from, to } => Ok(WorkspaceQueryResult::UpcomingExams(
+            exams::upcoming_exams(workspace, school, &from)
+                .into_iter()
+                .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
+                .collect(),
+        )),
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
             Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(
@@ -621,9 +675,16 @@ pub fn query(
                 parse_timestamp(&now)?,
             )))
         }
-        WorkspaceQuery::AssignmentDetail { assignment_id } => Ok(
-            WorkspaceQueryResult::AssignmentDetail(assignment_detail(workspace, &assignment_id)),
-        ),
+        WorkspaceQuery::AssignmentDetail { assignment_id } => {
+            Ok(WorkspaceQueryResult::AssignmentDetail(assignment_detail(
+                workspace,
+                &assignment_id,
+                chrono::Utc::now().fixed_offset(),
+            )))
+        }
+        WorkspaceQuery::DeadlineDisplay { at, now } => Ok(WorkspaceQueryResult::DeadlineDisplay(
+            deadline_view(parse_timestamp(&at)?, parse_timestamp(&now)?),
+        )),
         WorkspaceQuery::TaskView { now } => Ok(WorkspaceQueryResult::TaskView(task_view(
             workspace,
             parse_timestamp(&now)?,
@@ -638,26 +699,19 @@ pub fn query(
             let term_id = term.to_string();
             let overview = workspace_overview(workspace, school, &term_id)?;
             let courses = overview.courses.clone();
-            let mut agendas = calendar_between(workspace, school, &from, &to)?;
-            if !include_personal {
-                let periods = teaching_periods(workspace)?;
-                for agenda in &mut agendas {
-                    agenda.occurrences.retain(|block| {
-                        matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-                    });
-                    agenda.occurrences = occurrence::finalize_agenda(
-                        std::mem::take(&mut agenda.occurrences),
-                        &periods,
-                    )?;
-                }
-            }
+            let agendas = range::calendar_between_with_personal(
+                workspace,
+                school,
+                &from,
+                &to,
+                include_personal,
+            )?;
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
                 term: term.to_string(),
                 range: overview.range,
                 courses,
                 agendas,
                 exams: exam_views(workspace, school, &term_id),
-                upcoming_exams: exams::upcoming_exams(workspace, school, &from),
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
                 on_timetable_course_ids: overview.on_timetable_course_ids,
@@ -772,6 +826,12 @@ pub fn query(
                     records.insert(field.to_owned(), value.clone());
                 }
             }
+            records.insert(
+                "reminderLeadOptions".into(),
+                serde_json::json!(reminder_lead_options(
+                    &workspace["settings"]["notifications"]
+                )?),
+            );
             Ok(WorkspaceQueryResult::Records(Value::Object(records)))
         }
         WorkspaceQuery::ClassGroups { today } => {
@@ -1005,6 +1065,8 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         NotificationPriority::decl(cfg),
         NotificationItem::decl(cfg),
         NotificationPlan::decl(cfg),
+        ReminderLeadOptions::decl(cfg),
+        reminders::AssignmentLeadOptions::decl(cfg),
         GlanceSnapshot::decl(cfg),
         AgendaRequestOptions::decl(cfg),
         DatedAgenda::decl(cfg),
@@ -1016,10 +1078,13 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ColorOverrides::decl(cfg),
         CourseDetail::decl(cfg),
         AssignmentDetail::decl(cfg),
+        AssignmentState::decl(cfg),
+        HandInAvailability::decl(cfg),
         CourseContent::decl(cfg),
         LessonContent::decl(cfg),
         LessonItem::decl(cfg),
         LessonItemKind::decl(cfg),
+        lms_html::LocalizedLmsHtml::decl(cfg),
         AssignmentAttachment::decl(cfg),
         <crate::course_materials::CourseKey as TS>::decl(cfg),
         ExamView::decl(cfg),
@@ -1028,6 +1093,9 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamAssociation::decl(cfg),
         LectureSearch::decl(cfg),
         TaskDeadlineView::decl(cfg),
+        DeadlineState::decl(cfg),
+        CountdownUnit::decl(cfg),
+        CountdownComponent::decl(cfg),
         AssignmentGroups::decl(cfg),
         TermTaskView::decl(cfg),
         TaskView::decl(cfg),

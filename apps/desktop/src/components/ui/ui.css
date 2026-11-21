@@ -48,10 +48,10 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-3);
   flex-shrink: 0;
   min-height: 30px;
-  padding: 0 12px;
+  padding: 0 var(--space-6);
   border: 1px solid transparent;
   border-radius: var(--radius-control);
   background: var(--accent);
@@ -164,7 +164,7 @@ button:disabled {
 .uiStack {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-8);
 }
 .uiPaper {
   background: var(--surface);
@@ -202,7 +202,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   min-height: 1.6em;
-  padding: 0 6px;
+  padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--radius-chip);
   background: var(--tag-soft);
@@ -254,7 +254,7 @@ button.uiTag:not(:disabled):hover {
   color: var(--danger);
 }
 .uiAlert {
-  padding: 16px;
+  padding: var(--space-8);
   border-radius: var(--radius-surface);
   font-size: calc(var(--type-row-size) * var(--text));
 }
@@ -264,7 +264,7 @@ button.uiTag:not(:disabled):hover {
 }
 .uiFieldLabel {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
   font-size: 0.875rem;
   font-weight: 500;
   line-height: 1.55;
@@ -273,11 +273,11 @@ button.uiTag:not(:disabled):hover {
 .uiFieldError {
   font-size: 0.75rem;
   line-height: 1.4;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-2);
   color: var(--muted);
 }
 .uiFieldError {
-  margin-top: 4px;
+  margin-top: var(--space-2);
   color: var(--danger);
 }
 .uiInputWrapper {
@@ -288,7 +288,7 @@ button.uiTag:not(:disabled):hover {
   width: 100%;
   min-width: 0;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--space-6);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   background: var(--surface);
@@ -327,7 +327,7 @@ button.uiTag:not(:disabled):hover {
 }
 textarea.uiInput {
   height: auto;
-  padding: 8px 12px;
+  padding: var(--space-4) var(--space-6);
 }
 .uiInputWrapper:has(.uiInputSection) > .uiInput {
   padding-right: 34px;
@@ -342,7 +342,7 @@ textarea.uiInput {
 .uiCheckField {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-5);
 }
 .uiCheckField > label {
   font-size: calc(var(--type-row-size) * var(--text));
@@ -353,7 +353,7 @@ textarea.uiInput {
   display: block;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-  margin-top: 4px;
+  margin-top: var(--space-2);
 }
 .uiCheckbox,
 .uiRadio {
@@ -392,7 +392,7 @@ textarea.uiInput {
   align-items: center;
   width: 38px;
   height: 20px;
-  padding: 2px;
+  padding: var(--space-1);
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--surface-3);
@@ -426,7 +426,7 @@ textarea.uiInput {
   background: var(--surface-3);
 }
 .uiSegment {
-  padding: 5px 10px;
+  padding: 5px var(--space-5);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -453,7 +453,7 @@ textarea.uiInput {
 /* A filter chip is a control, but sized and lettered as a tag. */
 .uiChip {
   min-height: 1.6em;
-  padding: 0 6px;
+  padding: 0 var(--space-3);
   border: 1px solid var(--line);
   border-radius: var(--radius-chip);
   background: var(--surface);
@@ -474,7 +474,7 @@ textarea.uiInput {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-4);
   text-align: left;
 }
 .uiSelectTrigger > span:first-child {
@@ -486,7 +486,7 @@ textarea.uiInput {
 .uiMenu,
 .uiPopover {
   z-index: 410;
-  padding: 4px;
+  padding: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-surface);
@@ -507,8 +507,8 @@ textarea.uiInput {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 28px 7px 10px;
+  gap: var(--space-4);
+  padding: 7px 28px 7px var(--space-5);
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
@@ -539,7 +539,7 @@ textarea.uiInput {
   right: 8px;
 }
 .uiSelectGroupLabel {
-  padding: 6px 10px 3px;
+  padding: var(--space-3) var(--space-5) 3px;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
@@ -554,17 +554,17 @@ textarea.uiInput {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-2);
   height: auto;
   min-height: 36px;
-  padding: 4px 8px;
+  padding: var(--space-2) var(--space-4);
 }
 .uiMultiOptions {
   display: flex;
   flex-direction: column;
 }
 .uiPopover {
-  padding: 12px;
+  padding: var(--space-6);
   border-radius: var(--radius-panel);
 }
 .uiPopoverArrow {
@@ -573,7 +573,7 @@ textarea.uiInput {
 .uiInfoTip {
   display: inline-grid;
   place-items: center;
-  padding: 2px;
+  padding: var(--space-1);
   border: 0;
   border-radius: 50%;
   background: none;
@@ -627,7 +627,7 @@ textarea.uiInput {
   }
 }
 .uiPagination {
-  gap: 6px;
+  gap: var(--space-3);
 }
 .uiPageGap {
   padding: 0 7px;
@@ -659,8 +659,8 @@ textarea.uiInput {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 16px;
+  gap: var(--space-8);
+  padding: var(--space-8);
   background: inherit;
 }
 .uiDialogTitle {
@@ -670,7 +670,7 @@ textarea.uiInput {
   line-height: 1.55;
 }
 .uiDialogBody {
-  padding: 0 16px 16px;
+  padding: 0 var(--space-8) var(--space-8);
 }
 .uiDrawerContent {
   top: 0;
@@ -710,8 +710,8 @@ textarea.uiInput {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
+  gap: var(--space-6);
+  padding: var(--space-5) var(--space-6) var(--space-5) var(--space-8);
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: var(--surface);
@@ -721,7 +721,7 @@ textarea.uiInput {
 }
 .uiToastAction {
   flex: none;
-  padding: 4px 10px;
+  padding: var(--space-2) var(--space-5);
   border: 0;
   border-radius: var(--radius-control);
   background: var(--accent-soft);
@@ -760,8 +760,8 @@ textarea.uiInput {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 40px 16px;
+  gap: var(--space-5);
+  padding: 40px var(--space-8);
   color: var(--muted);
   text-align: center;
 }
@@ -772,8 +772,8 @@ textarea.uiInput {
 }
 .uiEmpty[data-compact] {
   flex: none;
-  gap: 6px;
-  padding: 16px 8px;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
 }
 .uiEmpty[data-compact] > p {
   font-size: calc(var(--type-note-size) * var(--text));
@@ -784,8 +784,8 @@ textarea.uiInput {
 .uiBanner {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 8px 8px 12px;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-4) var(--space-4) var(--space-6);
   border-radius: var(--radius-surface);
   background: var(--danger-soft);
   color: var(--danger);
@@ -804,7 +804,7 @@ textarea.uiInput {
 }
 .uiBannerAction {
   flex: none;
-  padding: 4px 10px;
+  padding: var(--space-2) var(--space-5);
   border: 0;
   border-radius: var(--radius-control);
   background: color-mix(in srgb, var(--danger) 12%, var(--danger-soft));
@@ -830,8 +830,8 @@ button svg.lucide,
    come; the content that replaces them fades in (useReveal). */
 .skeleton {
   display: grid;
-  gap: 8px;
-  padding: 8px 0;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
 }
 .skeleton[data-shape="row"] > i {
   display: block;
@@ -845,13 +845,13 @@ button svg.lucide,
 .skeleton[data-shape="week"] {
   flex: 1;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 6px;
+  gap: var(--space-3);
   min-height: 240px;
 }
 .skeletonColumn {
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: var(--space-3);
 }
 .skeletonColumn > i {
   display: block;
