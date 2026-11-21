@@ -3,6 +3,7 @@ import {
   examKindLabel,
 } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
+import { TitleRow } from "../../components/TitleRow";
 import { type ReactNode } from "react";
 import { t } from "../../i18n";
 import { type ScheduleView } from "../../platform/core-query";
@@ -53,14 +54,10 @@ export function LectureExamList({
           : exam.courseId
             ? t("lectures.linked")
             : t("common.notLinked")}
-        {exam.status === "cancelled"
-          ? ` · ${t("exam.status.cancelled")}`
-          : ""}
+        {exam.status === "cancelled" ? ` · ${t("exam.status.cancelled")}` : ""}
       </small>
       {exam.conflict && (
-        <small className="examConflictTag">
-          {examConflictLabel(exam)}
-        </small>
+        <small className="examConflictTag">{examConflictLabel(exam)}</small>
       )}
     </button>
   );
@@ -68,9 +65,7 @@ export function LectureExamList({
     <>
       <div className="lectureExamScope">
         <small>
-          {needle
-            ? t("lectures.searchPublishedExams")
-            : t("lectures.myExams")}
+          {needle ? t("lectures.searchPublishedExams") : t("lectures.myExams")}
         </small>
         {!shown.length && (
           <p>
@@ -113,17 +108,20 @@ export function LectureExamDetails({
       className={`lectureExamDetails${selectedExam && entering === `exam:${selectedExam.key}` ? " entering" : ""}`}
       onAnimationEnd={endEntrance}
     >
-      {sidebarToggle}
+      <TitleRow className="lectureExamHeader">
+        {sidebarToggle}
+        {selectedExam && (
+          <>
+            <h1>{selectedExam.title || selectedExam.code}</h1>
+            <small>
+              {selectedExam.code} · {selectedExam.term.replace("-", " ")} ·{" "}
+              {examKindLabel(selectedExam)}
+            </small>
+          </>
+        )}
+      </TitleRow>
       {selectedExam ? (
         <>
-          <header>
-            <h1>{selectedExam.title || selectedExam.code}</h1>
-            <p>
-              {selectedExam.code} ·{" "}
-              {selectedExam.term.replace("-", " ")} ·{" "}
-              {examKindLabel(selectedExam)}
-            </p>
-          </header>
           <ExamEditor
             key={selectedExam.key}
             exam={selectedExam}

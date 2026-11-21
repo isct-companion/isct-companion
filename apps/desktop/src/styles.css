@@ -12,6 +12,9 @@
   font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   --rail: 72px;
+  /* The window's top row: traffic lights on macOS, then each column's
+     header (lib.rs centres the lights in it). */
+  --titlebar: 46px;
   --text: 1;
 }
 :root[data-text-size="small"] {
@@ -60,7 +63,6 @@ p {
 /* As in native apps, the frame and its controls are not text to select (and
    take the arrow cursor, ui.css): only content and fields are. */
 .rail,
-.schoolStatusPanel,
 button,
 label,
 summary,
@@ -127,6 +129,8 @@ summary,
   height: 100dvh;
   overflow: hidden;
 }
+/* The window chrome: the rail and the title row share the window's own
+   background; the content sits on one plane beside and below them. */
 .rail {
   position: fixed;
   /* The main page has a view-transition stacking context over its padding. */
@@ -137,9 +141,13 @@ summary,
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-7) var(--space-4);
-  border-right: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 70%, var(--bg));
+  padding: var(--titlebar) var(--space-4) var(--space-5);
+  background: transparent;
+}
+/* Without a title bar of our own (Windows draws its own above the page)
+   the rail needs no room for traffic lights. */
+:root:not([data-os="macos"]) .rail {
+  padding-top: var(--space-5);
 }
 .rail nav {
   display: grid;
@@ -192,28 +200,27 @@ summary,
   gap: var(--space-2);
 }
 .workspaceMain {
+  position: relative;
+  isolation: isolate;
   min-width: 0;
-  padding: var(--space-9) var(--space-gutter) 72px;
-  padding-inline-start: calc(var(--rail) + var(--space-gutter));
-  display: flex;
-  transition: margin-right var(--motion-duration-base)
-    var(--motion-easing-standard);
-}
-.workspaceMain.settingsMain {
   height: 100dvh;
   overflow: hidden;
-}
-/* Home fits the window; the day and the syllabus list scroll inside their panels. */
-.workspaceMain.homeMain,
-.workspaceMain.timetableMain {
-  height: 100dvh;
-  overflow: hidden;
-}
-.workspaceMain.webMain {
-  height: 100dvh;
-  overflow: hidden;
-  padding: 0 0 52px;
+  padding: 0;
   padding-inline-start: var(--rail);
+  display: flex;
+}
+/* The content plane: one sheet under the title row and beside the rail,
+   rounded only where it tucks under that chrome. Columns on it are split
+   by hairlines, not cards or gaps. */
+.workspaceMain::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: var(--titlebar) 0 0 var(--rail);
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+  border-top-left-radius: var(--radius-panel);
+  background: var(--surface);
 }
 /* A retained page's overlay layer (app/KeptPage.tsx) takes no space; its
    popovers and modals position themselves against the viewport. */
@@ -231,7 +238,7 @@ summary,
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-6);
+  gap: 0;
   animation: enter var(--motion-duration-base) var(--motion-easing-standard);
 }
 @keyframes enter {
@@ -282,285 +289,48 @@ summary,
 /* ---------- school status ---------- */
 /* Floating at the bottom right: one summary line and Refresh. It floats over
    the page, so it takes the overlay shadow. */
-.schoolStatusPanel {
-  position: fixed;
-  z-index: 50;
-  right: var(--space-6);
-  bottom: var(--space-6);
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
-}
-.schoolStatusOverview {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-4);
-  max-width: 300px;
-  min-height: 28px;
-  padding: 0 var(--space-5);
-  border: 0;
-  border-radius: calc(var(--radius-control) - var(--space-1));
-  background: none;
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-variant-numeric: tabular-nums;
-}
-.schoolStatusOverview:hover,
-.schoolStatusOverview[aria-expanded="true"] {
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.schoolStatusOverview > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.schoolStatusOverview[data-kind="problem"] {
-  color: var(--danger);
-}
+/* The school status at the very foot of the rail: a dot alone. Its menu is
+   the system's, so it floats over the native school view. */
 .schoolStatusDot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--ok);
-}
-.schoolStatusOverview[data-kind="held"] .schoolStatusDot {
-  background: var(--warn);
-}
-.schoolStatusOverview[data-kind="problem"] .schoolStatusDot {
-  background: var(--danger);
-}
-.schoolStatusRefresh {
+  justify-self: center;
   display: grid;
   place-items: center;
   width: 28px;
   height: 28px;
+  margin-top: var(--space-2);
   padding: 0;
   border: 0;
-  border-radius: calc(var(--radius-control) - var(--space-1));
+  border-radius: 50%;
   background: none;
-  color: var(--muted);
 }
-.schoolStatusRefresh:hover:not(:disabled) {
-  background: var(--surface-2);
-  color: var(--ink);
+.schoolStatusDot:hover {
+  background: var(--surface-3);
 }
-/* The panel: accounts first, then what Core is doing and what failed. */
-.schoolStatusDetails {
-  padding: var(--space-card);
-}
-.schoolStatusDetailsBody {
-  display: grid;
-  gap: var(--space-6);
-  outline: none;
-}
-.schoolStatusDetails .lmsStatusLine {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-.schoolStatusDetails .lmsStatusLine > span {
-  white-space: normal;
-}
-.schoolStatusDetails .schoolUpdated {
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-8);
-}
-.schoolStatusAccounts {
-  display: grid;
-  gap: var(--space-5);
-}
-.schoolStatusAccount {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  min-width: 0;
-  color: var(--muted);
-}
-.schoolStatusAccount > i {
+.schoolStatusDot > i {
   width: 8px;
   height: 8px;
-  flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--muted);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--muted) 12%, transparent);
-}
-.schoolStatusAccount[data-state="normal"] > i {
   background: var(--ok);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 14%, transparent);
 }
-.schoolStatusAccount[data-state="needs-web"] > i,
-.schoolStatusAccount[data-state="unavailable"] > i,
-.schoolStatusAccount[data-maintenance] > i {
+.schoolStatusDot[data-kind="held"] > i {
   background: var(--warn);
 }
-.schoolStatusAccount[data-state="refused"] > i {
+.schoolStatusDot[data-kind="problem"] > i {
   background: var(--danger);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent);
 }
-.schoolStatusAccount[data-state="checking"] > i,
-.schoolStatusAccount[data-state="signing-in"] > i {
+.schoolStatusDot[data-kind="busy"] > i {
   background: var(--accent);
   animation: schoolStatusPulse 1.5s ease-in-out infinite;
 }
-.schoolStatusAccount > span {
-  display: grid;
-  line-height: 1.15;
-}
-.schoolStatusAccount b,
-.lmsStatus b {
-  color: var(--ink);
-  font-size: calc(var(--type-block-size) * var(--text));
-  font-weight: 700;
-}
-.schoolStatusAccount small {
-  max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: calc(var(--type-tick-size) * var(--text));
-}
-.lmsStatus {
-  min-width: 0;
-}
-.lmsStatusLine {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 9px;
-  min-width: 0;
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-}
-.lmsStatusLine > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.lmsStatusLine > .textButton {
-  flex: 0 0 auto;
-  margin-inline-start: var(--space-3);
-}
-.lmsStatus[data-kind="problem"] .lmsStatusLine > span {
-  color: var(--danger);
-}
-/* Idle: one quiet "source · age" pair per school site. */
-.schoolUpdated {
-  display: flex;
-  gap: var(--space-8);
-}
-.schoolUpdated > span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  font-variant-numeric: tabular-nums;
-}
-.schoolUpdated b {
-  font-weight: 600;
-}
-/* Background pulls Core started on its own: a small turning ring, no bar. */
-.schoolStatusSpinner {
-  align-self: center;
-  width: 9px;
-  height: 9px;
-  flex: 0 0 auto;
-  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: schoolStatusSpin 0.9s linear infinite;
-}
-@keyframes schoolStatusSpin {
-  to {
-    transform: rotate(1turn);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .schoolStatusSpinner {
+  .schoolStatusDot[data-kind="busy"] > i {
     animation: none;
   }
-}
-.lmsStatus progress {
-  display: block;
-  width: 100%;
-  height: 3px;
-  margin-top: 5px;
-  border: 0;
-  border-radius: 999px;
-  overflow: hidden;
-  appearance: none;
-  background: var(--surface-3);
-}
-.lmsStatus progress::-webkit-progress-bar {
-  background: var(--surface-3);
-}
-.lmsStatus progress::-webkit-progress-value {
-  border-radius: 999px;
-  background: var(--accent);
-  transition: width var(--motion-duration-base) var(--motion-easing-standard);
-}
-.lmsStatus progress::-moz-progress-bar {
-  border-radius: 999px;
-  background: var(--accent);
 }
 @keyframes schoolStatusPulse {
   50% {
     opacity: 0.4;
   }
-}
-
-/* Core's sync snapshot: a bar only for runs of known size, a spinner for
-   background work, and each failed dataset with its own Retry. */
-.syncProgress {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-.syncProgress > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.syncProgress[data-kind="bar"] {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
-  min-width: 160px;
-}
-.syncProgress[data-kind="bar"] progress {
-  margin-top: 0;
-}
-.syncFailures {
-  display: grid;
-  gap: var(--space-1);
-  margin: var(--space-2) 0 0;
-  padding: 0;
-  list-style: none;
-  color: var(--danger);
-  font-size: calc(var(--type-block-size) * var(--text));
-}
-.syncFailures li {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: var(--space-4);
-  min-width: 0;
-}
-.syncFailures li > span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* In-page progress over local data that stays visible. */
 .syncPageStatus {
@@ -1102,9 +872,10 @@ summary,
 .web {
   gap: var(--space-6);
 }
-/* The school page takes the window: a narrow margin keeps its card a card. */
+/* The school page takes its column whole: no margin, no card. */
 .servicesPage {
-  padding: var(--space-3);
+  padding: 0;
+  gap: 0;
 }
 .webStatus {
   max-width: 180px;
@@ -1179,22 +950,34 @@ summary,
 /* ---------- settings ---------- */
 .settings {
   flex-direction: row;
-  gap: 18px;
+  gap: 0;
+}
+.settingsNavColumn,
+.settingsPaneColumn {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.settingsNavColumn {
+  flex: 0 0 210px;
+  border-right: 1px solid var(--line);
+}
+.settingsPaneColumn {
+  flex: 1;
+  min-width: 0;
 }
 .settingsNav {
-  width: 190px;
-  flex: 0 0 auto;
   display: grid;
   align-content: start;
   gap: var(--space-1);
-  padding-top: var(--space-2);
+  padding: var(--space-4) var(--space-3);
 }
 .settingsNav button {
   border: 0;
   background: none;
   text-align: left;
   padding: var(--space-4) 11px;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   color: var(--muted);
   font-weight: 600;
   font-size: calc(var(--type-note-size) * var(--text));
@@ -1204,8 +987,8 @@ summary,
   color: var(--ink);
 }
 .settingsNav button.active {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface-3);
+  color: var(--ink);
 }
 .settingsNav .settingsSearch {
   margin-bottom: var(--space-5);
@@ -1226,8 +1009,10 @@ summary,
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  padding: var(--space-8) var(--space-gutter) var(--space-10);
+}
+.settingsPane > * {
   max-width: 760px;
-  padding: var(--space-2) var(--space-2) var(--space-10) 0;
 }
 .settingsPane h2 {
   font-size: calc(17px * var(--text));
@@ -1679,40 +1464,26 @@ summary,
 }
 /* ---------- task workspace ---------- */
 .todayPage {
-  max-width: 1120px;
-  margin: 0 auto;
+  min-width: 0;
 }
-.todayHeader {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-10);
-  padding: 22px var(--space-2) var(--space-10);
-  border-bottom: 1px solid var(--line);
-}
+/* The day's title row: the date, the weekday beside it, the day's state. */
 .todayEyebrow {
-  margin-bottom: 3px;
+  margin-inline-start: var(--space-4);
   color: var(--muted);
-  font-size: calc(var(--type-note-size) * var(--text));
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.todayHeader h1 {
-  font-size: clamp(34px, 4.2vw, 58px);
-  line-height: 0.98;
-  letter-spacing: -0.055em;
-  font-weight: 700;
+  font-weight: 500;
 }
 .teachingState {
+  flex: 0 0 auto;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-  padding-bottom: var(--space-2);
+}
+.todayWeek {
+  padding: var(--space-4) var(--space-5) 0;
 }
 .todayFlow {
   min-height: 0;
   overflow: auto;
-  padding: var(--space-4) var(--space-2) 36px;
+  padding: var(--space-4) var(--space-6) 36px;
 }
 .importantDates {
   display: flex;
@@ -1949,164 +1720,188 @@ summary,
 }
 
 /* ---------- school services ---------- */
-.webToolbar {
-  min-width: 0;
-  min-height: 38px;
-  display: grid;
-  /* The zoom and open controls keep their minimum width on narrow windows;
-     a shrunk track let "Zoom in" slide under "Open in browser". */
-  grid-template-columns: auto minmax(0, 85fr) minmax(min-content, 10fr) minmax(
-      min-content,
-      5fr
-    );
-  align-items: center;
-  gap: 0;
-  padding: var(--space-1) 0 var(--space-1) var(--space-5);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
+/* The school sites are tabs in the window's top row (as a browser's are);
+   the page's tools sit in one bar under them: pill groups on a soft fill. */
+.webTitleRow {
+  padding-inline-end: var(--space-3);
 }
-.webAddress {
+.webTabs {
+  flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding-right: 5px;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.webAddressInput {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-}
-.webSecure {
-  color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
-  line-height: 1;
-}
-.webToolbar input {
-  flex: 1;
-  min-width: 0;
-  width: 100%;
-  height: 28px;
-  padding: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--ink);
-  font:
-    500 calc(11.5px * var(--text))/1.2 ui-monospace,
-    SFMono-Regular,
-    Menlo,
-    monospace;
-}
-.webToolbar:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
-}
-.webZoom {
-  min-width: 0;
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(24px, 1fr) minmax(36px, 1.45fr) minmax(
-      24px,
-      1fr
-    );
+.webTabGroup {
+  flex: 0 0 auto;
+  display: flex;
   align-items: center;
-  gap: 1px;
-  padding-inline: var(--space-1);
-  border-inline: 1px solid var(--line);
+  gap: 2px;
 }
-.webZoom .iconButton,
-.webZoom .zoomValue {
-  width: 100%;
-  min-width: 0;
-}
-.zoomValue {
-  min-width: 42px;
-  min-height: 28px;
-  padding: 0 3px;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: calc(var(--type-block-size) * var(--text));
-  text-align: center;
-}
-.zoomValue:hover {
-  background: var(--surface-3);
-  color: var(--ink);
-}
-.webOpenOutside {
-  width: 100%;
-  min-width: 30px;
-  border-radius: 0 7px 7px 0;
-}
-.servicesBody {
-  min-height: 0;
-  flex: 1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
-.servicePicker {
-  min-width: 0;
-  overflow: hidden auto;
-  padding-top: var(--space-1);
-}
-.serviceTier {
-  display: grid;
-  gap: 1px;
-}
-.serviceDivider {
-  height: 1px;
-  margin: 7px 9px;
+.webTabDivider {
+  width: 1px;
+  height: 16px;
+  margin-inline: var(--space-3);
   background: var(--line);
 }
-.servicePicker button {
-  width: 100%;
-  min-height: 32px;
+.webTab {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-4);
-  padding: 0 9px;
+  gap: var(--space-3);
+  height: 30px;
+  max-width: 180px;
+  padding: 0 var(--space-5);
   border: 0;
-  border-radius: 8px;
-  background: transparent;
+  border-radius: var(--radius-control);
+  background: none;
   color: var(--muted);
-  text-align: left;
   font-size: calc(var(--type-note-size) * var(--text));
   font-weight: 600;
   white-space: nowrap;
-  overflow: hidden;
 }
-.servicePicker button span {
+.webTab > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.servicePicker button:hover {
-  background: var(--surface-3);
-  color: var(--ink);
-}
-.servicePicker button.active {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-.servicePicker i {
+.webTab > i {
   width: 6px;
   height: 6px;
   flex: 0 0 auto;
   border-radius: 50%;
   background: currentColor;
 }
-.servicePicker button[data-frequency="high"] i {
+.webTab[data-frequency="high"] > i {
   background: var(--accent);
 }
-.servicePicker button[data-frequency="low"] {
+.webTab[data-frequency="low"] {
   color: color-mix(in srgb, var(--muted) 72%, transparent);
 }
-.servicesBody .webHost {
+.webTab:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.webTab.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.webToolbar {
+  flex: 0 0 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+.webPill {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+.webPill .iconButton {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  color: var(--muted);
+}
+.webPill .iconButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+.webPill svg {
+  width: 16px;
+  height: 16px;
+}
+.webNav {
+  padding-inline: 1px;
+}
+.webNav:empty {
+  display: none;
+}
+.webAddress {
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: var(--space-3);
+  padding-inline: var(--space-5);
+}
+.webAddress:focus-within {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.webSecure {
+  flex: 0 0 auto;
+  width: 12px !important;
+  height: 12px !important;
+  color: var(--muted);
+}
+.webAddressInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+.webToolbar input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: center;
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.webToolbar input:focus {
+  text-align: start;
+}
+.webZoom {
+  padding-inline: 1px;
+}
+.zoomValue {
+  min-width: 44px;
+  height: 28px;
+  padding: 0 3px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: calc(var(--type-block-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.zoomValue:hover {
+  color: var(--ink);
+}
+.webOpenOutside {
+  display: grid;
+  place-items: center;
+  width: 30px !important;
+  height: 30px !important;
+}
+.webWorkspace > .webNotice {
+  margin: var(--space-3) var(--space-3) 0;
+}
+.webWorkspace {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-surface);
+}
+.webWorkspace .webHost {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
   background: var(--surface);
 }
@@ -2817,13 +2612,6 @@ summary,
   color: var(--muted);
   font-size: calc(var(--type-tick-size) * var(--text));
 }
-/* Smaller date header so classes and deadlines start higher. */
-.todayHeader {
-  padding: var(--space-6) var(--space-2) var(--space-7);
-}
-.todayHeader h1 {
-  font-size: clamp(28px, 3vw, calc(var(--type-display-size) * var(--text)));
-}
 .todaySection {
   padding-top: var(--space-8);
 }
@@ -2903,11 +2691,30 @@ summary,
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
 }
-.unifiedSchedule .pageBar {
-  flex-wrap: wrap;
+/* Under the timetable's title row: the quarter shown, its credits and what
+   to add to it. */
+.timetableBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  min-width: 0;
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 1px solid var(--line);
 }
-.unifiedSchedule .pageBarRight {
-  flex-wrap: wrap;
+.timetableBarEnd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  min-width: 0;
+}
+/* The timetable's title row: its actions to the right. */
+.timetableTitle .pageBarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  min-width: 0;
 }
 .timetableViewBar {
   min-height: 45px;
@@ -3562,7 +3369,7 @@ textarea.codeArea {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  gap: var(--space-10);
+  gap: 0;
   min-width: 0;
   min-height: 0;
 }
@@ -3595,7 +3402,6 @@ textarea.codeArea {
   display: flex;
   min-height: 0;
   overflow: auto;
-  padding-right: var(--space-9);
   border-right: 1px solid var(--line);
 }
 .homeWeek {
@@ -3613,10 +3419,6 @@ textarea.codeArea {
 }
 .homeBack {
   display: none;
-}
-.homeDay .todayHeader {
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-8);
 }
 .homePage.planning {
   grid-template-columns: minmax(0, 1fr);
@@ -3662,7 +3464,13 @@ textarea.codeArea {
   min-height: 0;
 }
 .calendarWorkspace {
-  gap: var(--space-8);
+  gap: 0;
+}
+.calendarRange {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
 }
 .calendarWorkspace .ttCard {
   flex: 1;
@@ -3684,9 +3492,6 @@ textarea.codeArea {
    the page fades and rises into place. */
 .rail {
   view-transition-name: app-rail;
-}
-.schoolStatusPanel {
-  view-transition-name: app-status;
 }
 .workspaceMain {
   view-transition-name: app-page;
@@ -3730,4 +3535,225 @@ textarea.codeArea {
     opacity: 0;
     transform: translateY(8px) scale(0.995);
   }
+}
+
+/* ---------- title row (components/TitleRow.tsx) ---------- */
+.titleRow {
+  flex: 0 0 var(--titlebar);
+  height: var(--titlebar);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-inline: var(--space-4);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.titleRow > h1,
+.titleRow > .titleRowTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: calc(var(--type-row-size) * var(--text));
+  font-weight: 650;
+  color: var(--ink);
+}
+.titleRow .titleRowSpacer {
+  flex: 1;
+}
+.titlebarNav {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-end: var(--space-2);
+}
+/* On macOS the first title row starts right after the traffic lights. */
+:root[data-os="macos"] .titlebarNav {
+  margin-inline-start: var(--space-3);
+}
+.titlebarNav .iconButton,
+.titlebarNav .workspaceSidebarToggle {
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+}
+.titlebarNav .iconButton:disabled {
+  opacity: 0.4;
+}
+.titlebarNav svg {
+  width: 17px;
+  height: 17px;
+}
+/* A column below its title row: the part that scrolls. */
+.pageBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* In-page progress (an LMS course updating): a small turning ring. */
+.schoolStatusSpinner {
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 auto;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: schoolStatusSpin 0.9s linear infinite;
+}
+@keyframes schoolStatusSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .schoolStatusSpinner {
+    animation: none;
+  }
+}
+
+/* Primary regions sit flat on the plane (the shell's flat-plane rule): no
+   card edge, radius or shadow; columns meet at hairlines. Cards stay for
+   separate items (a course panel, an account). */
+.ttCard,
+.listCard {
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+/* A course opened over the finder covers it: opaque, on the plane. */
+.listCard.coursePanel {
+  background: var(--surface) !important;
+}
+
+/* A reader's tool panel serving as its column's title row: one line; the
+   title gives way before the tools do. */
+.titleRow.workspaceToolPanel {
+  flex-wrap: nowrap;
+  align-items: center;
+  min-height: var(--titlebar);
+  padding: 0 var(--space-3);
+  border-bottom: 0;
+  background: transparent;
+}
+.workspacePane.lmsViewer {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+/* One toolbar for every pane (the reader's tools, the calendar's weeks):
+   centred groups on soft pills under a hairline, as the web page's are. */
+.paneToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+.lmsReaderBar:has(.lmsReaderToolSlot:empty) {
+  display: none;
+}
+.lmsReaderBar .lmsReaderToolSlot {
+  flex: 0 1 auto;
+  justify-content: center;
+}
+/* A group of related controls: one rounded pill, icon buttons inside. */
+.toolPill,
+.paneToolbar :is(.lmsFileActions, .lmsPdfPagination, .lmsPdfZoom, .lmsImageZoom) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.toolPill > button,
+.paneToolbar :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom) > :is(button, a),
+.paneToolbar .lmsPdfFindToggle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted) !important;
+}
+.toolPill > button:hover:not(:disabled),
+.paneToolbar :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom) > :is(button, a):hover:not(:disabled),
+.paneToolbar .lmsPdfFindToggle:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent) !important;
+  color: var(--ink) !important;
+}
+.toolPillLabel {
+  padding: 0 var(--space-3);
+  color: var(--ink);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+/* A single labelled action as its own pill. */
+.toolPill.toolPillButton {
+  width: auto;
+  padding: 0 var(--space-5);
+  color: var(--ink);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.toolPill.toolPillButton:hover {
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface-3));
+}
+.paneToolbar .lmsPdfFindToggle {
+  width: 30px;
+  height: 30px;
+  background: var(--surface-3);
+}
+.paneToolbar .lmsPdfPagination {
+  padding: 0 var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+.paneToolbar .lmsPdfPagination input {
+  width: 32px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+}
+.paneToolbar .lmsPdfControls,
+.paneToolbar .lmsPdfHeader,
+.paneToolbar .lmsFileToolbar {
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.paneToolbar .lmsSourceBar {
+  border: 0 !important;
+  border-radius: 0;
+  background: none;
+}
+.paneToolbar .lmsPdfZoom .uiSelectTrigger {
+  height: 26px;
+  min-height: 26px;
+  border: 0;
+  background: transparent;
+}
+.paneToolbar .mantine-Input-wrapper input,
+.paneToolbar input[type="date"] {
+  height: 30px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.titleRow .lmsReaderTitle {
+  flex: 1;
 }

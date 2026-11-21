@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { TitleRow } from "../../components/TitleRow";
 import { t } from "../../i18n";
 import type { Platform } from "../../platform/capabilities";
 import { CampusPrinter } from "./CampusPrinter";
@@ -30,8 +31,10 @@ export function Tools({
 }) {
   return (
     <div className="page tools">
-      <h2>{t("common.tools")}</h2>
-      <div className="toolCards">
+      <TitleRow nav>
+        <h1>{t("common.tools")}</h1>
+      </TitleRow>
+      <div className="toolCards pageBody">
         {availableTools(platform).map((tool) => {
           const Card = cards[tool];
           return <Card key={tool} notify={notify} />;

@@ -2,7 +2,11 @@ import { EmptyState } from "../../components/ui";
 import { Globe } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { desktopBridge } from "../../platform/native";
-import { claimSchoolView, hideNativeSchoolWeb, releaseSchoolView } from "../../platform/school-web-owner";
+import {
+  claimSchoolView,
+  hideNativeSchoolWeb,
+  releaseSchoolView,
+} from "../../platform/school-web-owner";
 import { useConfirmationPending } from "../../components/confirm";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";

@@ -249,7 +249,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useOpenHint.ts<br>apps/desktop/src/platform/sync-intents.ts<br>apps/desktop/src/store/sync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/features/lms/useOutlineReading.ts |
-| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatusLine.tsx<br>apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/app/SchoolStatusPanel.tsx<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatus.tsx<br>apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/platform/native-menu.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx |
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/pages/courses/useFinderSelection.ts<br>crates/app-core/src/workspace/mod.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs<br>crates/app-core/src/course_query/catalog.rs<br>crates/app-core/src/course_query/conditions.rs<br>crates/app-core/src/course_query/matching.rs<br>crates/app-core/src/course_query/personal.rs |
@@ -302,7 +302,7 @@ an unverified area becomes an assumed-good one.
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
 | `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
-| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/desktop/src/app/SchoolStatusLine.tsx |
+| `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/desktop/src/lib/sync-text.ts |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
 | `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -361,7 +361,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
 | `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-ffi/src/ports.rs<br>crates/app-ffi/src/session.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
-| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/app/SchoolStatusPanel.tsx<br>apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
+| `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/app/SchoolStatus.tsx<br>apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
 | `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
@@ -2913,20 +2913,35 @@ campus VPN helper not yet installed for the first run.
    - *Why:* The update brings the helper with the app; the running one must hand
      over to it by itself, with no password dialog and no new approval in
      Login Items, before it connects.
-7. Compare the countdown on the VPN row with the session end openconnect
+7. Open a second copy of the app with the same bundle identifier (a
+   mounted disk image, or a local `yarn desktop:build --debug` bundle
+   in target/debug/bundle) and press Install or Repair there. Quit it,
+   delete that copy, open /Applications/IsctCompanion.app and read the
+   VPN card; press Repair, then Connect. Run
+   `launchctl print system/app.isctcompanion.vpn | grep -E 'Executable|state'`
+   before and after the repair.
+   - *Why:* launchd runs the helper inside whichever copy registered it. Once
+     that copy is gone the daemon still reads enabled but launchd cannot
+     find the program (EX_CONFIG), which looked like a helper that
+     "does not respond". The card must say macOS cannot start it and
+     offer Repair, and Repair must leave Executable pointing into
+     /Applications and the helper running, with no new approval. While
+     the other copy still exists the card must say the helper belongs
+     to another copy instead of connecting through it.
+8. Compare the countdown on the VPN row with the session end openconnect
    logs in /var/log/app.isctcompanion.vpnhelper.log.
    - *Why:* The countdown is read from openconnect's UTC expiry line; a wrong
      zone would shift it by hours.
-8. Leave the tunnel up into its last ten minutes with another page of
+9. Leave the tunnel up into its last ten minutes with another page of
    the app open, then let it end.
    - *Why:* The reminder and the ended notice come from the minute check, not
      from the Settings page; neither may reconnect.
-9. While connected, switch to another network so the tunnel ends, and
+10. While connected, switch to another network so the tunnel ends, and
    run `route -n get 131.112.12.180` and `scutil --dns`.
    - *Why:* The APM's pin must follow the new network's gateway and the campus
      resolvers must be gone until the tunnel is back; otherwise neither
      openconnect nor a new sign-in can reach the APM.
-10. Disconnect, then check the routes and the scoped DNS resolver.
+11. Disconnect, then check the routes and the scoped DNS resolver.
    - *Why:* Disconnect must remove 131.112.0.0/16, the host route pinning the APM
      (131.112.12.180) and the isct.ac.jp resolver. A pin left behind points
      at this network's gateway and blocks connecting from the next one.
@@ -3816,18 +3831,18 @@ has already been read once.
 
 **Steps**
 
-1. Press Refresh in the floating status at the bottom right, point at
-   its line and watch the panel until it is quiet again.
-   - *Why:* The panel shows a bar only while Core reports a run's total and a
-     label or spinner otherwise. A bar that jumps backwards, or a bar for
-     a run without a total, means the shell is estimating again.
+1. Open the status menu from the dot at the foot of the rail, choose
+   Refresh now, and reopen the menu until the dot is green again.
+   - *Why:* The menu shows a count only while Core reports a run's total and the
+     run's name otherwise. A count that jumps backwards, or a count for a
+     run without a total, means the shell is estimating again.
 2. Open a lecture whose content is a few hours old and press Refresh
    now in its header.
    - *Why:* The page must keep its rows and say "Showing data from … ago ·
      updating this course k / n", then switch the whole course at once.
      A list that empties or half-updates means the page stopped reading
      local data while Core reads.
-3. On Timetable, press Refresh timetable and watch the status panel.
+3. On Timetable, press Refresh timetable and open the status menu.
    - *Why:* It must read only the LMS course list and the 教務Web pages, with
      the button's ring following them; a run over every current course
      means the button is pulling the whole LMS again instead of what the
@@ -3837,15 +3852,15 @@ has already been read once.
      of spinning, and must start by itself once the network hint reaches
      Core.
 5. With 教務Web under maintenance or blocked by a firewall rule,
-   refresh, then press Retry beside the failed dataset.
+   refresh, then choose the failed dataset's Retry in the status menu.
    - *Why:* A failure must name the dataset, the reason and when Core retries,
      and Retry must start only that dataset; a generic "Refresh failed"
      or a full refresh means the scope was lost.
 
 **Where to look**
 
-The floating status and its panel, the lecture header, and the app log for the
-sync hints sent.
+The rail's status dot and its menu, the lecture header, and the app log
+for the sync hints sent.
 
 **Expected**
 
@@ -3863,13 +3878,13 @@ real school failure only exist against the live services.
 
 **Covers**
 
-- `apps/desktop/src/app/SchoolStatusLine.tsx`
+- `apps/desktop/src/app/SchoolStatus.tsx`
 - `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src/features/lms/LmsWorkspace.tsx`
 - `apps/desktop/src/pages/courses/CoursesPage.tsx`
 - `apps/desktop/src/components/PullRing.tsx`
 - `apps/desktop/src/styles.css`
-- `apps/desktop/src/app/SchoolStatusPanel.tsx`
+- `apps/desktop/src/platform/native-menu.ts`
 - `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
 - `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
 
@@ -7044,14 +7059,15 @@ empty HTML document.
      catalog has as the raw key.
 2. Answer `PID2_0.aspx` (grades) with the empty document through the
    proxy and press 再試行 on 教務Web. Read the failed row, select its
-   detail line, then hover the failure in the desktop footer.
+   detail line, then open the desktop's status menu from the rail.
    - *Why:* A person reporting a failure can only quote what the row shows, and
      a read that fails on one account cannot be reproduced by anyone else.
-     The detail is selectable on the phones and a tooltip on the desktop.
+     The detail is selectable on the phones and its own line in the desktop
+     status menu.
 
 **Where to look**
 
-The run's row in the connection sheet, and the desktop footer.
+The run's row in the connection sheet, and the desktop status menu.
 
 **Expected**
 
@@ -7070,7 +7086,7 @@ themselves are checked in Core's plan tests.
 
 - `apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt`
-- `apps/desktop/src/app/SchoolStatusLine.tsx`
+- `apps/desktop/src/lib/sync-text.ts`
 
 **Last recorded** never run
 
@@ -10437,7 +10453,7 @@ needs the live school.
 
 - `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src/pages/settings/SchoolAccounts.tsx`
-- `apps/desktop/src/app/SchoolStatusPanel.tsx`
+- `apps/desktop/src/app/SchoolStatus.tsx`
 - `apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift`
 - `apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift`

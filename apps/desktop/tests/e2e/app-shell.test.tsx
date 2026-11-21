@@ -1848,23 +1848,25 @@ describe("workspace column sizing", () => {
             "lecture row",
           ),
         );
-        const toggle = await required(
-          () =>
-            app!.host.querySelector<HTMLButtonElement>(
-              '[aria-label="Toggle sidebar"]',
-            ),
-          "sidebar toggle",
-        );
-        expect(toggle.closest(".lmsWorkspaceHeader")).not.toBeNull();
+        // The sidebar button sits in the title row of whichever column comes
+        // first after the rail: the list's while it shows, the course's once
+        // it is folded away.
+        const toggle = () =>
+          app!.host.querySelector<HTMLButtonElement>(
+            '[aria-label="Toggle sidebar"]',
+          )!;
+        await required(toggle, "sidebar toggle");
+        expect(toggle().closest(".lectureListHeader")).not.toBeNull();
         const list = app.host.querySelector<HTMLElement>("#lecture-sidebar")!;
         const filter = list.querySelector<HTMLInputElement>(
           'input[type="search"]',
         )!;
         await typeInto(filter, "Keep this filter");
-        await click(toggle);
+        await click(toggle());
         await until(() =>
-          expect(toggle.getAttribute("aria-expanded")).toBe("false"),
+          expect(toggle().getAttribute("aria-expanded")).toBe("false"),
         );
+        expect(toggle().closest(".lmsWorkspaceHeader")).not.toBeNull();
         expect(list.hasAttribute("inert")).toBe(true);
         const rail = app.host.querySelector<HTMLButtonElement>(
           '.rail button[title^="Lectures"]',
@@ -1883,8 +1885,10 @@ describe("workspace column sizing", () => {
         );
         await advance(250);
         expect(list.hasAttribute("inert")).toBe(true);
-        await click(toggle);
-        expect(toggle.getAttribute("aria-expanded")).toBe("true");
+        await click(toggle());
+        await until(() =>
+          expect(toggle().getAttribute("aria-expanded")).toBe("true"),
+        );
         expect(app.host.querySelector("#lecture-sidebar")).toBe(list);
         expect(filter.value).toBe("Keep this filter");
       } finally {
@@ -1905,8 +1909,30 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("renders Core's sync snapshot in the status panel and sends hints for refresh and opened pages", async () => {
-  app = await mountShell(shellOptions({ workspace: workspaceFixture() }));
+it("names Core's sync snapshot in the rail's status menu and sends hints for its actions and opened pages", async () => {
+  // The rail's dot opens a native menu (the school view sits above HTML).
+  // The scripted host records what the app builds; each item's action is the
+  // channel the app hands Tauri, called here as Tauri would.
+  type MenuCall = {
+    kind: string;
+    options: { text?: string; enabled?: boolean };
+    handler: { onmessage: (message: unknown) => void };
+  };
+  let menus: MenuCall[] = [];
+  let rid = 0;
+  app = await mountShell(
+    shellOptions({
+      workspace: workspaceFixture(),
+      handle: (command, args, core) => {
+        if (command === "plugin:menu|new") {
+          menus.push(args as MenuCall);
+          return [++rid, `menu-${rid}`];
+        }
+        if (command === "plugin:menu|popup") return null;
+        return baseHandle(command, args, core);
+      },
+    }),
+  );
   // Core decides what is due and how far a run is (`plan` and its
   // tests); the shell only picks the row to show and names it.
   const run = (overrides: Record<string, unknown>) => ({
@@ -1952,52 +1978,54 @@ it("renders Core's sync snapshot in the status panel and sends hints for refresh
         sources,
       }),
     );
-  // The summary floats in the shell; its panel (where the detail lives)
-  // renders in a portal, so it is read from the document.
-  const overview = () =>
-    app!.host.querySelector<HTMLButtonElement>(".schoolStatusOverview")!;
-  const status = () => document.querySelector(".lmsStatus")!;
+  const dot = () =>
+    app!.host.querySelector<HTMLButtonElement>(".schoolStatusDot")!;
   const hints = () =>
     app!.core.calls
       .filter((call) => call.command === "sync_hint")
       .map((call) => call.args.hint);
+  /** Opens the menu and returns its items, as the person would see them. */
+  const openMenu = async () => {
+    menus = [];
+    await click(dot());
+    await until(() =>
+      expect(menus.some((menu) => menu.kind === "Menu")).toBe(true),
+    );
+    return menus.filter((menu) => menu.kind === "MenuItem");
+  };
+  const texts = (items: MenuCall[]) =>
+    items.map((item) => item.options.text ?? "");
+  const choose = async (items: MenuCall[], text: string) => {
+    const item = items.find((entry) => entry.options.text === text);
+    expect(item?.options.enabled, text).toBe(true);
+    await act(async () => item!.handler.onmessage(`menu-${text}`));
+  };
 
-  await click(overview());
   await emit([run({ done: 7, total: 62 })]);
-  await until(() => {
-    expect(overview().getAttribute("data-kind")).toBe("busy");
-    expect(overview().textContent).toContain("Course content 7/62");
-    expect(status().getAttribute("data-kind")).toBe("bar");
-    expect(status().textContent).toContain("Course content · 7 / 62");
-    expect(status().querySelector("progress")!.value).toBe(7);
-  });
-  // A run of unknown size never gets a bar or a guessed percentage.
+  await until(() => expect(dot().getAttribute("data-kind")).toBe("busy"));
+  expect(texts(await openMenu()).join("\n")).toContain(
+    "Course content · 7 / 62",
+  );
+  // A run of unknown size never gets a count or a guessed percentage.
   await emit([run({ done: 3 })]);
-  await until(() => {
-    expect(status().getAttribute("data-kind")).toBe("busy");
-    expect(status().querySelector("progress")).toBeNull();
-    expect(status().textContent).not.toContain("%");
-  });
-  // Background-only work is a spinner and a quiet note.
+  const unknownSize = texts(await openMenu());
+  expect(unknownSize.join("\n")).toContain("Course content");
+  expect(unknownSize.join(" ")).not.toContain("%");
+  // Background-only work says so and nothing more.
   await emit([run({ priority: "background", done: 1, total: 40 })]);
-  await until(() => {
-    expect(status().getAttribute("data-kind")).toBe("background");
-    expect(status().querySelector(".schoolStatusSpinner")).not.toBeNull();
-    expect(status().querySelector("progress")).toBeNull();
-  });
+  expect(texts(await openMenu()).join("\n")).toContain(
+    "Updating in the background",
+  );
   await emit([run({ held: { kind: "cellular" } })], undefined, {
     primary: { kind: "held", run: "run" },
     busy: false,
     problem: null,
   });
-  await until(() =>
-    expect(status().textContent).toContain("Waiting for Wi-Fi"),
-  );
+  await until(() => expect(dot().getAttribute("data-kind")).toBe("held"));
+  expect(texts(await openMenu()).join("\n")).toContain("Waiting for Wi-Fi");
+  // A quiet, healthy sync names only the accounts: no per-source ages.
   await emit([], [source("lms", null)]);
-  await until(() => {
-    expect(status().getAttribute("data-kind")).toBe("idle");
-    expect(status().textContent).toContain("Never updated");
-  });
+  expect(texts(await openMenu()).join(" ")).not.toContain("Never updated");
   await emit([
     run({
       run: "grades",
@@ -2013,25 +2041,11 @@ it("renders Core's sync snapshot in the status panel and sends hints for refresh
       retry: { scopes: [{ kind: "site", site: "kyomu" }] },
     }),
   ]);
-  const retry = await required(
-    () =>
-      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "Retry",
-      ),
-    "the failed dataset's Retry",
-  );
-  expect(status().textContent).toContain("教務Web pages failed · timed out");
-  expect(overview().getAttribute("data-kind")).toBe("problem");
-  expect(overview().textContent).toBe("Needs attention (1)");
-  await click(retry);
-  const force = await required(
-    () =>
-      app!.host.querySelector<HTMLButtonElement>(
-        '.schoolStatusPanel button[aria-label="Refresh now"]',
-      ),
-    "Refresh now",
-  );
-  await click(force);
+  await until(() => expect(dot().getAttribute("data-kind")).toBe("problem"));
+  expect(dot().getAttribute("aria-label")).toContain("Needs attention (1)");
+  const failed = await openMenu();
+  await choose(failed, "Retry · 教務Web pages failed · timed out");
+  await choose(await openMenu(), "Refresh now");
   await until(() =>
     expect(hints()).toEqual(
       expect.arrayContaining([
@@ -2064,16 +2078,12 @@ it("renders Core's sync snapshot in the status panel and sends hints for refresh
       },
     ],
   );
-  // Refresh sits outside the panel, so pressing it closed the panel.
-  await click(overview());
-  const catalogRetry = await required(
-    () =>
-      [...status().querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent === "Retry",
-      ),
-    "the persisted catalog failure's Retry",
+  const catalog = await openMenu();
+  const catalogRetry = texts(catalog).find((text) =>
+    text.startsWith("Retry · "),
   );
-  await click(catalogRetry);
+  expect(catalogRetry, "the persisted catalog failure's Retry").toBeTruthy();
+  await choose(catalog, catalogRetry!);
   await until(() =>
     expect(hints()).toEqual(
       expect.arrayContaining([

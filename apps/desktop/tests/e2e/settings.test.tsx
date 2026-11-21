@@ -25,7 +25,10 @@ import {
   schoolProfiles,
 } from "@tests/harness";
 import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
-import type { SchoolCredentialStatus, SchoolProfileSession } from "@app/generated/persistence";
+import type {
+  SchoolCredentialStatus,
+  SchoolProfileSession,
+} from "@app/generated/persistence";
 import type { CloudSyncState } from "@app/platform/desktop-bridge";
 import type { StudyEnrollment, Workspace } from "@app/lib/model";
 import { paths } from "@app/app/routes";
@@ -2575,6 +2578,106 @@ describe("Campus VPN", () => {
       } finally {
         delete window.__ISCT_COMPANION_NATIVE_OS__;
       }
+    },
+    TIMEOUT,
+  );
+
+  // A macOS daemon registered from a copy of the app that is gone is
+  // enabled yet never runs. The card names that and offers Repair; a repair
+  // that does not bring the helper up says what to try next instead of
+  // showing the same button as if nothing happened, and no login is spent.
+  it(
+    "repairs a helper macOS does not start, and says what to try when it does not take",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const notStarting = {
+        ...status,
+        state: "error",
+        error: "helper_not_starting",
+        detail:
+          "the campus VPN helper is registered but the system does not start it",
+      };
+      let repaired = false;
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status") return notStarting;
+          if (command === "plugin:campus-vpn|install")
+            return repaired
+              ? { ...status, state: "disconnected", error: null, detail: null }
+              : notStarting;
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await wait(() =>
+        expect(pane.textContent).toContain(
+          "The VPN component is registered, but macOS can't start it",
+        ),
+      );
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "macOS still didn't start the VPN component.",
+        ),
+      );
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
+      repaired = true;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(buttonIn(pane, "Connect")).toBeTruthy());
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
+
+  // A system record that will not let go of the old registration is past
+  // anything the app can do: the card gives the reset and restart, offers
+  // neither another Repair nor a Connect that would spend a login, and the
+  // install is not retried.
+  it(
+    "gives the reset steps when macOS keeps an old helper registration",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_not_starting",
+              detail: null,
+            };
+          if (command === "plugin:campus-vpn|install")
+            return {
+              ...status,
+              state: "error",
+              error: "helper_registration_stuck",
+              detail: null,
+            };
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(pane.textContent).toContain("sfltool resetbtm"));
+      expect(buttonByText(pane, "Repair")).toBeFalsy();
+      expect(buttonByText(pane, "Connect")).toBeFalsy();
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
     },
     TIMEOUT,
   );

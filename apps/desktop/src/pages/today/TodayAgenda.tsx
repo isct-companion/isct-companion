@@ -122,8 +122,7 @@ export function TodayAgenda({
                           ? "common.earlier"
                           : // Core's moment covers classes; a personal
                             // event is now while its own time runs.
-                            block.kind === "event" &&
-                              block.startTime <= clock
+                            block.kind === "event" && block.startTime <= clock
                             ? "common.now"
                             : "common.later",
                   );
@@ -131,8 +130,7 @@ export function TodayAgenda({
                 <UiButton
                   className={`dayAgendaRow ${block.kind}${index === focusIndex ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
                   aria-current={
-                    selection?.courseId === block.id &&
-                    !selection.assignmentId
+                    selection?.courseId === block.id && !selection.assignmentId
                       ? "true"
                       : undefined
                   }
@@ -140,10 +138,7 @@ export function TodayAgenda({
                   onClick={(event) => {
                     if (block.kind === "exam" && block.termId && openExam)
                       openExam(block.key, block.termId);
-                    else if (
-                      block.kind === "course" ||
-                      block.kind === "exam"
-                    ) {
+                    else if (block.kind === "course" || block.kind === "exam") {
                       if (block.kind === "course")
                         zoomFrom(event.currentTarget);
                       open(block.id, undefined, {
@@ -191,10 +186,8 @@ export function TodayAgenda({
             },
           )}
           {blocks.length > CLASS_ROWS &&
-            more(
-              allClasses ? 0 : blocks.length - CLASS_ROWS,
-              allClasses,
-              () => setAllClasses((value) => !value),
+            more(allClasses ? 0 : blocks.length - CLASS_ROWS, allClasses, () =>
+              setAllClasses((value) => !value),
             )}
           {!blocks.length && (
             <>
@@ -208,9 +201,7 @@ export function TodayAgenda({
               {nextClass && (
                 <UiButton
                   className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}
-                  style={
-                    { "--course": nextClass.color } as React.CSSProperties
-                  }
+                  style={{ "--course": nextClass.color } as React.CSSProperties}
                   onClick={(event) => {
                     if (nextClass.kind === "event") {
                       const event = data.events.find(
@@ -235,9 +226,7 @@ export function TodayAgenda({
                   <span className="agendaLine" aria-hidden="true" />
                   <span className="agendaCourse">
                     <b>{nextClass.title}</b>
-                    <small>
-                      {nextClass.room || nextClass.subtitle || "—"}
-                    </small>
+                    <small>{nextClass.room || nextClass.subtitle || "—"}</small>
                   </span>
                 </UiButton>
               )}

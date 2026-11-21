@@ -2,12 +2,15 @@ import { useEffect } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import i18n from "../i18n";
 import type { Workspace } from "../lib/model";
-import { windowMaterial } from "../platform/desktop-bridge";
+import { nativeOs, windowMaterial } from "../platform/desktop-bridge";
 
 // The page is transparent over the window's material, so the material
 // follows the page's light/dark (styles.css `[data-window-material]`).
 const material = windowMaterial();
 if (material) document.documentElement.dataset.windowMaterial = material;
+// macOS runs the page up under a transparent title bar (lib.rs), so the
+// shell keeps the traffic lights' corner clear (styles.css `[data-os]`).
+document.documentElement.dataset.os = nativeOs() ?? "web";
 
 export function useAppearance(data: Workspace | undefined) {
   useEffect(() => {

@@ -58,6 +58,8 @@ type Entry = {
   title: string;
   meta: string;
   action?: Extract<ExamAction, { kind: "subject" | "courseSubject" }>;
+  /** This quarter's exams (as the app keeps them) include this course. */
+  hasExam?: boolean;
 };
 /** A panel's content: the subject, the subjects a course maps to, or a failure. */
 type PanelState = {
@@ -89,7 +91,12 @@ export function BrowseList({
   const [query, setQuery] = useState("");
   const [debounced] = useDebounceValue(query.trim(), 300);
   const [hits, setHits] = useState<{ query: string; items: ExamSubject[] }>();
+  // The panel opened last: its page is what "Open on web" and a reload
+  // follow. Panels open several at once (`manual` and `openKeys` below).
   const [expanded, setExpanded] = useState("");
+  // The person's own open or close of a panel, which outranks the default.
+  const [manual, setManual] = useState<Record<string, boolean>>({});
+  const [showEmpty, setShowEmpty] = useState(false);
   const [pages, setPages] = useState<Record<string, PanelState>>({});
   /** A course opened from elsewhere that this quarter's list lacks. */
   const [extra, setExtra] = useState<string>();
@@ -149,6 +156,7 @@ export function BrowseList({
     setQuery("");
     setExtra(id);
     setExpanded(key);
+    setManual((all) => ({ ...all, [key]: true }));
     void load(key, { kind: "courseSubject", courseId: id });
   }, [takeCourse, load]);
 
@@ -163,6 +171,7 @@ export function BrowseList({
     action: course.subjectCodes.length
       ? { kind: "courseSubject", courseId: course.courseId }
       : undefined,
+    hasExam: course.hasExam,
   }));
   const extraPage = extra ? pages[`course:${extra}`]?.page : undefined;
   if (
@@ -175,6 +184,7 @@ export function BrowseList({
       title: extraPage ? subjectLabel(extraPage.subject) : t("common.loading"),
       meta: extraPage?.subject.code ?? "",
       action: { kind: "courseSubject", courseId: extra },
+      hasExam: true,
     });
   const entries: Entry[] | undefined = searching
     ? hits?.query === debounced && debounced === query.trim()
@@ -187,13 +197,57 @@ export function BrowseList({
       : undefined
     : courseEntries;
 
+  // The quarter's courses with an exam are read up front, to tell which
+  // have past exams on ScienceTokyoExam.
+  useEffect(() => {
+    if (searching || !courseEntries) return;
+    for (const entry of courseEntries)
+      if (entry.hasExam && entry.action && !pages[entry.key])
+        void load(entry.key, entry.action);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searching, courses]);
+  const hasMaterials = (key: string) => {
+    const page = pages[key]?.page;
+    return !page || page.sets.length > 0;
+  };
+  // A course with no exam this quarter is hidden behind one line until the
+  // person asks for it; a search lists everything it finds.
+  const hidden = searching
+    ? []
+    : (entries ?? []).filter((entry) => !entry.hasExam);
+  const listed = (entries ?? []).filter(
+    (entry) => showEmpty || !hidden.includes(entry),
+  );
+  // A course with an exam opens by itself, unless its subject turns out to
+  // have no past exams; the person's own open or close outranks both.
+  const openKeys = listed
+    .filter(
+      (entry) =>
+        manual[entry.key] ??
+        (!searching &&
+          !!entry.hasExam &&
+          !!entry.action &&
+          hasMaterials(entry.key)),
+    )
+    .map((entry) => entry.key);
+
   const shownUrl = pages[expanded]?.page?.webUrl;
   useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
-  // Only the open panel reads again; the others load when next opened.
+  // Open panels read again; the others load when next opened.
   useReload(generation, () => {
-    const entry = entries?.find((e) => e.key === expanded);
-    setPages((all) => (all[expanded] ? { [expanded]: all[expanded] } : {}));
-    if (expanded) void load(expanded, reloadAction(expanded, entry));
+    setPages((all) =>
+      Object.fromEntries(
+        openKeys.filter((key) => all[key]).map((key) => [key, all[key]]),
+      ),
+    );
+    for (const key of openKeys)
+      void load(
+        key,
+        reloadAction(
+          key,
+          entries?.find((e) => e.key === key),
+        ),
+      );
   });
 
   return (
@@ -223,22 +277,39 @@ export function BrowseList({
                 </h2>
               )}
               <Accordion.Root
-                type="single"
-                collapsible
-                value={expanded}
-                onValueChange={(key) => {
-                  setExpanded(key);
-                  const entry = entries.find((e) => e.key === key);
-                  if (entry && !pages[key]?.page) void load(key, entry.action);
+                type="multiple"
+                value={openKeys}
+                onValueChange={(keys) => {
+                  const opened = keys.find((key) => !openKeys.includes(key));
+                  setManual((all) => {
+                    const next = { ...all };
+                    for (const entry of entries)
+                      if (
+                        keys.includes(entry.key) !==
+                        openKeys.includes(entry.key)
+                      )
+                        next[entry.key] = keys.includes(entry.key);
+                    return next;
+                  });
+                  if (!opened) return;
+                  setExpanded(opened);
+                  const entry = entries.find((e) => e.key === opened);
+                  if (entry && !pages[opened]?.page)
+                    void load(opened, entry.action);
                 }}
                 className="examPanels"
               >
-                {entries.map((entry) => (
+                {listed.map((entry) => (
                   <Accordion.Item
                     key={entry.key}
                     value={entry.key}
                     disabled={!entry.action}
                     className="examPanel"
+                    data-empty={
+                      pages[entry.key]?.page && !hasMaterials(entry.key)
+                        ? ""
+                        : undefined
+                    }
                   >
                     <Accordion.Header asChild>
                       <h3>
@@ -279,6 +350,17 @@ export function BrowseList({
                   </Accordion.Item>
                 ))}
               </Accordion.Root>
+              {hidden.length > 0 && (
+                <button
+                  type="button"
+                  className="examOthers examWithout"
+                  aria-expanded={showEmpty}
+                  onClick={() => setShowEmpty(!showEmpty)}
+                >
+                  <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+                  {t("examShare.withoutExams", { count: hidden.length })}
+                </button>
+              )}
             </>
           ) : (
             <EmptyState compact icon={Search}>

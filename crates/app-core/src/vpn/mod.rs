@@ -9,6 +9,7 @@ use crate::school_session::CampusVpnError;
 use chrono::Duration;
 use chrono::{DateTime, Utc};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex, MutexGuard,
@@ -29,6 +30,22 @@ pub enum VpnError {
     /// The installed helper is older than the one this app bundles.
     #[error("the campus VPN helper needs an update")]
     HelperOutdated,
+    /// The helper is registered and allowed, yet the system does not run it.
+    /// On macOS this is a daemon bound to a copy of the app that has since
+    /// been moved or deleted: launchd cannot find the program and gives up
+    /// (EX_CONFIG). Registering it again from this app fixes it.
+    #[error("the campus VPN helper is registered but the system does not start it")]
+    HelperNotStarting,
+    /// The helper that answers runs from another copy of the app, which
+    /// this app's updates do not reach and which may be deleted under it.
+    #[error("the campus VPN helper runs from another copy of the app: {0}")]
+    HelperElsewhere(String),
+    /// The system keeps an old registration of the helper that this app can
+    /// neither take away nor replace (macOS: a Background Task Management
+    /// record whose app copy is gone). Installing again cannot fix it; the
+    /// person resets the system's record and restarts.
+    #[error("the system keeps an old registration of the campus VPN helper")]
+    HelperRegistrationStuck,
     #[error("the campus VPN helper is unreachable: {0}")]
     HelperUnreachable(String),
     #[error("the campus VPN helper did not answer in time")]
@@ -48,12 +65,29 @@ impl VpnError {
             Self::HelperNotInstalled => "helper_not_installed",
             Self::HelperNeedsApproval => "helper_needs_approval",
             Self::HelperOutdated => "helper_outdated",
+            Self::HelperNotStarting => "helper_not_starting",
+            Self::HelperElsewhere(_) => "helper_elsewhere",
+            Self::HelperRegistrationStuck => "helper_registration_stuck",
             Self::HelperUnreachable(_) => "helper_unreachable",
             Self::Timeout => "helper_timeout",
             Self::Protocol(_) => "helper_protocol",
             Self::Tunnel(_) => "tunnel_failed",
             Self::Login(error) => error.code(),
         }
+    }
+
+    /// Whether installing the helper again is the fix: none yet, an older
+    /// one, one the system does not start or from another copy of the app,
+    /// or one that does not answer. An install registers it afresh.
+    pub fn install_fixes(&self) -> bool {
+        matches!(
+            self,
+            Self::HelperNotInstalled
+                | Self::HelperOutdated
+                | Self::HelperNotStarting
+                | Self::HelperElsewhere(_)
+                | Self::HelperUnreachable(_)
+        )
     }
 }
 
@@ -81,6 +115,8 @@ pub struct HelperReport {
     pub revision: Option<u32>,
     /// Why the helper ended the last tunnel itself.
     pub ended: Option<Ending>,
+    /// The file the helper runs from, when it says.
+    pub program: Option<PathBuf>,
 }
 
 /// What the person is told without asking: once before the session's end,
@@ -209,6 +245,9 @@ fn hopeless(error: &VpnError) -> bool {
         VpnError::HelperNotInstalled
             | VpnError::HelperNeedsApproval
             | VpnError::HelperOutdated
+            | VpnError::HelperNotStarting
+            | VpnError::HelperElsewhere(_)
+            | VpnError::HelperRegistrationStuck
             | VpnError::Login(
                 CampusVpnError::NeedsAccount
                     | CampusVpnError::Rejected
@@ -299,10 +338,19 @@ pub trait VpnPort: Send + Sync {
 /// tunnel failure until the next start or stop, so a disconnected helper
 /// that still carries a detail has failed rather than stopped cleanly. An
 /// outdated helper keeps a tunnel it has up; with none up it is updated
-/// before the next connect.
-pub fn project(report: HelperReport) -> VpnState {
-    if report.state != HelperState::Connected && report.revision < Some(HELPER_REVISION) {
-        return VpnState::Error(VpnError::HelperOutdated);
+/// before the next connect. So does a helper running from another file than
+/// `own_helper`, the one this app registers (`None` where the helper is a
+/// copy installed elsewhere, as on Windows).
+pub fn project(report: HelperReport, own_helper: Option<&Path>) -> VpnState {
+    if report.state != HelperState::Connected {
+        if report.revision < Some(HELPER_REVISION) {
+            return VpnState::Error(VpnError::HelperOutdated);
+        }
+        if let (Some(own), Some(program)) = (own_helper, &report.program) {
+            if program != own {
+                return VpnState::Error(VpnError::HelperElsewhere(program.display().to_string()));
+            }
+        }
     }
     match report.state {
         HelperState::Connected => VpnState::Connected {
@@ -333,6 +381,8 @@ pub struct VpnService {
     on_campus: AtomicBool,
     /// The publisher sites the person chose; `None` is the default list.
     publishers: Mutex<Option<Vec<String>>>,
+    /// The helper file this app registers, links resolved (`project`).
+    own_helper: Option<PathBuf>,
 }
 
 impl VpnService {
@@ -345,7 +395,15 @@ impl VpnService {
             logging_in: Arc::new(AtomicBool::new(false)),
             on_campus: AtomicBool::new(false),
             publishers: Mutex::new(None),
+            own_helper: None,
         }
+    }
+
+    /// The helper file this app registers with the system, links resolved.
+    /// A helper answering from any other file is not this app's.
+    pub fn with_own_helper(mut self, own_helper: PathBuf) -> Self {
+        self.own_helper = Some(own_helper);
+        self
     }
 
     /// The one sign-in in progress, or `None` when another holds it.
@@ -359,7 +417,7 @@ impl VpnService {
 
     /// Ask the helper what it is doing, for example after the app starts.
     pub fn refresh(&self) -> VpnState {
-        let next = Self::settle(self.port.status());
+        let next = self.settle(self.port.status());
         self.store(next)
     }
 
@@ -376,7 +434,7 @@ impl VpnService {
             return self.state();
         }
         self.store(VpnState::Connecting);
-        let next = Self::settle(self.port.start(cookie));
+        let next = self.settle(self.port.start(cookie));
         self.store(next)
     }
 
@@ -539,7 +597,7 @@ impl VpnService {
         let before = self.state();
         let report = self.port.status();
         let ended = report.as_ref().ok().and_then(|report| report.ended);
-        let state = self.store(Self::settle(report));
+        let state = self.store(self.settle(report));
         if matches!(state, VpnState::Connected { .. }) {
             if let Some(attempts) = lock(&self.on_demand).as_mut() {
                 attempts.up(now);
@@ -598,13 +656,13 @@ impl VpnService {
 
     /// The person's disconnect.
     pub fn disconnect(&self) -> VpnState {
-        let next = Self::settle(self.port.stop());
+        let next = self.settle(self.port.stop());
         self.store(next)
     }
 
-    fn settle(result: Result<HelperReport, VpnError>) -> VpnState {
+    fn settle(&self, result: Result<HelperReport, VpnError>) -> VpnState {
         match result {
-            Ok(report) => project(report),
+            Ok(report) => project(report, self.own_helper.as_deref()),
             Err(error) => VpnState::Error(error),
         }
     }

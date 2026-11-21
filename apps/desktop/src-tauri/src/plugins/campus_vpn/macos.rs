@@ -1,7 +1,9 @@
 //! The macOS campus VPN helper: a launchd daemon inside the app bundle,
 //! registered with SMAppService and allowed once by the person in System
-//! Settings (Login Items, where Touch ID works). An app update brings the new
-//! helper with it; the running one hands over by itself
+//! Settings (Login Items, where Touch ID works). launchd runs the helper in
+//! place inside the copy of the app that registered it, so an install always
+//! registers afresh from this copy (`run_install`). An app update brings the
+//! new helper with it; the running one hands over by itself
 //! (crates/vpn-helper/src/unix.rs). The app reaches it on a root:staff Unix
 //! socket.
 use super::helper::{converse, io_error, Install};
@@ -56,42 +58,74 @@ fn daemon() -> objc2::rc::Retained<SMAppService> {
     unsafe { SMAppService::daemonServiceWithPlistName(&NSString::from_str(DAEMON_PLIST)) }
 }
 
-/// No socket means no helper is running; the daemon's registration says
-/// whether it was never set up or waits for the person's approval.
+/// No socket, or a socket nobody listens on (a helper that died leaves its
+/// file behind), means no helper is running. The daemon's registration says
+/// why: never set up, waiting for the person's approval, or registered and
+/// allowed yet not started by launchd. The last is a daemon bound to a copy
+/// of the app that has been moved or deleted (`run_install`), which only a
+/// new registration from this app repairs.
 fn connect_error(error: std::io::Error) -> VpnError {
-    let waiting = || unsafe { daemon().status() } == SMAppServiceStatus::RequiresApproval;
     match error.kind() {
-        ErrorKind::NotFound | ErrorKind::ConnectionRefused if waiting() => {
-            VpnError::HelperNeedsApproval
-        }
-        ErrorKind::NotFound => VpnError::HelperNotInstalled,
-        ErrorKind::ConnectionRefused => {
-            VpnError::HelperUnreachable("the helper is not running".into())
-        }
+        ErrorKind::NotFound | ErrorKind::ConnectionRefused => match unsafe { daemon().status() } {
+            SMAppServiceStatus::RequiresApproval => VpnError::HelperNeedsApproval,
+            SMAppServiceStatus::Enabled => VpnError::HelperNotStarting,
+            _ => VpnError::HelperNotInstalled,
+        },
         _ => io_error(error),
     }
 }
 
-/// Registers the daemon. The first time macOS asks the person to allow it;
-/// this opens Login Items for that. Once allowed it stays allowed, through
-/// app updates, until the app is deleted. The payload path is fixed by the
-/// plist, so `_resources` is only the shared signature.
+/// Registers the daemon from this copy of the app. The first time macOS asks
+/// the person to allow it; this opens Login Items for that. Once allowed it
+/// stays allowed, through app updates and new registrations, until the app
+/// is deleted. The payload path is fixed by the plist, so `_resources` is
+/// only the shared signature.
+///
+/// A registration belongs to the copy of the app that made it: launchd
+/// resolves `BundleProgram` inside that copy and pins the helper's code
+/// requirement then. Registering an enabled daemon again changes neither.
+/// Local builds and disk images share the release's bundle identifier, so a
+/// daemon registered from `target/debug/bundle` or a mounted image keeps
+/// running the helper from there; once that copy is deleted launchd cannot
+/// find the program ("Invalid or missing Program", EX_CONFIG) and gives up,
+/// while the status still reads enabled. A helper that no longer meets the
+/// pinned requirement fails the same way ("needs LWCR update"). So every
+/// install takes the old registration away, waits until the system has let
+/// go of it, and registers afresh from here.
+///
+/// A Background Task Management record whose app copy is gone ("fullPath is
+/// nil") does not go: the status stays enabled, and registering again only
+/// confirms the old record, which launchd keeps resolving to the deleted
+/// copy. That is `Install::Stuck`, never `Ready`; only the person can reset
+/// the record (`sfltool resetbtm`, then a restart).
 pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     let service = daemon();
-    // Registering an enabled daemon again changes nothing: launchd keeps the
-    // code requirement it took from the helper the first time. A helper that
-    // no longer meets it (an ad hoc one is pinned to its cdhash) never starts
-    // ("needs LWCR update", EX_CONFIG) and the old one keeps answering, so an
-    // update registers the daemon afresh from this bundle.
-    if unsafe { service.status() } == SMAppServiceStatus::Enabled {
-        let _ = unsafe { service.unregisterAndReturnError() };
+    if unsafe { service.status() } != SMAppServiceStatus::NotRegistered {
+        if let Err(error) = unsafe { service.unregisterAndReturnError() } {
+            log::warn!(
+                "[vpn] the old helper registration did not go: {}",
+                error.localizedDescription()
+            );
+        }
+        // Unregistering finishes in the background. Registering before it
+        // has can leave launchd holding the old copy's path.
+        let mut released = false;
+        for _ in 0..REGISTER_ATTEMPTS {
+            if unsafe { service.status() } == SMAppServiceStatus::NotRegistered {
+                released = true;
+                break;
+            }
+            std::thread::sleep(SETTLE);
+        }
+        if !released {
+            return Ok(Install::Stuck);
+        }
     }
     // A daemon that still needs approval in Login Items is registered all
     // the same, yet register fails with EPERM ("Operation not permitted");
     // an already registered one fails too. The status says where it stands.
-    // Right after an unregister the system is still removing the daemon, and
-    // register fails with EPERM while the status reads not registered; it
-    // settles within a few seconds, so register again until it does.
+    // Right after an unregister register can still fail with EPERM while the
+    // status reads not registered; it settles within a few seconds.
     let mut registered = Ok(());
     for _ in 0..REGISTER_ATTEMPTS {
         registered = unsafe { service.registerAndReturnError() };
@@ -101,7 +135,7 @@ pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
                 unsafe { SMAppService::openSystemSettingsLoginItems() };
                 return Ok(Install::NeedsApproval);
             }
-            _ => std::thread::sleep(Duration::from_millis(500)),
+            _ => std::thread::sleep(SETTLE),
         }
     }
     Err(match registered {
@@ -113,5 +147,6 @@ pub(crate) fn run_install(_resources: &Path) -> Result<Install, String> {
     })
 }
 
-/// Register attempts, half a second apart, while an unregister settles.
+/// Status reads and register attempts while an unregister settles.
 const REGISTER_ATTEMPTS: usize = 10;
+const SETTLE: Duration = Duration::from_millis(500);

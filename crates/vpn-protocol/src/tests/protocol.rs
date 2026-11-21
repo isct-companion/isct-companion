@@ -73,6 +73,8 @@ fn reply_state_serializes_as_lowercase_names() {
     // The first helpers sent no revision; they read as revision none.
     let old: Reply = serde_json::from_str(r#"{"ok":true,"state":"connected"}"#).unwrap();
     assert_eq!(old.revision, None);
+    // Nor where they ran from; only a status reply says.
+    assert_eq!(old.program, None);
     let error = serde_json::to_value(Reply::error("boom")).unwrap();
     assert_eq!(error["state"], "error");
     assert_eq!(error["detail"], "boom");

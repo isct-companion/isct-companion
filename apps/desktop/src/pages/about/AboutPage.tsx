@@ -6,6 +6,7 @@ import {
   Scale,
   type LucideIcon,
 } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { Switch, UiButton } from "../../components/ui";
 import { useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../platform/native";
@@ -91,6 +92,7 @@ export function About({
   const [release, build] = splitVersion(__APP_VERSION__);
   return (
     <div className="page">
+      <TitleRow nav />
       <div className="aboutCanvas">
         <div className="aboutLayout">
           <section className="aboutIntro">

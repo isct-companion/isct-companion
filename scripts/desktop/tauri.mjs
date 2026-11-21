@@ -10,6 +10,7 @@ import {
 import { macWidgets } from "./macos-widgets.mjs";
 import { macDevSigningIdentity } from "./macos-dev-signing.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
+import { refreshHelper } from "./bundle-vpn.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const command = process.argv.slice(2);
@@ -145,6 +146,7 @@ const vpnDaemon =
 const vpnBundle = vpnPayload
   ? { resources: withVpn(platformResources()), ...vpnDaemon }
   : undefined;
+if (vpnPayload && command[0] === "build") refreshHelper();
 if (vpnPayload) console.log("Campus VPN payload: included.");
 // launchd records the helper's code requirement when the daemon is
 // registered. An ad hoc helper is pinned to that one binary, so after a local
@@ -152,6 +154,9 @@ if (vpnPayload) console.log("Campus VPN payload: included.");
 // the old one keeps answering. A local bundle signed with the person's Apple
 // Development identity signs the helper with it too, as a release signs it
 // with the Developer ID (bundle-vpn.mjs); Tauri signs nothing under Resources.
+// The registration is also bound to the copy of the app that made it, which
+// this signature does not change: the app registers afresh from its own copy
+// on every install (campus_vpn/macos.rs `run_install`).
 const helperIdentity =
   vpnPayload && process.platform === "darwin"
     ? macDevelopmentConfig?.bundle.macOS.signingIdentity

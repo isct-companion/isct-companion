@@ -33,9 +33,9 @@
   --radius-chip: 6px; /** Chips and tags */
   --radius-block: 6px; /** Timetable block */
   --radius-column: 10px; /** Timetable day column */
-  --radius-control: 10px; /** Buttons, inputs, segmented controls */
+  --radius-control: 8px; /** Buttons, inputs, segmented controls */
   --radius-surface: 12px; /** Rows, cards, emphasised rows */
-  --radius-panel: 20px; /** Reading pane, sheets */
+  --radius-panel: 14px; /** Sheets, dialogs and the content plane under the window chrome */
   --font-sans: Inter, -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif; /** Desktop only; phones use the system font for native Japanese rendering and dynamic sizes */
   --workspace-bar-height: 42px;
   --workspace-control-height: 30px;

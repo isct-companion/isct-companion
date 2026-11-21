@@ -8,8 +8,14 @@
 .pastExams {
   min-height: 0;
 }
-.pastExams > .pageBar .uiSegments {
+.pastExamsTitle .uiSegments {
   margin-inline-end: auto;
+}
+.pastExamsTitle .pageBarRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-left: auto;
 }
 .examAccount {
   max-width: 260px;
@@ -25,10 +31,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  padding-inline: var(--space-1) var(--space-5);
-}
-.examDetail {
-  padding-inline: var(--space-5) var(--space-1);
+  padding: var(--space-5);
 }
 .examPane > .uiSegments {
   align-self: flex-start;
@@ -533,4 +536,51 @@ ol.examUploadFiles {
   flex-wrap: wrap;
   gap: var(--space-4);
   margin-top: var(--space-4);
+}
+
+/* Each column runs up to the window's top row (ExamList Workspace): the
+   list's carries the page title, then its tabs, the list and, at its foot,
+   the partner's site and the account. */
+.examColumn {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+.examColumn > .examPane {
+  flex: 1;
+  height: auto;
+}
+.examTabs {
+  align-self: flex-start;
+  margin: var(--space-3) var(--space-5) 0;
+}
+.examFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.examFooter .examAccount {
+  margin-left: auto;
+}
+/* The reader brings its own title row; with nothing open the column keeps
+   the row's height clear so the empty state sits on the plane. */
+.examReaderColumn > .examDetail {
+  padding: 0;
+}
+.examReaderColumn > .examDetail:not(:has(.lmsViewer)) {
+  padding-top: var(--titlebar);
+}
+/* A course with an exam whose subject has no past exams: folded and quiet. */
+.examPanel[data-empty] .examPanelTrigger strong {
+  color: var(--muted);
+}
+.examWithout {
+  margin: var(--space-3) var(--space-2) 0;
 }

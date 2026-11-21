@@ -114,8 +114,9 @@ private struct BenchRoot: View {
     }
 }
 
-/// Desktop's status bar under the page: each school source's sign-in and last
-/// update, and the sync ring. Tapping it opens the connection sheet.
+/// Desktop's status bar under the page: whether each school source's account
+/// is connected, and the sync ring. When it last updated stays in the sheet,
+/// which tapping the bar opens.
 struct SchoolStatusBar: View {
     @Environment(AppModel.self) private var model
     @State private var showsSheet = false
@@ -133,8 +134,8 @@ struct SchoolStatusBar: View {
                                 Text(SyncText.source(source.source))
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Theme.ink)
-                                Text(source.lastUpdated.map { t("syncStatus.updatedDate", ["date": Format.due($0)]) } ?? t("common.neverUpdated"))
-                                    .font(.caption2.monospacedDigit())
+                                Text(state(source))
+                                    .font(.caption2)
                                     .foregroundStyle(Theme.muted)
                             }
                         }
@@ -158,6 +159,13 @@ struct SchoolStatusBar: View {
     /// stay in the sheet.
     private var sources: [SourceView] {
         model.syncSnapshot?.sources.filter { $0.session != nil } ?? []
+    }
+
+    /// The account's sign-in line: LMS signs in with Science Tokyo, 教務Web
+    /// with Tokyo Tech.
+    private func state(_ source: SourceView) -> String {
+        model.profileSession(source.source == "lms" ? .science : .tokyoTech)
+            .map { SchoolSessionText.line($0) } ?? t("common.notConnected")
     }
 
     private func color(_ source: SourceView) -> Color {

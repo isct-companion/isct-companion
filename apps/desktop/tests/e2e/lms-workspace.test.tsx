@@ -530,7 +530,7 @@ describe("the LMS reading workspace", () => {
 
     const rail = () => [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     // Core's labels, as they are: a recitation keeps its own word.
@@ -557,7 +557,7 @@ describe("the LMS reading workspace", () => {
     );
     // 一般 has no number, and the report belongs to no lesson: both are tabs.
     expect(
-      [...host.querySelectorAll(".lmsRailTab")].map((tab) => tab.textContent),
+      [...host.querySelectorAll(".lmsSectionTab")].map((tab) => tab.textContent),
     ).toEqual(["一般", "Activities"]);
 
     await click(rail()[0]);
@@ -842,9 +842,7 @@ describe("the LMS reading workspace", () => {
         .querySelector(".lmsOutline")
         ?.contains(host.querySelector('[aria-label="Search course content"]')),
     ).toBe(true);
-    expect(
-      host.querySelector(".lmsWorkspaceTools")?.querySelector("input"),
-    ).toBeNull();
+    expect(host.querySelector(".lmsLessonRail input")).toBeNull();
     expect(host.querySelector(".lmsViewer")).toBeNull();
     const card = host.querySelector<HTMLElement>(".lmsAnnouncementCard")!;
     expect(card.textContent).toContain("Classroom change");
@@ -1070,12 +1068,12 @@ describe("the LMS reading workspace", () => {
 
     await waitFor(() =>
       expect(
-        host.querySelectorAll(".lmsLessonRail button:not(.lmsRailTab)"),
+        host.querySelectorAll(".lmsLessonRail button"),
       ).toHaveLength(3),
     );
     const rail = [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     // Core puts the course at 第2回: it and the lessons before it are held.
@@ -1135,7 +1133,7 @@ describe("the LMS reading workspace", () => {
     });
     const rail = () => [
       ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button:not(.lmsRailTab)",
+        ".lmsLessonRail button",
       ),
     ];
     const held = () =>

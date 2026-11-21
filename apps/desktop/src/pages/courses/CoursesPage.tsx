@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { TitleRow } from "../../components/TitleRow";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useRef, useLayoutEffect, type ReactNode } from "react";
@@ -169,13 +170,14 @@ function CoursesBody({
   };
   return (
     <div className="page unifiedSchedule">
-      <div className="scheduleTitleRow">
-        <div>
-          <h1>{t("common.timetable")}</h1>
-          <span>{t("courses.planCoursesForThisQuarter")}</span>
-        </div>
-      </div>
-      <header className="pageBar">
+      <TitleRow nav className="pageBar timetableTitle">
+        <h1 title={t("courses.planCoursesForThisQuarter")}>
+          {t("common.timetable")}
+        </h1>
+      </TitleRow>
+      {/* The page's tools: the quarter shown, its credits, refreshing and
+          exporting it, and what to add to it. The title row only names it. */}
+      <div className="timetableBar">
         <YearQuarterPicker
           terms={terms}
           selected={term}
@@ -183,8 +185,7 @@ function CoursesBody({
           onSelect={selectTerm}
           onAdd={canEdit ? addTerm : undefined}
         />
-        <div className="pageBarRight">
-          {academic}
+        <div className="timetableBarEnd">
           {refreshSchedule && (
             <Button
               size="xs"
@@ -236,18 +237,6 @@ function CoursesBody({
             </Tag>
           )}
 
-          {removable && canEdit && (
-            <UiButton
-              className="button"
-              onClick={() =>
-                void mutate({ kind: "removeTerm", termId: term }).catch(
-                  () => undefined,
-                )
-              }
-            >
-              {t("courses.removeEmptyQuarter")}
-            </UiButton>
-          )}
           <Button.Group className="calendarExportActions">
             <Button
               size="xs"
@@ -279,6 +268,19 @@ function CoursesBody({
               </Menu.Dropdown>
             </Menu>
           </Button.Group>
+          {academic}
+          {removable && canEdit && (
+            <UiButton
+              className="button"
+              onClick={() =>
+                void mutate({ kind: "removeTerm", termId: term }).catch(
+                  () => undefined,
+                )
+              }
+            >
+              {t("courses.removeEmptyQuarter")}
+            </UiButton>
+          )}
           {canEdit && copyEvents && planning?.carryOver && (
             <Button
               size="xs"
@@ -302,7 +304,7 @@ function CoursesBody({
             </UiButton>
           )}
         </div>
-      </header>
+      </div>
       <div className="coursesBody">
         <ResizableWorkspace
           id="planner"
@@ -313,12 +315,7 @@ function CoursesBody({
           secondMax="55%"
         >
           <div className="coursesLeft">
-            <Paper
-              component="section"
-              className="ttCard"
-              withBorder
-              shadow="xs"
-            >
+            <Paper component="section" className="ttCard">
               <div className="timetableViewBar">
                 <b>{t("courses.quarterTemplate")}</b>
               </div>

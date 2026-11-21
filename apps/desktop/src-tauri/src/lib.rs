@@ -55,6 +55,8 @@ mod widgets_macos;
 mod window_close;
 #[cfg(target_os = "macos")]
 mod window_close_macos;
+#[cfg(target_os = "macos")]
+mod traffic_lights_macos;
 #[cfg(target_os = "windows")]
 mod window_close_windows;
 mod workspaces;
@@ -294,6 +296,17 @@ pub fn run() {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             window_close::close_requested(window, api);
         }
+        // AppKit lays the title bar out again on these.
+        #[cfg(target_os = "macos")]
+        if matches!(
+            event,
+            tauri::WindowEvent::Resized(_)
+                | tauri::WindowEvent::Focused(_)
+                | tauri::WindowEvent::ScaleFactorChanged { .. }
+        ) && window.label() == "main"
+        {
+            traffic_lights_macos::place(window);
+        }
     });
     builder
         .invoke_handler(tauri::generate_handler![
@@ -476,6 +489,14 @@ pub fn run() {
                 } else {
                     window
                 };
+                // The page runs up under a transparent title bar, as in a
+                // Mac app with a unified toolbar: each column's header row
+                // shares the traffic lights' line (`--titlebar` in the
+                // shell's CSS; traffic_lights_macos centres them in it).
+                #[cfg(target_os = "macos")]
+                let window = window
+                    .title_bar_style(tauri::TitleBarStyle::Overlay)
+                    .hidden_title(true);
                 window
                     .title("IsctCompanion")
                     .inner_size(1280.0, 820.0)
@@ -495,6 +516,10 @@ pub fn run() {
                         }
                     })
                     .build()?;
+                #[cfg(target_os = "macos")]
+                if let Some(main) = app.get_window("main") {
+                    traffic_lights_macos::place(&main);
+                }
             }
             // After the main window exists: the initial focus fact and event
             // delivery both refer to it.

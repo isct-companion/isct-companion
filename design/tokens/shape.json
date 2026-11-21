@@ -19,7 +19,7 @@
       "$description": "Timetable day column"
     },
     "control": {
-      "$value": "10px",
+      "$value": "8px",
       "$description": "Buttons, inputs, segmented controls"
     },
     "surface": {
@@ -27,8 +27,8 @@
       "$description": "Rows, cards, emphasised rows"
     },
     "panel": {
-      "$value": "20px",
-      "$description": "Reading pane, sheets"
+      "$value": "14px",
+      "$description": "Sheets, dialogs and the content plane under the window chrome"
     }
   },
   "font": {

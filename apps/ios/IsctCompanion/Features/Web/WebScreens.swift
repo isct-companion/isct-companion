@@ -146,7 +146,9 @@ struct WebTabScreen: View {
 
     var body: some View {
         ZStack {
-            // The page runs on under the translucent tab bar, as in Safari.
+            // The page runs on under the translucent navigation and tab bars,
+            // as in Safari: it takes the whole screen, and the bars float over
+            // it until reading down folds them away.
             ResidentWebView(
                 site: web.tabSite,
                 host: web.browser,
@@ -154,7 +156,7 @@ struct WebTabScreen: View {
                 refresh: { web.reload(web.tabSite) },
                 reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
             )
-            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
             if web.loading == web.tabSite && web.browser.webView(for: web.tabSite) == nil {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -319,7 +321,7 @@ struct WebPageScreen: View {
                 refresh: { web.reload(page.site) },
                 reading: { moveBars($0, $barsHidden, workbench: navigator.workbench) }
             )
-            .ignoresSafeArea(.container, edges: .bottom)
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
             if let id = page.uploadId, inbox.failedUpload == id {
                 VStack(spacing: Theme.space4) {
                     ProblemNote(text: t("failure.theDraftUploadFailed"))

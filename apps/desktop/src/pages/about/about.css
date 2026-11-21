@@ -6,9 +6,6 @@
    like an app icon does. It fits the pane and nothing scrolls. */
 
 .workspaceMain.aboutMain {
-  height: 100dvh;
-  overflow: hidden;
-  padding: 0 0 52px;
   padding-inline-start: var(--rail);
 }
 

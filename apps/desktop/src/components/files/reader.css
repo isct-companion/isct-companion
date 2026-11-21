@@ -127,6 +127,7 @@
 .lmsImageZoom button { display: inline-grid; place-items: center; min-width: 26px; height: 26px; padding: 0 var(--space-3); border: 0; border-radius: 999px; background: none; color: var(--muted); font: inherit; font-size: calc(var(--type-note-size) * var(--text)); font-variant-numeric: tabular-nums; }
 .lmsImageZoom button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
 .lmsImageZoom button:disabled { opacity: .3; }
+.lmsReaderToolSlot .lmsImageZoom { position: static; padding: 2px; border: 0; background: var(--surface-3); box-shadow: none; }
 
 /* ---------- PDF ---------- */
 .lmsPdfReader { background: var(--surface-2); }

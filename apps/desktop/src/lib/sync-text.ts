@@ -3,6 +3,7 @@
  * due or when to sign in. */
 import type {
   AccountWait,
+  RetryPlan,
   RunView,
   SchoolAuthProfile,
   SchoolProfileSession,
@@ -145,14 +146,14 @@ export function ageText(at: string | null, now: string, locale: string) {
   return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
 }
 
-/** The floating status's one line; its panel holds the rest. `problem`
- * counts what needs the person: failed runs and sources, and accounts that
- * wait on them (or Core's account blocker). */
+/** The floating status's one line, kept to what a glance needs: whether the
+ * school sites are connected, updating, paused or need the person. `problem`
+ * counts failed runs and sources and accounts that wait on the person (or
+ * Core's account blocker); ages and run names live in the panel. */
 export function statusOverview(
   snapshot: SyncSnapshot,
   line: ProgressLine,
   sessions: (SchoolProfileSession | undefined)[],
-  now: string,
   locale: string,
 ): { kind: "problem" | "held" | "busy" | "idle"; text: string } {
   if (snapshot.resetting) return { kind: "busy", text: t("app.resetting") };
@@ -168,28 +169,19 @@ export function statusOverview(
       kind: "problem",
       text: t("syncStatus.summary.problems", { count: flagged }),
     };
-  switch (line.kind) {
-    case "bar":
-      return {
-        kind: "busy",
-        text: `${runText(line.run)} ${line.done}/${line.total}`,
-      };
-    case "busy":
-      return { kind: "busy", text: t("syncStatus.summary.updating") };
-    case "background":
-      return { kind: "busy", text: t("app.updatingInTheBackground") };
-    case "held":
-      return { kind: "held", text: heldText(line.held, locale) };
-    default: {
-      const held = snapshot.sources.find((source) => source.held);
-      if (held?.held)
-        return { kind: "held", text: heldText(held.held, locale) };
-      const oldest = snapshot.sources
-        .map((source) => source.lastUpdated)
-        .sort((a, b) => (a ?? "").localeCompare(b ?? ""))[0];
-      return { kind: "idle", text: ageText(oldest ?? null, now, locale) };
-    }
-  }
+  if (line.kind === "held")
+    return { kind: "held", text: heldText(line.held, locale) };
+  if (line.kind !== "idle")
+    return { kind: "busy", text: t("syncStatus.summary.updating") };
+  const held = snapshot.sources.find((source) => source.held)?.held;
+  if (held) return { kind: "held", text: heldText(held, locale) };
+  if (sessions.some((session) => !session || session.state === "signing-in"))
+    return { kind: "busy", text: t("app.checkingSession") };
+  if (sessions.some((session) => session?.state === "unavailable"))
+    return { kind: "held", text: t("schoolSession.state.unavailable") };
+  return sessions.some((session) => session?.state === "normal")
+    ? { kind: "idle", text: t("schoolSession.state.normal") }
+    : { kind: "held", text: t("common.notConnected") };
 }
 
 /** The site each account's maintenance pauses. */
@@ -240,4 +232,121 @@ export function sessionDetails(
       ...(session.maintenance.notice ? [session.maintenance.notice] : []),
     );
   return lines;
+}
+
+/** What a status menu entry does when chosen. */
+export type StatusMenuAction =
+  | { kind: "retryAccount"; profile: SchoolAuthProfile }
+  | { kind: "retrySync"; plan: RetryPlan }
+  | { kind: "refresh" };
+
+/** One line of the school status menu: a fact, a divider or an action. */
+export type StatusMenuEntry =
+  | { kind: "label"; text: string }
+  | { kind: "separator" }
+  | { kind: "action"; text: string; action: StatusMenuAction };
+
+/** A failure's diagnostic, quoted on its own line so a person can report
+ * what the school answered; placed before the failure so it reads after the
+ * Retry in a menu scanned top-down is not needed. */
+const failureLines = (failure: SyncFailure): StatusMenuEntry[] =>
+  failure.detail ? [{ kind: "label", text: failure.detail }] : [];
+
+const ACCOUNTS: [SchoolAuthProfile, string][] = [
+  ["science", "Science Tokyo"],
+  ["tokyo-tech", "Tokyo Tech"],
+];
+
+/** The school status menu the rail's dot opens: each account and what it
+ * waits on, what Core is doing now, each failure with its Retry, and
+ * Refresh. Words only; the shell turns entries into a native menu. */
+export function statusMenu(
+  snapshot: SyncSnapshot,
+  line: ProgressLine,
+  sessions: Partial<Record<SchoolAuthProfile, SchoolProfileSession>>,
+  locale: string,
+  canRefresh: boolean,
+): StatusMenuEntry[] {
+  const entries: StatusMenuEntry[] = [];
+  for (const [profile, name] of ACCOUNTS) {
+    const session = sessions[profile];
+    const state = session
+      ? [
+          sessionText(session, locale),
+          ...sessionDetails(profile, session, locale),
+        ].join(" · ")
+      : t("app.checkingSession");
+    entries.push({ kind: "label", text: `${name} — ${state}` });
+    if (session?.presentation.recovery.includes("retry"))
+      entries.push({
+        kind: "action",
+        text: `${t("common.retry")} · ${name}`,
+        action: { kind: "retryAccount", profile },
+      });
+  }
+  const now =
+    line.kind === "resetting"
+      ? t("app.resetting")
+      : line.kind === "bar"
+        ? `${runText(line.run)} · ${line.done} / ${line.total}`
+        : line.kind === "busy"
+          ? runText(line.run)
+          : line.kind === "background"
+            ? t("app.updatingInTheBackground")
+            : line.kind === "held"
+              ? heldText(line.held, locale)
+              : undefined;
+  const failures: StatusMenuEntry[] = [
+    ...snapshot.runs.flatMap((run): StatusMenuEntry[] =>
+      run.failure
+        ? [
+            ...failureLines(run.failure),
+            run.retry
+              ? {
+                  kind: "action",
+                  text: `${t("common.retry")} · ${failureText(run.dataset, run.failure, locale)}`,
+                  action: { kind: "retrySync", plan: run.retry },
+                }
+              : {
+                  kind: "label",
+                  text: failureText(run.dataset, run.failure, locale),
+                },
+          ]
+        : [],
+    ),
+    ...snapshot.sources.flatMap((source): StatusMenuEntry[] => {
+      if (!source.failure) return [];
+      const text = sourceFailureText(
+        sourceName(source.source),
+        source.failure,
+        locale,
+      );
+      return [
+        ...failureLines(source.failure),
+        source.retry
+          ? {
+              kind: "action",
+              text: `${t("common.retry")} · ${text}`,
+              action: { kind: "retrySync", plan: source.retry },
+            }
+          : { kind: "label", text },
+      ];
+    }),
+  ];
+  if (now || failures.length) {
+    entries.push({ kind: "separator" });
+    if (now) entries.push({ kind: "label", text: now });
+    entries.push(...failures);
+  }
+  if (canRefresh && !snapshot.resetting) {
+    entries.push(
+      { kind: "separator" },
+      {
+        kind: "action",
+        text: t("common.refreshNow"),
+        action: { kind: "refresh" },
+      },
+    );
+  }
+  return entries;
 }

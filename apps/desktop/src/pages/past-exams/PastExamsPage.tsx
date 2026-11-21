@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { TitleRow } from "../../components/TitleRow";
 import { Globe, LoaderCircle } from "lucide-react";
 import { Button, Menu, SegmentedControl } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
@@ -33,6 +34,7 @@ import { LibraryList } from "./LibraryList";
 import { RequestList } from "./RequestList";
 import {
   documentOccasion,
+  ExamChrome,
   subjectLabel,
   useReload,
   type Call,
@@ -295,99 +297,117 @@ export function PastExams({
     setViewUrl,
   };
 
+  const siteLinks = (
+    <>
+      <span className="examPartner">{t("examShare.partner")}</span>
+      {webUrl && (
+        <ExternalLink className="examSiteLink" href={webUrl}>
+          <Globe size={14} strokeWidth={1.75} aria-hidden />
+          {t("examShare.openOnWeb")}
+        </ExternalLink>
+      )}
+    </>
+  );
+  const chrome = account && {
+    head: (
+      <>
+        <TitleRow nav>
+          <h1>{t("examShare.title")}</h1>
+        </TitleRow>
+        <SegmentedControl
+          className="examTabs"
+          value={tab}
+          onChange={switchTab}
+          data={tabs.map((value) => ({
+            value,
+            label: t(`examShare.${value}`),
+          }))}
+        />
+        {!upload &&
+          (uploadRunning ? (
+            <UploadProgress status={account.upload} cancel={cancelUpload} />
+          ) : (
+            account.upload.phase === "pending" && (
+              <UploadRecovery
+                recover={() => void submitUpload({ kind: "recoverUpload" })}
+              />
+            )
+          ))}
+      </>
+    ),
+    foot: (
+      <footer className="examFooter">
+        {siteLinks}
+        <Menu position="top-start">
+          <Menu.Target>
+            <Button variant="subtle" color="gray" className="examAccount">
+              {account.email ?? t("examShare.account")}
+            </Button>
+          </Menu.Target>
+          <Menu.Dropdown>
+            <Menu.Item
+              className="examDanger"
+              onClick={async () => {
+                if (
+                  await confirmAction(
+                    t("examShare.disconnectHint"),
+                    t("examShare.disconnect"),
+                  )
+                )
+                  await accountAction("disconnect");
+              }}
+            >
+              {t("examShare.disconnect")}
+            </Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+      </footer>
+    ),
+  };
   return (
     <section className="page pastExams" data-active={active || undefined}>
-      <header className="pageBar">
-        <h1>{t("examShare.title")}</h1>
-        {connected && (
-          <SegmentedControl
-            value={tab}
-            onChange={switchTab}
-            data={tabs.map((value) => ({
-              value,
-              label: t(`examShare.${value}`),
-            }))}
+      {!connected && (
+        <TitleRow nav className="pastExamsTitle">
+          <h1>{t("examShare.title")}</h1>
+          <span className="titleRowSpacer" />
+          {siteLinks}
+        </TitleRow>
+      )}
+      <ExamChrome.Provider value={connected ? chrome || null : null}>
+        {!connected ? (
+          <AccountGate
+            account={account}
+            pending={pending}
+            connect={() => void accountAction("connect")}
+            accept={() => void accountAction("acceptTerms")}
+          />
+        ) : tab === "browse" ? (
+          <BrowseList
+            {...shared}
+            active={active}
+            choices={choices}
+            takeCourse={takeCourse}
+            openUpload={openUpload}
+          />
+        ) : tab === "requests" ? (
+          <RequestList
+            {...shared}
+            closeReader={closeReader}
+            openUpload={openUpload}
+          />
+        ) : (
+          <LibraryList
+            {...shared}
+            library={library}
+            failed={libraryFailed}
+            refresh={refreshLibrary}
+            replace={replaceLibrary}
+            closeReader={(id) => {
+              if (reader?.document.id === id) closeReader();
+            }}
           />
         )}
-        <div className="pageBarRight">
-          <span className="examPartner">{t("examShare.partner")}</span>
-          {webUrl && (
-            <ExternalLink className="examSiteLink" href={webUrl}>
-              <Globe size={14} strokeWidth={1.75} aria-hidden />
-              {t("examShare.openOnWeb")}
-            </ExternalLink>
-          )}
-          {connected && (
-            <Menu position="bottom-end">
-              <Menu.Target>
-                <Button variant="subtle" color="gray" className="examAccount">
-                  {account.email ?? t("examShare.account")}
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item
-                  className="examDanger"
-                  onClick={async () => {
-                    if (
-                      await confirmAction(
-                        t("examShare.disconnectHint"),
-                        t("examShare.disconnect"),
-                      )
-                    )
-                      await accountAction("disconnect");
-                  }}
-                >
-                  {t("examShare.disconnect")}
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          )}
-        </div>
-      </header>
-      {connected &&
-        !upload &&
-        (uploadRunning ? (
-          <UploadProgress status={account.upload} cancel={cancelUpload} />
-        ) : (
-          account.upload.phase === "pending" && (
-            <UploadRecovery
-              recover={() => void submitUpload({ kind: "recoverUpload" })}
-            />
-          )
-        ))}
-      {!connected ? (
-        <AccountGate
-          account={account}
-          pending={pending}
-          connect={() => void accountAction("connect")}
-          accept={() => void accountAction("acceptTerms")}
-        />
-      ) : tab === "browse" ? (
-        <BrowseList
-          {...shared}
-          active={active}
-          choices={choices}
-          takeCourse={takeCourse}
-          openUpload={openUpload}
-        />
-      ) : tab === "requests" ? (
-        <RequestList
-          {...shared}
-          closeReader={closeReader}
-          openUpload={openUpload}
-        />
-      ) : (
-        <LibraryList
-          {...shared}
-          library={library}
-          failed={libraryFailed}
-          refresh={refreshLibrary}
-          replace={replaceLibrary}
-          closeReader={(id) => {
-            if (reader?.document.id === id) closeReader();
-          }}
-        />
-      )}
+      </ExamChrome.Provider>
       {upload && choices && connected && (
         <UploadDialog
           form={upload}

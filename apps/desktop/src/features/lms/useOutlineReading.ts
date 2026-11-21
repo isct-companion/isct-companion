@@ -221,16 +221,16 @@ export function useOutlineReading(
       const current = nav.querySelector<HTMLElement>("button.current");
       bar.style.opacity = current ? "1" : "0";
       if (!current) return;
-      bar.style.transform = `translateX(${current.offsetLeft + 2}px)`;
-      bar.style.width = `${Math.max(0, current.offsetWidth - 4)}px`;
-      // Keep the current entry in view on a rail that scrolls sideways.
+      bar.style.transform = `translateY(${current.offsetTop + 4}px)`;
+      bar.style.height = `${Math.max(0, current.offsetHeight - 8)}px`;
+      // Keep the current entry in view on a rail that scrolls down.
       if (
-        current.offsetLeft < nav.scrollLeft ||
-        current.offsetLeft + current.offsetWidth >
-          nav.scrollLeft + nav.clientWidth
+        current.offsetTop < nav.scrollTop ||
+        current.offsetTop + current.offsetHeight >
+          nav.scrollTop + nav.clientHeight
       )
         nav.scrollTo?.({
-          left: current.offsetLeft - nav.clientWidth / 2,
+          top: current.offsetTop - nav.clientHeight / 2,
           behavior: "smooth",
         });
     };

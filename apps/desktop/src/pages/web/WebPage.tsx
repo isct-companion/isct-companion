@@ -1,11 +1,15 @@
 import type { SchoolSite } from "../../generated/persistence";
 import { openExternalUrl } from "../../platform/external-url";
-import { ArrowLeft, ChevronLeft, ChevronRight, RotateCw } from "lucide-react";
 import {
-  ResizableWorkspace,
-  WorkspaceSidebarToggle,
-} from "../../components/ResizableWorkspace";
-import { usePanelRef } from "react-resizable-panels";
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Lock,
+  Minus,
+  Plus,
+  RotateCw,
+} from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { UiButton, UiInput } from "../../components/ui";
 import { t } from "../../i18n";
@@ -21,10 +25,14 @@ import {
 import type { Workspace } from "../../lib/model";
 import { desktopBridge } from "../../platform/native";
 import { official } from "../../lib/school-sites";
-import { claimSchoolView, schoolWebExit } from "../../platform/school-web-owner";
+import {
+  claimSchoolView,
+  schoolWebExit,
+} from "../../platform/school-web-owner";
 import { type Platform } from "../../platform/capabilities";
 import { errorText } from "../../lib/error-text";
 import { withRecords } from "../../platform/records";
+import { TitleRow } from "../../components/TitleRow";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
@@ -92,8 +100,6 @@ function WebBody({
   const resolvedZoom = clamp(zoom, 0.5, 2);
   const host = useRef<HTMLDivElement>(null);
   /** The site list folds away to give the page the window's width. */
-  const sites = usePanelRef();
-  const [sitesCollapsed, setSitesCollapsed] = useState(false);
   const owner = useRef(Symbol("web-page"));
   const addressInput = useRef<HTMLInputElement>(null);
   const editingAddress = useRef(false);
@@ -315,32 +321,19 @@ function WebBody({
   const frameable = site !== "science-lms";
   return (
     <div className="page web servicesPage">
-      <div className="servicesBody" data-sidebar-collapsed={sitesCollapsed}>
-        <ResizableWorkspace
-          id="web"
-          enabled
-          firstSize={168}
-          firstMin={104}
-          firstMax={360}
-          secondMin="40%"
-          secondMax="100%"
-          firstCollapsible
-          firstPanelRef={sites}
-          onFirstCollapse={setSitesCollapsed}
-        >
-          <nav
-            id="web-sites"
-            className="servicePicker"
-            aria-label={t("web.schoolServices")}
-            inert={sitesCollapsed}
-          >
+      <section className="webWorkspace" aria-label={t(official[site].name)}>
+        {/* The school sites are tabs in the window's top row, as a browser's
+            are; the page below takes the whole width. */}
+        <TitleRow nav className="webTitleRow">
+          <nav className="webTabs" aria-label={t("web.schoolServices")}>
             {serviceTiers.map((tier, tierIndex) => (
-              <div className="serviceTier" key={tier.frequency}>
-                {tierIndex > 0 && <div className="serviceDivider" />}
+              <div className="webTabGroup" key={tier.frequency}>
+                {tierIndex > 0 && <span className="webTabDivider" />}
                 {tier.sites.map((key) => (
                   <UiButton
                     type="button"
-                    className={site === key ? "active" : ""}
+                    className={site === key ? "webTab active" : "webTab"}
+                    aria-current={site === key ? "page" : undefined}
                     data-frequency={tier.frequency}
                     title={t(official[key].name)}
                     onClick={() => choose(key)}
@@ -353,154 +346,141 @@ function WebBody({
               </div>
             ))}
           </nav>
-          <section
-            className="workspacePane webWorkspace"
-            aria-label={t(official[site].name)}
-          >
-            <form
-              className="webToolbar"
-              onSubmit={(event) => void navigate(event)}
-            >
-              <WorkspaceSidebarToggle
-                panel={sites}
-                collapsed={sitesCollapsed}
-                controls="web-sites"
-              />
-              <div className="webAddress">
-                {onReturn && (
-                  <UiButton
-                    type="button"
-                    className="iconButton"
-                    title={t("web.backToPage", { page: returnLabel })}
-                    aria-label={t("web.backToPage", { page: returnLabel })}
-                    onClick={onReturn}
-                  >
-                    <ArrowLeft />
-                  </UiButton>
-                )}
-                <span className="webSecure" aria-hidden="true">
-                  ⌁
-                </span>
-                <UiInput
-                  ref={addressInput}
-                  className="webAddressInput"
-                  aria-label={t("web.currentURL")}
-                  spellCheck={false}
-                  value={address}
-                  onChange={(event) => setAddress(event.currentTarget.value)}
-                  onFocus={(event) => {
-                    editingAddress.current = true;
-                    event.currentTarget.select();
-                  }}
-                  onBlur={() => {
-                    editingAddress.current = false;
-                    if (addressInput.current)
-                      addressInput.current.scrollLeft = 0;
-                  }}
-                />
-                <span className="webStatus" role="status">
-                  {status}
-                </span>
-                {embedded && (
-                  <SchoolWebNavigation
-                    site={site}
-                    page={page}
-                    icons={{
-                      back: <ChevronLeft />,
-                      forward: <ChevronRight />,
-                      reload: <RotateCw />,
-                    }}
-                    className={{
-                      back: "iconButton",
-                      forward: "iconButton",
-                      reload: "iconButton",
-                    }}
-                    onError={failed}
-                  />
-                )}
-              </div>
-              <div className="webZoom" aria-label={t("web.pageZoom")}>
-                <UiButton
-                  type="button"
-                  className="iconButton"
-                  aria-label={t("common.zoomOut")}
-                  title={t("common.zoomOut")}
-                  disabled={resolvedZoom <= 0.5}
-                  onClick={() => setPageZoom(resolvedZoom - 0.1)}
-                >
-                  −
-                </UiButton>
-                <UiButton
-                  type="button"
-                  className="zoomValue"
-                  title={t("web.resetZoom")}
-                  onClick={() => setPageZoom(1)}
-                >
-                  {Math.round(resolvedZoom * 100)}%
-                </UiButton>
-                <UiButton
-                  type="button"
-                  className="iconButton"
-                  aria-label={t("common.zoomIn")}
-                  title={t("common.zoomIn")}
-                  disabled={resolvedZoom >= 2}
-                  onClick={() => setPageZoom(resolvedZoom + 0.1)}
-                >
-                  +
-                </UiButton>
-              </div>
+        </TitleRow>
+        {/* The page's own tools, under the tabs. */}
+        <form className="webToolbar" onSubmit={(event) => void navigate(event)}>
+          <div className="webPill webNav">
+            {onReturn && (
               <UiButton
                 type="button"
-                className="iconButton webOpenOutside"
-                title={t("common.openInBrowser")}
-                aria-label={t("common.openInBrowser")}
-                onClick={openOutside}
+                className="iconButton"
+                title={t("web.backToPage", { page: returnLabel })}
+                aria-label={t("web.backToPage", { page: returnLabel })}
+                onClick={onReturn}
               >
-                ↗
+                <ArrowLeft />
               </UiButton>
-            </form>
+            )}
             {embedded && (
-              <SchoolWebNotices
+              <SchoolWebNavigation
                 site={site}
                 page={page}
+                icons={{
+                  back: <ChevronLeft />,
+                  forward: <ChevronRight />,
+                  reload: <RotateCw />,
+                }}
+                className={{
+                  back: "iconButton",
+                  forward: "iconButton",
+                  reload: "iconButton",
+                }}
                 onError={failed}
-                openAccounts={openAccounts}
               />
             )}
-            <div className="webHost" ref={host}>
-              {embedded ? null : platform === "browser-preview" && frameable ? (
-                <iframe
-                  key={`${site}:${targetUrl}`}
-                  title={t(official[site].name)}
-                  src={targetUrl}
-                  referrerPolicy="no-referrer"
-                  style={{
-                    zoom: resolvedZoom,
-                    width: `${100 / resolvedZoom}%`,
-                    height: `${100 / resolvedZoom}%`,
-                  }}
-                />
-              ) : (
-                <div className="webFallback">
-                  <b>{t(official[site].name)}</b>
-                  <p>
-                    {t(
-                      platform === "browser-preview"
-                        ? "web.t2scholaDoesNotAllowEmbedding"
-                        : desktopBridge
-                          ? "web.thisBuildOpensSchoolPages"
-                          : "web.schoolPagesNeedTheDesktop",
-                    )}
-                  </p>
-                  <UiButton className="button primary" onClick={openOutside}>
-                    {t("web.openSite", { site: t(official[site].name) })} ↗
-                  </UiButton>
-                </div>
-              )}
+          </div>
+          <div className="webPill webAddress">
+            <Lock className="webSecure" aria-hidden="true" />
+            <UiInput
+              ref={addressInput}
+              className="webAddressInput"
+              aria-label={t("web.currentURL")}
+              spellCheck={false}
+              value={address}
+              onChange={(event) => setAddress(event.currentTarget.value)}
+              onFocus={(event) => {
+                editingAddress.current = true;
+                event.currentTarget.select();
+              }}
+              onBlur={() => {
+                editingAddress.current = false;
+                if (addressInput.current) addressInput.current.scrollLeft = 0;
+              }}
+            />
+            <span className="webStatus" role="status">
+              {status}
+            </span>
+          </div>
+          <div className="webPill webZoom" aria-label={t("web.pageZoom")}>
+            <UiButton
+              type="button"
+              className="iconButton"
+              aria-label={t("common.zoomOut")}
+              title={t("common.zoomOut")}
+              disabled={resolvedZoom <= 0.5}
+              onClick={() => setPageZoom(resolvedZoom - 0.1)}
+            >
+              <Minus />
+            </UiButton>
+            <UiButton
+              type="button"
+              className="zoomValue"
+              title={t("web.resetZoom")}
+              onClick={() => setPageZoom(1)}
+            >
+              {Math.round(resolvedZoom * 100)}%
+            </UiButton>
+            <UiButton
+              type="button"
+              className="iconButton"
+              aria-label={t("common.zoomIn")}
+              title={t("common.zoomIn")}
+              disabled={resolvedZoom >= 2}
+              onClick={() => setPageZoom(resolvedZoom + 0.1)}
+            >
+              <Plus />
+            </UiButton>
+          </div>
+          <UiButton
+            type="button"
+            className="iconButton webPill webOpenOutside"
+            title={t("common.openInBrowser")}
+            aria-label={t("common.openInBrowser")}
+            onClick={openOutside}
+          >
+            <ExternalLink />
+          </UiButton>
+        </form>
+        {embedded && (
+          <SchoolWebNotices
+            site={site}
+            page={page}
+            onError={failed}
+            openAccounts={openAccounts}
+          />
+        )}
+        <div className="webHost" ref={host}>
+          {embedded ? null : platform === "browser-preview" && frameable ? (
+            <iframe
+              key={`${site}:${targetUrl}`}
+              title={t(official[site].name)}
+              src={targetUrl}
+              referrerPolicy="no-referrer"
+              style={{
+                zoom: resolvedZoom,
+                width: `${100 / resolvedZoom}%`,
+                height: `${100 / resolvedZoom}%`,
+              }}
+            />
+          ) : (
+            <div className="webFallback">
+              <b>{t(official[site].name)}</b>
+              <p>
+                {t(
+                  platform === "browser-preview"
+                    ? "web.t2scholaDoesNotAllowEmbedding"
+                    : desktopBridge
+                      ? "web.thisBuildOpensSchoolPages"
+                      : "web.schoolPagesNeedTheDesktop",
+                )}
+              </p>
+              <UiButton className="button primary" onClick={openOutside}>
+                {t("web.openSite", { site: t(official[site].name) })} ↗
+              </UiButton>
             </div>
-          </section>
-        </ResizableWorkspace>
-      </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
