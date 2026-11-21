@@ -59,11 +59,11 @@ jobs:
       matrix:
         include:
           - workflow: desktop-release.yml
-            inputs: '{"publish":true}'
+            inputs: '{"publish":"true"}'
           - workflow: android-release.yml
             inputs: '{}'
           - workflow: ios-release.yml
-            inputs: '{"upload_testflight":true}'
+            inputs: '{"upload_testflight":"true"}'
     steps:
       # Tags created using GITHUB_TOKEN do not trigger push workflows.
       - env:
