@@ -2378,6 +2378,23 @@ checks:
           over to it by itself, with no password dialog and no new approval in
           Login Items, before it connects.
       - action: |
+          Open a second copy of the app with the same bundle identifier (a
+          mounted disk image, or a local `yarn desktop:build --debug` bundle
+          in target/debug/bundle) and press Install or Repair there. Quit it,
+          delete that copy, open /Applications/IsctCompanion.app and read the
+          VPN card; press Repair, then Connect. Run
+          `launchctl print system/app.isctcompanion.vpn | grep -E 'Executable|state'`
+          before and after the repair.
+        reason: |
+          launchd runs the helper inside whichever copy registered it. Once
+          that copy is gone the daemon still reads enabled but launchd cannot
+          find the program (EX_CONFIG), which looked like a helper that
+          "does not respond". The card must say macOS cannot start it and
+          offer Repair, and Repair must leave Executable pointing into
+          /Applications and the helper running, with no new approval. While
+          the other copy still exists the card must say the helper belongs
+          to another copy instead of connecting through it.
+      - action: |
           Compare the countdown on the VPN row with the session end openconnect
           logs in /var/log/app.isctcompanion.vpnhelper.log.
         reason: |

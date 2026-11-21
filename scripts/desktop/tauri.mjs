@@ -152,6 +152,9 @@ if (vpnPayload) console.log("Campus VPN payload: included.");
 // the old one keeps answering. A local bundle signed with the person's Apple
 // Development identity signs the helper with it too, as a release signs it
 // with the Developer ID (bundle-vpn.mjs); Tauri signs nothing under Resources.
+// The registration is also bound to the copy of the app that made it, which
+// this signature does not change: the app registers afresh from its own copy
+// on every install (campus_vpn/macos.rs `run_install`).
 const helperIdentity =
   vpnPayload && process.platform === "darwin"
     ? macDevelopmentConfig?.bundle.macOS.signingIdentity

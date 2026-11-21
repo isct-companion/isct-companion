@@ -61,6 +61,7 @@ fn report(state: HelperState) -> HelperReport {
         expires_at: None,
         revision: Some(HELPER_REVISION),
         ended: None,
+        program: None,
     }
 }
 
@@ -78,14 +79,60 @@ fn an_old_helper_is_updated_only_when_no_tunnel_is_up() {
         ..report(state)
     };
     assert!(matches!(
-        project(old(HelperState::Connected)),
+        project(old(HelperState::Connected), None),
         VpnState::Connected { .. }
     ));
     assert_eq!(
-        project(old(HelperState::Disconnected)),
+        project(old(HelperState::Disconnected), None),
         VpnState::Error(VpnError::HelperOutdated)
     );
     assert_eq!(VpnError::HelperOutdated.code(), "helper_outdated");
+}
+
+/// launchd runs a macOS helper inside whichever copy of the app registered
+/// it. A helper from another copy (a build folder, a disk image) is not
+/// updated with this app and stops for good once that copy is deleted, so
+/// with no tunnel up it is registered again from this app; a tunnel it has
+/// up is left alone, and a helper that does not say where it runs, or a
+/// shell with no own helper to compare (Windows), is taken as is.
+#[test]
+fn a_helper_from_another_copy_of_the_app_is_replaced_when_no_tunnel_is_up() {
+    let own = PathBuf::from(
+        "/Applications/IsctCompanion.app/Contents/Resources/resources/vpn/isct-vpn-helper",
+    );
+    let other = "/Users/me/IsctApp/target/debug/bundle/macos/IsctCompanion.app/Contents/Resources/resources/vpn/isct-vpn-helper";
+    let from = |state, program: Option<&str>| HelperReport {
+        program: program.map(PathBuf::from),
+        ..report(state)
+    };
+    let service = VpnService::new(FakePort::answering(vec![
+        Ok(from(HelperState::Disconnected, Some(other))),
+        Ok(from(HelperState::Connected, Some(other))),
+        Ok(from(HelperState::Disconnected, own.to_str())),
+        Ok(from(HelperState::Disconnected, None)),
+    ]))
+    .with_own_helper(own.clone());
+    assert_eq!(
+        service.refresh(),
+        VpnState::Error(VpnError::HelperElsewhere(other.into()))
+    );
+    assert!(matches!(service.refresh(), VpnState::Connected { .. }));
+    assert_eq!(service.refresh(), VpnState::Disconnected);
+    assert_eq!(service.refresh(), VpnState::Disconnected);
+    assert_eq!(
+        project(from(HelperState::Disconnected, Some(other)), None),
+        VpnState::Disconnected
+    );
+    // Reconnecting cannot fix either, so on-demand stops on them; installing
+    // again does, so the card offers it.
+    for error in [
+        VpnError::HelperElsewhere(other.into()),
+        VpnError::HelperNotStarting,
+    ] {
+        assert!(hopeless(&error));
+        assert!(error.install_fixes());
+    }
+    assert!(!VpnError::HelperNeedsApproval.install_fixes());
 }
 
 /// The UI keys its guidance on these names; a rename breaks the install prompt.
@@ -96,20 +143,29 @@ fn error_codes_are_stable_names() {
         VpnError::HelperNeedsApproval.code(),
         "helper_needs_approval"
     );
+    assert_eq!(VpnError::HelperNotStarting.code(), "helper_not_starting");
+    assert_eq!(
+        VpnError::HelperElsewhere("x".into()).code(),
+        "helper_elsewhere"
+    );
     assert_eq!(VpnError::Timeout.code(), "helper_timeout");
     assert_eq!(VpnError::Tunnel("x".into()).code(), "tunnel_failed");
 }
 
 #[test]
 fn a_connected_report_keeps_the_tunnel_address() {
-    let next = project(HelperReport {
-        state: HelperState::Connected,
-        address: Some("10.1.2.3".into()),
-        detail: None,
-        expires_at: None,
-        revision: Some(HELPER_REVISION),
-        ended: None,
-    });
+    let next = project(
+        HelperReport {
+            state: HelperState::Connected,
+            address: Some("10.1.2.3".into()),
+            detail: None,
+            expires_at: None,
+            revision: Some(HELPER_REVISION),
+            ended: None,
+            program: None,
+        },
+        None,
+    );
     assert_eq!(
         next,
         VpnState::Connected {
@@ -123,20 +179,24 @@ fn a_connected_report_keeps_the_tunnel_address() {
 /// clean disconnect would hide the failure from the person.
 #[test]
 fn a_disconnected_report_with_a_detail_is_a_failure() {
-    let failed = project(HelperReport {
-        state: HelperState::Disconnected,
-        address: None,
-        detail: Some("openconnect exited".into()),
-        expires_at: None,
-        revision: Some(HELPER_REVISION),
-        ended: None,
-    });
+    let failed = project(
+        HelperReport {
+            state: HelperState::Disconnected,
+            address: None,
+            detail: Some("openconnect exited".into()),
+            expires_at: None,
+            revision: Some(HELPER_REVISION),
+            ended: None,
+            program: None,
+        },
+        None,
+    );
     assert_eq!(
         failed,
         VpnState::Error(VpnError::Tunnel("openconnect exited".into()))
     );
     assert_eq!(
-        project(report(HelperState::Disconnected)),
+        project(report(HelperState::Disconnected), None),
         VpnState::Disconnected
     );
 }
@@ -150,6 +210,7 @@ fn connect_goes_connecting_then_connected() {
         expires_at: None,
         revision: Some(HELPER_REVISION),
         ended: None,
+        program: None,
     })]);
     let service = VpnService::new(port.clone());
     assert_eq!(

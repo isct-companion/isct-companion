@@ -24,7 +24,7 @@ pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
             status, connect, disconnect, on_demand, publishers, install
         ])
         .setup(|app, _| {
-            app.manage(helper::service());
+            app.manage(helper::service(own_helper(app)));
             super::grant_main(app, "campus-vpn")?;
             Ok(())
         })
@@ -185,6 +185,20 @@ async fn status(webview: tauri::Webview, app: tauri::AppHandle) -> Result<VpnSta
     Ok(status)
 }
 
+/// The helper launchd runs for this app: the bundled one, in place, links
+/// resolved as the helper reports its own file. On Windows the installer
+/// copies the helper elsewhere, so there is none to compare.
+#[cfg(target_os = "macos")]
+fn own_helper(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let bundled = payload(app).ok()?;
+    Some(std::fs::canonicalize(&bundled).unwrap_or(bundled))
+}
+
+#[cfg(target_os = "windows")]
+fn own_helper(_app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    None
+}
+
 /// The bundled helper. `tauri.mjs` bundles `resources/vpn/` under its own path.
 fn payload(app: &tauri::AppHandle) -> Result<std::path::PathBuf, CommandError> {
     Ok(app
@@ -219,13 +233,8 @@ async fn connect(
         blocking(move || service.refresh()).await?
     };
     if matches!(
-        before,
-        VpnState::Error(
-            VpnError::HelperNotInstalled
-                | VpnError::HelperNeedsApproval
-                | VpnError::HelperOutdated
-                | VpnError::HelperUnreachable(_)
-        )
+        &before,
+        VpnState::Error(error) if error.install_fixes() || *error == VpnError::HelperNeedsApproval
     ) || !service.needs_login()
     {
         return Ok(report(&service, before));
@@ -328,18 +337,12 @@ async fn install(
     }
     // launchd and the service manager start the helper asynchronously, and
     // an updated one replaces the running one after its next reply; give it
-    // a moment to listen.
-    for _ in 0..20 {
+    // a moment to listen. A helper still missing after that is reported as
+    // such (macOS: `HelperNotStarting`), never as installed.
+    for _ in 0..30 {
         let reading = service.clone();
         let state = blocking(move || reading.refresh()).await?;
-        if !matches!(
-            state,
-            VpnState::Error(
-                VpnError::HelperNotInstalled
-                    | VpnError::HelperOutdated
-                    | VpnError::HelperUnreachable(_)
-            )
-        ) {
+        if !matches!(&state, VpnState::Error(error) if error.install_fixes()) {
             return Ok(report(&service, state));
         }
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;

@@ -11,7 +11,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// The helper this app bundles. An installed helper that reports less (or
 /// nothing, as the first ones did) is replaced before the next connect.
-pub const HELPER_REVISION: u32 = 8;
+pub const HELPER_REVISION: u32 = 9;
 
 /// Socket the daemon listens on; the daemon creates it as root:staff 0660.
 #[cfg(unix)]
@@ -154,6 +154,11 @@ pub struct Reply {
     /// stop. `None` when nothing has, or the person stopped it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ended: Option<Ending>,
+    /// The file the answering helper runs from, in a status reply. On macOS
+    /// launchd runs the helper inside whichever copy of the app registered
+    /// it, so the app tells its own helper from another copy's by this.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
 }
 
 /// A tunnel the helper ended on its own.
@@ -179,6 +184,7 @@ impl Reply {
             expires: None,
             revision: Some(HELPER_REVISION),
             ended: None,
+            program: None,
         }
     }
 
@@ -193,6 +199,7 @@ impl Reply {
             expires: None,
             revision: Some(HELPER_REVISION),
             ended: None,
+            program: None,
         }
     }
 }

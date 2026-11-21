@@ -12,13 +12,31 @@ import { ToolCard } from "./ToolCard";
 import { errorText } from "../../lib/error-text";
 import { jstClock } from "../../lib/civil-date";
 
-/** Helper states an install fixes: none yet, an older one, or one that does
- * not answer (installing registers the daemon afresh from this app). */
+/** Helper states an install fixes: none yet, an older one, one the system
+ * does not start or one from another copy of the app, or one that does not
+ * answer (installing registers the daemon afresh from this app). */
 const HELPER_INSTALL_FIXES = new Set([
   "helper_not_installed",
   "helper_outdated",
+  "helper_not_starting",
+  "helper_elsewhere",
   "helper_unreachable",
 ]);
+
+/** The button that installs, updates, repairs or allows the helper. */
+const helperActionLabel = (error?: string | null): MessageKey => {
+  switch (error) {
+    case "helper_outdated":
+      return "tools.campusWifi.vpnUpdate";
+    case "helper_needs_approval":
+      return "tools.campusWifi.vpnAllow";
+    case "helper_not_starting":
+    case "helper_elsewhere":
+      return "tools.campusWifi.vpnRepair";
+    default:
+      return "tools.campusWifi.vpnInstall";
+  }
+};
 
 /** The APM session's countdown as h:mm, or nothing when it is not known. */
 const vpnRemaining = (expiresAt: string | null | undefined, now: number) => {
@@ -82,8 +100,22 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
 
   // A helper still waiting for the person to allow it (macOS Login Items)
   // is shown as such and goes no further: a connect would spend a one-time
-  // login on a helper that cannot start the tunnel.
+  // login on a helper that cannot start the tunnel. So is one an install
+  // just failed to bring up, with what to try next, so the same button is
+  // not pressed in a loop.
   const allowed = (next: VpnStatus) => {
+    if (next.error && HELPER_INSTALL_FIXES.has(next.error)) {
+      setVpn(next);
+      notify(
+        t(
+          next.error === "helper_not_starting" ||
+            next.error === "helper_elsewhere"
+            ? "tools.campusWifi.vpnRepairDidNotTake"
+            : "tools.campusWifi.vpnInstallDidNotTake",
+        ),
+      );
+      return undefined;
+    }
     if (next.error !== "helper_needs_approval") return next;
     setVpn(next);
     return undefined;
@@ -98,12 +130,11 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
     if (next.error === "helper_needs_approval")
       return allowed(await desktopBridge.vpnInstall!());
     if (!next.error || !HELPER_INSTALL_FIXES.has(next.error)) return next;
-    const update = next.error === "helper_outdated";
     const confirmed = await confirmAction(
       next.error === "helper_not_installed"
         ? t("tools.campusWifi.vpnInstallNeeded")
         : vpnErrorText(next),
-      t(update ? "tools.campusWifi.vpnUpdate" : "tools.campusWifi.vpnInstall"),
+      t(helperActionLabel(next.error)),
       { title: t("tools.campusWifi.campusVpn"), danger: false },
     );
     return confirmed ? allowed(await desktopBridge.vpnInstall!()) : undefined;
@@ -221,13 +252,7 @@ export function CampusVpn({ notify }: { notify: (message: string) => void }) {
       disabled={vpnBusy}
       onClick={() => void installHelper()}
     >
-      {t(
-        vpn?.error === "helper_outdated"
-          ? "tools.campusWifi.vpnUpdate"
-          : vpn?.error === "helper_needs_approval"
-            ? "tools.campusWifi.vpnAllow"
-            : "tools.campusWifi.vpnInstall",
-      )}
+      {t(helperActionLabel(vpn?.error))}
     </UiButton>
   ) : vpn?.onDemand ? null : (
     <UiButton

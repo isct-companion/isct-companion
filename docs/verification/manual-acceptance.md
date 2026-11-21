@@ -2913,20 +2913,35 @@ campus VPN helper not yet installed for the first run.
    - *Why:* The update brings the helper with the app; the running one must hand
      over to it by itself, with no password dialog and no new approval in
      Login Items, before it connects.
-7. Compare the countdown on the VPN row with the session end openconnect
+7. Open a second copy of the app with the same bundle identifier (a
+   mounted disk image, or a local `yarn desktop:build --debug` bundle
+   in target/debug/bundle) and press Install or Repair there. Quit it,
+   delete that copy, open /Applications/IsctCompanion.app and read the
+   VPN card; press Repair, then Connect. Run
+   `launchctl print system/app.isctcompanion.vpn | grep -E 'Executable|state'`
+   before and after the repair.
+   - *Why:* launchd runs the helper inside whichever copy registered it. Once
+     that copy is gone the daemon still reads enabled but launchd cannot
+     find the program (EX_CONFIG), which looked like a helper that
+     "does not respond". The card must say macOS cannot start it and
+     offer Repair, and Repair must leave Executable pointing into
+     /Applications and the helper running, with no new approval. While
+     the other copy still exists the card must say the helper belongs
+     to another copy instead of connecting through it.
+8. Compare the countdown on the VPN row with the session end openconnect
    logs in /var/log/app.isctcompanion.vpnhelper.log.
    - *Why:* The countdown is read from openconnect's UTC expiry line; a wrong
      zone would shift it by hours.
-8. Leave the tunnel up into its last ten minutes with another page of
+9. Leave the tunnel up into its last ten minutes with another page of
    the app open, then let it end.
    - *Why:* The reminder and the ended notice come from the minute check, not
      from the Settings page; neither may reconnect.
-9. While connected, switch to another network so the tunnel ends, and
+10. While connected, switch to another network so the tunnel ends, and
    run `route -n get 131.112.12.180` and `scutil --dns`.
    - *Why:* The APM's pin must follow the new network's gateway and the campus
      resolvers must be gone until the tunnel is back; otherwise neither
      openconnect nor a new sign-in can reach the APM.
-10. Disconnect, then check the routes and the scoped DNS resolver.
+11. Disconnect, then check the routes and the scoped DNS resolver.
    - *Why:* Disconnect must remove 131.112.0.0/16, the host route pinning the APM
      (131.112.12.180) and the isct.ac.jp resolver. A pin left behind points
      at this network's gateway and blocks connecting from the next one.

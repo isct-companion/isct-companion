@@ -2578,4 +2578,59 @@ describe("Campus VPN", () => {
     },
     TIMEOUT,
   );
+
+  // A macOS daemon registered from a copy of the app that is gone is
+  // enabled yet never runs. The card names that and offers Repair; a repair
+  // that does not bring the helper up says what to try next instead of
+  // showing the same button as if nothing happened, and no login is spent.
+  it(
+    "repairs a helper macOS does not start, and says what to try when it does not take",
+    async () => {
+      const status = { address: null, expiresAt: null };
+      const notStarting = {
+        ...status,
+        state: "error",
+        error: "helper_not_starting",
+        detail:
+          "the campus VPN helper is registered but the system does not start it",
+      };
+      let repaired = false;
+      const mounted = await mountSettings(paths.tools(), {
+        tools: ["campus-vpn"],
+        handle: (command) => {
+          if (command === "plugin:campus-vpn|status") return notStarting;
+          if (command === "plugin:campus-vpn|install")
+            return repaired
+              ? { ...status, state: "disconnected", error: null, detail: null }
+              : notStarting;
+          return undefined;
+        },
+      });
+      app = mounted;
+      const pane = mounted.host.querySelector<HTMLElement>(".page.tools")!;
+      await wait(() =>
+        expect(pane.textContent).toContain(
+          "The VPN component is registered, but macOS can't start it",
+        ),
+      );
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() =>
+        expect(document.body.textContent).toContain(
+          "macOS still didn't start the VPN component.",
+        ),
+      );
+      expect(mounted.core.commands("plugin:campus-vpn|install")).toHaveLength(
+        1,
+      );
+      repaired = true;
+      await clickButton(pane, "Repair");
+      await answerDialog("Repair");
+      await wait(() => expect(buttonIn(pane, "Connect")).toBeTruthy());
+      expect(mounted.core.commands("plugin:campus-vpn|connect")).toHaveLength(
+        0,
+      );
+    },
+    TIMEOUT,
+  );
 });
