@@ -215,14 +215,17 @@ function themesCss(themes) {
   return `/**\n * ${generated("design/tokens/theme.json")}\n */\n\n${blocks.join("\n")}\n`;
 }
 
+// The swatches draw each theme in the appearance on screen, so a dark
+// window shows the dark sets rather than five near-white dots.
 function themePreviews(themes) {
+  const swatch = ({ bg, surface }) => ({ bg, surface });
   const previews = Object.fromEntries(
-    Object.entries(themes).map(([id, { light: { bg, surface } }]) => [
+    Object.entries(themes).map(([id, { light, dark }]) => [
       id,
-      { bg, surface },
+      { light: swatch(light), dark: swatch(dark) },
     ]),
   );
-  return `// ${generated("design/tokens/color.light.json and theme.json")}\n\nexport const lightThemePreviews = ${JSON.stringify(previews, null, 2)} as const;\n`;
+  return `// ${generated("design/tokens/color.light.json, color.dark.json and theme.json")}\n\nexport const themePreviews = ${JSON.stringify(previews, null, 2)} as const;\n`;
 }
 
 function androidColors(light) {

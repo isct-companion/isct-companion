@@ -809,18 +809,18 @@ export function LmsWorkspaceBody({
                 column of numbers instead of a full-width rail. */}
             <div className="lmsOutlineBody">
               {lessons.length > 0 && !query.trim() && (
-                <GuideTip id="lesson-mark" text="lms.doubleClickALessonNumber">
-                  <nav
-                    className="lmsLessonRail"
-                    aria-label={t("lms.lessons")}
-                    ref={rail}
-                  >
-                    <span
-                      className="lmsRailIndicator"
-                      ref={railIndicator}
-                      aria-hidden="true"
-                    />
-                    {lessons.map((l, index) => (
+                <nav
+                  className="lmsLessonRail"
+                  aria-label={t("lms.lessons")}
+                  ref={rail}
+                >
+                  <span
+                    className="lmsRailIndicator"
+                    ref={railIndicator}
+                    aria-hidden="true"
+                  />
+                  {lessons.map((l, index) => {
+                    const tick = (
                       <button
                         type="button"
                         key={l.id}
@@ -834,9 +834,23 @@ export function LmsWorkspaceBody({
                       >
                         {l.label}
                       </button>
-                    ))}
-                  </nav>
-                </GuideTip>
+                    );
+                    // The tip points at the lesson the course is at, the
+                    // tick most worth double-clicking.
+                    return l.id === (at ?? lessons[0]).id ? (
+                      <GuideTip
+                        key={l.id}
+                        id="lesson-mark"
+                        text="lms.doubleClickALessonNumber"
+                        position="right"
+                      >
+                        {tick}
+                      </GuideTip>
+                    ) : (
+                      tick
+                    );
+                  })}
+                </nav>
               )}
               <div className="lmsOutlineMain">
                 <div className="lmsOutlineTools">

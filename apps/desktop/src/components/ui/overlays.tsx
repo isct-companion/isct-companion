@@ -11,6 +11,7 @@ import {
   useState,
   type CSSProperties,
   type HTMLAttributes,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import { usePageLayer, useTopPageLayer } from "./page-layer";
@@ -286,9 +287,10 @@ export const Popover = Object.assign(PopoverRoot, {
   Target: ({ children }: { children: ReactNode }) => (
     <PopoverPrimitive.Trigger asChild>{children}</PopoverPrimitive.Trigger>
   ),
-  /** Places the dropdown by this element without making it a toggle. */
-  Anchor: ({ children }: { children: ReactNode }) => (
-    <PopoverPrimitive.Anchor asChild>{children}</PopoverPrimitive.Anchor>
+  /** Places the dropdown by this element without making it a toggle. Props
+   * and ref an outer `asChild` hands it pass on to that element. */
+  Anchor: (props: ComponentProps<typeof PopoverPrimitive.Anchor>) => (
+    <PopoverPrimitive.Anchor asChild {...props} />
   ),
   Dropdown: PopoverContent,
 });

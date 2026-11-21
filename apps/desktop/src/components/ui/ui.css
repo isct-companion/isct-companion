@@ -332,12 +332,16 @@ textarea.uiInput {
 .uiInputWrapper:has(.uiInputSection) > .uiInput {
   padding-right: 34px;
 }
+/* A fixed box at the end of the field: a bare icon and a 28px button both
+   sit centred in it, the same distance from the border. */
 .uiInputSection {
   position: absolute;
   right: 2px;
   top: 50%;
   transform: translateY(-50%);
   display: inline-flex;
+  justify-content: center;
+  width: 32px;
 }
 .uiCheckField {
   display: flex;

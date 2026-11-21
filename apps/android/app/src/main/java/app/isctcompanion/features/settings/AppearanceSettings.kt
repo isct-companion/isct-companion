@@ -11,6 +11,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,14 +36,15 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.Theme
 import kotlinx.coroutines.launch
 
-/** The background theme: five round swatches, each its light background
- * with a surface dot; choosing one saves `settings.theme` at once and syncs
+/** The background theme: five round swatches, each its background with a
+ * surface dot in the appearance on screen (as `Theme` applies it); choosing one saves `settings.theme` at once and syncs
  * (slotledger `approach/neutral-themes`). */
 @Composable
 internal fun ThemeCard() {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val selected = model.records.settings.optString("theme").ifEmpty { "warm" }
+    val dark = isSystemInDarkTheme()
     val themes = listOf("warm" to t("settings.main.warm"), "cool" to t("settings.main.cool"), "paper" to t("settings.main.paper"), "mist" to t("settings.main.mist"), "moss" to t("settings.main.moss"))
     Card(Modifier.padding(top = Theme.space8)) {
         Row(
@@ -52,7 +54,7 @@ internal fun ThemeCard() {
             IconHeading(t("settings.main.theme"), Icons.Rounded.Palette, Theme.colors.accent, Modifier.weight(1f))
             Row(Modifier.selectableGroup(), horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 for ((id, label) in themes) {
-                    val neutrals = (IsctThemes[id] ?: continue).first
+                    val neutrals = (IsctThemes[id] ?: continue).let { if (dark) it.second else it.first }
                     val chosen = id == selected
                     Box(
                         Modifier
