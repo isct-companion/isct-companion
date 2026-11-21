@@ -55,6 +55,10 @@ fn failure_reason(kind: &str) -> Label {
         "storage" => "notSaved",
         "parse" => "unreadable",
         "dns" | "tls" | "connect" => "unreachable",
+        "stalled" => "interrupted",
+        "too-large" => "tooLarge",
+        "host-paused" => "paused",
+        "cancelled" => "cancelled",
         _ => "",
     };
     let (key, args) = if !known.is_empty() {
@@ -70,11 +74,33 @@ fn failure_reason(kind: &str) -> Label {
         };
         (key, json!({ "status": status }))
     } else {
-        ("unknownCode", json!({ "code": kind }))
+        // The code stays in diagnostics; the person sees a plain sentence.
+        ("unknownCode", json!({}))
     };
     Label {
         key: format!("syncStatus.failure.{key}"),
         args,
+    }
+}
+
+/// The 教務Web pages Core reads, by `Key::key`; each has a name in the
+/// catalogs, so a page in progress never shows its identifier.
+pub(super) const KYOMU_PAGES: [&str; 6] = ["profile", "registrations", "declared", "grades", "requirements", "gpa"];
+
+/// What a run is reading now. The catalogs print `title`; a 教務Web page has
+/// none and is named by its page key, and any other key without a title is
+/// left out rather than shown as an identifier.
+fn current_label(dataset: Dataset, key: &str, title: Option<&str>) -> Option<Label> {
+    match title {
+        Some(title) => Some(Label {
+            key: format!("sync.current.{}", label_name(dataset)),
+            args: json!({ "title": title, "key": key }),
+        }),
+        None if dataset == Dataset::KyomuPage && KYOMU_PAGES.contains(&key) => Some(Label {
+            key: format!("syncStatus.kyomuPage.{key}"),
+            args: json!({}),
+        }),
+        None => None,
     }
 }
 
@@ -219,11 +245,11 @@ pub(super) fn run_view(batch: &Batch) -> RunView {
         priority: batch.priority,
         done: count(batch.done.len()),
         total: Some(count(total)),
-        current: batch.running.iter().next().map(|(key, title)| Label {
-            key: format!("sync.current.{}", label_name(dataset)),
-            // The catalogs print `title`; a key without one is its own name.
-            args: json!({ "title": title.as_deref().unwrap_or(&key.key), "key": key.key }),
-        }),
+        current: batch
+            .running
+            .iter()
+            .next()
+            .and_then(|(key, title)| current_label(dataset, &key.key, title.as_deref())),
         scope: batch.group.scope.clone(),
         retry: batch
             .failed

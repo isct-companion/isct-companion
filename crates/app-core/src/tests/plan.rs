@@ -1572,11 +1572,13 @@ fn a_failed_kyomu_run_names_each_page_and_its_reason() {
         run.failure.unwrap().detail.as_deref(),
         Some("gpa: http-500\ngrades: The grade page shape is unknown.")
     );
-    // The catalogs print `title`, so a key without one must not send null.
-    assert_eq!(run.current.unwrap().args["title"], "profile");
-    // Other datasets' keys are ids a person cannot read.
+    // A 教務Web page has no title; it is named by its page, never its key.
+    assert_eq!(run.current.unwrap().key, "syncStatus.kyomuPage.profile");
+    // Other datasets' keys are ids a person cannot read: no detail, and no
+    // current item rather than the key standing in for a title.
     let run = snapshot::run_view(&batch(Dataset::LmsCourse));
     assert_eq!(run.failure.unwrap().detail, None);
+    assert_eq!(run.current, None);
 }
 
 #[test]
@@ -1716,6 +1718,9 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
                 "{name}"
             );
         }
+        for page in snapshot::KYOMU_PAGES {
+            assert!(catalog[format!("syncStatus.kyomuPage.{page}")].is_string(), "{page}");
+        }
     }
 }
 
@@ -1846,7 +1851,11 @@ fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
         ),
         ("timeout", "timedOut", serde_json::json!({})),
         ("dns", "unreachable", serde_json::json!({})),
-        ("other", "unknownCode", serde_json::json!({"code":"other"})),
+        ("stalled", "interrupted", serde_json::json!({})),
+        ("too-large", "tooLarge", serde_json::json!({})),
+        ("host-paused", "paused", serde_json::json!({})),
+        ("cancelled", "cancelled", serde_json::json!({})),
+        ("other", "unknownCode", serde_json::json!({})),
     ] {
         let mut state = stored(
             Dataset::Reference,

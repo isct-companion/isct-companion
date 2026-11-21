@@ -787,7 +787,7 @@ export function LmsWorkspaceBody({
                   disabled={progress != null || opened?.kind === "official"}
                   onClick={refresh}
                 >
-                  {t("lms.pullFromLMS")}
+                  {t("common.refreshNow")}
                 </button>
               )}
             </div>
