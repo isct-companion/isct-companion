@@ -3466,12 +3466,6 @@ textarea.codeArea {
 .calendarWorkspace {
   gap: 0;
 }
-.calendarBar {
-  display: flex;
-  justify-content: flex-end;
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--line);
-}
 .calendarRange {
   flex: 0 0 auto;
   color: var(--muted);
@@ -3629,6 +3623,10 @@ textarea.codeArea {
   box-shadow: none !important;
   background: transparent !important;
 }
+/* A course opened over the finder covers it: opaque, on the plane. */
+.listCard.coursePanel {
+  background: var(--surface) !important;
+}
 
 /* A reader's tool panel serving as its column's title row: one line; the
    title gives way before the tools do. */
@@ -3645,20 +3643,116 @@ textarea.codeArea {
   border-radius: 0;
   background: transparent;
 }
-/* The reader's tools under its title row: one quiet bar, gone when empty. */
-.lmsReaderBar {
+/* One toolbar for every pane (the reader's tools, the calendar's weeks):
+   centred groups on soft pills under a hairline, as the web page's are. */
+.paneToolbar {
   display: flex;
-  justify-content: flex-end;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
   min-width: 0;
-  padding: var(--space-2) var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--line);
 }
 .lmsReaderBar:has(.lmsReaderToolSlot:empty) {
   display: none;
 }
 .lmsReaderBar .lmsReaderToolSlot {
-  flex: 1;
-  justify-content: flex-end;
+  flex: 0 1 auto;
+  justify-content: center;
+}
+/* A group of related controls: one rounded pill, icon buttons inside. */
+.toolPill,
+.paneToolbar :is(.lmsFileActions, .lmsPdfPagination, .lmsPdfZoom, .lmsImageZoom) {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.toolPill > button,
+.paneToolbar :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom) > :is(button, a),
+.paneToolbar .lmsPdfFindToggle {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted) !important;
+}
+.toolPill > button:hover:not(:disabled),
+.paneToolbar :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom) > :is(button, a):hover:not(:disabled),
+.paneToolbar .lmsPdfFindToggle:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent) !important;
+  color: var(--ink) !important;
+}
+.toolPillLabel {
+  padding: 0 var(--space-3);
+  color: var(--ink);
+  font-size: calc(var(--type-note-size) * var(--text));
+  font-variant-numeric: tabular-nums;
+}
+/* A single labelled action as its own pill. */
+.toolPill.toolPillButton {
+  width: auto;
+  padding: 0 var(--space-5);
+  color: var(--ink);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
+.toolPill.toolPillButton:hover {
+  background: color-mix(in srgb, var(--ink) 10%, var(--surface-3));
+}
+.paneToolbar .lmsPdfFindToggle {
+  width: 30px;
+  height: 30px;
+  background: var(--surface-3);
+}
+.paneToolbar .lmsPdfPagination {
+  padding: 0 var(--space-3);
+  font-variant-numeric: tabular-nums;
+}
+.paneToolbar .lmsPdfPagination input {
+  width: 32px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+}
+.paneToolbar .lmsPdfControls,
+.paneToolbar .lmsPdfHeader,
+.paneToolbar .lmsFileToolbar {
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: var(--space-3);
+}
+.paneToolbar .lmsSourceBar {
+  border: 0 !important;
+  border-radius: 0;
+  background: none;
+}
+.paneToolbar .lmsPdfZoom .uiSelectTrigger {
+  height: 26px;
+  min-height: 26px;
+  border: 0;
+  background: transparent;
+}
+.paneToolbar .mantine-Input-wrapper input,
+.paneToolbar input[type="date"] {
+  height: 30px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
 }
 .titleRow .lmsReaderTitle {
   flex: 1;

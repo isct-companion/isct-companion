@@ -77,47 +77,28 @@ export function CalendarView({
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
       <TitleRow className="calendarTitle">
         <h1>{t("today.calendar")}</h1>
-        <span className="calendarRange">
-          {formatCivilDate(visibleFrom, data.settings.locale, {
-            month: "short",
-            day: "numeric",
-          })}{" "}
-          –{" "}
-          {formatCivilDate(visibleTo, data.settings.locale, {
-            month: "short",
-            day: "numeric",
-          })}
-        </span>
       </TitleRow>
       {/* Stepping through weeks is the calendar's own tool: it sits on the
           calendar, under the title row. */}
-      <div className="calendarBar">
-        <div className="scheduleControls">
-          <Input
-            type="date"
-            aria-label={t("common.date")}
-            value={date}
-            onChange={(event) =>
-              event.target.value &&
-              step(
-                event.target.value,
-                Math.sign(event.target.value.localeCompare(date)),
-              )
-            }
-          />
+      <div className="calendarBar paneToolbar">
+        <div className="toolPill">
           <UiButton
             aria-label={t("today.previousWeek")}
             onClick={() => step(addCivilDays(date, -7), -1)}
           >
             <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
           </UiButton>
-          <UiButton
-            onClick={() =>
-              step(undefined, Math.sign(today.localeCompare(date)))
-            }
-          >
-            {t("common.thisWeek")}
-          </UiButton>
+          <span className="calendarRange toolPillLabel">
+            {formatCivilDate(visibleFrom, data.settings.locale, {
+              month: "short",
+              day: "numeric",
+            })}{" "}
+            –{" "}
+            {formatCivilDate(visibleTo, data.settings.locale, {
+              month: "short",
+              day: "numeric",
+            })}
+          </span>
           <UiButton
             aria-label={t("today.nextWeek")}
             onClick={() => step(addCivilDays(date, 7), 1)}
@@ -125,6 +106,24 @@ export function CalendarView({
             <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
           </UiButton>
         </div>
+        <UiButton
+          className="toolPill toolPillButton"
+          onClick={() => step(undefined, Math.sign(today.localeCompare(date)))}
+        >
+          {t("common.thisWeek")}
+        </UiButton>
+        <Input
+          type="date"
+          aria-label={t("common.date")}
+          value={date}
+          onChange={(event) =>
+            event.target.value &&
+            step(
+              event.target.value,
+              Math.sign(event.target.value.localeCompare(date)),
+            )
+          }
+        />
       </div>
       <Paper className="ttCard">
         {view.pending && !view.value ? (

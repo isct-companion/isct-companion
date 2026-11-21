@@ -263,30 +263,30 @@
 .lmsNoteEditor .lmsMarkdownDocument .milkdown > .ProseMirror h2 { margin-top: var(--space-11); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
 
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
-/* A narrow column of numbers down the outline's left edge: a bar beside
-   each lesson reads as progress (held), open work as a warm bar (due). */
+/* The lessons as a quiet scrubber down the outline's edge: one short tick
+   per lesson, brighter once held, warm while work is open, accent and
+   numbered where the reading is; a lesson's number shows on hover. */
 .lmsLessonRail {
-  position: relative; display: flex; flex-direction: column; gap: 1px; flex: 0 0 44px; width: 44px; min-height: 0;
-  padding: var(--space-4) var(--space-2); overflow: hidden auto; scrollbar-width: none; border-right: 1px solid var(--line);
+  position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 0; flex: 0 0 40px; width: 40px; min-height: 0;
+  padding: var(--space-6) 0; overflow: hidden auto; scrollbar-width: none;
 }
 .lmsLessonRail button {
-  position: relative; flex: 0 0 auto; width: 100%; min-width: 0; padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5); border: 0; border-radius: var(--radius-chip); background: none;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted) !important; font-size: calc(var(--type-block-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: left;
+  position: relative; display: flex; align-items: center; gap: var(--space-3); flex: 0 0 18px; width: 100%; min-width: 0; padding: 0 0 0 var(--space-5);
+  border: 0; background: none; white-space: nowrap;
+  color: transparent !important; font-size: calc(var(--type-tick-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: left;
 }
-.lmsLessonRail button::after { content: ""; position: absolute; left: 2px; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--line); transition: background-color var(--motion-duration-base); }
-.lmsLessonRail button:hover { background: var(--surface-3); }
-.lmsLessonRail button.held { color: var(--ink) !important; }
-.lmsLessonRail button.held::after { background: color-mix(in srgb, var(--ink) 45%, transparent); }
-.lmsLessonRail button.due::after { background: var(--warn); }
+.lmsLessonRail button::before {
+  content: ""; flex: 0 0 auto; width: 10px; height: 2px; border-radius: 1px; background: var(--line);
+  transition: width var(--motion-duration-base) var(--motion-easing-standard), background-color var(--motion-duration-base);
+}
+.lmsLessonRail button.held::before { background: color-mix(in srgb, var(--ink) 45%, transparent); }
+.lmsLessonRail button.due::before { background: var(--warn); }
+.lmsLessonRail button:hover { color: var(--muted) !important; }
+.lmsLessonRail button:hover::before { width: 14px; background: var(--lms-hover-line, var(--muted)); }
 .lmsLessonRail button.current { color: var(--accent) !important; font-weight: 700; }
-/* The page being read: one bar that slides between entries instead of jumping. */
-.lmsRailIndicator {
-  position: absolute; left: calc(var(--space-2) + 2px); top: 0; width: 3px; height: 0; border-radius: 2px; background: var(--accent);
-  pointer-events: none; opacity: 0; z-index: 1;
-  transition: transform var(--motion-duration-slow) var(--motion-easing-emphasized), height var(--motion-duration-slow) var(--motion-easing-emphasized), opacity var(--motion-duration-base);
-}
-.lmsLessonRail button:hover::after { background: var(--lms-hover-line); }
+.lmsLessonRail button.current::before { width: 16px; background: var(--accent); }
+/* The tick itself marks the page being read; the sliding bar is not drawn. */
+.lmsRailIndicator { display: none; }
 /* Sections without a number (一般, 連絡先 …) and Activities: one row of
    tabs over the outline, full names, scrolling sideways when they overflow. */
 .lmsSectionTabs { display: flex; gap: var(--space-2); padding: 0 var(--space-6) var(--space-4); overflow-x: auto; scrollbar-width: none; }

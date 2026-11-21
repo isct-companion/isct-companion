@@ -45,7 +45,7 @@ export function ReaderPane({
       </TitleRow>
       {/* The document's own tools sit under the title row, which keeps only
           what the pane is and how to close it (as Codex's panes do). */}
-      <div className="lmsReaderBar">
+      <div className="lmsReaderBar paneToolbar">
         <div className="lmsReaderToolSlot" ref={setHost} />
       </div>
       <ToolsHost.Provider value={host}>
