@@ -145,14 +145,14 @@ export function ageText(at: string | null, now: string, locale: string) {
   return relativeTimeAgo(at, now, locale) ?? t("syncStatus.justNow");
 }
 
-/** The floating status's one line; its panel holds the rest. `problem`
- * counts what needs the person: failed runs and sources, and accounts that
- * wait on them (or Core's account blocker). */
+/** The floating status's one line, kept to what a glance needs: whether the
+ * school sites are connected, updating, paused or need the person. `problem`
+ * counts failed runs and sources and accounts that wait on the person (or
+ * Core's account blocker); ages and run names live in the panel. */
 export function statusOverview(
   snapshot: SyncSnapshot,
   line: ProgressLine,
   sessions: (SchoolProfileSession | undefined)[],
-  now: string,
   locale: string,
 ): { kind: "problem" | "held" | "busy" | "idle"; text: string } {
   if (snapshot.resetting) return { kind: "busy", text: t("app.resetting") };
@@ -168,28 +168,19 @@ export function statusOverview(
       kind: "problem",
       text: t("syncStatus.summary.problems", { count: flagged }),
     };
-  switch (line.kind) {
-    case "bar":
-      return {
-        kind: "busy",
-        text: `${runText(line.run)} ${line.done}/${line.total}`,
-      };
-    case "busy":
-      return { kind: "busy", text: t("syncStatus.summary.updating") };
-    case "background":
-      return { kind: "busy", text: t("app.updatingInTheBackground") };
-    case "held":
-      return { kind: "held", text: heldText(line.held, locale) };
-    default: {
-      const held = snapshot.sources.find((source) => source.held);
-      if (held?.held)
-        return { kind: "held", text: heldText(held.held, locale) };
-      const oldest = snapshot.sources
-        .map((source) => source.lastUpdated)
-        .sort((a, b) => (a ?? "").localeCompare(b ?? ""))[0];
-      return { kind: "idle", text: ageText(oldest ?? null, now, locale) };
-    }
-  }
+  if (line.kind === "held")
+    return { kind: "held", text: heldText(line.held, locale) };
+  if (line.kind !== "idle")
+    return { kind: "busy", text: t("syncStatus.summary.updating") };
+  const held = snapshot.sources.find((source) => source.held)?.held;
+  if (held) return { kind: "held", text: heldText(held, locale) };
+  if (sessions.some((session) => !session || session.state === "signing-in"))
+    return { kind: "busy", text: t("app.checkingSession") };
+  if (sessions.some((session) => session?.state === "unavailable"))
+    return { kind: "held", text: t("schoolSession.state.unavailable") };
+  return sessions.some((session) => session?.state === "normal")
+    ? { kind: "idle", text: t("schoolSession.state.normal") }
+    : { kind: "held", text: t("common.notConnected") };
 }
 
 /** The site each account's maintenance pauses. */

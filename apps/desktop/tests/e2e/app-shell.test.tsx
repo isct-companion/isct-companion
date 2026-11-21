@@ -1966,7 +1966,8 @@ it("renders Core's sync snapshot in the status panel and sends hints for refresh
   await emit([run({ done: 7, total: 62 })]);
   await until(() => {
     expect(overview().getAttribute("data-kind")).toBe("busy");
-    expect(overview().textContent).toContain("Course content 7/62");
+    // The floating line stays one word; the run and its count are in the panel.
+    expect(overview().textContent).toBe("Updating…");
     expect(status().getAttribute("data-kind")).toBe("bar");
     expect(status().textContent).toContain("Course content · 7 / 62");
     expect(status().querySelector("progress")!.value).toBe(7);
@@ -1993,10 +1994,11 @@ it("renders Core's sync snapshot in the status panel and sends hints for refresh
   await until(() =>
     expect(status().textContent).toContain("Waiting for Wi-Fi"),
   );
+  // A quiet, healthy sync adds nothing to the panel: no per-source ages.
   await emit([], [source("lms", null)]);
   await until(() => {
-    expect(status().getAttribute("data-kind")).toBe("idle");
-    expect(status().textContent).toContain("Never updated");
+    expect(document.querySelector(".lmsStatus")).toBeNull();
+    expect(document.body.textContent).not.toContain("Never updated");
   });
   await emit([
     run({

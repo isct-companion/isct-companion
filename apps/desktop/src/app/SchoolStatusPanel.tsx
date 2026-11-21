@@ -11,12 +11,11 @@ import { Popover, UiButton } from "../components/ui";
 import { t } from "../i18n";
 import { desktopBridge } from "../platform/native";
 import { progressLine } from "../platform/sync";
-import { useClock } from "../platform/use-clock";
 import { schoolSessions } from "../platform/school-session";
 import { sessionDetails, sessionText, statusOverview } from "../lib/sync-text";
 
-/** One account in the status panel: a dot by state, its label, the reason
- * on hover, and Retry while the account waits on the person. */
+/** One account in the status panel, on one line: a dot by state, its name,
+ * its state, the reason on hover, and Retry while it waits on the person. */
 function SchoolStatusAccount({
   profile,
   name,
@@ -57,10 +56,8 @@ function SchoolStatusAccount({
       }
     >
       <i aria-hidden="true" />
-      <span>
-        <b>{name}</b>
-        <small>{label}</small>
-      </span>
+      <b>{name}</b>
+      <small>{label}</small>
       {session?.presentation.recovery.includes("retry") && (
         <UiButton
           type="button"
@@ -80,10 +77,10 @@ function SchoolStatusAccount({
   );
 }
 
-/** The workstation's status, floating at the bottom right: one line that
- * sums up the school sites and a Refresh. Pointing at the line (or clicking
- * it, for the keyboard) opens the panel with each account, each source's
- * age, what is running and every failure with its Retry. */
+/** The workstation's status, floating at the bottom right: one word on
+ * whether the school sites are connected, and a Refresh. Pointing at it (or
+ * clicking it, for the keyboard) opens the panel with each account, what is
+ * running and every failure with its Retry. */
 export function SchoolStatusPanel({
   scienceSession,
   tokyoTechSession,
@@ -97,13 +94,10 @@ export function SchoolStatusPanel({
   locale: string;
   refresh?: () => void;
 }) {
-  const line = progressLine(snapshot);
-  const now = useClock(line.kind === "idle");
   const overview = statusOverview(
     snapshot,
-    line,
+    progressLine(snapshot),
     [scienceSession, tokyoTechSession],
-    now,
     locale,
   );
   const [open, setOpen] = useState(false);
@@ -141,7 +135,7 @@ export function SchoolStatusPanel({
         onDismiss={() => button.current?.focus()}
         position="top-end"
         offset={8}
-        width={380}
+        width={300}
       >
         <Popover.Anchor>
           <button

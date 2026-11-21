@@ -359,7 +359,7 @@ summary,
 }
 .schoolStatusDetailsBody {
   display: grid;
-  gap: var(--space-6);
+  gap: var(--space-5);
   outline: none;
 }
 .schoolStatusDetails .lmsStatusLine {
@@ -368,10 +368,6 @@ summary,
 }
 .schoolStatusDetails .lmsStatusLine > span {
   white-space: normal;
-}
-.schoolStatusDetails .schoolUpdated {
-  flex-wrap: wrap;
-  gap: var(--space-3) var(--space-8);
 }
 .schoolStatusAccounts {
   display: grid;
@@ -410,10 +406,6 @@ summary,
   background: var(--accent);
   animation: schoolStatusPulse 1.5s ease-in-out infinite;
 }
-.schoolStatusAccount > span {
-  display: grid;
-  line-height: 1.15;
-}
 .schoolStatusAccount b,
 .lmsStatus b {
   color: var(--ink);
@@ -421,7 +413,8 @@ summary,
   font-weight: 700;
 }
 .schoolStatusAccount small {
-  max-width: 280px;
+  min-width: 0;
+  margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -451,20 +444,6 @@ summary,
 }
 .lmsStatus[data-kind="problem"] .lmsStatusLine > span {
   color: var(--danger);
-}
-/* Idle: one quiet "source · age" pair per school site. */
-.schoolUpdated {
-  display: flex;
-  gap: var(--space-8);
-}
-.schoolUpdated > span {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-3);
-  font-variant-numeric: tabular-nums;
-}
-.schoolUpdated b {
-  font-weight: 600;
 }
 /* Background pulls Core started on its own: a small turning ring, no bar. */
 .schoolStatusSpinner {
