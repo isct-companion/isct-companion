@@ -1,6 +1,19 @@
 import { execFileSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
 
+export function appleDevelopmentIdentities() {
+  const found = execFileSync(
+    "/usr/bin/security",
+    ["find-identity", "-v", "-p", "codesigning"],
+    { encoding: "utf8" },
+  );
+  return [
+    ...found.matchAll(
+      /^\s*\d+\)\s+([0-9A-F]{40})\s+"(Apple Development: [^"]+)"/gm,
+    ),
+  ].map(([, hash, name]) => ({ hash, name }));
+}
+
 /**
  * Both forms of the macOS development app use this Apple Development
  * identity, so they can read the same Keychain items across rebuilds.
@@ -8,16 +21,7 @@ import { X509Certificate } from "node:crypto";
 export function macDevSigningIdentity() {
   const chosen =
     process.env.ISCT_MACOS_DEV_SIGNING_IDENTITY?.trim().toUpperCase();
-  const found = execFileSync(
-    "/usr/bin/security",
-    ["find-identity", "-v", "-p", "codesigning"],
-    { encoding: "utf8" },
-  );
-  const identities = [
-    ...found.matchAll(
-      /^\s*\d+\)\s+([0-9A-F]{40})\s+"(Apple Development: [^"]+)"/gm,
-    ),
-  ].map(([, hash, name]) => ({ hash, name }));
+  const identities = appleDevelopmentIdentities();
   if (chosen && identities.some(({ hash }) => hash === chosen)) return chosen;
   if (!chosen && identities.length === 1) return identities[0].hash;
   const choices = identities.length

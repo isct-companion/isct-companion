@@ -100,16 +100,16 @@ For a standalone development bundle, run
 `yarn desktop:build --debug --bundles app`. The app and widget use the same
 Apple Development identity as `yarn desktop:dev`. A Mac with one valid
 development identity uses it automatically. When several are installed, set
-`ISCT_MACOS_DEV_SIGNING_IDENTITY` to the SHA-1 of the certificate you used
-with `ISCT_MACOS_WIDGET_DEVELOPMENT_IDENTITY`. The team ID comes from that
-certificate, replacing `ISCT_MACOS_WIDGET_DEVELOPMENT_TEAM`. The development
-app and widget share an App Group within that team.
+`ISCT_MACOS_DEV_SIGNING_IDENTITY` to the SHA-1 of the chosen certificate.
+The app and widget share an App Group within that team, and the bundled
+campus VPN helper uses the same signing identity.
 
-For a local debug build that uses the release bundle ID and CloudKit
-entitlements, install a valid project-team development profile for that Mac
-and its matching signing identity, then run the same build command. To select
-a specific development profile, set `ISCT_MACOS_PROVISIONING_PROFILE` to its
-path. The project profile takes precedence over the independent app's signer.
+To exercise the release app's CloudKit and Keychain in a debug build, set
+`ISCT_MACOS_PROVISIONING_PROFILE` to the path of a project-team development
+profile that authorizes this Mac and install its matching Apple Development
+certificate. Then run `yarn desktop:build --debug --bundles app`. This
+explicitly builds `app.isctcompanion` against the release app's data and
+credentials. A regular debug build uses the separate development identity.
 
 Select `sign_macos` when dispatching a new build. For automatic signed tag
 releases, also set the repository Actions variable `MACOS_SIGNING_ENABLED`

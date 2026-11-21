@@ -126,26 +126,25 @@ function licenseOf(keg) {
  * executable in the app: hardened runtime and a secure timestamp. Tauri signs
  * the app itself but nothing under Resources.
  */
-function signMacho(file) {
-  const identity = process.env.APPLE_SIGNING_IDENTITY;
+function signMacho(file, { releaseIdentity, developmentIdentity } = {}) {
   execFileSync(
     "codesign",
-    identity
+    releaseIdentity
       ? [
           "--force",
           "--options",
           "runtime",
           "--timestamp",
           "--sign",
-          identity,
+          releaseIdentity,
           file,
         ]
-      : ["--force", "--sign", "-", file],
+      : ["--force", "--sign", developmentIdentity ?? "-", file],
     { stdio: "ignore" },
   );
 }
 
-function bundleOpenconnect(keg, out) {
+function bundleOpenconnect(keg, out, signing) {
   const bin = path.join(out, "bin");
   const lib = path.join(out, "lib");
   mkdirSync(bin, { recursive: true });
@@ -194,7 +193,7 @@ function bundleOpenconnect(keg, out) {
     }
   }
   // install_name_tool invalidates signatures; arm64 needs at least ad hoc.
-  for (const file of [target, ...copied.values()]) signMacho(file);
+  for (const file of [target, ...copied.values()]) signMacho(file, signing);
 
   const left = [target, ...copied.values()].flatMap((file) =>
     linked(file).filter((reference) =>
@@ -237,21 +236,25 @@ function bundleOpenconnect(keg, out) {
 const signerTeam = (identity) => identity?.match(/\(([A-Z0-9]{10})\)\s*$/)?.[1];
 
 /** The helper built for release, copied into the payload. */
-function buildHelper(binary) {
-  const team = signerTeam(process.env.APPLE_SIGNING_IDENTITY);
-  if (process.env.APPLE_SIGNING_IDENTITY && !team)
+function buildHelper(binary, releaseIdentity) {
+  const team = signerTeam(releaseIdentity);
+  if (releaseIdentity && !team)
     throw new Error("APPLE_SIGNING_IDENTITY names no team (…(TEAMID))");
+  const env = { ...process.env };
+  delete env.ISCT_VPN_SIGNER_TEAM;
+  if (team) env.ISCT_VPN_SIGNER_TEAM = team;
   execFileSync(
     "cargo",
     ["build", "--release", "--locked", "-p", "vpn-helper"],
     {
       cwd: root,
       stdio: "inherit",
-      env: team ? { ...process.env, ISCT_VPN_SIGNER_TEAM: team } : process.env,
+      env,
     },
   );
   const helper = path.join(VPN_RESOURCES, binary);
-  copyFileSync(path.join(root, "target/release", binary), helper);
+  const targetDir = path.resolve(root, env.CARGO_TARGET_DIR ?? "target");
+  copyFileSync(path.join(targetDir, "release", binary), helper);
   return helper;
 }
 
@@ -262,14 +265,51 @@ function buildHelper(binary) {
  * openconnect stays as `desktop:vpn` built it. Cargo makes this a no-op when
  * the helper's sources have not changed.
  */
-export function refreshHelper() {
+function refreshHelper(signing) {
   if (process.platform === "win32") {
     buildHelper("isct-vpn-helper.exe");
     return;
   }
-  const helper = buildHelper("isct-vpn-helper");
+  const helper = buildHelper("isct-vpn-helper", signing.releaseIdentity);
   chmodSync(helper, 0o755);
-  signMacho(helper);
+  // launchd records the designated requirement at registration. The app and its
+  // helper use the same certificate so local rebuilds keep a stable requirement.
+  signMacho(helper, signing);
+}
+
+export function campusVpnBundle({ macOS, packagesApp, signing }) {
+  const helper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[
+    process.platform
+  ];
+  if (!helper || !existsSync(path.join(VPN_RESOURCES, helper)))
+    return undefined;
+
+  if (packagesApp) refreshHelper(signing);
+  console.log("Campus VPN payload: included.");
+  // Tauri replaces resources on config merge. Extend the platform's list or map.
+  const desktop = path.join(root, "apps/desktop/src-tauri");
+  const config =
+    process.platform === "win32"
+      ? "tauri.windows.conf.json"
+      : "tauri.conf.json";
+  const { resources } = JSON.parse(
+    readFileSync(path.join(desktop, config), "utf8"),
+  ).bundle;
+  return {
+    resources: Array.isArray(resources)
+      ? [...resources, "resources/vpn/"]
+      : { ...resources, "resources/vpn/": "resources/vpn/" },
+    ...(process.platform === "darwin" && {
+      macOS: {
+        ...macOS,
+        files: {
+          ...macOS?.files,
+          "Library/LaunchDaemons/app.isctcompanion.vpn.plist":
+            "../../../crates/vpn-helper/assets/app.isctcompanion.vpn.plist",
+        },
+      },
+    }),
+  };
 }
 
 async function mainWindows() {
@@ -293,6 +333,9 @@ async function mainWindows() {
 }
 
 function main() {
+  const signing = {
+    releaseIdentity: process.env.APPLE_SIGNING_IDENTITY?.trim(),
+  };
   const keg =
     option("--openconnect") ??
     (() => {
@@ -307,13 +350,14 @@ function main() {
   rmSync(VPN_RESOURCES, { recursive: true, force: true });
   mkdirSync(VPN_RESOURCES, { recursive: true });
 
-  const helper = buildHelper("isct-vpn-helper");
+  const helper = buildHelper("isct-vpn-helper", signing.releaseIdentity);
   chmodSync(helper, 0o755);
-  signMacho(helper);
+  signMacho(helper, signing);
 
   const { libraries, components } = bundleOpenconnect(
     keg,
     path.join(VPN_RESOURCES, "openconnect"),
+    signing,
   );
   const arch = run("lipo", [
     "-archs",

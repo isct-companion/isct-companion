@@ -15,7 +15,7 @@ const set = (file, key, value) =>
 // `host` is the containing app's identifier: the extension's identifier and
 // the widget group follow it, so a development bundle never shares the
 // release widgets' data.
-export function macWidgets(root, args, macConfig, { version, host, debug }) {
+export function macWidgets(root, args, macOS, { version, host, debug }) {
   const requested =
     args.find((arg) => arg.startsWith("--target="))?.slice(9) ??
     args[args.indexOf("--target") + 1];
@@ -30,7 +30,7 @@ export function macWidgets(root, args, macConfig, { version, host, debug }) {
   const output = path.join(root, "target/widgets-mac", arch.replace(" ", "-"));
   mkdirSync(output, { recursive: true });
 
-  const identity = macConfig?.bundle.macOS.signingIdentity ?? "-";
+  const identity = macOS?.signingIdentity ?? "-";
   const isolated = host !== releaseHost;
   const team = isolated ? macDevSigningTeam(identity) : projectTeam;
   const group = `${team}.${host}.widgetkit`;
@@ -78,7 +78,7 @@ export function macWidgets(root, args, macConfig, { version, host, debug }) {
     appex,
   ]);
 
-  const config = { ...macConfig?.bundle.macOS };
+  const config = { ...macOS };
   if (isolated) {
     const hostInfo = path.join(output, "WidgetHostInfo.plist");
     copyFileSync(path.join(desktop, "Info.plist"), hostInfo);
