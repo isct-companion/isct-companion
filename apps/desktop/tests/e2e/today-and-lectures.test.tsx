@@ -585,15 +585,48 @@ describe("the lecture desk", () => {
       term: TERM,
       courseId: "now",
       title: "Upcoming linked exam",
-      date: jstDay(1),
+      date: jstDay(2),
     };
     app = await mountApp(
       {
         workspace,
         queries: {
           ...homeQueries,
-          calendarRange: (_query, core) =>
-            lectureSchedule(core.workspace).agendas,
+          // The calendar keeps tomorrow's cancelled class. Today points past
+          // it to the exam, whose own key and quarter open its detail.
+          calendarRange: () => [
+            {
+              date: jstDay(1),
+              occurrences: [
+                {
+                  ...lectureBlock("later", jstDay(1), "08:50", "10:30", "R3"),
+                  cancelled: true,
+                  mark: "cancelled",
+                },
+              ],
+              importantDates: [],
+              noClasses: true,
+            },
+          ],
+          today: () => ({
+            date: jstDay(0),
+            upcoming: [
+              {
+                occurrence: {
+                  ...lectureBlock(
+                    "now",
+                    upcoming.date,
+                    "10:45",
+                    "12:25",
+                    upcoming.room,
+                  ),
+                  kind: "exam",
+                  key: upcoming.key,
+                  termId: upcoming.term,
+                },
+              },
+            ],
+          }),
           upcomingExams: () => [upcoming],
           scheduleView: (query, core) => ({
             ...lectureSchedule(core.workspace),
@@ -633,12 +666,15 @@ describe("the lecture desk", () => {
     expect(
       app.host.querySelector('[aria-label="Upcoming exams"]')?.textContent,
     ).toContain("Upcoming linked exam");
-    await app.go(paths.lectures());
-    await readyLectureRows(app.host);
-    await click(
-      [
-        ...app.host.querySelectorAll<HTMLButtonElement>(".lectureMode button"),
-      ].find((row) => row.textContent === "Exams")!,
+    const next = await required(
+      () => app!.host.querySelector<HTMLButtonElement>(".nextClass"),
+      "the next class",
+    );
+    await click(next);
+    await until(() =>
+      expect(window.location.hash.slice(1)).toBe(
+        paths.exam(upcoming.key, upcoming.term),
+      ),
     );
     await chooseOption(
       app.host.querySelector<HTMLInputElement>(
