@@ -105,7 +105,7 @@ fn upsert_versioned(
         )
         .optional()
         .map_err(IngestError::from)?;
-    let timestamp = Utc::now().to_rfc3339();
+    let timestamp = crate::clock::now().to_rfc3339();
     if let Some((stored, gone)) = &existing {
         if stored == &hash {
             return keep_unchanged(tx, table, id, *gone, &timestamp).map_err(IngestError::from);
@@ -197,7 +197,7 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(IngestError::from)?;
     drop(statement);
-    let missing = Utc::now().to_rfc3339();
+    let missing = crate::clock::now().to_rfc3339();
     crate::data::versioned::mark_missing_rows(tx, table, old, live, || missing.as_str())
         .map_err(IngestError::from)
 }
@@ -228,7 +228,7 @@ fn linked_course(
         .get("year")
         .and_then(Value::as_i64)
         .map(|year| year as i32)
-        .unwrap_or_else(|| Utc::now().year());
+        .unwrap_or_else(|| crate::clock::now().year());
     Ok(resolve_course_id(
         tx,
         "lms",
@@ -393,7 +393,7 @@ pub fn apply_lms_enrolment(
             "timetables":timetables,"sections":sections});
         changed += usize::from(upsert_versioned(tx, "lms_courses", &lms_course_id, &value)?);
         let lms_id = course.id.to_string();
-        let academic_year = year.unwrap_or_else(|| Utc::now().year() as u32) as i32;
+        let academic_year = year.unwrap_or_else(|| crate::clock::now().year() as u32) as i32;
         resolve_course_id(tx, "lms", &lms_id, academic_year, offering.as_deref())?;
     }
     changed += mark_missing(

@@ -5,6 +5,7 @@ import type { AssignmentState } from "../../generated/persistence";
 import { confirmAction } from "../../components/confirm";
 import { useSubmissionGuard } from "../../components/use-submission-guard";
 import { UiInput } from "../../components/ui";
+import { wallNow } from "../../platform/use-clock";
 import { FileTile, LmsIcon } from "./LmsIcon";
 import {
   createWorkspace,
@@ -65,10 +66,10 @@ export function AssignmentWorkspaceFooter({
   useEffect(() => {
     if (!dueAt) return;
     const due = Date.parse(dueAt);
-    if (!(due > Date.now())) return;
+    if (!(due > wallNow())) return;
     let timer: ReturnType<typeof setTimeout>;
     const arm = () => {
-      const delay = due - Date.now();
+      const delay = due - wallNow();
       if (delay <= 0) void load();
       else timer = setTimeout(arm, Math.min(delay, 2_147_483_647));
     };

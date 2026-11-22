@@ -251,13 +251,22 @@ impl Core {
         let reminders = crate::schedule::ReminderService::new(store.clone());
         #[cfg(feature = "agent")]
         let agent_access = Arc::new(crate::deadlines::AgentAccess::new(store.clone()));
-        let sessions = SchoolSessions::new(crate::net::Http::new().ok(), auth.clone());
+        // The demo scene has no school network at all: every sign-in ends
+        // offline before it sends anything.
+        #[cfg(feature = "demo")]
+        let school_http = None;
+        #[cfg(not(feature = "demo"))]
+        let school_http = crate::net::Http::new().ok();
+        let sessions = SchoolSessions::new(school_http, auth.clone());
         sessions.set_events(
             events
                 .as_ref()
                 .map(|events| events.clone() as Arc<dyn EventSink>)
                 .unwrap_or_else(|| Arc::new(NoopEvents)),
         );
+        // Without sessions a course file not already on disk fails to load
+        // instead of fetching.
+        #[cfg(not(feature = "demo"))]
         runtime.downloads.attach_sessions(sessions.clone());
         let moodle = Arc::new(crate::net::moodle::MoodleClient::new(
             auth.clone(),
@@ -462,7 +471,19 @@ impl Core {
         }
     }
 
+    /// One ScienceTokyoExam action; see `ExamAction`. The demo scene
+    /// answers from its own sittings without the service.
+    #[cfg(feature = "demo")]
+    pub async fn exam_share(
+        &self,
+        action: crate::exam_share::ExamAction,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<crate::exam_share::ExamAnswer, crate::exam_share::ExamError> {
+        crate::exam_share::demo::act(action, &self.store)
+    }
+
     /// One ScienceTokyoExam action; see `ExamAction`.
+    #[cfg(not(feature = "demo"))]
     pub async fn exam_share(
         &self,
         action: crate::exam_share::ExamAction,

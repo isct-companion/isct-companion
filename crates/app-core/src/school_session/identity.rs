@@ -386,7 +386,7 @@ impl Identity {
         }
         if let Some(pause) = state.paused() {
             let left = pause.until.saturating_duration_since(Instant::now());
-            let retry_at = Utc::now() + chrono::Duration::from_std(left).unwrap_or_default();
+            let retry_at = crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default();
             return (
                 SchoolSessionState::Unavailable,
                 Some(pause.problem.clone()),
@@ -709,7 +709,7 @@ impl Inner {
                     .map(|pause| pause.until.saturating_duration_since(Instant::now()))
                     .unwrap_or_default();
                 SignInAdmission::Paused {
-                    until: Utc::now() + chrono::Duration::from_std(left).unwrap_or_default(),
+                    until: crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default(),
                 }
             }
             Err(_) => SignInAdmission::Person,
@@ -853,7 +853,7 @@ impl Inner {
                 };
                 let left = match self.under_maintenance(site, notice) {
                     crate::net::NetError::HostPaused { until_unix, .. } => {
-                        u64::try_from(until_unix - Utc::now().timestamp()).unwrap_or(0)
+                        u64::try_from(until_unix - crate::clock::now().timestamp()).unwrap_or(0)
                     }
                     _ => 0,
                 };

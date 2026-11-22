@@ -224,6 +224,10 @@ async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u
 }
 
 pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<UpdateStatus, String> {
+    // The demo scene never offers an update.
+    if cfg!(feature = "demo") {
+        return snapshot(&app);
+    }
     let updates = app.state::<DesktopUpdates>();
     if updates
         .busy
@@ -250,7 +254,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     if !app_core::app_updates::check_now(
         &workspace,
         checked.as_deref(),
-        chrono::Utc::now(),
+        app_core::clock::now(),
         asked || waiting_download,
     ) {
         return snapshot(&app);
@@ -272,7 +276,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
                 .state
                 .lock()
                 .map_err(|_| "Update state is unavailable.")?
-                .last_checked = Some(chrono::Utc::now().to_rfc3339());
+                .last_checked = Some(app_core::clock::now().to_rfc3339());
             return phase(&app, "unpublished", None, None);
         }
         let response = response.error_for_status().map_err(|e| e.to_string())?;
@@ -288,7 +292,7 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .state
             .lock()
             .map_err(|_| "Update state is unavailable.")?
-            .last_checked = Some(chrono::Utc::now().to_rfc3339());
+            .last_checked = Some(app_core::clock::now().to_rfc3339());
         if !newer {
             return phase(&app, "current", Some(version), None);
         }
@@ -395,7 +399,7 @@ fn record_install(app: &AppHandle, phase: InstallPhase, version: &str, message: 
         phase,
         version: version.into(),
         message,
-        at: chrono::Utc::now().to_rfc3339(),
+        at: app_core::clock::now().to_rfc3339(),
     };
     let written = app
         .path()

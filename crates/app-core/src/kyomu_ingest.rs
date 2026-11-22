@@ -5,7 +5,6 @@ use crate::data::{
 use crate::lms_ingest::IngestError;
 use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
 use adpt_isct::kyomu::KyomuPayload;
-use chrono::Utc;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
@@ -20,7 +19,7 @@ fn upsert(tx: &Transaction<'_>, table: &str, id: &str, value: &Value) -> Result<
         )
         .optional()
         .map_err(IngestError::from)?;
-    let timestamp = Utc::now().to_rfc3339();
+    let timestamp = crate::clock::now().to_rfc3339();
     if let Some((stored, _, gone)) = &old {
         if stored == &hash {
             return keep_unchanged(tx, table, id, *gone, &timestamp).map_err(IngestError::from);
@@ -76,7 +75,7 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(IngestError::from)?;
     drop(statement);
-    let missing = Utc::now().to_rfc3339();
+    let missing = crate::clock::now().to_rfc3339();
     crate::data::versioned::mark_missing_rows(tx, table, stale, live, || missing.as_str())
         .map_err(IngestError::from)
 }
@@ -117,7 +116,7 @@ pub fn gpa_summaries(data: &Value) -> Vec<Value> {
     if labels.is_empty() || labels.len() != values.len() {
         return Vec::new();
     }
-    let fetched = Utc::now().to_rfc3339();
+    let fetched = crate::clock::now().to_rfc3339();
     let mut scopes: Vec<Value> = Vec::new();
     let mut current: Option<serde_json::Map<String, Value>> = None;
     let order = ["all", "liberal-arts", "major"];
@@ -260,12 +259,12 @@ pub fn apply_kyomu_payload(
             changed += tx.execute("INSERT INTO settings(key,value,hash,updated_at,updated_by,rev,source)
                 VALUES('kyomuAcademicIdentity',?1,?2,?3,'kyomu',1,'kyomu') ON CONFLICT(key) DO UPDATE SET
                 value=excluded.value,hash=excluded.hash,updated_at=excluded.updated_at,rev=settings.rev+1
-                WHERE settings.hash<>excluded.hash", params![value,hash,Utc::now().to_rfc3339()])?;
+                WHERE settings.hash<>excluded.hash", params![value,hash,crate::clock::now().to_rfc3339()])?;
         }
         "registrations" => {
             let mut state_ids = HashSet::new();
             if let Some(state) = payload.data.get("state") {
-                let current = crate::schedule::japan_today(Utc::now());
+                let current = crate::schedule::japan_today(crate::clock::now());
                 let year = chrono::Datelike::year(&current)
                     - i32::from(chrono::Datelike::month(&current) < 4);
                 let id = "kyomu-registration-state";
@@ -323,7 +322,7 @@ pub fn apply_kyomu_payload(
                 changed += usize::from(upsert(tx, "registrations", &id, &value)?);
             }
             // This page covers one academic year. Never expire previous years.
-            let current = crate::schedule::japan_today(Utc::now());
+            let current = crate::schedule::japan_today(crate::clock::now());
             let year = payload.data["courses"]
                 .as_array()
                 .into_iter()
@@ -525,7 +524,7 @@ fn commit_page(
             outcome,
             message,
         },
-        Utc::now(),
+        crate::clock::now(),
     )?;
     Ok(())
 }
@@ -615,7 +614,7 @@ fn expire_registration_scope(
         row["inactiveQuarters"] = json!(inactive);
         changed += usize::from(upsert(tx, "registrations", &id, &row)?);
         if registration_quarters(&row).is_empty() {
-            let missing = Utc::now().to_rfc3339();
+            let missing = crate::clock::now().to_rfc3339();
             tx.execute("UPDATE registrations SET missing_since=?2,value=json_set(value,'$.missingSince',?2) WHERE id=?1",params![id,missing])?;
         }
     }

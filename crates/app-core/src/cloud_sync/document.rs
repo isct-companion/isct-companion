@@ -443,7 +443,7 @@ fn make_workspace_file(
         format_version: CLOUD_FORMAT_VERSION,
         revision,
         version: cloud_merge::version(&document).unwrap_or_default(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: crate::clock::now().to_rfc3339(),
         updated_by: device.into(),
         device_name: device_name.map(str::to_owned),
         siblings: Vec::new(),
@@ -474,7 +474,7 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
         .filter(|old| seen.insert(old.revision))
         .map(flatten_history)
         .collect::<Vec<_>>();
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     let new_backup = now.to_rfc3339();
     // The new current document and this retained history are one atomic write.
     let expired = crate::backup::retention::expired(

@@ -80,7 +80,7 @@ pub(crate) fn assignment_detail_in(
     ]));
     let (workspace, _, _) = store.view(&fields)?;
     let detail =
-        schedule::assignment_detail(&workspace, assignment, chrono::Utc::now().fixed_offset());
+        schedule::assignment_detail(&workspace, assignment, crate::clock::now().fixed_offset());
     Ok((workspace, detail))
 }
 

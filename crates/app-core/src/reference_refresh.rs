@@ -482,7 +482,7 @@ impl Default for ReferenceReader {
     fn default() -> Self {
         Self {
             transport: Arc::new(HttpReferenceTransport),
-            clock: Arc::new(Utc::now),
+            clock: Arc::new(crate::clock::now),
         }
     }
 }

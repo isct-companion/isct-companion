@@ -481,7 +481,8 @@ impl SchoolSessions {
             views: Mutex::new(None),
             tasks: RuntimeTasks::default(),
             published: Mutex::new(None),
-            offline: AtomicBool::new(false),
+            // The demo scene stays offline whatever the shell reports.
+            offline: AtomicBool::new(cfg!(feature = "demo")),
             credentials: Arc::new(CredentialSignal::default()),
         }))
     }
@@ -888,7 +889,7 @@ impl SchoolSessions {
             .filter_map(|account| account.identity.pause_end())
             .min()
             .map(|until| {
-                chrono::Utc::now()
+                crate::clock::now()
                     + chrono::Duration::from_std(until.saturating_duration_since(now))
                         .unwrap_or_default()
             })
@@ -909,9 +910,8 @@ impl SchoolSessions {
     /// The network the shell reports (`Hint::Network`). While it is
     /// offline a sign-in ends without sending anything.
     pub(crate) fn network(&self, network: crate::plan::Network) {
-        self.0
-            .offline
-            .store(network == crate::plan::Network::Offline, Ordering::SeqCst);
+        let offline = cfg!(feature = "demo") || network == crate::plan::Network::Offline;
+        self.0.offline.store(offline, Ordering::SeqCst);
     }
 
     /// The system took the background time back: sign-ins stop.

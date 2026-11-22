@@ -374,7 +374,7 @@ impl PlanEngine {
             let mut state = guard(&self.0.state);
             if state
                 .plan_next
-                .is_some_and(|at| at <= Utc::now() + chrono::Duration::seconds(1))
+                .is_some_and(|at| at <= crate::clock::now() + chrono::Duration::seconds(1))
             {
                 state.evaluate = true;
             }
@@ -423,7 +423,7 @@ impl PlanEngine {
                 account,
                 &state.facts,
                 Some(&credentials),
-                Utc::now(),
+                crate::clock::now(),
             ) {
                 return Err(ReadRefused::Held(held));
             }
@@ -473,7 +473,7 @@ impl PlanEngine {
                 account,
                 &state.facts,
                 credentials.as_ref(),
-                Utc::now(),
+                crate::clock::now(),
             ) {
                 return Err(ReadRefused::Held(held));
             }
@@ -745,7 +745,7 @@ impl PlanEngine {
             plan: &state.plan,
             sessions: &state.sessions,
             inputs: &state.inputs,
-            now: Utc::now(),
+            now: crate::clock::now(),
         })
     }
 
@@ -815,7 +815,7 @@ impl PlanEngine {
         let credentials = self.credentials();
         let duties = {
             let state = guard(&self.0.state);
-            let now = Utc::now();
+            let now = crate::clock::now();
             let reads_quiet = !state.evaluate
                 && state.last_evaluated.is_some_and(|at| at >= since)
                 && state.leases.is_empty()
@@ -847,7 +847,7 @@ impl PlanEngine {
         };
         !duties
             .iter()
-            .any(|duty| duty.next_due().is_some_and(|at| at <= Utc::now()))
+            .any(|duty| duty.next_due().is_some_and(|at| at <= crate::clock::now()))
     }
 
     /// Waits until no commit is in progress, at most `limit`.
@@ -922,7 +922,7 @@ impl PlanEngine {
                 .collect::<Vec<_>>()
         };
         for (index, duty) in idle {
-            if !duty.next_due().is_some_and(|at| at <= Utc::now()) {
+            if !duty.next_due().is_some_and(|at| at <= crate::clock::now()) {
                 continue;
             }
             {
@@ -960,12 +960,12 @@ impl PlanEngine {
             if !shown.is_empty() {
                 // Only gc reads `last_used`; a lost touch costs nothing now.
                 if let Err(error) = store.write(None, |transaction| {
-                    sync_state::touch(transaction, &shown, Utc::now())
+                    sync_state::touch(transaction, &shown, crate::clock::now())
                 }) {
                     crate::diagnostics::report("sync", &error);
                 }
             }
-            load_inputs(&store, &auth, Utc::now())
+            load_inputs(&store, &auth, crate::clock::now())
         })
         .await;
         let inputs = match loaded {
@@ -980,7 +980,7 @@ impl PlanEngine {
             }
         };
         let credentials = self.credentials();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let instant = Instant::now();
         let mut state = guard(&self.0.state);
         state.last_evaluated = Some(instant);
@@ -1067,7 +1067,7 @@ impl PlanEngine {
                     // The facts may have moved while it queued (the app
                     // went out of front, the network dropped).
                     if let Some(held) =
-                        planner::request_hold(lane, None, &state.facts, None, Utc::now())
+                        planner::request_hold(lane, None, &state.facts, None, crate::clock::now())
                     {
                         if let Some(sender) = state.answers.remove(&request.key) {
                             sender.send_replace(Some(Err(ReadRefused::Held(held))));
@@ -1129,7 +1129,7 @@ impl PlanEngine {
         if state.closed > 0 || state.stopped {
             return None;
         }
-        let now = Utc::now();
+        let now = crate::clock::now();
         let index = state.plan.iter().position(|candidate| {
             candidate.lane == lane
                 && candidate.held.is_none()
@@ -1351,7 +1351,7 @@ impl PlanEngine {
     /// The earliest deadline of the plan and every duty, and what an OS
     /// background opportunity would find due, sent when it changed.
     fn publish_directive(&self) {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let (plan, waiting, duties, failures) = {
             let state = guard(&self.0.state);
             let instant = Instant::now();

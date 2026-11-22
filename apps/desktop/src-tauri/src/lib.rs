@@ -68,10 +68,12 @@ fn native_bootstrap() -> String {
     format!(
         "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'native-desktop',writable:false,configurable:false}});\
          Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});\
-         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});",
+         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});\
+         Object.defineProperty(window,'__ISCT_COMPANION_CLOCK_OFFSET_MS__',{{value:{},writable:false,configurable:false}});",
         std::env::consts::OS,
         window_material().unwrap_or(""),
-        plugins::tools_json()
+        plugins::tools_json(),
+        app_core::clock::offset().num_milliseconds()
     )
 }
 
@@ -428,8 +430,13 @@ pub fn run() {
             app.manage(data_store);
             let vault = OsSecretVault::new(app.handle().clone());
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
+            // The demo scene's school accounts live in memory only.
+            #[cfg(feature = "demo")]
+            let school_vault = app_core::demo::DemoVault::default();
+            #[cfg(not(feature = "demo"))]
+            let school_vault = vault.clone();
             app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
-                vault.clone(),
+                school_vault,
                 app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             )));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
@@ -454,6 +461,17 @@ pub fn run() {
             app.manage(school_controller);
             let runtime = core_ports::runtime(app.handle());
             runtime.notes.at(lms_files::root(app.handle())?.0);
+            // Before the runtime starts syncing: the scene is in place by the
+            // first read.
+            #[cfg(feature = "demo")]
+            if let Err(error) = app_core::demo::seed(
+                &core_ports::core(app.handle()),
+                &lms_files::root(app.handle())?.0,
+            ) {
+                log::error!("[demo] {error}");
+                native_dialog::fatal(&format!("The demo scene could not be written: {error}"));
+                std::process::exit(1);
+            }
             let authorized = app
                 .state::<DesktopCloudService<OsSecretVault>>()
                 .authorized_providers()

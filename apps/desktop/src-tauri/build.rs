@@ -144,6 +144,8 @@ fn write_native_text(os: &str) -> Result<(), Box<dyn std::error::Error>> {
 
 /// The identifier `scripts/desktop/tauri.mjs` gives development builds.
 const DEV_IDENTIFIER: &str = "app.isctcompanion.dev";
+/// The identifier it gives the demo build (`yarn desktop:demo`).
+const DEMO_IDENTIFIER: &str = "app.isctcompanion.demo";
 
 fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -179,11 +181,22 @@ fn main() {
     // is compiled out with `isolated_dev`.
     println!("cargo::rustc-check-cfg=cfg(isolated_dev)");
     println!("cargo::rerun-if-env-changed=TAURI_CONFIG");
-    let isolated = std::env::var("TAURI_CONFIG").is_ok_and(|config| {
+    let identifier = std::env::var("TAURI_CONFIG").ok().map(|config| {
         let config: serde_json::Value =
             serde_json::from_str(&config).expect("TAURI_CONFIG is not JSON");
-        config["identifier"] == DEV_IDENTIFIER
+        config["identifier"].as_str().unwrap_or_default().to_owned()
     });
+    // The demo scene and the demo identifier come only together, so the
+    // fictional workspace can never land in the release or dev app's data.
+    let demo = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
+    assert_eq!(
+        demo,
+        identifier.as_deref() == Some(DEMO_IDENTIFIER),
+        "the `demo` feature builds only as {DEMO_IDENTIFIER} (`yarn desktop:demo`)"
+    );
+    let isolated = identifier
+        .as_deref()
+        .is_some_and(|identifier| [DEV_IDENTIFIER, DEMO_IDENTIFIER].contains(&identifier));
     if isolated {
         println!("cargo::rustc-cfg=isolated_dev");
     }

@@ -14,6 +14,9 @@ mobile-reminders = []
 # The tools of the local MCP server; only the desktop serves one.
 agent = ["dep:schemars", "desktop-workspaces"]
 ts = ["dep:ts-rs", "adpt-isct/ts"]
+# The fictional workspace and fixed clock of the website screenshots; only
+# `yarn desktop:demo` (app.isctcompanion.demo, a debug build) turns it on.
+demo = []
 # The campus printer: the desktops, and Android through its print service
 # (app-ffi turns it on for that target only). iOS never prints to it.
 campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]

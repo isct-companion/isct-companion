@@ -20,7 +20,7 @@ fn event_ids(document: &Value) -> Vec<&str> {
 }
 
 fn days_ago(file: &mut CloudWorkspaceFile, days: i64) {
-    file.updated_at = (chrono::Utc::now() - chrono::Duration::days(days)).to_rfc3339();
+    file.updated_at = (crate::clock::now() - chrono::Duration::days(days)).to_rfc3339();
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn rapid_edits_thin_out_and_versions_older_than_30_days_go_once_four_are_newer()
     days_ago(&mut file, 60);
     // Twenty edits within one hour two days ago: one copy stands for that
     // day, besides the four newest.
-    let base = (chrono::Utc::now() - chrono::Duration::days(2))
+    let base = (crate::clock::now() - chrono::Duration::days(2))
         .duration_trunc(chrono::Duration::hours(1))
         .unwrap();
     for edit in 1..=20 {

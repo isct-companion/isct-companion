@@ -17,7 +17,7 @@
 [English](README.md) · **日本語**
 
 <p>
-  <img src="docs/screenshots/desktop-today.ja.png" alt="パソコンの Today：今日の授業と教室、未提出の課題、週間カレンダー" width="74%">
+  <img src="docs/screenshots/desktop-today.ja.png" alt="パソコンの Today：近づく試験、今日の授業と教室、週間カレンダー" width="74%">
   <img src="docs/screenshots/phone-today.ja.png" alt="iPhone の今日：授業終了までのカウントダウン、次の教室、今週の課題" width="23%">
 </p>
 

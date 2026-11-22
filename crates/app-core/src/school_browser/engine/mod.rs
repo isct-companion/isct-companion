@@ -392,6 +392,12 @@ impl SchoolBrowserEngine {
         surface: &str,
         entry: SchoolWebEntry,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
+        // The demo scene never loads a school page.
+        if cfg!(feature = "demo") {
+            return Err(SchoolBrowserError::Platform(
+                "The demo has no school web.".into(),
+            ));
+        }
         let (view, current, presenter) = {
             let state = self.0.state.guard();
             let view = state.views.get(&site);

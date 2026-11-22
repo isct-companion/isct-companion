@@ -100,7 +100,7 @@ pub(crate) fn denied_read(
 }
 
 fn paused_at(until_unix: i64) -> DateTime<Utc> {
-    DateTime::from_timestamp(until_unix, 0).unwrap_or_else(Utc::now)
+    DateTime::from_timestamp(until_unix, 0).unwrap_or_else(crate::clock::now)
 }
 
 /// The ending of a key whose session step failed.
@@ -369,7 +369,7 @@ pub(crate) async fn read_kyomu_page(
                     run: &run,
                     key: &key,
                     started_at: started,
-                    finished_at: Utc::now(),
+                    finished_at: crate::clock::now(),
                     outcome: if unavailable {
                         RunOutcome::Unavailable
                     } else {
@@ -416,7 +416,7 @@ async fn lms_commit(lease: &Lease, read: LmsRead) -> KeyEnd {
     let (key, run, started) = (lease.key.clone(), lease.run.clone(), lease.started);
     let applied = tokio::task::spawn_blocking(move || {
         writer.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-            let now = Utc::now();
+            let now = crate::clock::now();
             let changed = match &read {
                 LmsRead::Enrolment(read) => apply_lms_enrolment(transaction, read, now),
                 LmsRead::Deadlines(read) => apply_lms_deadlines(transaction, read, now),

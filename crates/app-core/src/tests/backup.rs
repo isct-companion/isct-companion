@@ -164,7 +164,7 @@ fn daily_maintenance_keeps_an_importable_copy_of_the_user_tables() {
         #[cfg(feature = "agent")]
         None,
     )
-    .pass(chrono::Utc::now())
+    .pass(crate::clock::now())
     .unwrap();
     let path = fixture
         .store

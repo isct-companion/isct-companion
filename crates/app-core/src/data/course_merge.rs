@@ -178,7 +178,7 @@ fn lms_course_id(transaction: &Transaction<'_>, lms: &Value) -> Result<Option<St
     let year = lms["year"]
         .as_i64()
         .map(|year| year as i32)
-        .unwrap_or_else(|| Utc::now().year());
+        .unwrap_or_else(|| crate::clock::now().year());
     resolve_course_id(
         transaction,
         "lms",

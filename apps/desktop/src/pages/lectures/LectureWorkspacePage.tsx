@@ -9,6 +9,7 @@ import { lazy, Suspense } from "react";
 import type { workspaceActions } from "../../store/workspace";
 import type { Course, TermId } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
+import { wallNow } from "../../platform/use-clock";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import type { ShellRecords } from "../../platform/records";
 import type { SyncSnapshot, SyncView } from "../../generated/persistence";
@@ -184,7 +185,7 @@ export function LectureWorkspacePage({
                             minute: "2-digit",
                           });
                         notify.info(
-                          occurrence.startsWith(tokyoDate(new Date()))
+                          occurrence.startsWith(tokyoDate(new Date(wallNow())))
                             ? t("app.todaysTimeClassIsRecorded", {
                                 time: format({}),
                                 lesson: label,

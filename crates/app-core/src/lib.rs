@@ -1,4 +1,7 @@
 //! Shared domain rules and state, independent of UI and platform frameworks.
+// A demo build answers past exams and school reads from its scene, which
+// leaves the real clients unused there; release builds keep the lint.
+#![cfg_attr(feature = "demo", allow(dead_code))]
 #![cfg_attr(
     not(test),
     deny(
@@ -21,6 +24,7 @@ pub mod campus_network;
 #[cfg(feature = "campus-printer")]
 pub mod campus_printer;
 pub mod catalog;
+pub mod clock;
 pub mod cloud_credentials;
 pub mod facade;
 pub mod file_preview;
@@ -31,6 +35,12 @@ pub mod course_materials;
 pub mod course_query;
 pub mod data;
 pub mod deadlines;
+// The demo scene exists only in a debug build of the separate demo app; a
+// release build that asks for it does not compile.
+#[cfg(all(feature = "demo", not(debug_assertions)))]
+compile_error!("the `demo` feature is for debug builds only");
+#[cfg(feature = "demo")]
+pub mod demo;
 pub mod diagnostics;
 pub mod download_names;
 pub mod downloads;

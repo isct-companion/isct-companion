@@ -697,7 +697,7 @@ fn apply_intent(
             object_mut(&mut status, "import status")?.insert(
                 "timetableReviewedAt".into(),
                 Value::String(
-                    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                    crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 ),
             );
             write.save_setting("importStatus", &status)
@@ -713,7 +713,7 @@ fn apply_intent(
             )
         }
         WorkspaceIntent::MarkAllRecentSeen => {
-            let now = chrono::Utc::now().fixed_offset();
+            let now = crate::clock::now().fixed_offset();
             save_recent_seen(write, current, crate::schedule::unseen_recent(current, now))
         }
         WorkspaceIntent::SetClassGroup { semester, group } => {
@@ -766,7 +766,7 @@ fn save_recent_seen(
     let entries = object_mut(&mut seen, "recent seen")?;
     // Only items still within the recent window can show again, so
     // older entries are dropped instead of kept forever.
-    let since = chrono::Utc::now() - chrono::Duration::days(crate::schedule::RECENT_DAYS);
+    let since = crate::clock::now() - chrono::Duration::days(crate::schedule::RECENT_DAYS);
     entries.retain(|_, at| {
         at.as_str()
             .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())

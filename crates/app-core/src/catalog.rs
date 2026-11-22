@@ -10,7 +10,6 @@ use crate::plan::{net_end, session_end, KeyEnd, Lease};
 use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
-use chrono::Utc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -242,7 +241,7 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
         source.clone(),
     );
     let applied = tokio::task::spawn_blocking(move || {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let committed = writer.catalog_write(year, |transaction| {
             let changed = match &rows {
                 Some(rows) if english => {

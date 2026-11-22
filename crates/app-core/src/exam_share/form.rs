@@ -169,7 +169,7 @@ pub(super) fn limits() -> ExamLimits {
         query: 100,
         teacher_name: 100,
         earliest_year: 1950,
-        latest_year: chrono::Datelike::year(&chrono::Utc::now()) as u32 + 1,
+        latest_year: chrono::Datelike::year(&crate::clock::now()) as u32 + 1,
     }
 }
 

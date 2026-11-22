@@ -91,7 +91,7 @@ fn validated_lms_keys_project_to_workspace_course_material_and_assignment() {
         )
         .unwrap();
     let transaction = connection.transaction().unwrap();
-    let now = chrono::Utc::now();
+    let now = app_core::clock::now();
     apply_lms_enrolment(&transaction, &enrolment, now).expect("enrolment key");
     apply_lms_course(&transaction, &outline, now).expect("course key");
     apply_lms_deadlines(&transaction, &deadlines, now).expect("deadlines key");
@@ -240,7 +240,7 @@ fn real_moodle_shapes_keep_odd_course_records_and_aggregate_everything() {
 
     let mut connection = data::migrations::open_in_memory().expect("both schemas");
     let transaction = connection.transaction().unwrap();
-    let now = chrono::Utc::now();
+    let now = app_core::clock::now();
     apply_lms_enrolment(&transaction, &enrolment, now).expect("enrolment");
     apply_lms_deadlines(&transaction, &deadlines, now).expect("deadlines");
     transaction.commit().unwrap();

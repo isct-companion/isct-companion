@@ -86,7 +86,7 @@ async fn scheduled_tasks_are_due_at_their_occurrence_and_after_a_change() {
     assert_eq!(duty.next_due(), None, "no export port, nothing due");
     let exporter = Arc::new(CountingExporter::default());
     runtime.attach_exporter(exporter.clone());
-    assert!(duty.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    assert!(duty.next_due().is_some_and(|at| at <= crate::clock::now()));
     duty.clone().run().await;
     assert_eq!(exporter.0.load(Ordering::Relaxed), 1);
     assert_eq!(duty.next_due(), None, "a launch task runs once per run");
@@ -95,7 +95,7 @@ async fn scheduled_tasks_are_due_at_their_occurrence_and_after_a_change() {
 
     add_launch_task(&store, "second");
     runtime.scheduled_tasks_changed();
-    assert!(duty.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    assert!(duty.next_due().is_some_and(|at| at <= crate::clock::now()));
     duty.clone().run().await;
     assert_eq!(exporter.0.load(Ordering::Relaxed), 2);
     runtime.shutdown().await;

@@ -1,6 +1,8 @@
 //! Native client for the ScienceTokyoExam sharing service.
 mod cache;
 mod client;
+#[cfg(feature = "demo")]
+pub(crate) mod demo;
 mod form;
 mod google;
 mod identity;
@@ -725,7 +727,7 @@ impl ExamShare {
             );
         }
         let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        if current.expires <= chrono::Utc::now().timestamp() + 60 {
+        if current.expires <= crate::clock::now().timestamp() + 60 {
             self.renew(session).await?;
         }
         let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;

@@ -1,7 +1,7 @@
 use super::*;
 
 pub(super) fn now() -> String {
-    Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 /// One authoritative resolver for every native consumer. User-configured
@@ -81,7 +81,7 @@ pub fn initial_workspace(
 
 pub(super) fn empty_workspace() -> Value {
     initial_workspace_value(
-        crate::schedule::japan_today(Utc::now()),
+        crate::schedule::japan_today(crate::clock::now()),
         &Uuid::new_v4().to_string(),
         &now(),
     )

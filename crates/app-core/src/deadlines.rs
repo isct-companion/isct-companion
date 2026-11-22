@@ -66,7 +66,7 @@ impl Duty for Reminders {
             let Some(sink) = self.0.sink() else {
                 return;
             };
-            if let Err(error) = self.0.deliver_due(sink, Utc::now().fixed_offset()).await {
+            if let Err(error) = self.0.deliver_due(sink, crate::clock::now().fixed_offset()).await {
                 crate::diagnostics::report("reminders", &error);
             }
         })
@@ -156,7 +156,7 @@ impl Maintenance {
         exam_share: ExamShareSlot,
         #[cfg(feature = "agent")] submissions: Option<crate::submissions::SubmissionService>,
     ) -> Self {
-        let earliest = Utc::now() + MAINTENANCE_START;
+        let earliest = crate::clock::now() + MAINTENANCE_START;
         let next = store
             .root()
             .maintenance_due(MAINTENANCE_KEY)
@@ -222,7 +222,7 @@ impl Duty for Maintenance {
         Box::pin(async move {
             let duty = self.clone();
             let ran = tokio::task::spawn_blocking(move || {
-                let now = Utc::now();
+                let now = crate::clock::now();
                 let passed = duty.pass(now);
                 let next = match &passed {
                     Ok(()) => now + MAINTENANCE_EVERY,
@@ -298,7 +298,7 @@ impl AgentAccess {
     /// The setting may have changed: reconcile now.
     pub(crate) fn changed(&self) {
         if let Ok(mut next) = self.next.lock() {
-            *next = Some(Utc::now());
+            *next = Some(crate::clock::now());
         }
     }
 
@@ -348,7 +348,7 @@ impl Duty for AgentAccess {
                         log::error!("[mcp] server unavailable: {error}");
                     }
                     if let Ok(mut next) = self.next.lock() {
-                        let retry = Utc::now() + Duration::from_std(wait).unwrap_or_default();
+                        let retry = crate::clock::now() + Duration::from_std(wait).unwrap_or_default();
                         *next = Some(next.map_or(retry, |next| next.min(retry)));
                     }
                 }

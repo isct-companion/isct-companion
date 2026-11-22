@@ -49,6 +49,11 @@ pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, CommandError> {
 pub struct CloudSync(pub(crate) app_core::cloud_sync::CloudSync);
 impl CloudSync {
     pub fn new(legacy: PathBuf, authorized: &[CloudProvider]) -> Result<Self, CommandError> {
+        // The demo scene's fictional workspace never reaches a cloud: it
+        // supports no provider, so none can be switched on.
+        #[cfg(feature = "demo")]
+        let supported: [CloudProvider; 0] = [];
+        #[cfg(not(feature = "demo"))]
         let supported = [
             CloudProvider::GoogleDrive,
             #[cfg(icloud)]

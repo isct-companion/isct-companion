@@ -67,7 +67,7 @@ pub struct Scheduler {
 impl Default for Scheduler {
     fn default() -> Self {
         Self {
-            started_at: Utc::now(),
+            started_at: crate::clock::now(),
             running: tokio::sync::Mutex::new(()),
             invalid_schedules: Mutex::new(HashSet::new()),
             next: Mutex::new(None),
@@ -206,7 +206,7 @@ impl Scheduler {
     /// first pass and after the tasks changed, else the next occurrence.
     pub(crate) fn next_due(&self) -> Option<DateTime<Utc>> {
         match self.next.lock().ok().and_then(|next| *next) {
-            None => Some(Utc::now()),
+            None => Some(crate::clock::now()),
             Some(next) => next,
         }
     }
@@ -237,7 +237,7 @@ impl Scheduler {
             *slot = Some(if ran.is_ok() {
                 next
             } else {
-                Some(Utc::now() + Duration::minutes(1))
+                Some(crate::clock::now() + Duration::minutes(1))
             });
         }
         ran
@@ -245,7 +245,7 @@ impl Scheduler {
 
     async fn pass(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
         let tasks = services.store.user_rows("scheduled_tasks")?;
-        let now = Utc::now();
+        let now = crate::clock::now();
         // A task of a retired built-in action never fires on its own.
         for task in tasks
             .into_iter()
@@ -318,7 +318,7 @@ impl Scheduler {
         services: &SchedulerServices,
         id: &str,
     ) -> Result<String, SchedulerError> {
-        self.run(services, id, Some(Utc::now().to_rfc3339()), true)
+        self.run(services, id, Some(crate::clock::now().to_rfc3339()), true)
             .await
     }
 
@@ -353,18 +353,18 @@ impl Scheduler {
         }
 
         let occurrence = if force {
-            occurrence.unwrap_or_else(|| Utc::now().to_rfc3339())
+            occurrence.unwrap_or_else(|| crate::clock::now().to_rfc3339())
         } else {
             // The tick snapshot may be stale by the time it reaches the queue.
             // Re-read and re-evaluate immediately before the durable claim.
-            let Some(fresh) = due_occurrence(&task, Utc::now(), self.started_at)? else {
+            let Some(fresh) = due_occurrence(&task, crate::clock::now(), self.started_at)? else {
                 return Ok("Skipped: scheduled task is no longer due".into());
             };
             fresh
         };
         let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
         task["lastOccurrenceAt"] = Value::String(occurrence);
-        task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
+        task["lastRunAt"] = Value::String(crate::clock::now().to_rfc3339());
         task["lastResult"] = Value::String("Running".into());
         let mut task = services.store.put_user_record_checked(
             "scheduled_tasks",
@@ -377,7 +377,7 @@ impl Scheduler {
             .await
             .unwrap_or_else(|error| format!("Failed: {error}"));
         let expected = task.get("rev").and_then(Value::as_u64).unwrap_or(0);
-        task["lastRunAt"] = Value::String(Utc::now().to_rfc3339());
+        task["lastRunAt"] = Value::String(crate::clock::now().to_rfc3339());
         task["lastResult"] = Value::String(message.clone());
         services.store.put_user_record_checked(
             "scheduled_tasks",

@@ -150,7 +150,7 @@ fn report(service: &VpnService, state: VpnState) -> VpnStatus {
         publishers: service.publishers(),
         publishers_default: service.publishers_are_default(),
         demand_paused_until: service
-            .demand_paused_until(chrono::Utc::now())
+            .demand_paused_until(app_core::clock::now())
             .map(|at| at.to_rfc3339()),
         ..state.into()
     }

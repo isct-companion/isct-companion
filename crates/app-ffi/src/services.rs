@@ -345,7 +345,7 @@ impl Session {
             if !app_core::app_updates::check_now(
                 &workspace,
                 last_checked.as_deref(),
-                chrono::Utc::now(),
+                app_core::clock::now(),
                 manual,
             ) {
                 return Ok(OperationResult::AppUpdate {
