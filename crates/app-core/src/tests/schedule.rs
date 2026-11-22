@@ -2570,7 +2570,7 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
         &data,
         &SchoolReads::fixture(&data),
         "reference:extra",
-        "course"
+        Some("course")
     )
     .unwrap()
     .conflicts
