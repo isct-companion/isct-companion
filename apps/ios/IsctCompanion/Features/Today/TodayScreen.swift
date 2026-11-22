@@ -314,11 +314,11 @@ private struct ClassStack: View {
     private static func title(_ item: TodayClass, first: Bool) -> String {
         let exam = item.occurrence.kind == .exam
         let date = Format.civilDate(item.occurrence.date)
-        if date.map(Calendar.tokyo.isDateInToday) == true {
+        if date.map(AppClock.isToday) == true {
             if first { return exam ? t("today.nextExam") : t("today.nextClass") }
             return t("today.laterToday")
         }
-        if date.map(Calendar.tokyo.isDateInTomorrow) == true {
+        if date.map(AppClock.isTomorrow) == true {
             return exam ? t("today.tomorrowsExam") : t("today.tomorrowsClass")
         }
         return Format.dayTitle(item.occurrence.date)

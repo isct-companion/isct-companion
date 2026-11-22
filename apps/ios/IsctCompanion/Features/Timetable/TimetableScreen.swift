@@ -281,7 +281,7 @@ struct TimetableScreen: View {
 
     private func dayHeader(_ day: Date) -> some View {
         let parts = Calendar.tokyo.dateComponents([.weekday, .day], from: day)
-        let today = Calendar.tokyo.isDateInToday(day)
+        let today = AppClock.isToday(day)
         return VStack(spacing: Theme.space1) {
             Text(Format.weekdays[(parts.weekday ?? 1) - 1])
                 .font(.caption)
@@ -336,7 +336,7 @@ struct TimetableScreen: View {
 
     private func dayColumn(_ day: Date, week: ScheduleView?) -> some View {
         let agenda = agenda(day, in: week)
-        let today = Calendar.tokyo.isDateInToday(day)
+        let today = AppClock.isToday(day)
         let blocks = (agenda?.occurrences ?? []).filter { [.course, .exam].contains($0.kind) }
         let holiday = agenda?.noClasses == true
         let shape = RoundedRectangle(cornerRadius: Theme.radiusColumn, style: .continuous)

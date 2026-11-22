@@ -19,4 +19,14 @@ enum AppClock {
 
     /// Seconds from now until `date`.
     static func until(_ date: Date) -> TimeInterval { date.timeIntervalSince(now) }
+
+    /// Whether `date` falls on this clock's day in Tokyo; `Calendar`'s own
+    /// `isDateInToday` reads the system clock.
+    static func isToday(_ date: Date) -> Bool { Calendar.tokyo.isDate(date, inSameDayAs: now) }
+
+    /// Whether `date` falls on the Tokyo day after this clock's.
+    static func isTomorrow(_ date: Date) -> Bool {
+        guard let tomorrow = Calendar.tokyo.date(byAdding: .day, value: 1, to: now) else { return false }
+        return Calendar.tokyo.isDate(date, inSameDayAs: tomorrow)
+    }
 }
