@@ -1,6 +1,5 @@
 import BackgroundTasks
 import IsctCore
-import IsctWidgets
 import QuickLook
 import SwiftUI
 
@@ -224,9 +223,9 @@ struct RootView: View {
             .onOpenURL { url in
                 if url.isFileURL {
                     Task { await inbox.receiveOpenIn(url) }
-                } else if url.scheme == AppURL.scheme, url.host == "inbox" {
+                } else if url.scheme == "isctcompanion", url.host == "inbox" {
                     inbox.refresh()
-                } else if url.scheme == AppURL.scheme, url.host == "widget" {
+                } else if url.scheme == "isctcompanion", url.host == "widget" {
                     widgetURL = url
                 }
             }

@@ -163,19 +163,9 @@ fn main() {
         "cargo::rustc-check-cfg=cfg(tool, values({}))",
         ids.join(", ")
     );
-    // The demo app has no campus tools: each reaches the campus network or a
-    // system service the release app shares (printer, Wi-Fi portal, VPN
-    // helper), and the screenshot scene shows none of them.
-    let demo_build = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
-    // The Vite dev server's port, which `scripts/desktop/tauri.mjs` picks
-    // (the demo has its own, so a dev and a demo run side by side): the
-    // window loads it and the origin check trusts only it.
-    println!("cargo::rerun-if-env-changed=ISCT_DEV_PORT");
-    let dev_port = std::env::var("ISCT_DEV_PORT").unwrap_or_else(|_| "4173".into());
-    println!("cargo::rustc-env=ISCT_DEV_PORT={dev_port}");
     let tools = TOOLS
         .iter()
-        .filter(|(_, systems)| !demo_build && systems.contains(&os.as_str()))
+        .filter(|(_, systems)| systems.contains(&os.as_str()))
         .map(|(id, _)| *id)
         .collect::<Vec<_>>();
     for tool in &tools {
@@ -198,8 +188,9 @@ fn main() {
     });
     // The demo scene and the demo identifier come only together, so the
     // fictional workspace can never land in the release or dev app's data.
+    let demo = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
     assert_eq!(
-        demo_build,
+        demo,
         identifier.as_deref() == Some(DEMO_IDENTIFIER),
         "the `demo` feature builds only as {DEMO_IDENTIFIER} (`yarn desktop:demo`)"
     );

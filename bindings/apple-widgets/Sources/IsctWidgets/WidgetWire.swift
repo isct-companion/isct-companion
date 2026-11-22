@@ -29,8 +29,7 @@ public enum WidgetDestination: Sendable, Decodable {
 
     public var url: URL? {
         var components = URLComponents()
-        guard let scheme = AppURL.scheme else { return nil }
-        components.scheme = scheme
+        components.scheme = "isctcompanion"
         components.host = "widget"
         switch self {
         case let .course(key, date):

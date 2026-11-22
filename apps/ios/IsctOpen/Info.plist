@@ -20,8 +20,6 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>IsctURLScheme</key>
-	<string>$(ISCT_URL_SCHEME)</string>
 	<key>IsctWidgetGroup</key>
 	<string>$(ISCT_APP_GROUP)</string>
 	<key>NSExtension</key>

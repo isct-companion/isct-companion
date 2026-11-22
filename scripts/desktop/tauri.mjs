@@ -45,15 +45,10 @@ const host = demo
   : isolated
     ? "app.isctcompanion.dev"
     : "app.isctcompanion";
-// The Vite dev server's port: the demo has its own, so it runs beside a dev
-// run. Vite, Tauri's devUrl and the shell's window and origin check all read
-// this one value (ISCT_DEV_PORT).
-const devPort = demo ? 4174 : 4173;
 const isolatedApp = isolated
   ? {
       identifier: host,
       productName: demo ? "IsctCompanion Demo" : "IsctCompanion Dev",
-      ...(demo ? { build: { devUrl: `http://localhost:${devPort}` } } : {}),
     }
   : undefined;
 if (isolated)
@@ -147,7 +142,6 @@ const child = spawn(
       ISCT_APPLE_ENTITLED: signing.entitled ? "1" : "",
       ISCT_MACOS_DEV_SIGNING_IDENTITY: signing.developmentIdentity ?? "",
       ISCT_MACOS_DEV_IDENTIFIER: host,
-      ISCT_DEV_PORT: String(devPort),
       TAURI_APP_PATH: path.join(root, "apps/desktop/src-tauri"),
       TAURI_FRONTEND_PATH: path.join(root, "apps/desktop"),
     },

@@ -1,4 +1,3 @@
-import IsctWidgets
 import UIKit
 
 /// What the share and action extensions both do: read what was shared into
@@ -28,7 +27,7 @@ enum ExtensionInput {
     /// runtime. Should that ever stop working, the files still wait in the
     /// inbox for the next time the app opens.
     static func openApp(from start: UIResponder) {
-        guard let scheme = AppURL.scheme, let url = URL(string: "\(scheme)://inbox") else { return }
+        guard let url = URL(string: "isctcompanion://inbox") else { return }
         let selector = NSSelectorFromString("openURL:options:completionHandler:")
         var responder: UIResponder? = start
         while let current = responder {

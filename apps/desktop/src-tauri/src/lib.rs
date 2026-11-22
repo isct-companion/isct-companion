@@ -116,7 +116,7 @@ fn require_bundled_origin(webview: &tauri::Webview) -> Result<(), CommandError> 
     let trusted = packaged
         || (url.scheme() == "http"
             && url.host_str() == Some("localhost")
-            && url.port().map(|port| port.to_string()).as_deref() == Some(DEV_PORT));
+            && url.port() == Some(4173));
     #[cfg(not(debug_assertions))]
     let trusted = packaged;
     if !trusted {
@@ -125,17 +125,11 @@ fn require_bundled_origin(webview: &tauri::Webview) -> Result<(), CommandError> 
     Ok(())
 }
 
-/// The Vite dev server's port for this build (`build.rs`, from
-/// `scripts/desktop/tauri.mjs`).
-#[cfg(debug_assertions)]
-const DEV_PORT: &str = env!("ISCT_DEV_PORT");
-
 /// Where a window of the bundled application loads it from.
 #[cfg(dev)]
 fn app_url() -> WebviewUrl {
     WebviewUrl::External(
-        tauri::Url::parse(&format!("http://localhost:{DEV_PORT}"))
-            .expect("the local Vite URL is valid"),
+        tauri::Url::parse("http://localhost:4173").expect("the local Vite URL is valid"),
     )
 }
 

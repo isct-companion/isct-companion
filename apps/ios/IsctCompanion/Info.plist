@@ -60,8 +60,6 @@
 	<false/>
 	<key>IsctGoogleClientID</key>
 	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
-	<key>IsctURLScheme</key>
-	<string>$(ISCT_URL_SCHEME)</string>
 	<key>IsctWidgetGroup</key>
 	<string>$(ISCT_APP_GROUP)</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>

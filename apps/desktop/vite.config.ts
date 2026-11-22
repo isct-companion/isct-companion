@@ -37,10 +37,7 @@ export default defineConfig(({ command }) => ({
     outDir: "dist",
   },
   server: {
-    // `scripts/desktop/tauri.mjs` picks the port (the demo app has its own);
-    // a busy port fails instead of moving, since the window loads this one.
-    port: Number(process.env.ISCT_DEV_PORT ?? 4173),
-    strictPort: true,
+    port: 4173,
     watch: {
       ignored: ["**/target/**"],
     },

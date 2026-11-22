@@ -29,18 +29,9 @@ fn config(app: &AppHandle) -> Result<PathBuf, CommandError> {
         .map_err(shell)?
         .join("course-files-root.json"))
 }
-/// The demo scene's course files stay in its own data folder whatever a
-/// configuration says, so no other app's folder (and the downloads a cache
-/// reset deletes there) is ever its.
-#[cfg(feature = "demo")]
-pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), CommandError> {
-    Ok((default_root(app)?, false))
-}
-
 /// The chosen storage root. Only a missing configuration means "use the
 /// default"; any other read failure is surfaced, because NoteStore pins the
 /// first root it sees for the process lifetime.
-#[cfg(not(feature = "demo"))]
 pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), CommandError> {
     match fs::read_to_string(config(app)?) {
         Ok(value) => {
@@ -112,7 +103,7 @@ pub async fn course_storage_info(
     Ok(StorageInfo {
         root: display_root(&root),
         custom,
-        can_choose: !cfg!(feature = "demo"),
+        can_choose: true,
     })
 }
 #[tauri::command]
@@ -122,9 +113,6 @@ pub async fn choose_course_storage(
     reset: bool,
 ) -> Result<StorageInfo, CommandError> {
     crate::require_local_main(&webview)?;
-    if cfg!(feature = "demo") {
-        return Err("The demo keeps its course files in its own data folder.".into());
-    }
     let chosen = if reset {
         None
     } else {

@@ -36,24 +36,23 @@ keeps the full-size captures in `screenshots/{ja,zh,en}/`.
   department, course colours and weekly events, then the items Today lists as
   new. Exams, the academic calendar and department recommendations download
   from the public Isct-Data as usual.
-- **No network but public Isct-Data.** Every HTTP client in Core and the
-  desktop shell is built by `app_core::net::client_builder`; in a demo build
-  it uses no proxy and a resolver that answers only Isct-Data's host
-  (`demo::network_gate`), so school, cloud, update and campus requests fail
-  before connecting, whatever path makes them. On top of that: both school
-  accounts read as connected from an in-memory vault
-  (`SchoolAuthService::demo`, its status kept in memory too); sign-ins end
-  offline; the planner never schedules a school read; no school web view is
-  ever created (`ensure_browser`); syllabus links are empty; cloud sync
-  supports no provider and refuses one before any sign-in; the desktop
-  build has no campus tools (printer, Wi-Fi, VPN). Past exams answer from the
-  scene (`exam_share/demo.rs`); every document opens `sample-exam.pdf`,
-  printed from `sample-exam.html`:
+- **What it is for.** A developer tool for screenshots (slotledger
+  `mddwep`): it is kept apart by its own identifier and data folder, so with
+  default settings it never touches the release or dev app's data, and it
+  holds only made-up credentials. It does not guard against deliberate
+  configuration (choosing another course folder, a custom data index,
+  running it beside a dev run on the same ports); fixes go to what makes a
+  screenshot wrong or changes a release build.
+- **No school or cloud traffic.** Every HTTP client in Core and the desktop
+  shell is built by `app_core::net::client_builder`; in a demo build it uses
+  no proxy and a resolver that answers only Isct-Data's host
+  (`demo::network_gate`). Both school accounts read as connected from an
+  in-memory vault (`SchoolAuthService::demo`, its status kept in memory too);
+  sign-ins end offline; the planner never schedules a school read; no school
+  web view is created (`ensure_browser`); cloud sync supports no provider.
+  Past exams answer from the scene (`exam_share/demo.rs`); every document
+  opens `sample-exam.pdf`, printed from `sample-exam.html`:
   `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=sample-exam.pdf sample-exam.html`.
-- **Beside the other apps.** The desktop demo keeps its course files in its
-  own data folder (no other folder can be chosen), listens on its own MCP
-  port (47834) and serves its hot-reload page on its own Vite port (4174), so
-  it runs next to the dev and release apps.
 - **Guards.** `app_core::DEMO` says whether Core was built with the scene;
   the desktop crate and `app-ffi` assert at compile time that it matches
   their own `demo` feature, the desktop `build.rs` ties that feature to the
@@ -69,10 +68,11 @@ short refuses to start and names the folder to delete.
 ## Running it
 
 ```sh
+export CARGO_TARGET_DIR=/Users/xby/isct-companion/target
 # Iterate on code: hot reload, a bare executable (screen tools cannot address it).
-CARGO_TARGET_DIR=/Users/xby/isct-companion/target yarn desktop:demo
+yarn desktop:demo
 # Capture: an unsigned debug bundle that macOS and screen tools treat as an app.
-CARGO_TARGET_DIR=/Users/xby/isct-companion/target yarn desktop:build --debug --no-sign --demo --bundles app
+yarn desktop:build --debug --no-sign --demo --bundles app
 open "$CARGO_TARGET_DIR/debug/bundle/macos/IsctCompanion Demo.app"
 # Start the scene over.
 rm -rf ~/Library/Application\ Support/app.isctcompanion.demo

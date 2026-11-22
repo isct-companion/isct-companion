@@ -71,7 +71,6 @@ targets:
         CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
         # The app's one App Group: widget data and the share inbox.
         IsctWidgetGroup: $(ISCT_APP_GROUP)
-        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleDevelopmentRegion: en
         # System UI (share sheet, photo picker) follows these; the app's own
         # text follows settings.locale.
@@ -184,7 +183,6 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
-        IsctURLScheme: $(ISCT_URL_SCHEME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -228,7 +226,6 @@ targets:
       properties:
         CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
-        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -267,14 +264,11 @@ targets:
         buildPhase: resources
       - path: ExtensionShared
       - path: IsctCompanion/Shared/SharedInbox.swift
-    dependencies:
-      - package: IsctWidgets
     info:
       path: IsctOpen/Info.plist
       properties:
         CFBundleDisplayName: Open in $(ISCT_DISPLAY_NAME)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
-        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
