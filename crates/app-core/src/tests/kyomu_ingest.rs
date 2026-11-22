@@ -357,6 +357,49 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
     );
+    // A saved local declaration after a hide was how older versions resumed
+    // the same LMS placement. It still appears and can be hidden again.
+    let second_course = course_with(&workspace, "lmsCourseId", json!(42));
+    store
+        .put_user_record(
+            "manual_memberships",
+            json!({
+                "kind":"membership", "courseId":second_course, "termId":"2026-2Q",
+                "status":"declared", "evidence":{"provider":"manual"}
+            }),
+        )
+        .unwrap();
+    let resumed = service.read_back().unwrap();
+    let courses = crate::schedule::scheduled_courses(&resumed.workspace, "2026-2Q");
+    assert_eq!(courses[0]["id"], second_course);
+    let mut absent = lms.clone();
+    absent.timetables[0].meetings.clear();
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &absent, chrono::Utc::now())
+        })
+        .unwrap();
+    assert!(
+        crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
+    );
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
+        })
+        .unwrap();
+    let resumed = service.read_back().unwrap();
+    service
+        .apply(crate::workspace::WorkspaceMutation {
+            expected_revision: resumed.revision,
+            intent: crate::workspace::WorkspaceIntent::SetCourseOnTimetable {
+                course_id: second_course,
+                on_timetable: false,
+            },
+        })
+        .unwrap();
+    assert!(
+        crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
+    );
     // Official evidence cannot replace LMS clocks or the user's overlay.
     store.write(None, |tx| apply_kyomu_payload(tx, &registration(json!(["1Q","2Q"]),json!([{
         "offeringId":"202600041","code":"CSC.T101","title":"Official earlier","instructor":"Teacher",

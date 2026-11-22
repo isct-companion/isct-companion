@@ -7,7 +7,10 @@ import { t } from "../../i18n";
 import type { ClassGroupChoice, Course, Workspace } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
 import { DAYS, type FinderCourse } from "../../lib/course-query";
-import type { CourseConflict } from "../../generated/persistence";
+import type {
+  CourseConflict,
+  CoursePlacementActions,
+} from "../../generated/persistence";
 import { notify } from "../../components/notifications/notify";
 import { useScheduleQuery, type CourseDetail } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
@@ -101,7 +104,9 @@ function CoursePanelBody({
   data,
   readOnly,
   close,
-  remove,
+  placement,
+  removePlan,
+  showOnTimetable,
   edit,
   editIntensive,
   openWeb,
@@ -115,7 +120,9 @@ function CoursePanelBody({
   data: Workspace;
   readOnly: boolean;
   close: () => void;
-  remove: () => void;
+  placement?: CoursePlacementActions;
+  removePlan: () => void;
+  showOnTimetable: (on: boolean) => void;
   edit: () => void;
   editIntensive: () => void;
   /** Opens an official URL in the Web page. */
@@ -142,13 +149,7 @@ function CoursePanelBody({
     }).value ?? []
   ).filter((choice) => choice.courses.some((item) => item.id === course.id));
   const exams = detail?.exams ?? [];
-  const registered = data.memberships.some(
-    (item) =>
-      item.courseId === course.id &&
-      !item.deletedAt &&
-      ["registered", "declared", "completed"].includes(item.status) &&
-      item.evidence?.provider !== "manual",
-  );
+  const timetable = placement?.timetable;
   const notice = conflicts.length > 0 && (
     <section
       className="coursePanelConflict"
@@ -202,11 +203,32 @@ function CoursePanelBody({
             <Button variant="default" onClick={edit}>
               {t("common.edit")}
             </Button>
-            <Button color="red" variant="light" onClick={remove}>
-              {registered
-                ? t("courses.removeFromLocalTimetable")
-                : t("common.remove")}
-            </Button>
+            {placement?.canRemovePlan && (
+              <Button color="red" variant="light" onClick={removePlan}>
+                {t("courses.removeCoursePlan")}
+              </Button>
+            )}
+            {timetable?.kind === "manual" && timetable.visible && (
+              <Button
+                color="red"
+                variant="light"
+                onClick={() => showOnTimetable(false)}
+              >
+                {t("common.remove")}
+              </Button>
+            )}
+            {timetable?.kind === "lms" && (
+              <Button
+                variant="default"
+                onClick={() => showOnTimetable(!timetable.visible)}
+              >
+                {t(
+                  timetable.visible
+                    ? "courses.hideLmsTimetable"
+                    : "courses.showLmsTimetable",
+                )}
+              </Button>
+            )}
           </>
         )
       }
@@ -362,8 +384,6 @@ export const CoursePanel = withRecords(
     "courses",
     "materials",
     "events",
-    "memberships",
-    "planItems",
     "intensiveSchedules",
     "academicProfile",
   ],

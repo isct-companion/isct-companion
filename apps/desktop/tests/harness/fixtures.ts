@@ -187,6 +187,7 @@ export function overviewFor(
     colors,
     enrolledCourseIds: active.map((row) => row.id),
     onTimetableCourseIds: active.map((row) => row.id),
+    placements: {},
     allTerms: [TERM],
     defaultFinderKeys: [],
     ...overrides,

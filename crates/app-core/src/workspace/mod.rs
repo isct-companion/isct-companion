@@ -11,7 +11,11 @@ mod courses;
 pub(crate) use calendar::set_assignment_mark;
 use calendar::*;
 use catalog::*;
-pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_catalog_course};
+pub(crate) use catalog::{
+    catalog_instructor_names, catalog_meetings, meetings_from_grid, planned_catalog_course,
+};
+#[cfg(feature = "agent")]
+pub(crate) use catalog::{plan_catalog_courses, remove_catalog_plans};
 use courses::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
@@ -100,6 +104,9 @@ pub enum WorkspaceIntent {
         existing_id: Option<String>,
     },
     DeleteCourseBatch {
+        course_ids: Vec<String>,
+    },
+    RemoveCatalogPlans {
         course_ids: Vec<String>,
     },
     EditCourseBatch {
@@ -510,6 +517,9 @@ fn apply_intent(
         } => save_course(write, current, draft, term_id, existing_id),
         WorkspaceIntent::DeleteCourseBatch { course_ids } => {
             delete_course_batch(write, current, course_ids)
+        }
+        WorkspaceIntent::RemoveCatalogPlans { course_ids } => {
+            remove_course_plans(write, current, &course_ids)
         }
         WorkspaceIntent::EditCourseBatch {
             course_ids,

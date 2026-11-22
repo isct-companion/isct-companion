@@ -147,18 +147,24 @@ export function CoursePlanningPage({
       offerings: rows,
     });
   };
-  const removeFromTimetable = async (course: Course) => {
-    const school = data.memberships.some(
-      (item) =>
-        item.courseId === course.id &&
-        !item.deletedAt &&
-        item.evidence?.provider !== "manual",
-    );
+  const removePlan = async (course: Course) => {
+    try {
+      await academicIntentOrThrow({
+        kind: "removeCatalogPlans",
+        courseIds: [course.id],
+      });
+      setPanelCourseId(null);
+    } catch (error) {
+      notify.error(error);
+    }
+  };
+  const showOnTimetable = async (course: Course, on: boolean) => {
     if (
-      school &&
+      !on &&
+      workspaceView.placements[course.id]?.timetable?.kind === "lms" &&
       !(await confirmAction(
-        t("app.removeThisCourseFromThe"),
-        t("common.remove"),
+        t("courses.hideLmsTimetableTitle", { title: course.title }),
+        t("courses.hideLmsTimetable"),
       ))
     )
       return;
@@ -166,7 +172,7 @@ export function CoursePlanningPage({
       await academicIntentOrThrow({
         kind: "setCourseOnTimetable",
         courseId: course.id,
-        onTimetable: false,
+        onTimetable: on,
       });
       setPanelCourseId(null);
     } catch (error) {
@@ -253,7 +259,7 @@ export function CoursePlanningPage({
             <OfferingPanel
               key={shownOffering.course.id}
               course={shownOffering.course}
-              placed={finder.placedCodes.has(shownOffering.course.code)}
+              placed={finder.placedOfferingIds.has(shownOffering.course.id)}
               replaces={shownOffering.replaces.map(
                 (id) =>
                   data.courses.find((course) => course.id === id)?.title ?? "",
@@ -275,7 +281,9 @@ export function CoursePlanningPage({
               course={panelCourse}
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
-              remove={() => void removeFromTimetable(panelCourse)}
+              placement={workspaceView.placements[panelCourse.id]}
+              removePlan={() => void removePlan(panelCourse)}
+              showOnTimetable={(on) => void showOnTimetable(panelCourse, on)}
               edit={() =>
                 courseEditors.editCourse({
                   course: panelCourse,

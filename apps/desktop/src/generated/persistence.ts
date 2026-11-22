@@ -2156,6 +2156,15 @@ export type AssignmentBoard = {
 
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
 
+export type CourseTimetableControl =
+  { kind: "manual"; visible: boolean } | { kind: "lms"; visible: boolean };
+
+export type CoursePlacementActions = {
+  canRemovePlan: boolean;
+  canDeleteCourse: boolean;
+  timetable: CourseTimetableControl | null;
+};
+
 export type WorkspaceOverview = {
   term: string;
   currentTerm: string;
@@ -2173,6 +2182,7 @@ export type WorkspaceOverview = {
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
   onTimetableCourseIds: Array<string>;
+  placements: { [key in string]: CoursePlacementActions };
   allTerms: Array<string>;
   defaultFinderKeys: Array<string>;
 };
@@ -2376,6 +2386,7 @@ export type WorkspaceIntent =
   | { kind: "removeTerm"; termId: string }
   | { kind: "saveCourse"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteCourseBatch"; courseIds: Array<string> }
+  | { kind: "removeCatalogPlans"; courseIds: Array<string> }
   | {
       kind: "editCourseBatch";
       courseIds: Array<string>;
@@ -2612,9 +2623,9 @@ export type FinderPage = {
   ineligible: number;
   activeSlots: Array<string>;
   /**
-   * Codes on the term's timetable.
+   * Catalog offering IDs on the term's timetable.
    */
-  placedCodes: Array<string>;
+  placedOfferingIds: Array<string>;
   commitKey: string | null;
   pasteHandled: boolean;
   pasted: Array<FinderRowView>;

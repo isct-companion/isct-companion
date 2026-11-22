@@ -556,9 +556,13 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     let before = service.read_back().unwrap();
     assert!(view(&before, first).auto_linked);
     // Linking reports the course's other exam but no longer blocks.
-    let preview =
-        crate::schedule::exam_association(&before.workspace, &before.school, second, Some(&course_id))
-            .unwrap();
+    let preview = crate::schedule::exam_association(
+        &before.workspace,
+        &before.school,
+        second,
+        Some(&course_id),
+    )
+    .unwrap();
     assert_eq!(preview.conflicts.len(), 1);
     let linked = mutate(
         &service,
@@ -751,9 +755,8 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     }
     let removed = mutate(
         &service,
-        WorkspaceIntent::SetCourseOnTimetable {
-            course_id: course_id.clone(),
-            on_timetable: false,
+        WorkspaceIntent::RemoveCatalogPlans {
+            course_ids: vec![course_id.clone()],
         },
     );
     assert_eq!(view(&removed, first).course_id, None);
@@ -1022,6 +1025,43 @@ fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
     assert_eq!(catalog["credits"], 4.0);
     assert_eq!(course(&renamed, &manual_id)["instructor"], "Teacher B");
     assert_eq!(course(&renamed, &manual_id)["instructionLanguage"], "en");
+
+    // Removing a personal plan for the same identity preserves the manually
+    // created course and its own timetable placement.
+    service
+        .store
+        .put_user_record(
+            "plan_items",
+            json!({
+                "kind":"plan-item", "courseId":manual_id, "termId":"2026-3Q", "state":"planned"
+            }),
+        )
+        .unwrap();
+    let removed = mutate(
+        &service,
+        WorkspaceIntent::RemoveCatalogPlans {
+            course_ids: vec![manual_id.clone()],
+        },
+    );
+    assert!(!rows(&removed.workspace, "planItems")
+        .unwrap()
+        .any(|row| row["courseId"] == manual_id && is_live(row)));
+    assert!(
+        crate::schedule::scheduled_courses(&removed.workspace, "2026-3Q")
+            .iter()
+            .any(|row| row["id"] == manual_id && row["instructor"] == "Teacher B")
+    );
+    let deleted = mutate(
+        &service,
+        WorkspaceIntent::DeleteCourseBatch {
+            course_ids: vec![manual_id.clone(), manual_id.clone()],
+        },
+    );
+    assert!(
+        !crate::schedule::scheduled_courses(&deleted.workspace, "2026-3Q")
+            .iter()
+            .any(|row| row["id"] == manual_id)
+    );
 }
 
 #[test]
@@ -1534,12 +1574,12 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         )
         .unwrap()
     };
-    // Courses are named by their internal id, minted when first added.
+    // A draft's course identity survives removal and can be used on re-add.
     let id = |offering: &str| -> String {
-        rows(&service.read_back().unwrap().workspace, "courses")
+        rows(&service.read_back().unwrap().workspace, "planItems")
             .unwrap()
-            .find(|course| course["offeringId"] == offering)
-            .unwrap()["id"]
+            .find(|plan| plan["offeringId"] == offering)
+            .unwrap()["courseId"]
             .as_str()
             .unwrap()
             .to_string()
@@ -1602,20 +1642,19 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         Err(DataError::InvalidInput(_))
     ));
 
-    // Off the timetable means off every quarter.
+    // Desktop removal takes the course out of every planned quarter.
     add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
     let off = run(
         &service,
-        WorkspaceIntent::SetCourseOnTimetable {
-            course_id: id("202630020"),
-            on_timetable: false,
+        WorkspaceIntent::RemoveCatalogPlans {
+            course_ids: vec![id("202630020")],
         },
     )
     .unwrap();
     assert!(placed_terms(&off, &id("202630020")).is_empty());
 
-    // Removing the final placement leaves the catalog description available
-    // for a later add, but it cannot surface as a lecture or a search hit.
+    // Removing the final draft drops its course from the lecture list and
+    // search while retaining its identity for a later add.
     use crate::schedule::{query, WorkspaceQuery, WorkspaceQueryResult};
     let snapshot = service.read_back().unwrap();
     let roster = query(
@@ -1648,10 +1687,19 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     };
     assert!(!search.course_ids.contains(&id("202630020")));
 
-    // Deleting a catalog course removes it and its placements.
-    let deleted = run(
+    // A manual-course delete cannot act as a second way to remove a catalog plan.
+    add("2026-3Q", offering("202630010", "AAA.A100", &["3Q"]));
+    let unchanged = run(
         &service,
         WorkspaceIntent::DeleteCourseBatch {
+            course_ids: vec![id("202630010")],
+        },
+    )
+    .unwrap();
+    assert!(!placed_terms(&unchanged, &id("202630010")).is_empty());
+    let deleted = run(
+        &service,
+        WorkspaceIntent::RemoveCatalogPlans {
             course_ids: vec![id("202630010")],
         },
     )
@@ -1659,7 +1707,7 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     assert!(placed_terms(&deleted, &id("202630010")).is_empty());
     assert!(rows(&deleted, "courses")
         .unwrap()
-        .any(|row| row["id"] == id("202630010") && !is_live(row)));
+        .all(|row| row["id"] != id("202630010")));
 
     let before_batch = live_plans(&deleted);
     let batch = mutate(
@@ -1689,7 +1737,10 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     let with_plan = backup.snapshot().unwrap();
     add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
     backup
-        .restore(&before_add, crate::data::WorkspaceChangeSource::CloudRestore)
+        .restore(
+            &before_add,
+            crate::data::WorkspaceChangeSource::CloudRestore,
+        )
         .unwrap();
     assert!(matches!(
         run(
@@ -1751,6 +1802,86 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     assert!(courses
         .iter()
         .any(|course| course["offeringId"] == "202630020"));
+    // A stored version from before draft IDs were shared must obey the same
+    // deletion on another device. Only an explicit history restore re-adds it.
+    let mut archived = with_plan.clone();
+    for plan in archived["tables"]["plan_items"].as_array_mut().unwrap() {
+        if plan["offeringId"] == "202630010" {
+            plan["id"] = Uuid::now_v7().to_string().into();
+        }
+    }
+    let backup = crate::backup::BackupService::new(other_device.store.clone());
+    let scheduled = || {
+        let view = other_device.read_back().unwrap();
+        crate::schedule::scheduled_courses(&view.workspace, "2026-3Q")
+            .into_iter()
+            .filter(|course| course["offeringId"] == "202630010")
+            .count()
+    };
+    backup
+        .apply(&archived, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    assert_eq!(scheduled(), 0);
+    backup
+        .restore(&archived, crate::data::WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    assert_eq!(scheduled(), 1);
+    let aaa_id = rows(&other_device.read_back().unwrap().workspace, "courses")
+        .unwrap()
+        .find(|course| course["offeringId"] == "202630010")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    mutate(
+        &other_device,
+        WorkspaceIntent::EditCourseBatch {
+            course_ids: vec![aaa_id],
+            changes: CourseBatchChanges {
+                credits: Some(3.0),
+                language: None,
+                instructor: None,
+            },
+        },
+    );
+    let mut bbb = offering("202630020", "BBB.B200", &["3Q", "4Q"]);
+    bbb["schedule"][0]["day"] = 2.into();
+    mutate(
+        &other_device,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offerings: vec![bbb],
+        },
+    );
+    let mut revised = offering("202630010", "AAA.A100", &["3Q"]);
+    revised["schedule"][0]["day"] = 2.into();
+    let refreshed = mutate(
+        &other_device,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offerings: vec![revised],
+        },
+    );
+    let check_tuesday = |workspace: &Value| {
+        let courses = crate::schedule::scheduled_courses(workspace, "2026-3Q");
+        assert_eq!(courses.len(), 1);
+        assert_eq!(courses[0]["offeringId"], "202630010");
+        assert_eq!(courses[0]["meetings"][0]["days"], json!([2]));
+        assert_eq!(courses[0]["credits"], 3.0);
+    };
+    check_tuesday(&refreshed.workspace);
+    let offline = self::service("catalog-updated-clock-offline");
+    crate::backup::BackupService::new(offline.store.clone())
+        .restore(
+            &backup.snapshot().unwrap(),
+            crate::data::WorkspaceChangeSource::CloudRestore,
+        )
+        .unwrap();
+    check_tuesday(&offline.read_back().unwrap().workspace);
+    let offline_dir = offline.store.directory().to_path_buf();
+    drop(offline);
+    std::fs::remove_dir_all(offline_dir).unwrap();
+    drop(backup);
     let directory = other_device.store.directory().to_path_buf();
     drop(other_device);
     std::fs::remove_dir_all(directory).unwrap();

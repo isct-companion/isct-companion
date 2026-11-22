@@ -66,3 +66,32 @@ fn edits_deletes_and_ties_converge() {
         .is_empty());
     assert_eq!(merge(&a, &b), merge(&merge(&a, &b), &b));
 }
+
+#[test]
+fn deleting_the_last_legacy_draft_wins_over_both_old_device_ids() {
+    let snapshot = |second_deleted: bool| {
+        let mut a = record("2026-01-04T00:00:00Z", 4, "first");
+        a["deletedAt"] = a["updatedAt"].clone();
+        let mut b = if second_deleted {
+            let mut b = record("2026-01-06T00:00:00Z", 2, "second");
+            b["deletedAt"] = b["updatedAt"].clone();
+            b
+        } else {
+            record("2026-01-05T00:00:00Z", 1, "second")
+        };
+        b["id"] = "b".into();
+        for row in [&mut a, &mut b] {
+            row["termId"] = "2026-3Q".into();
+            row["offeringId"] = "202630010".into();
+        }
+        json!({"tables":{"plan_items":[a,b]}})
+    };
+    let older = snapshot(false);
+    let deleted = snapshot(true);
+    let merged = merge(&older, &deleted);
+    assert_eq!(merged["tables"], merge(&deleted, &older)["tables"]);
+    let plans = merged["tables"]["plan_items"].as_array().unwrap();
+    assert_eq!(plans.len(), 1);
+    assert!(plans[0]["deletedAt"].is_string());
+    assert_eq!(merge(&merged, &older)["tables"], merged["tables"]);
+}

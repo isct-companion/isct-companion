@@ -402,6 +402,9 @@ impl DataStore {
                 workspace[*field] = Value::Array(read_visible_rows(connection, table)?);
             }
         }
+        if let Some(plans) = workspace["planItems"].as_array_mut() {
+            catalog_drafts::project_plan_courses(connection, plans)?;
+        }
         // Courses as their sources' writes merged them (`course_merge`).
         if wants("courses") {
             workspace["courses"] = Value::Array(course_merge::read(connection, "course")?);
@@ -411,7 +414,8 @@ impl DataStore {
                 .get_mut("memberships")
                 .and_then(Value::as_array_mut)
             {
-                memberships.extend(read_rows(connection, "manual_memberships")?);
+                let choices = read_rows(connection, "manual_memberships")?;
+                memberships.extend(lms_visibility::visible_choices(&choices).cloned());
                 memberships.extend(course_merge::read(connection, "membership")?);
             }
         }

@@ -1,6 +1,4 @@
 use super::*;
-use std::borrow::Cow;
-use std::collections::BTreeMap;
 
 impl DataStore {
     /// Read every backup table from one SQLite snapshot.
@@ -37,7 +35,8 @@ impl DataStore {
             for table in USER_BACKUP_TABLES {
                 // Compared as synced copies, which name courses by external key.
                 let local = synced_rows(transaction, table)?;
-                for incoming in incoming_rows(transaction, remote, table)?.iter() {
+                for incoming in cloud_merge::document_rows(remote, table).iter() {
+                    validate_user_record(table, incoming)?;
                     let old = local.iter().find(|row| row["id"] == incoming["id"]);
                     if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
                         let mut stored = incoming.clone();
@@ -82,9 +81,15 @@ impl DataStore {
                 row["updatedBy"] = Value::String(device.clone());
             };
             for table in USER_BACKUP_TABLES {
-                let local = synced_rows(transaction, table)?;
-                let restored = incoming_rows(transaction, old, table)?;
-                for incoming in restored.iter() {
+                let local = read_rows(transaction, table)?;
+                let mut restored = Vec::new();
+                for incoming in cloud_merge::document_rows(old, table).iter() {
+                    validate_user_record(table, incoming)?;
+                    let mut row = incoming.clone();
+                    course_keys::from_synced(transaction, table, &mut row)?;
+                    restored.push(row);
+                }
+                for incoming in &restored {
                     let current = local.iter().find(|row| row["id"] == incoming["id"]);
                     if current.is_some_and(|current| same_record(current, incoming)) {
                         continue;
@@ -94,7 +99,6 @@ impl DataStore {
                         &mut stored,
                         revision(incoming).max(current.map_or(0, revision)),
                     );
-                    course_keys::from_synced(transaction, table, &mut stored)?;
                     upsert_row(transaction, table, &stored, true)?;
                 }
                 for current in &local {
@@ -106,8 +110,10 @@ impl DataStore {
                     let mut stored = current.clone();
                     stamp(&mut stored, revision(current));
                     stored["deletedAt"] = Value::String(timestamp.clone());
-                    course_keys::from_synced(transaction, table, &mut stored)?;
                     upsert_row(transaction, table, &stored, true)?;
+                }
+                if *table == "schedule_overrides" {
+                    schedule_overrides::restore_effective(transaction, restored, &stamp)?;
                 }
             }
             // A setting the old copy lacks keeps its current value: settings
@@ -126,39 +132,6 @@ impl DataStore {
             Ok(())
         })
     }
-}
-
-/// Catalog descriptions can name the same offering with different ids.
-/// Resolve them before comparing rows so the newest description wins and
-/// the plans and overrides imported afterward find it through the same key.
-fn incoming_rows<'a>(
-    transaction: &Transaction<'_>,
-    document: &'a Value,
-    table: &str,
-) -> Result<Cow<'a, [Value]>, DataError> {
-    let rows = document["tables"][table]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or_default();
-    for row in rows {
-        validate_user_record(table, row)?;
-    }
-    if table != "manual_courses" {
-        return Ok(Cow::Borrowed(rows));
-    }
-    let mut courses = BTreeMap::<String, Value>::new();
-    for row in rows {
-        let mut stored = row.clone();
-        course_keys::from_synced_course(transaction, &mut stored)?;
-        let id = string_field(&stored, "id")?;
-        if courses
-            .get(id)
-            .is_none_or(|old| cloud_merge::compare(&stored, old).is_gt())
-        {
-            courses.insert(id.into(), stored);
-        }
-    }
-    Ok(Cow::Owned(courses.into_values().collect()))
 }
 
 /// The settings rows a backup may carry, sanitized as every merge does.

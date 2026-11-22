@@ -4,10 +4,9 @@
 //! person's own course record. The merge runs inside the transaction that
 //! writes one of those sources, for the courses that write touched only, and
 //! its rows land in `merged_rows`; reads take them as they are. A
-//! course's rows are its merged record, the memberships and terms its LMS
-//! quarters imply, each keyed so that reading them in key order gives the
-//! order the read-time projection produced: timetable courses, then the
-//! person's courses, then LMS-only courses, by LMS row.
+//! course's rows are its merged record and the memberships and terms its LMS
+//! quarters imply. The school timetable is built first. Draft descriptions
+//! then supply courses or quarters that have only a personal plan.
 use super::*;
 use rusqlite::hooks::Action;
 use std::collections::{BTreeMap, HashMap};
@@ -31,6 +30,9 @@ const SOURCES: &[&str] = &[
     "course_keys",
     "settings",
 ];
+
+/// The derivation saved in `merge_state`, rebuilt after the rules change.
+const PROJECTION_VERSION: i64 = 2;
 
 /// Settings that shape every merged course: content language and teaching
 /// periods.
@@ -107,19 +109,20 @@ pub(super) fn refresh(transaction: &Transaction<'_>, touched: &[Touched]) -> Res
 /// Merges every course again, e.g. after the caches were emptied.
 pub(super) fn rebuild(transaction: &Transaction<'_>) -> Result<(), DataError> {
     merge(transaction, None)?;
+    transaction.execute("DELETE FROM merge_state", [])?;
     transaction.execute(
-        "INSERT INTO merge_state(built) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM merge_state)",
-        [],
+        "INSERT INTO merge_state(built) VALUES (?1)",
+        [PROJECTION_VERSION],
     )?;
     Ok(())
 }
 
 fn built(connection: &Connection) -> Result<bool, DataError> {
-    Ok(
-        connection.query_row("SELECT EXISTS(SELECT 1 FROM merge_state)", [], |row| {
-            row.get(0)
-        })?,
-    )
+    Ok(connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM merge_state WHERE built=?1)",
+        [PROJECTION_VERSION],
+        |row| row.get(0),
+    )?)
 }
 
 /// The internal ids of the courses a source row feeds.
@@ -154,9 +157,14 @@ fn courses_fed_by(
             let year = year_of(value, "year")
                 .or_else(|| offering.get(..4).and_then(|year| year.parse().ok()));
             ids.extend(keyed(
-                year.and_then(|year| course_keys::offering_key(year, offering)),
+                year.filter(|_| !offering.is_empty())
+                    .map(|year| course_keys::catalog_key(year, offering)),
             )?);
         }
+        "manual_courses" if catalog_drafts::is_description(value) => {
+            ids.extend(catalog_drafts::course_id(transaction, value)?);
+        }
+        "plan_items" => ids.extend(catalog_drafts::course_id(transaction, value)?),
         "timetable_courses" | "manual_courses" => {
             ids.push(text(value, "id").to_owned());
             ids.extend(keyed(year_of(value, "year").and_then(|year| {
@@ -203,9 +211,15 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         .into_iter()
         .filter(|row| wanted(text(row, "id")))
         .collect();
-    let manual: Vec<Value> = read_rows(transaction, "manual_courses")?
-        .into_iter()
-        .filter(|row| wanted(text(row, "id")))
+    let saved = read_rows(transaction, "manual_courses")?;
+    let manual: Vec<_> = saved
+        .iter()
+        .filter(|row| {
+            !catalog_drafts::is_description(row)
+                && row["deletedAt"].is_null()
+                && wanted(text(row, "id"))
+        })
+        .cloned()
         .collect();
     let mut lms_courses = Vec::new();
     for lms in read_visible_rows(transaction, "lms_courses")? {
@@ -214,7 +228,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         }
     }
     let lms_courses = &lms_courses[..];
-    let user_courses: HashSet<String> = manual
+    let mut user_courses: HashSet<String> = manual
         .iter()
         .map(|row| text(row, "id").to_string())
         .collect();
@@ -227,9 +241,18 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
             .collect())
     };
     let mut memberships = placed("memberships")?;
-    memberships.extend(placed("manual_memberships")?);
+    let lms_choices = placed("manual_memberships")?;
+    memberships.extend(
+        lms_choices
+            .iter()
+            .filter(|row| lms_visibility::hides_lms_timetable(row, &lms_choices))
+            .cloned(),
+    );
+    let mut plans = read_rows(transaction, "plan_items")?;
+    plans.retain(|row| row["deletedAt"].is_null());
+    catalog_drafts::project_plan_courses(transaction, &mut plans)?;
+    plans.retain(|row| wanted(text(row, "courseId")));
     workspace["memberships"] = Value::Array(memberships);
-    workspace["planItems"] = Value::Array(placed("plan_items")?);
     workspace["terms"] = json!([]);
     workspace["courses"] = Value::Array(timetable.iter().chain(&manual).cloned().collect());
     let mut pushed = Vec::new();
@@ -251,6 +274,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
             .iter()
             .map(|course| text(course, "offeringId")),
     );
+    offering_ids.extend(plans.iter().map(|plan| text(plan, "offeringId")));
     offering_ids.remove("");
     let catalog = offerings_by_id(transaction, offering_ids)?;
     project_lms_timetable(
@@ -262,6 +286,13 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         &teaching,
         (&mut lms_links, &mut pushed),
     )?;
+    user_courses.extend(catalog_drafts::project_courses(
+        &mut workspace,
+        &saved,
+        &plans,
+        &catalog,
+        &teaching,
+    )?);
     for (lms_id, id) in &lms_links {
         if let Some(course) = workspace["courses"]
             .as_array_mut()
@@ -485,17 +516,12 @@ fn project_lms_timetable(
         let (Some(lms_id), Some(year)) = (lms["lmsId"].as_u64(), lms["year"].as_i64()) else {
             continue;
         };
-        if !(2000..2100).contains(&year) {
-            continue;
-        }
         let offering_id = text(lms, "offeringId");
         let catalog = offerings
             .get(offering_id)
             .filter(|_| !offering_id.is_empty())
             .cloned();
-        let mut terms = lms_terms(lms);
-        terms.retain(|term| term.starts_with(&format!("{year}-")));
-        terms.sort();
+        let terms = lms_visibility::timetable_terms(lms, year);
         let Some(first_term) = terms.first() else {
             continue;
         };
@@ -599,13 +625,14 @@ fn project_lms_timetable(
                     clocks.extend(meetings.as_array().into_iter().flatten().cloned());
                 }
             }
-            // Existing local placement (including a tombstone) wins over inference.
+            let membership_id = lms_visibility::membership_id(lms_id, term);
+            // An explicit LMS visibility tombstone has this same membership
+            // identity. Catalog drafts have their own records and are absent.
             if !array(workspace, "memberships")
                 .iter()
-                .chain(array(workspace, "planItems"))
-                .any(|m| text(m, "courseId") == id && text(m, "termId") == term)
+                .any(|row| row["id"] == membership_id)
             {
-                let membership = json!({"id":format!("lms-membership:{lms_id}:{term}"),"kind":"membership",
+                let membership = json!({"id":membership_id,"kind":"membership",
                     "courseId":id,"termId":term,"status":"lms-member",
                     "evidence":{"provider":"lms","externalId":lms_id.to_string()},
                     "rev":lms["rev"],"updatedAt":lms["updatedAt"],"updatedBy":"lms"});

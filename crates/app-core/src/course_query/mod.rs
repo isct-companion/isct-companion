@@ -9,6 +9,7 @@ pub use catalog::{department_name_ja, normalize_offering, FinderCatalog, FinderD
 pub use conditions::{condition, factors_of, live_text, Condition, Factor, Factors};
 pub use contracts::*;
 pub use matching::{run, suggest, FinderMatch, IndexedCourse};
+pub(crate) use personal::replaceable_drafts;
 pub use personal::{clashes, clashing_courses, total_credits, BusySlot, FinderPersonal};
 
 use conditions::normalized;
@@ -115,8 +116,8 @@ pub struct FinderPage {
     /// Stored rows this study profile cannot newly plan.
     pub ineligible: usize,
     pub active_slots: Vec<String>,
-    /// Codes on the term's timetable.
-    pub placed_codes: Vec<String>,
+    /// Catalog offering IDs on the term's timetable.
+    pub placed_offering_ids: Vec<String>,
     pub commit_key: Option<String>,
     pub paste_handled: bool,
     pub pasted: Vec<FinderRowView>,
@@ -423,7 +424,7 @@ fn page(
             if let Some(c) = found {
                 if personal.ineligible(text(&c.course, "id")) {
                     ineligible_codes.push(code);
-                } else if !personal.on_timetable.contains(&code) {
+                } else if !personal.placed_offerings.contains(text(&c.course, "id")) {
                     pasted.push(personal.row(c, Vec::new()));
                 }
             } else {
@@ -444,7 +445,7 @@ fn page(
         stored: catalog.courses.len(),
         ineligible: personal.ineligible,
         active_slots,
-        placed_codes: personal.on_timetable.clone(),
+        placed_offering_ids: personal.placed_offerings.iter().cloned().collect(),
         commit_key,
         paste_handled,
         pasted,

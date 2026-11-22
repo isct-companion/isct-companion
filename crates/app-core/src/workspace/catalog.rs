@@ -2,10 +2,20 @@ use super::*;
 use crate::locale::{pick, ContentLanguage};
 
 #[derive(Clone)]
-pub(super) struct CatalogAddReceipt {
+pub(crate) struct CatalogAddReceipt {
     term_id: String,
     offering_ids: Vec<String>,
     changes: Vec<PlanChange>,
+    #[cfg(feature = "agent")]
+    pub(crate) placements: Vec<CatalogPlacement>,
+}
+
+#[cfg(feature = "agent")]
+#[derive(Clone)]
+pub(crate) struct CatalogPlacement {
+    pub(crate) course_id: String,
+    pub(crate) plan_id: String,
+    pub(crate) term_id: String,
 }
 
 #[derive(Clone)]
@@ -19,10 +29,7 @@ struct PlanChange {
 /// in one of them is planned into each of them; added outside its quarters
 /// it stays in `term_id`.  A local draft (plan item) in `term_id` whose
 /// periods clash leaves the timetable; school-registered courses stay.
-pub(super) fn catalog_plan_terms(
-    offering: &Value,
-    term_id: &str,
-) -> Result<Vec<String>, DataError> {
+fn catalog_plan_terms(offering: &Value, term_id: &str) -> Result<Vec<String>, DataError> {
     validate_term(term_id)?;
     let (plan_year, quarter) = (&term_id[..4], &term_id[5..]);
     let quarters = offering
@@ -54,8 +61,6 @@ pub(super) fn add_catalog_courses(
     term_id: &str,
     offerings: Vec<Value>,
 ) -> Result<CatalogAddReceipt, DataError> {
-    validate_term(term_id)?;
-    let teaching_periods = crate::schedule::teaching_periods(current)?;
     let offerings = offerings
         .iter()
         .map(|submitted| {
@@ -65,6 +70,18 @@ pub(super) fn add_catalog_courses(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+    plan_catalog_courses(write, current, term_id, offerings, true)
+}
+
+pub(crate) fn plan_catalog_courses(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    term_id: &str,
+    offerings: Vec<Value>,
+    replace_conflicts: bool,
+) -> Result<CatalogAddReceipt, DataError> {
+    validate_term(term_id)?;
+    let teaching_periods = crate::schedule::teaching_periods(current)?;
     for offering in &offerings {
         for plan_term in catalog_plan_terms(offering, term_id)? {
             let eligibility =
@@ -84,16 +101,22 @@ pub(super) fn add_catalog_courses(
         .collect::<Result<Vec<_>, _>>()?;
     offering_ids.sort();
     offering_ids.dedup();
-    // Working copies, so later offerings see what earlier ones changed.
-    let mut courses: Vec<Value> = rows(current, "courses")?.cloned().collect();
-    let mut plans: Vec<Value> = rows(current, "planItems")?.cloned().collect();
-    let previously_planned: HashSet<_> = rows(current, "planItems")?
+    // Work with persisted plan rows so receipt checks keep the record's own
+    // identity and revision even when its course is projected to another id.
+    let mut placed_courses = if replace_conflicts {
+        crate::schedule::scheduled_courses(current, term_id)
+    } else {
+        Vec::new()
+    };
+    let mut descriptions = write.rows("manual_courses")?;
+    let mut plans = write.rows("plan_items")?;
+    let previously_planned: HashSet<_> = plans
+        .iter()
         .filter(|row| is_live(row))
-        .filter_map(|row| row["id"].as_str())
+        .filter_map(|row| row["id"].as_str().map(str::to_owned))
         .collect();
-    let members: Vec<&Value> = rows(current, "memberships")?
-        .filter(|row| is_live(row))
-        .collect();
+    #[cfg(feature = "agent")]
+    let mut placements = Vec::new();
     for offering in offerings {
         let offering_id = string(&offering, "id")?;
         let year = offering
@@ -105,99 +128,76 @@ pub(super) fn add_catalog_courses(
             i32::try_from(year).map_err(|_| "academic year is invalid")?,
             offering_id,
         )?;
-        let placed_here: HashSet<&str> = members
-            .iter()
-            .copied()
-            .chain(plans.iter().filter(|row| is_live(row)))
-            .filter(|row| row.get("termId").and_then(Value::as_str) == Some(term_id))
-            .filter_map(|row| row.get("courseId").and_then(Value::as_str))
-            .collect();
-        let on_timetable: Vec<Value> = courses
-            .iter()
-            .filter(|course| {
-                is_live(course)
-                    && course
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .is_some_and(|id| placed_here.contains(id))
-            })
-            .cloned()
-            .collect();
-        for victim in crate::course_query::clashing_courses(&offering, &on_timetable) {
-            // Several devices can plan the same offering independently.
+        if replace_conflicts {
+            let replaceable = crate::course_query::replaceable_drafts(
+                &placed_courses,
+                &plans,
+                crate::schedule::array(current, "memberships"),
+                term_id,
+            );
+            let victims = crate::course_query::clashing_courses(&offering, &replaceable);
             for plan in plans.iter_mut().filter(|row| {
                 is_live(row)
-                    && row.get("courseId") == victim.get("id")
-                    && row.get("termId").and_then(Value::as_str) == Some(term_id)
+                    && row["termId"] == term_id
+                    && victims
+                        .iter()
+                        .any(|victim| row["offeringId"] == victim["offeringId"])
             }) {
-                *plan = write
-                    .delete("plan_items", string(plan, "id")?, revision(plan))?
-                    .ok_or_else(|| DataError::storage("the replaced plan was not found"))?;
+                *plan = tombstone_plan(write, plan)?;
             }
         }
-        let live_course = courses.iter().find(|course| {
-            is_live(course)
-                && (course.get("id").and_then(Value::as_str) == Some(&course_id)
-                    || course.get("offeringId").and_then(Value::as_str) == Some(offering_id))
-        });
-        // A course already in the workspace stays as it is (and in its own
-        // quarter); only its plan items change.
-        let course_id = match live_course {
-            Some(course) => string(course, "id")?.to_string(),
+        let descriptor = crate::data::catalog_drafts::description(&descriptions, offering_id);
+        let draft = match descriptor {
+            Some(previous) => {
+                let mut refreshed = previous.clone();
+                refreshed["meetings"] = catalog_meetings(&offering, language, &teaching_periods)?;
+                if refreshed["meetings"] != previous["meetings"] {
+                    write.put("manual_courses", refreshed, revision(previous))?
+                } else {
+                    refreshed
+                }
+            }
             None => {
-                let tombstone = courses
-                    .iter()
-                    .find(|course| course.get("id").and_then(Value::as_str) == Some(&course_id));
-                let course = write.put(
-                    "manual_courses",
-                    planned_catalog_course(
-                        &offering,
-                        &course_id,
-                        term_id,
-                        language,
-                        &teaching_periods,
-                    )?,
-                    tombstone.and_then(revision),
-                )?;
-                let id = string(&course, "id")?.to_string();
-                courses.retain(|row| row.get("id").and_then(Value::as_str) != Some(&id));
-                courses.push(course);
-                id
+                let id = format!("catalog-description:{year}:{offering_id}");
+                let row =
+                    planned_catalog_course(&offering, &id, term_id, language, &teaching_periods)?;
+                write.put("manual_courses", row, Some(0))?
             }
         };
-        let plan_terms = catalog_plan_terms(&offering, term_id)?;
-        for plan_term in plan_terms {
-            let mine = |row: &&Value| {
-                row.get("courseId").and_then(Value::as_str) == Some(&course_id)
-                    && row.get("termId").and_then(Value::as_str) == Some(&plan_term)
-            };
-            if plans.iter().filter(mine).any(is_live) {
-                continue;
-            }
-            // Bring back the latest removed draft before writing a new one.
-            let removed = plans
+        descriptions.retain(|row| row["id"] != draft["id"]);
+        descriptions.push(draft.clone());
+        // A later entry in the batch can replace this one using its current catalog slots.
+        if replace_conflicts
+            && !placed_courses
                 .iter()
-                .filter(mine)
-                .max_by(|a, b| {
-                    a.get("deletedAt")
-                        .and_then(Value::as_str)
-                        .cmp(&b.get("deletedAt").and_then(Value::as_str))
-                })
-                .cloned();
-            let plan = match removed {
-                Some(row) => {
-                    let rev = revision(&row);
-                    write.put("plan_items", row, rev)?
+                .any(|course| course["id"] == course_id)
+        {
+            let mut placed = draft;
+            placed["id"] = course_id.clone().into();
+            placed_courses.push(placed);
+        }
+        for plan_term in catalog_plan_terms(&offering, term_id)? {
+            let plan_id = crate::data::catalog_drafts::plan_id(&plan_term, offering_id);
+            match plans.iter().position(|row| row["id"] == plan_id) {
+                Some(index) if is_live(&plans[index]) => {}
+                Some(index) => {
+                    let mut revived = plans[index].clone();
+                    revived["courseId"] = json!(course_id);
+                    plans[index] = write.put("plan_items", revived, revision(&plans[index]))?;
                 }
-                None => write.put(
+                None => plans.push(write.put(
                     "plan_items",
-                    json!({"kind":"plan-item","termId":plan_term,"courseId":course_id,"offeringId":offering_id,"state":"planned"}),
-                    None,
-                )?,
-            };
-            let id = string(&plan, "id")?.to_string();
-            plans.retain(|row| row.get("id").and_then(Value::as_str) != Some(&id));
-            plans.push(plan);
+                    json!({"id":plan_id,"kind":"plan-item","termId":plan_term,
+                        "courseId":course_id,"offeringId":offering_id,"state":"planned"}),
+                    Some(0),
+                )?),
+            }
+            #[cfg(feature = "agent")]
+            placements.push(CatalogPlacement {
+                course_id: course_id.clone(),
+                plan_id,
+                term_id: plan_term,
+            });
         }
     }
     // Within a batch, one offering can replace another just added by
@@ -213,7 +213,31 @@ pub(super) fn add_catalog_courses(
         term_id: term_id.into(),
         offering_ids,
         changes,
+        #[cfg(feature = "agent")]
+        placements,
     })
+}
+
+/// Delete every observed draft named by this action, including copies from
+/// another device. Their own IDs and revisions are retained for sync.
+pub(crate) fn remove_catalog_plans<'a>(
+    write: &WorkspaceWrite<'_, '_>,
+    plans: impl IntoIterator<Item = &'a Value>,
+) -> Result<usize, DataError> {
+    let mut removed = 0;
+    for plan in plans {
+        if is_live(plan) {
+            tombstone_plan(write, plan)?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+fn tombstone_plan(write: &WorkspaceWrite<'_, '_>, plan: &Value) -> Result<Value, DataError> {
+    write
+        .delete("plan_items", string(plan, "id")?, revision(plan))?
+        .ok_or_else(|| DataError::storage("the catalog plan was not found"))
 }
 
 /// Meetings from the LMS timetable grid, with the syllabus room for the same
@@ -302,11 +326,7 @@ pub(super) fn undo_catalog_courses(
     Ok(())
 }
 
-/// The manual course a catalog offering is planned as, shared by
-/// `AddCatalogCourses` and the agent's `plan_add`.
-///
-/// The teaching table is passed in rather than read here: one builder serves
-/// both the intent path and the MCP path, and both resolve the table once.
+/// Localized instructor names shared by the catalog description and school course projection.
 pub(crate) fn catalog_instructor_names(offering: &Value) -> Value {
     let mut names = serde_json::Map::new();
     for language in ["ja", "en"] {
@@ -362,7 +382,7 @@ pub(crate) fn planned_catalog_course(
     }))
 }
 
-pub(super) fn catalog_meetings(
+pub(crate) fn catalog_meetings(
     offering: &Value,
     language: ContentLanguage,
     teaching_periods: &[crate::schedule::TeachingPeriod],

@@ -5,7 +5,7 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
@@ -47,11 +47,18 @@ pub fn clashes(course: &Value, busy: &[BusySlot]) -> bool {
         })
     })
 }
+fn same_offering(placed: &Value, offering: &Value) -> bool {
+    match placed["offeringId"].as_str() {
+        Some(id) => offering["id"] == id,
+        None => text(placed, "code") == text(offering, "code"),
+    }
+}
+
 pub fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
     placed
         .iter()
         .filter(|p| {
-            text(p, "code") != text(course, "code")
+            !same_offering(p, course)
                 && array(p, "meetings").iter().any(|m| {
                     let periods: Vec<_> = array(m, "periods")
                         .iter()
@@ -70,6 +77,37 @@ pub fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
         .collect()
 }
 
+/// A replacement can free a timetable slot only if the draft is its sole
+/// placement in this quarter. Finder previews and desktop writes use this list.
+pub(crate) fn replaceable_drafts(
+    placed: &[Value],
+    plans: &[Value],
+    memberships: &[Value],
+    term: &str,
+) -> Vec<Value> {
+    let active_here = |row: &Value| crate::schedule::visible(row) && row["termId"] == term;
+    let independent: HashSet<_> = memberships
+        .iter()
+        .filter(|row| active_here(row))
+        .filter_map(|row| row["courseId"].as_str())
+        .collect();
+    let planned: HashSet<_> = plans
+        .iter()
+        .filter(|row| active_here(row))
+        .filter_map(|row| row["offeringId"].as_str())
+        .collect();
+    placed
+        .iter()
+        .filter(|course| {
+            course["offeringId"]
+                .as_str()
+                .is_some_and(|id| planned.contains(id))
+                && !independent.contains(text(course, "id"))
+        })
+        .cloned()
+        .collect()
+}
+
 /// What a search reads from the workspace for one term and catalog,
 /// whatever is typed: recommendations, the timetable, and each row's
 /// eligibility, clashes and replacements.
@@ -83,7 +121,7 @@ pub struct FinderPersonal {
     pub(super) eligible: Vec<bool>,
     replacements: BTreeMap<String, Vec<String>>,
     clashes: HashSet<String>,
-    pub(super) on_timetable: Vec<String>,
+    pub(super) placed_offerings: BTreeSet<String>,
 }
 impl FinderPersonal {
     pub fn new(
@@ -150,17 +188,12 @@ impl FinderPersonal {
             .map(|course| !ineligible.contains(text(course, "id")))
             .collect();
         let ineligible = ineligible.len();
-        let replaceable: Vec<_> = placed
-            .iter()
-            .filter(|course| {
-                array(workspace, "planItems").iter().any(|p| {
-                    text(p, "courseId") == text(course, "id")
-                        && text(p, "termId") == term
-                        && p.get("deletedAt").is_none_or(Value::is_null)
-                })
-            })
-            .cloned()
-            .collect();
+        let replaceable = replaceable_drafts(
+            &placed,
+            array(workspace, "planItems"),
+            array(workspace, "memberships"),
+            term,
+        );
         let replacements = courses()
             .map(|c| {
                 (
@@ -176,7 +209,10 @@ impl FinderPersonal {
             .filter(|c| clashes(c, &busy))
             .map(|c| text(c, "id").to_string())
             .collect();
-        let on_timetable = placed.iter().map(|c| text(c, "code").to_string()).collect();
+        let placed_offerings = courses()
+            .filter(|course| placed.iter().any(|row| same_offering(row, course)))
+            .map(|course| text(course, "id").to_owned())
+            .collect();
         Ok(Self {
             current_quarter: text(workspace, "currentTerm")
                 .chars()
@@ -191,7 +227,7 @@ impl FinderPersonal {
             eligible,
             replacements,
             clashes,
-            on_timetable,
+            placed_offerings,
         })
     }
     pub(super) fn ineligible(&self, id: &str) -> bool {
@@ -206,7 +242,7 @@ impl FinderPersonal {
         FinderRowView {
             course: c.course.clone(),
             matched,
-            placed: self.on_timetable.iter().any(|placed| placed == code),
+            placed: self.placed_offerings.contains(id),
             clash: self.clashes.contains(id),
             replaces: self.replacements.get(id).cloned().unwrap_or_default(),
             credits: total_credits(&c.course),

@@ -1,7 +1,7 @@
 //! Pure, platform-independent last-writer-wins merge for user-owned records.
 use super::DataError;
 use serde_json::Value;
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
 
 fn time(row: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
     ["updatedAt", "deletedAt"]
@@ -34,9 +34,23 @@ pub fn compare(a: &Value, b: &Value) -> Ordering {
         .then_with(|| a.to_string().cmp(&b.to_string()))
 }
 
-fn rows(a: &Value, b: &Value, key: &str) -> Value {
+pub(super) fn document_rows<'a>(doc: &'a Value, table: &str) -> Cow<'a, [Value]> {
+    let rows = doc["tables"][table]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    if table == "plan_items" {
+        super::catalog_drafts::document_plans(rows)
+    } else {
+        Cow::Borrowed(rows)
+    }
+}
+
+fn rows(a: &Value, b: &Value, table: &str, key: &str) -> Value {
     let mut records = BTreeMap::<String, Value>::new();
-    for row in [a, b].into_iter().filter_map(Value::as_array).flatten() {
+    let left = document_rows(a, table);
+    let right = document_rows(b, table);
+    for row in left.iter().chain(right.iter()) {
         let Some(id) = row[key].as_str() else {
             continue;
         };
@@ -62,12 +76,9 @@ pub fn merge(a: &Value, b: &Value) -> Value {
     // This whitelist is also used by backup/import: device state and school
     // caches cannot enter sync even through an older or foreign cloud copy.
     for table in crate::data::USER_BACKUP_TABLES {
-        tables.insert(
-            (*table).into(),
-            rows(&a["tables"][table], &b["tables"][table], "id"),
-        );
+        tables.insert((*table).into(), rows(a, b, table, "id"));
     }
-    let mut settings = rows(&a["tables"]["settings"], &b["tables"]["settings"], "key");
+    let mut settings = rows(a, b, "settings", "key");
     if let Some(settings) = settings.as_array_mut() {
         settings.retain(|row| {
             row["key"]

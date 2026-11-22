@@ -1,6 +1,6 @@
-use super::{array, text, visible};
+use super::{array, text, visible, CoursePlacementActions, CourseTimetableControl};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Live memberships and plan items: the rows that place a course on the
 /// timetable of their quarter.
@@ -15,6 +15,54 @@ fn visible_courses(workspace: &Value) -> impl Iterator<Item = &Value> {
     array(workspace, "courses")
         .iter()
         .filter(|row| visible(row))
+}
+
+/// Course actions shown by the timetable panel and course editor.
+pub(super) fn placement_actions(workspace: &Value) -> BTreeMap<String, CoursePlacementActions> {
+    let planned: HashSet<_> = array(workspace, "planItems")
+        .iter()
+        .filter(|row| visible(row))
+        .filter_map(|row| text(row, "courseId"))
+        .collect();
+    let mut manual = HashSet::new();
+    let mut lms = HashMap::new();
+    let lms_placements = crate::data::lms_visibility::current_lms_placements(workspace);
+    for row in array(workspace, "memberships") {
+        let Some(id) = text(row, "courseId") else {
+            continue;
+        };
+        if row["id"]
+            .as_str()
+            .is_some_and(|id| lms_placements.contains(id))
+        {
+            let shown = lms.entry(id).or_insert(false);
+            *shown |= visible(row);
+        } else if row["evidence"]["provider"] == "manual" && visible(row) {
+            manual.insert(id);
+        }
+    }
+    visible_courses(workspace)
+        .filter_map(|course| {
+            let id = text(course, "id")?;
+            let owned = course["source"]["provider"] == "manual";
+            let timetable = if owned {
+                Some(CourseTimetableControl::Manual {
+                    visible: manual.contains(id),
+                })
+            } else {
+                lms.get(id)
+                    .map(|&visible| CourseTimetableControl::Lms { visible })
+            };
+            Some((
+                id.into(),
+                CoursePlacementActions {
+                    can_remove_plan: planned.contains(id),
+                    can_delete_course: owned,
+                    timetable,
+                },
+            ))
+        })
+        .collect()
 }
 
 fn saved_term(course: &Value) -> Option<&str> {

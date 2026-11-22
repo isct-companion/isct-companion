@@ -496,6 +496,23 @@ pub struct ScheduleView {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CourseTimetableControl {
+    Manual { visible: bool },
+    Lms { visible: bool },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CoursePlacementActions {
+    pub can_remove_plan: bool,
+    pub can_delete_course: bool,
+    pub timetable: Option<CourseTimetableControl>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceOverview {
     pub term: String,
@@ -513,6 +530,7 @@ pub struct WorkspaceOverview {
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
     pub on_timetable_course_ids: Vec<String>,
+    pub placements: std::collections::BTreeMap<String, CoursePlacementActions>,
     pub all_terms: Vec<String>,
     pub default_finder_keys: Vec<String>,
 }
@@ -976,6 +994,7 @@ fn workspace_overview(
         colors,
         enrolled_course_ids,
         on_timetable_course_ids,
+        placements: course_scope::placement_actions(workspace),
         all_terms: terms.available,
         default_finder_keys,
     })
@@ -1128,6 +1147,8 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         DeadlineGroups::decl(cfg),
         AssignmentBoard::decl(cfg),
         AcademicYearIndex::decl(cfg),
+        CourseTimetableControl::decl(cfg),
+        CoursePlacementActions::decl(cfg),
         WorkspaceOverview::decl(cfg),
         ExamCourse::decl(cfg),
         ExamCourseList::decl(cfg),

@@ -220,7 +220,7 @@ const emptyFinder = (request: Record<string, unknown>): FinderPage => ({
   stored: 0,
   ineligible: 0,
   activeSlots: [],
-  placedCodes: [],
+  placedOfferingIds: [],
   commitKey: null,
   pasteHandled: false,
   pasted: [],

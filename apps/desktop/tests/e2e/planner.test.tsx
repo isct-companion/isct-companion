@@ -99,15 +99,16 @@ function finderPage(
     ...(includeIneligible ? (options.widened ?? []) : []),
   ];
   const eligibility = options.eligibility ?? {};
-  const placedCodes = core.workspace.courses
+  const placedOfferingIds = core.workspace.courses
     .filter((row) => !row.deletedAt)
-    .map((row) => row.code);
+    .map((row) => row.offeringId ?? courses.find((course) => course.code === row.code)?.id)
+    .filter((id): id is string => !!id);
   const row = (course: FinderCourse): FinderRowView => {
     const verdict = eligibility[course.id];
     return {
       course,
       matched: [],
-      placed: placedCodes.includes(course.code),
+      placed: placedOfferingIds.includes(course.id),
       clash: (options.clashes ?? []).some((clash) => clash.id === course.id),
       replaces: options.replacements?.[course.id] ?? [],
       credits:
@@ -149,7 +150,7 @@ function finderPage(
         ? [`${"月火水木金土".indexOf(time[1]) + 1}:${time[2]}-${time[3]}`]
         : [];
     }),
-    placedCodes,
+    placedOfferingIds,
     commitKey: null,
     pasteHandled: false,
     pasted: [],

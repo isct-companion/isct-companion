@@ -12,6 +12,8 @@
 //! of the offering key absorbs the other in the same transaction: every key
 //! and every local record that named the other id moves to it, and the other
 //! id stays reachable as the key `internal:<id>`.
+mod references;
+
 use super::*;
 use std::collections::HashMap;
 
@@ -23,9 +25,9 @@ pub(crate) fn offering_key(year: i32, offering: &str) -> Option<String> {
     .then(|| format!("offering:{year}:{offering}"))
 }
 
-pub(super) fn saved_offering_key(course: &Value) -> Option<String> {
-    let year = course["termId"].as_str()?.get(..4)?.parse().ok()?;
-    offering_key(year, course["offeringId"].as_str()?)
+/// The key used by the catalog, including offerings without a school-wide ID.
+pub(super) fn catalog_key(year: i32, offering: &str) -> String {
+    offering_key(year, offering).unwrap_or_else(|| format!("catalog:{year}:{offering}"))
 }
 
 pub(crate) fn lms_key(lms_id: impl std::fmt::Display) -> String {
@@ -151,23 +153,7 @@ fn insert(transaction: &Transaction<'_>, key: &str, course_id: &str) -> Result<(
     Ok(())
 }
 
-/// Local records that name a course, with the field that names it.
-const COURSE_REFERENCES: &[(&str, &str)] = &[
-    ("manual_memberships", "courseId"),
-    ("plan_items", "courseId"),
-    ("intensive_schedules", "courseId"),
-    ("schedule_overrides", "courseId"),
-    ("course_overrides", "courseId"),
-    ("memberships", "courseId"),
-    ("assignments", "courseId"),
-    ("lms_items", "courseId"),
-    ("exams", "courseId"),
-];
-
-/// Moves everything that named `from` to `into`: its keys, and the local
-/// records above. A schedule override's target key starts with the course
-/// id. Records keep their revision: what they mean did not change, and
-/// synced copies name the course by external key.
+/// Moves the course's keys and local references to the id that absorbs it.
 fn absorb(transaction: &Transaction<'_>, from: &str, into: &str) -> Result<(), DataError> {
     transaction
         .execute(
@@ -181,61 +167,7 @@ fn absorb(transaction: &Transaction<'_>, from: &str, into: &str) -> Result<(), D
             params![internal_key(from), into, now()],
         )
         .map_err(DataError::from)?;
-    let prefix = format!("{from}-");
-    for (table, field) in COURSE_REFERENCES {
-        let rows: Vec<(String, String)> = {
-            let mut statement = transaction
-                .prepare(&format!(
-                    "SELECT id, value FROM {table}
-                     WHERE json_extract(value, '$.{field}')=?1
-                        OR json_extract(value, '$.targetKey') LIKE ?2 || '%'"
-                ))
-                .map_err(DataError::from)?;
-            let rows = statement
-                .query_map(params![from, prefix], |row| Ok((row.get(0)?, row.get(1)?)))
-                .map_err(DataError::from)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(DataError::from)?;
-            rows
-        };
-        for (id, raw) in rows {
-            let mut value: Value = serde_json::from_str(&raw)
-                .map_err(|_| DataError::storage(format!("{table} contains invalid JSON")))?;
-            if value.get(*field).and_then(Value::as_str) == Some(from) {
-                value[*field] = into.into();
-            }
-            if let Some(rest) = value
-                .get("targetKey")
-                .and_then(Value::as_str)
-                .and_then(|key| key.strip_prefix(&prefix))
-            {
-                value["targetKey"] = format!("{into}-{rest}").into();
-            }
-            let hash = content_hash(&content_value(&value))?;
-            transaction
-                .execute(
-                    &format!("UPDATE {table} SET value=?2, hash=?3 WHERE id=?1"),
-                    params![id, serde_json::to_string(&value)?, hash],
-                )
-                .map_err(DataError::from)?;
-        }
-    }
-    for table in ["plan_items", "course_overrides"] {
-        transaction
-            .execute(
-                &format!("UPDATE {table} SET course_id=?2 WHERE course_id=?1"),
-                params![from, into],
-            )
-            .map_err(DataError::from)?;
-    }
-    transaction
-        .execute(
-            "UPDATE schedule_overrides
-             SET target_key=json_extract(value, '$.targetKey')
-             WHERE json_extract(value, '$.targetKey') LIKE ?1 || '%'",
-            [format!("{into}-")],
-        )
-        .map_err(DataError::from)?;
+    references::move_local(transaction, from, into)?;
     log::info!(target: "app_core::data", "Merged two ids of one course");
     Ok(())
 }
@@ -328,15 +260,19 @@ pub(super) fn key_manual_courses(transaction: &Transaction<'_>) -> Result<(), Da
     Ok(())
 }
 
-/// The fields of a synced user record that name a course.
-fn course_fields(table: &str) -> &'static [&'static str] {
-    match table {
-        "manual_memberships"
-        | "plan_items"
-        | "intensive_schedules"
-        | "schedule_overrides"
-        | "course_overrides" => &["courseId"],
-        _ => &[],
+/// A personal record may refer to a saved catalog description by its own
+/// record ID. Its offering still identifies the course after a device change.
+fn described_offering(connection: &Connection, id: &str) -> Result<Option<String>, DataError> {
+    let raw: Option<String> = connection
+        .query_row(
+            "SELECT value FROM manual_courses WHERE id=?1 AND source='kyomu'",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    match raw {
+        Some(raw) => Ok(catalog_drafts::offering_key(&serde_json::from_str(&raw)?)),
+        None => Ok(None),
     }
 }
 
@@ -344,10 +280,15 @@ fn course_fields(table: &str) -> &'static [&'static str] {
 /// external key, or the id itself when it has none (a course made on a
 /// device is known by its own id).
 fn external_of(connection: &Connection, course_id: &str) -> Result<String, DataError> {
-    Ok(keys_of(connection, course_id)?
+    let key = keys_of(connection, course_id)?
         .into_iter()
-        .find(|key| !key.starts_with("internal:"))
-        .unwrap_or_else(|| course_id.to_owned()))
+        .find(|key| !key.starts_with("internal:"));
+    if key.as_deref().is_none_or(|key| key.starts_with("manual:")) {
+        if let Some(offering) = described_offering(connection, course_id)? {
+            return Ok(offering);
+        }
+    }
+    Ok(key.unwrap_or_else(|| course_id.to_owned()))
 }
 
 /// The internal id a synced reference names on this device. A key not seen
@@ -359,6 +300,10 @@ fn internal_of(transaction: &Transaction<'_>, reference: &str) -> Result<String,
     let (kind, rest) = reference.split_once(':').unwrap_or_default();
     if matches!(kind, "offering" | "lms" | "kyomu" | "catalog") && !rest.is_empty() {
         return resolve(transaction, &[reference.to_owned()]);
+    }
+    let record_id = reference.strip_prefix("manual:").unwrap_or(reference);
+    if let Some(offering) = described_offering(transaction, record_id)? {
+        return resolve(transaction, &[offering]);
     }
     if matches!(kind, "manual" | "internal") && !rest.is_empty() {
         return resolve_or(transaction, &[reference.to_owned()], Some(rest));
@@ -386,30 +331,7 @@ pub(crate) fn to_synced(
     table: &str,
     row: &mut Value,
 ) -> Result<(), DataError> {
-    for field in course_fields(table) {
-        let Some(id) = row.get(*field).and_then(Value::as_str).map(str::to_owned) else {
-            continue;
-        };
-        let external = external_of(connection, &id)?;
-        replace_reference(row, field, &id, &external);
-    }
-    Ok(())
-}
-
-/// Bind the keys of a backed-up course description before resolving the
-/// other rows that refer to it. Keep this device's id when the offering
-/// already has one.
-pub(super) fn from_synced_course(
-    transaction: &Transaction<'_>,
-    row: &mut Value,
-) -> Result<(), DataError> {
-    let id = string_field(row, "id")?;
-    let keys = saved_offering_key(row)
-        .into_iter()
-        .chain([manual_key(id)])
-        .collect::<Vec<_>>();
-    row["id"] = resolve_or(transaction, &keys, Some(id))?.into();
-    Ok(())
+    references::map_synced(table, row, |id| external_of(connection, id))
 }
 
 /// A synced copy of `row` as this device stores it: course references by
@@ -419,29 +341,15 @@ pub(crate) fn from_synced(
     table: &str,
     row: &mut Value,
 ) -> Result<(), DataError> {
-    for field in course_fields(table) {
-        let Some(reference) = row.get(*field).and_then(Value::as_str).map(str::to_owned) else {
-            continue;
-        };
-        let internal = internal_of(transaction, &reference)?;
-        replace_reference(row, field, &reference, &internal);
+    if table == "manual_courses" {
+        if catalog_drafts::is_description(row) {
+            if let Some(key) = catalog_drafts::offering_key(row) {
+                resolve(transaction, &[key])?;
+            }
+        } else {
+            let id = string_field(row, "id")?;
+            resolve_or(transaction, &[manual_key(id)], Some(id))?;
+        }
     }
-    Ok(())
-}
-
-/// Writes `to` into `field`, and into a schedule override's target key,
-/// which starts with the course it marks.
-fn replace_reference(row: &mut Value, field: &str, from: &str, to: &str) {
-    if from == to {
-        return;
-    }
-    row[field] = to.into();
-    let prefix = format!("{from}-");
-    if let Some(rest) = row
-        .get("targetKey")
-        .and_then(Value::as_str)
-        .and_then(|key| key.strip_prefix(&prefix))
-    {
-        row["targetKey"] = format!("{to}-{rest}").into();
-    }
+    references::map_synced(table, row, |reference| internal_of(transaction, reference))
 }
