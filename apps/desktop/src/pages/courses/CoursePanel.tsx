@@ -9,7 +9,7 @@ import { tokyoDate } from "../../lib/civil-date";
 import { DAYS, type FinderCourse } from "../../lib/course-query";
 import type {
   CourseConflict,
-  CoursePlacementActions,
+  CourseTimetableControl,
 } from "../../generated/persistence";
 import { notify } from "../../components/notifications/notify";
 import { useScheduleQuery, type CourseDetail } from "../../platform/core-query";
@@ -104,7 +104,7 @@ function CoursePanelBody({
   data,
   readOnly,
   close,
-  placement,
+  timetable,
   removePlan,
   showOnTimetable,
   edit,
@@ -120,8 +120,8 @@ function CoursePanelBody({
   data: Workspace;
   readOnly: boolean;
   close: () => void;
-  placement?: CoursePlacementActions;
-  removePlan: () => void;
+  timetable?: CourseTimetableControl | null;
+  removePlan?: () => void;
   showOnTimetable: (on: boolean) => void;
   edit: () => void;
   editIntensive: () => void;
@@ -149,7 +149,6 @@ function CoursePanelBody({
     }).value ?? []
   ).filter((choice) => choice.courses.some((item) => item.id === course.id));
   const exams = detail?.exams ?? [];
-  const timetable = placement?.timetable;
   const notice = conflicts.length > 0 && (
     <section
       className="coursePanelConflict"
@@ -203,7 +202,7 @@ function CoursePanelBody({
             <Button variant="default" onClick={edit}>
               {t("common.edit")}
             </Button>
-            {placement?.canRemovePlan && (
+            {removePlan && (
               <Button color="red" variant="light" onClick={removePlan}>
                 {t("courses.removeCoursePlan")}
               </Button>

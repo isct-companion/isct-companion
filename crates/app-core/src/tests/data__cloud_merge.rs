@@ -94,4 +94,26 @@ fn deleting_the_last_legacy_draft_wins_over_both_old_device_ids() {
     assert_eq!(plans.len(), 1);
     assert!(plans[0]["deletedAt"].is_string());
     assert_eq!(merge(&merged, &older)["tables"], merged["tables"]);
+    // A different device edited the stable record before it ever saw the
+    // second legacy id. Old snapshots may have arbitrarily many revisions.
+    let mut modern = merged.clone();
+    let plan = &mut modern["tables"]["plan_items"][0];
+    plan.as_object_mut().unwrap().remove("baselineRevision");
+    plan["rev"] = 1.into();
+    assert_eq!(merge(&older, &modern)["tables"], modern["tables"]);
+    let mut mixed = older.clone();
+    mixed["tables"]["plan_items"]
+        .as_array_mut()
+        .unwrap()
+        .push(modern["tables"]["plan_items"][0].clone());
+    assert_eq!(merge(&mixed, &older)["tables"], modern["tables"]);
+    // A newer old snapshot can still update a device that only inherited
+    // its baseline, even if both forms are in the same input document.
+    let inherited = merge(&older, &older);
+    let mut mixed = deleted.clone();
+    mixed["tables"]["plan_items"]
+        .as_array_mut()
+        .unwrap()
+        .push(inherited["tables"]["plan_items"][0].clone());
+    assert_eq!(merge(&mixed, &older)["tables"], merged["tables"]);
 }

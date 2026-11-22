@@ -8,6 +8,7 @@ mod colors;
 mod course_content;
 mod course_detail;
 mod course_scope;
+pub(crate) use course_scope::planned_courses;
 mod credits;
 mod exam_courses;
 mod exams;
@@ -488,7 +489,6 @@ pub struct ScheduleView {
     pub declared_credits: Option<f64>,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
-    pub on_timetable_course_ids: Vec<String>,
     pub all_terms: Vec<String>,
     /// Stored plans and overrides left out of `agendas`.
     pub problems: Vec<ScheduleProblem>,
@@ -499,7 +499,11 @@ pub struct ScheduleView {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CourseTimetableControl {
     Manual { visible: bool },
-    Lms { visible: bool },
+    Lms {
+        visible: bool,
+        #[serde(rename = "canRestore")]
+        can_restore: bool,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -529,7 +533,6 @@ pub struct WorkspaceOverview {
     pub term_credits: f64,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
-    pub on_timetable_course_ids: Vec<String>,
     pub placements: std::collections::BTreeMap<String, CoursePlacementActions>,
     pub all_terms: Vec<String>,
     pub default_finder_keys: Vec<String>,
@@ -745,7 +748,6 @@ pub fn query(
                 exams,
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
-                on_timetable_course_ids: overview.on_timetable_course_ids,
                 all_terms: overview.all_terms,
                 declared_credits: overview.declared_credits,
                 problems: schedule_problems(workspace),
@@ -925,11 +927,6 @@ fn workspace_overview(
     let earned = credits::earned_credits_by_term(array(workspace, "grades"));
     let terms = workspace_terms(workspace, school, term, earned.keys().cloned())?;
     let term = terms.shown.to_string();
-    let on_timetable_course_ids = course_scope::placements(workspace)
-        .filter_map(|row| text(row, "courseId").map(str::to_owned))
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
     let colors = array(workspace, "courses")
         .iter()
         .filter(|course| visible(course))
@@ -993,8 +990,7 @@ fn workspace_overview(
         term_credits,
         colors,
         enrolled_course_ids,
-        on_timetable_course_ids,
-        placements: course_scope::placement_actions(workspace),
+        placements: course_scope::placement_actions(workspace, &term),
         all_terms: terms.available,
         default_finder_keys,
     })

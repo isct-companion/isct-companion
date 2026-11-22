@@ -32,7 +32,7 @@ const SOURCES: &[&str] = &[
 ];
 
 /// The derivation saved in `merge_state`, rebuilt after the rules change.
-const PROJECTION_VERSION: i64 = 2;
+const PROJECTION_VERSION: i64 = 3;
 
 /// Settings that shape every merged course: content language and teaching
 /// periods.
@@ -277,7 +277,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
     offering_ids.extend(plans.iter().map(|plan| text(plan, "offeringId")));
     offering_ids.remove("");
     let catalog = offerings_by_id(transaction, offering_ids)?;
-    project_lms_timetable(
+    let lms_terms = project_lms_timetable(
         &mut workspace,
         &catalog,
         lms_courses,
@@ -290,6 +290,7 @@ fn merge(transaction: &Transaction<'_>, ids: Option<&BTreeSet<String>>) -> Resul
         &mut workspace,
         &saved,
         &plans,
+        lms_terms,
         &catalog,
         &teaching,
     )?);
@@ -508,7 +509,8 @@ fn project_lms_timetable(
     user_courses: &HashSet<String>,
     teaching: &[crate::schedule::TeachingPeriod],
     (links, pushed): (&mut HashMap<u64, String>, &mut Vec<Pushed>),
-) -> Result<(), DataError> {
+) -> Result<HashSet<(String, String)>, DataError> {
+    let mut lms_terms = HashSet::new();
     for lms in lms_courses
         .iter()
         .filter(|row| row["hidden"].as_bool() != Some(true))
@@ -583,21 +585,19 @@ fn project_lms_timetable(
             course["meetings"] = json!([]);
         }
         for term in &terms {
+            lms_terms.insert((id.clone(), term.clone()));
             if !user_courses.contains(&id) && course["source"]["provider"] != "manual" {
                 if let Some(grid) = lms["timetables"].get(term).filter(|v| v.is_array()) {
                     let metadata = catalog
                         .as_ref()
                         .map(|offering| {
-                            crate::workspace::planned_catalog_course(
+                            crate::workspace::catalog_meetings(
                                 offering,
-                                &id,
-                                term,
                                 crate::locale::ContentLanguage::of(workspace),
                                 teaching,
                             )
                         })
                         .transpose()?
-                        .map(|c| c["meetings"].clone())
                         .unwrap_or_else(|| course["meetings"].clone());
                     let mut meetings =
                         crate::workspace::meetings_from_grid(grid, &metadata, teaching)?;
@@ -668,7 +668,7 @@ fn project_lms_timetable(
         }
         links.insert(lms_id, id);
     }
-    Ok(())
+    Ok(lms_terms)
 }
 
 /// The 教務 registration room for an LMS slot without a syllabus room. Only

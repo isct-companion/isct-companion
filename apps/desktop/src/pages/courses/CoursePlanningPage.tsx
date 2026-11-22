@@ -139,6 +139,9 @@ export function CoursePlanningPage({
   const panelCourse = panelCourseId
     ? data.courses.find((c) => c.id === panelCourseId && !c.deletedAt)
     : undefined;
+  const panelPlacement = panelCourse
+    ? workspaceView.placements[panelCourse.id]
+    : undefined;
   const termCredits = workspaceView.termCredits;
   const addFinderCourses = async (rows: FinderCourse[]) => {
     await academicIntentOrThrow({
@@ -152,6 +155,7 @@ export function CoursePlanningPage({
       await academicIntentOrThrow({
         kind: "removeCatalogPlans",
         courseIds: [course.id],
+        termId: courseTerm,
       });
       setPanelCourseId(null);
     } catch (error) {
@@ -281,13 +285,18 @@ export function CoursePlanningPage({
               course={panelCourse}
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
-              placement={workspaceView.placements[panelCourse.id]}
-              removePlan={() => void removePlan(panelCourse)}
+              timetable={panelPlacement?.timetable}
+              removePlan={
+                workspaceView.term === courseTerm &&
+                panelPlacement?.canRemovePlan
+                  ? () => void removePlan(panelCourse)
+                  : undefined
+              }
               showOnTimetable={(on) => void showOnTimetable(panelCourse, on)}
               edit={() =>
                 courseEditors.editCourse({
                   course: panelCourse,
-                  term: panelCourse.termId,
+                  term: courseTerm,
                 })
               }
               editIntensive={() => courseEditors.editIntensive(panelCourse.id)}

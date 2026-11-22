@@ -290,6 +290,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     });
     let mut lms = adpt_isct::lms::validate_enrolment(raw).unwrap();
     assert_eq!(lms.timetables.len(), 2);
+    let first_grid = lms.timetables[0].clone();
     store
         .write(None, |tx| {
             crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
@@ -339,16 +340,19 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
             },
         })
         .unwrap();
-    let snapshot = service.read_back().unwrap();
-    service
-        .apply(crate::workspace::WorkspaceMutation {
-            expected_revision: snapshot.revision,
-            intent: crate::workspace::WorkspaceIntent::SetCourseOnTimetable {
-                course_id: course_with(&workspace, "lmsCourseId", json!(42)),
-                on_timetable: false,
-            },
-        })
-        .unwrap();
+    let set_lms_timetable = |course_id: &str, on_timetable| {
+        service
+            .apply(crate::workspace::WorkspaceMutation {
+                expected_revision: service.read_back().unwrap().revision,
+                intent: crate::workspace::WorkspaceIntent::SetCourseOnTimetable {
+                    course_id: course_id.to_owned(),
+                    on_timetable,
+                },
+            })
+            .unwrap()
+    };
+    let second_course = course_with(&workspace, "lmsCourseId", json!(42));
+    set_lms_timetable(&second_course, false);
     store
         .write(None, |tx| {
             crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
@@ -357,9 +361,80 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
     );
+    // The course's own lecture remains available after hiding the timetable.
+    use crate::schedule::{query, WorkspaceQuery, WorkspaceQueryResult};
+    let snapshot = service.read_back().unwrap();
+    let WorkspaceQueryResult::LectureList(lectures) = query(
+        &snapshot.workspace,
+        &snapshot.school,
+        WorkspaceQuery::LectureList {
+            term: "2026-2Q".into(),
+            now: "2026-07-27T08:00:00+09:00".into(),
+        },
+    )
+    .unwrap() else {
+        panic!("lecture list expected")
+    };
+    assert!(lectures
+        .courses
+        .iter()
+        .any(|course| course.id == second_course));
+    let timetable_control = |workspace: &Value, school: &crate::schedule::SchoolReads| {
+        let WorkspaceQueryResult::WorkspaceOverview(overview) = query(
+            workspace,
+            school,
+            WorkspaceQuery::WorkspaceOverview {
+                term: "2026-2Q".into(),
+            },
+        )
+        .unwrap() else {
+            panic!("workspace overview expected")
+        };
+        overview.placements[&second_course].timetable.clone()
+    };
+    use crate::schedule::CourseTimetableControl::Lms;
+    assert!(matches!(
+        timetable_control(&snapshot.workspace, &snapshot.school),
+        Some(Lms {
+            visible: false,
+            can_restore: true
+        })
+    ));
+
+    // A later grid can add another visible quarter while this one stays hidden.
+    let mut later = lms.clone();
+    later.timetables[0].term = "2026-4Q".into();
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &later, chrono::Utc::now())
+        })
+        .unwrap();
+    let partially_hidden = service.read_back().unwrap();
+    assert!(matches!(
+        timetable_control(&partially_hidden.workspace, &partially_hidden.school),
+        Some(Lms {
+            visible: true,
+            can_restore: true
+        })
+    ));
+    assert!(crate::schedule::scheduled_courses(&partially_hidden.workspace, "2026-2Q").is_empty());
+    let restored = set_lms_timetable(&second_course, true);
+    assert_eq!(
+        crate::schedule::scheduled_courses(&restored.workspace, "2026-2Q")[0]["id"],
+        second_course
+    );
+    assert!(matches!(
+        timetable_control(&restored.workspace, &restored.school),
+        Some(Lms {
+            visible: true,
+            can_restore: false
+        })
+    ));
+    assert!(store.user_rows("plan_items").unwrap().is_empty());
+    set_lms_timetable(&second_course, false);
+
     // A saved local declaration after a hide was how older versions resumed
     // the same LMS placement. It still appears and can be hidden again.
-    let second_course = course_with(&workspace, "lmsCourseId", json!(42));
     store
         .put_user_record(
             "manual_memberships",
@@ -387,16 +462,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
             crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
         })
         .unwrap();
-    let resumed = service.read_back().unwrap();
-    service
-        .apply(crate::workspace::WorkspaceMutation {
-            expected_revision: resumed.revision,
-            intent: crate::workspace::WorkspaceIntent::SetCourseOnTimetable {
-                course_id: second_course,
-                on_timetable: false,
-            },
-        })
-        .unwrap();
+    set_lms_timetable(&second_course, false);
     assert!(
         crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-2Q").is_empty()
     );
@@ -423,6 +489,79 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     let first = crate::schedule::scheduled_courses(&store.load_workspace().unwrap(), "2026-1Q");
     assert_eq!(first[0]["meetings"][0]["room"], "Official room");
     assert_eq!(first[0]["meetings"][0]["startTime"], "10:45");
+    // The user's offline syllabus description supplies a draft clock only for
+    // a quarter outside that offering's independent LMS timetable.
+    let first_course = course_with(&workspace, "lmsCourseId", json!(41));
+    let mut description = first[0].clone();
+    description["id"] = "catalog-description:2026:202600041".into();
+    description["source"] = json!({"provider":"kyomu", "externalId":"202600041"});
+    description["meetings"][0]["days"] = json!([4]);
+    store
+        .put_user_record("manual_courses", description)
+        .unwrap();
+    store
+        .put_user_record(
+            "plan_items",
+            json!({
+                "kind":"plan-item", "courseId":first_course, "offeringId":"202600041",
+                "termId":"2026-1Q", "state":"planned"
+            }),
+        )
+        .unwrap();
+    let hidden = set_lms_timetable(&first_course, false);
+    let scheduled = |workspace: &Value| crate::schedule::scheduled_courses(workspace, "2026-1Q");
+    assert_eq!(
+        scheduled(&hidden.workspace)[0]["meetings"][0]["days"],
+        json!([1])
+    );
+    let failed_edit = service.apply(crate::workspace::WorkspaceMutation {
+        expected_revision: hidden.revision,
+        intent: crate::workspace::WorkspaceIntent::EditCourseBatch {
+            course_ids: vec![first_course.clone()],
+            changes: crate::workspace::CourseBatchChanges {
+                credits: Some(4.0),
+                ..Default::default()
+            },
+        },
+    });
+    assert!(matches!(
+        failed_edit,
+        Err(crate::data::DataError::InvalidInput(_))
+    ));
+    let mut current_grid = lms.clone();
+    current_grid.timetables = vec![first_grid.clone()];
+    let grid = &mut current_grid.timetables[0];
+    grid.meetings.remove(&41);
+    grid.unscheduled.push(41);
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &current_grid, chrono::Utc::now())
+        })
+        .unwrap();
+    assert_eq!(
+        scheduled(&store.load_workspace().unwrap())[0]["meetings"],
+        json!([])
+    );
+    current_grid.timetables[0].unscheduled.clear();
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &current_grid, chrono::Utc::now())
+        })
+        .unwrap();
+    assert_eq!(
+        scheduled(&store.load_workspace().unwrap())[0]["meetings"][0]["days"],
+        json!([4])
+    );
+    current_grid.timetables = vec![first_grid];
+    store
+        .write(None, |tx| {
+            crate::lms_ingest::apply_lms_enrolment(tx, &current_grid, chrono::Utc::now())
+        })
+        .unwrap();
+    assert_eq!(
+        scheduled(&store.load_workspace().unwrap())[0]["meetings"][0]["days"],
+        json!([1])
+    );
     // Maintenance/unavailable extraction does not manufacture authoritative emptiness.
     let mut unavailable = registration(json!(["1Q", "2Q"]), json!([]));
     unavailable.status = "unavailable".into();

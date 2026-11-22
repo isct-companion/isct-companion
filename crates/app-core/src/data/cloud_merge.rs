@@ -18,10 +18,12 @@ pub fn compare(a: &Value, b: &Value) -> Ordering {
     // Revisions advance from the imported record, so a subsequent edit still
     // wins if the device clock moved backwards. Concurrent equal revisions
     // use timestamps and a deterministic actor tie-break.
-    a["rev"]
-        .as_u64()
-        .unwrap_or(0)
-        .cmp(&b["rev"].as_u64().unwrap_or(0))
+    let clock = |row: &Value| {
+        let rev = row["rev"].as_u64().unwrap_or(0);
+        (rev, super::catalog_drafts::baseline_revision(row))
+    };
+    clock(a)
+        .cmp(&clock(b))
         .then_with(|| time(a).cmp(&time(b)))
         .then_with(|| {
             a["updatedBy"]

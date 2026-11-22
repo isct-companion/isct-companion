@@ -11,7 +11,11 @@ import type { Course, TermId } from "../../lib/model";
 import { tokyoDate } from "../../lib/civil-date";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
 import type { ShellRecords } from "../../platform/records";
-import type { SyncSnapshot, SyncView } from "../../generated/persistence";
+import type {
+  CoursePlacementActions,
+  SyncSnapshot,
+  SyncView,
+} from "../../generated/persistence";
 
 const LmsWorkspace = lazy(() =>
   import("../../features/lms").then((module) => ({
@@ -55,6 +59,7 @@ export function lectureOpenView(
 
 export function LectureWorkspacePage({
   data,
+  placements,
   lectureRailHovered,
   todayTerm,
   examEntry,
@@ -74,6 +79,7 @@ export function LectureWorkspacePage({
   sync,
 }: {
   data: ShellRecords;
+  placements: Readonly<Record<string, CoursePlacementActions>>;
   lectureRailHovered: boolean;
   todayTerm: TermId;
   examEntry: { key: string; term: TermId; request: number } | null;
@@ -131,6 +137,7 @@ export function LectureWorkspacePage({
         );
         if (!course) return null;
         const record = lmsRecordFor(schoolRecords, course);
+        const timetable = placements[course.id]?.timetable;
         return (
           <Suspense fallback={<p role="status">{t("common.loading")}</p>}>
             <LmsWorkspace
@@ -140,6 +147,16 @@ export function LectureWorkspacePage({
               active={active}
               headerStart={sidebarToggle}
               openPastExams={openPastExams && (() => openPastExams(course.id))}
+              restoreTimetable={
+                !readOnly && timetable?.kind === "lms" && timetable.canRestore
+                  ? () =>
+                      academicIntent({
+                        kind: "setCourseOnTimetable",
+                        courseId: course.id,
+                        onTimetable: true,
+                      })
+                  : undefined
+              }
               openWeb={(url) => openWeb(url)}
               schoolWebAvailable={schoolWebAvailable}
               refresh={

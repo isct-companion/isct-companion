@@ -179,7 +179,10 @@ pub(crate) fn plan_catalog_courses(
         for plan_term in catalog_plan_terms(&offering, term_id)? {
             let plan_id = crate::data::catalog_drafts::plan_id(&plan_term, offering_id);
             match plans.iter().position(|row| row["id"] == plan_id) {
-                Some(index) if is_live(&plans[index]) => {}
+                Some(index)
+                    if is_live(&plans[index])
+                        && crate::data::catalog_drafts::baseline_revision(&plans[index])
+                            .is_none() => {}
                 Some(index) => {
                     let mut revived = plans[index].clone();
                     revived["courseId"] = json!(course_id);

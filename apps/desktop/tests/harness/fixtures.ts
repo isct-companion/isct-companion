@@ -186,7 +186,6 @@ export function overviewFor(
     termCredits: active.reduce((total, row) => total + row.credits, 0),
     colors,
     enrolledCourseIds: active.map((row) => row.id),
-    onTimetableCourseIds: active.map((row) => row.id),
     placements: {},
     allTerms: [TERM],
     defaultFinderKeys: [],

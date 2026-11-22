@@ -3,8 +3,8 @@
 //! their offering key.
 use super::*;
 use crate::schedule::text_or_empty as text;
-pub(crate) use identity::plan_id;
-pub(super) use identity::{catalog_plan_id, cut_over_plans, document_plans};
+pub(super) use identity::{catalog_plan_id, cut_over_plans, document_plans, BASELINE_REVISION};
+pub(crate) use identity::{baseline_revision, plan_id};
 mod identity;
 
 pub(crate) fn is_description(row: &Value) -> bool {
@@ -57,26 +57,29 @@ pub(super) fn project_plan_courses(
 }
 
 /// Adds the courses or quarters that have an active personal plan. School
-/// placements, including unscheduled ones, retain their own time and rooms.
+/// placements retain their own time and rooms, including quarters where
+/// LMS listed the course without a fixed schedule or the user hid it.
 pub(super) fn project_courses(
     workspace: &mut Value,
     descriptions: &[Value],
     plans: &[Value],
+    mut school: HashSet<(String, String)>,
     catalog: &HashMap<String, Value>,
     teaching: &[crate::schedule::TeachingPeriod],
 ) -> Result<HashSet<String>, DataError> {
     use crate::schedule::array;
     let language = crate::locale::ContentLanguage::of(workspace);
-    let school: HashSet<_> = array(workspace, "memberships")
-        .iter()
-        .filter(|row| row["deletedAt"].is_null() && row["status"] != "withdrawn")
-        .map(|row| {
-            (
-                text(row, "courseId").to_owned(),
-                text(row, "termId").to_owned(),
-            )
-        })
-        .collect();
+    school.extend(
+        array(workspace, "memberships")
+            .iter()
+            .filter(|row| row["deletedAt"].is_null() && row["status"] != "withdrawn")
+            .map(|row| {
+                (
+                    text(row, "courseId").to_owned(),
+                    text(row, "termId").to_owned(),
+                )
+            }),
+    );
     let mut projected = HashSet::new();
     let courses = workspace["courses"]
         .as_array_mut()

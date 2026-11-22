@@ -1197,13 +1197,14 @@ describe("replacing a clashing course", () => {
     );
     await click(
       await required(
-        () => buttonByText(host, "Remove draft plan"),
+        () => buttonByText(host, "Remove draft from all quarters"),
         "draft removal",
       ),
     );
-    expect(recordedIntent(core, "removeCatalogPlans").courseIds).toEqual([
-      eligibleCourse.id,
-    ]);
+    expect(recordedIntent(core, "removeCatalogPlans")).toMatchObject({
+      courseIds: [eligibleCourse.id],
+      termId: "2026-3Q",
+    });
     await settled(() => expect(timetableTitles(host)).toEqual([]));
     expect(host.querySelector(".pageError")).toBeNull();
     consoleWatch.expectClean();

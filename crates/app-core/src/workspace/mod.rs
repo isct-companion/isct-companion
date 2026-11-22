@@ -108,6 +108,7 @@ pub enum WorkspaceIntent {
     },
     RemoveCatalogPlans {
         course_ids: Vec<String>,
+        term_id: String,
     },
     EditCourseBatch {
         course_ids: Vec<String>,
@@ -518,9 +519,10 @@ fn apply_intent(
         WorkspaceIntent::DeleteCourseBatch { course_ids } => {
             delete_course_batch(write, current, course_ids)
         }
-        WorkspaceIntent::RemoveCatalogPlans { course_ids } => {
-            remove_course_plans(write, current, &course_ids)
-        }
+        WorkspaceIntent::RemoveCatalogPlans {
+            course_ids,
+            term_id,
+        } => remove_course_plans_from_term(write, current, &course_ids, &term_id),
         WorkspaceIntent::EditCourseBatch {
             course_ids,
             changes,

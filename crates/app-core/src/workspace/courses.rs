@@ -138,7 +138,25 @@ pub(super) fn delete_course_batch(
     Ok(())
 }
 
-pub(super) fn remove_course_plans(
+/// The action is available from a quarter with a live draft. It removes
+/// every quarter of that course's draft, after checking the acted-on quarter.
+pub(super) fn remove_course_plans_from_term(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    course_ids: &[String],
+    term_id: &str,
+) -> Result<(), DataError> {
+    validate_term(term_id)?;
+    let planned = crate::schedule::planned_courses(current, term_id);
+    if course_ids.iter().any(|id| !planned.contains(id.as_str())) {
+        return Err(DataError::conflict(
+            "This course has no draft in the displayed quarter.",
+        ));
+    }
+    remove_course_plans(write, current, course_ids)
+}
+
+fn remove_course_plans(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     course_ids: &[String],
@@ -218,7 +236,7 @@ pub(super) fn edit_course_batch(
             rows(current, "planItems")?.any(|plan| is_live(plan) && plan["courseId"] == id);
         let original = original.or_else(|| {
             let offering = course["offeringId"].as_str()?;
-            editing_draft
+            (editing_draft && course["source"]["provider"] == "kyomu")
                 .then(|| crate::data::catalog_drafts::description(&saved, offering))
                 .flatten()
         });

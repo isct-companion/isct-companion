@@ -14,8 +14,17 @@ pub(in crate::data) fn catalog_plan_id(row: &Value) -> Option<String> {
     ))
 }
 
-/// Convert a snapshot as a whole: before the cutover, any live copy placed
-/// the offering. A consolidated record advances beyond all copies it saw.
+/// Imported random ids are a baseline. Only an explicit edit or history
+/// restore starts the revision clock for this offering and quarter.
+pub(crate) fn baseline_revision(row: &Value) -> Option<u64> {
+    row[BASELINE_REVISION].as_u64().filter(|_| row["rev"] == 0)
+}
+
+pub(in crate::data) const BASELINE_REVISION: &str = "baselineRevision";
+
+/// Before the cutover, any live copy placed the offering. Each legacy id
+/// had its own revision clock. Keep their combined revision solely for
+/// comparing old snapshots; an actual edit always outranks this baseline.
 pub(in crate::data) fn document_plans(rows: &[Value]) -> Cow<'_, [Value]> {
     if rows
         .iter()
@@ -23,38 +32,42 @@ pub(in crate::data) fn document_plans(rows: &[Value]) -> Cow<'_, [Value]> {
     {
         return Cow::Borrowed(rows);
     }
-    let mut groups = BTreeMap::<String, Vec<&Value>>::new();
+    let mut plans = BTreeMap::<String, Value>::new();
+    let mut legacy = BTreeMap::<String, Vec<&Value>>::new();
     for row in rows {
-        let id = catalog_plan_id(row).unwrap_or_else(|| super::text(row, "id").to_owned());
-        groups.entry(id).or_default().push(row);
-    }
-    let mut plans = Vec::with_capacity(groups.len());
-    for (id, group) in groups {
-        let canonical = group.iter().copied().find(|row| row["id"] == id);
-        let winner = canonical.or_else(|| {
-            group.iter().copied().max_by(|a, b| {
-                a["deletedAt"]
-                    .is_null()
-                    .cmp(&b["deletedAt"].is_null())
-                    .then_with(|| cloud_merge::compare(a, b))
-            })
-        });
-        if let Some(winner) = winner {
-            let mut plan = winner.clone();
-            plan["id"] = id.into();
-            if canonical.is_none() && group.len() > 1 {
-                // Each independent legacy id has its own revision clock. An
-                // edit to any one of them must advance the consolidated clock.
-                plan["rev"] = group
-                    .iter()
-                    .filter_map(|row| row["rev"].as_u64())
-                    .sum::<u64>()
-                    .into();
+        let record_id = super::text(row, "id");
+        match catalog_plan_id(row) {
+            Some(id) if id != record_id => legacy.entry(id).or_default().push(row),
+            _ => {
+                plans.insert(record_id.to_owned(), row.clone());
             }
-            plans.push(plan);
         }
     }
-    Cow::Owned(plans)
+    for (id, copies) in legacy {
+        let winner = copies.iter().copied().max_by(|a, b| {
+            a["deletedAt"]
+                .is_null()
+                .cmp(&b["deletedAt"].is_null())
+                .then_with(|| cloud_merge::compare(a, b))
+        });
+        if let Some(winner) = winner {
+            let mut baseline = winner.clone();
+            baseline["id"] = id.clone().into();
+            baseline["rev"] = 0.into();
+            baseline[BASELINE_REVISION] = copies
+                .iter()
+                .filter_map(|row| row["rev"].as_u64())
+                .sum::<u64>()
+                .into();
+            if plans
+                .get(&id)
+                .is_none_or(|current| cloud_merge::compare(&baseline, current).is_gt())
+            {
+                plans.insert(id, baseline);
+            }
+        }
+    }
+    Cow::Owned(plans.into_values().collect())
 }
 
 /// No other table references plan record IDs. Install the new identities in

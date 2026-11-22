@@ -192,6 +192,10 @@ export type PlanItem = {
   termId: `${number}-${Quarter}`;
   offeringId?: string;
   courseId?: string;
+  /**
+   * Combined revisions of pre-cutover ids, present only on imported revision zero.
+   */
+  baselineRevision?: number;
   state: "candidate" | "planned";
   id: string;
   rev: number;
@@ -2157,7 +2161,8 @@ export type AssignmentBoard = {
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
 
 export type CourseTimetableControl =
-  { kind: "manual"; visible: boolean } | { kind: "lms"; visible: boolean };
+  | { kind: "manual"; visible: boolean }
+  | { kind: "lms"; visible: boolean; canRestore: boolean };
 
 export type CoursePlacementActions = {
   canRemovePlan: boolean;
@@ -2181,7 +2186,6 @@ export type WorkspaceOverview = {
   termCredits: number;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
-  onTimetableCourseIds: Array<string>;
   placements: { [key in string]: CoursePlacementActions };
   allTerms: Array<string>;
   defaultFinderKeys: Array<string>;
@@ -2236,7 +2240,6 @@ export type ScheduleView = {
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
-  onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
   /**
    * Stored plans and overrides left out of `agendas`.
@@ -2386,7 +2389,7 @@ export type WorkspaceIntent =
   | { kind: "removeTerm"; termId: string }
   | { kind: "saveCourse"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteCourseBatch"; courseIds: Array<string> }
-  | { kind: "removeCatalogPlans"; courseIds: Array<string> }
+  | { kind: "removeCatalogPlans"; courseIds: Array<string>; termId: string }
   | {
       kind: "editCourseBatch";
       courseIds: Array<string>;

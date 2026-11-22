@@ -274,7 +274,7 @@ fn malformed_period_meeting_is_reported_without_hiding_a_good_course() {
 }
 
 #[test]
-fn overview_uses_live_terms_global_timetable_and_static_department_name() {
+fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     let mut data = workspace();
     data["selectedTerm"] = json!("2099-4Q");
     data["settings"]["departmentId"] = json!("undergraduate:cs");
@@ -301,9 +301,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     assert!(!view.all_terms.contains(&"2099-4Q".to_string()));
     assert!(view.all_terms.contains(&"2027-1Q".to_string()));
     assert_eq!(view.enrolled_course_ids, vec!["course"]);
-    assert!(view
-        .on_timetable_course_ids
-        .contains(&"future-course".to_string()));
+    assert_eq!(view.term_course_ids, vec!["course"]);
     assert_eq!(
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
@@ -321,6 +319,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
     assert_eq!(future.courses_term, "2026-1Q");
     assert_eq!(future.term, "2027-1Q");
+    assert_eq!(future.term_course_ids, vec!["future-course"]);
 }
 
 #[test]

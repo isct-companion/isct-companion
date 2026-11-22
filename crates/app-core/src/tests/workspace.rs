@@ -757,6 +757,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
         &service,
         WorkspaceIntent::RemoveCatalogPlans {
             course_ids: vec![course_id.clone()],
+            term_id: "2026-2Q".into(),
         },
     );
     assert_eq!(view(&removed, first).course_id, None);
@@ -1041,6 +1042,7 @@ fn course_edits_merge_into_one_overlay_and_batch_credits_reach_every_course() {
         &service,
         WorkspaceIntent::RemoveCatalogPlans {
             course_ids: vec![manual_id.clone()],
+            term_id: "2026-3Q".into(),
         },
     );
     assert!(!rows(&removed.workspace, "planItems")
@@ -1644,10 +1646,45 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
 
     // Desktop removal takes the course out of every planned quarter.
     add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
+    let course_id = id("202630020");
+    let current = service.read_back().unwrap();
+    let overview = |term: &str| {
+        let crate::schedule::WorkspaceQueryResult::WorkspaceOverview(view) =
+            crate::schedule::query(
+                &current.workspace,
+                &current.school,
+                crate::schedule::WorkspaceQuery::WorkspaceOverview {
+                    term: term.to_owned(),
+                },
+            )
+            .unwrap()
+        else {
+            panic!("workspace overview expected")
+        };
+        view.placements[&course_id].can_remove_plan
+    };
+    assert!(overview("2026-3Q"));
+    assert!(!overview("2026-2Q"));
+    assert!(matches!(
+        run(
+            &service,
+            WorkspaceIntent::RemoveCatalogPlans {
+                course_ids: vec![course_id.clone()],
+                term_id: "2026-2Q".into(),
+            }
+        ),
+        Err(DataError::Conflict(_))
+    ));
+    assert_eq!(
+        live_plans(&service.read_back().unwrap().workspace),
+        live_plans(&current.workspace)
+    );
+
     let off = run(
         &service,
         WorkspaceIntent::RemoveCatalogPlans {
             course_ids: vec![id("202630020")],
+            term_id: "2026-3Q".into(),
         },
     )
     .unwrap();
@@ -1701,6 +1738,7 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
         &service,
         WorkspaceIntent::RemoveCatalogPlans {
             course_ids: vec![id("202630010")],
+            term_id: "2026-3Q".into(),
         },
     )
     .unwrap();
@@ -1810,6 +1848,55 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
             plan["id"] = Uuid::now_v7().to_string().into();
         }
     }
+    // A history restore confirms even an inherited state that looks unchanged:
+    // current 3Q stays placed and the missing, already-deleted 4Q stays absent.
+    let inherited = self::service("catalog-plan-inherited-restore");
+    let local = crate::backup::BackupService::new(inherited.store.clone());
+    let mut selected = archived.clone();
+    let plan = archived["tables"]["plan_items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|plan| plan["offeringId"] == "202630010")
+        .unwrap()
+        .clone();
+    selected["tables"]["plan_items"] = json!([plan]);
+    let mut quarter_four = plan.clone();
+    quarter_four["id"] = Uuid::now_v7().to_string().into();
+    quarter_four["termId"] = "2026-4Q".into();
+    quarter_four["deletedAt"] = quarter_four["updatedAt"].clone();
+    let mut old = selected.clone();
+    old["tables"]["plan_items"] = json!([plan, quarter_four]);
+    local
+        .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    local
+        .restore(&selected, crate::data::WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    let archived_plans = old["tables"]["plan_items"].as_array_mut().unwrap();
+    archived_plans[0]["deletedAt"] = archived_plans[0]["updatedAt"].clone();
+    archived_plans[1]
+        .as_object_mut()
+        .unwrap()
+        .remove("deletedAt");
+    for row in archived_plans {
+        row["rev"] = 100.into();
+    }
+    local
+        .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    let inherited_view = inherited.read_back().unwrap();
+    let placed_in = |term| {
+        crate::schedule::scheduled_courses(&inherited_view.workspace, term)
+            .iter()
+            .any(|course| course["offeringId"] == "202630010")
+    };
+    assert!(placed_in("2026-3Q"));
+    assert!(!placed_in("2026-4Q"));
+    let directory = inherited.store.directory().to_path_buf();
+    drop(local);
+    drop(inherited);
+    std::fs::remove_dir_all(directory).unwrap();
     let backup = crate::backup::BackupService::new(other_device.store.clone());
     let scheduled = || {
         let view = other_device.read_back().unwrap();

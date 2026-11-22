@@ -322,6 +322,9 @@ fn put_user_record_in_transaction(
     if table == "plan_items" {
         if let Some(id) = catalog_drafts::catalog_plan_id(&value) {
             value["id"] = id.into();
+            if let Some(fields) = value.as_object_mut() {
+                fields.remove(catalog_drafts::BASELINE_REVISION);
+            }
         }
     }
     let catalog_description = table == "manual_courses" && catalog_drafts::is_description(&value);
@@ -506,6 +509,9 @@ fn delete_user_record_in_transaction(
     let object = value
         .as_object_mut()
         .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
+    if table == "plan_items" {
+        object.remove(catalog_drafts::BASELINE_REVISION);
+    }
     object.insert("rev".into(), Value::from(revision + 1));
     object.insert("updatedAt".into(), Value::String(timestamp.clone()));
     object.insert(

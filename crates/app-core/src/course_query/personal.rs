@@ -50,7 +50,7 @@ pub fn clashes(course: &Value, busy: &[BusySlot]) -> bool {
 fn same_offering(placed: &Value, offering: &Value) -> bool {
     match placed["offeringId"].as_str() {
         Some(id) => offering["id"] == id,
-        None => text(placed, "code") == text(offering, "code"),
+        None => !text(placed, "code").is_empty() && text(placed, "code") == text(offering, "code"),
     }
 }
 

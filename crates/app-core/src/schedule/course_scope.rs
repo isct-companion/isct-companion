@@ -17,13 +17,20 @@ fn visible_courses(workspace: &Value) -> impl Iterator<Item = &Value> {
         .filter(|row| visible(row))
 }
 
-/// Course actions shown by the timetable panel and course editor.
-pub(super) fn placement_actions(workspace: &Value) -> BTreeMap<String, CoursePlacementActions> {
-    let planned: HashSet<_> = array(workspace, "planItems")
+pub(crate) fn planned_courses<'a>(workspace: &'a Value, term: &str) -> HashSet<&'a str> {
+    array(workspace, "planItems")
         .iter()
-        .filter(|row| visible(row))
+        .filter(|row| visible(row) && row["termId"] == term)
         .filter_map(|row| text(row, "courseId"))
-        .collect();
+        .collect()
+}
+
+/// Course actions shown by the timetable panel and course editor.
+pub(super) fn placement_actions(
+    workspace: &Value,
+    term: &str,
+) -> BTreeMap<String, CoursePlacementActions> {
+    let planned = planned_courses(workspace, term);
     let mut manual = HashSet::new();
     let mut lms = HashMap::new();
     let lms_placements = crate::data::lms_visibility::current_lms_placements(workspace);
@@ -35,8 +42,10 @@ pub(super) fn placement_actions(workspace: &Value) -> BTreeMap<String, CoursePla
             .as_str()
             .is_some_and(|id| lms_placements.contains(id))
         {
-            let shown = lms.entry(id).or_insert(false);
-            *shown |= visible(row);
+            let (shown, can_restore) = lms.entry(id).or_insert((false, false));
+            let is_visible = visible(row);
+            *shown |= is_visible;
+            *can_restore |= !is_visible;
         } else if row["evidence"]["provider"] == "manual" && visible(row) {
             manual.insert(id);
         }
@@ -51,7 +60,10 @@ pub(super) fn placement_actions(workspace: &Value) -> BTreeMap<String, CoursePla
                 })
             } else {
                 lms.get(id)
-                    .map(|&visible| CourseTimetableControl::Lms { visible })
+                    .map(|&(visible, can_restore)| CourseTimetableControl::Lms {
+                        visible,
+                        can_restore,
+                    })
             };
             Some((
                 id.into(),
