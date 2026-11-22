@@ -26,9 +26,9 @@ struct TodayScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header.padding(.horizontal, Self.margin)
                     HStack(alignment: .top, spacing: 0) {
-                        page { overview(context.date) }
+                        page { overview(AppClock.at(context.date)) }
                         page {
-                            if model.today != nil { TodayAssignmentSections(now: context.date) }
+                            if model.today != nil { TodayAssignmentSections(now: AppClock.at(context.date)) }
                         }
                         .frame(width: 420)
                     }
@@ -40,9 +40,9 @@ struct TodayScreen: View {
                 .frame(maxWidth: .infinity)
             } else {
                 page {
-                    overview(context.date)
+                    overview(AppClock.at(context.date))
                     if model.today != nil {
-                        TodayAssignmentSections(now: context.date)
+                        TodayAssignmentSections(now: AppClock.at(context.date))
                     }
                 }
             }

@@ -784,6 +784,13 @@ async fn initialize(
             DriveAuth::new(vault.clone(), drive_tokens).map(Arc::new),
         )
     };
+    // The demo scene's fictional workspace never reaches a cloud: no store,
+    // so it supports no provider.
+    #[cfg(feature = "demo")]
+    let (cloud, drive): (Option<Arc<dyn NativeCloud>>, Option<Arc<DriveAuth>>) = {
+        let _ = (cloud, drive);
+        (None, None)
+    };
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
         cloud: cloud.is_some() || drive.is_some(),
@@ -797,8 +804,13 @@ async fn initialize(
     let credential_vault = crate::ports::Vault(vault.clone());
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
+        // The demo scene's school accounts live in memory only.
+        #[cfg(feature = "demo")]
+        let school_vault = app_core::demo::DemoVault::default();
+        #[cfg(not(feature = "demo"))]
+        let school_vault = Vault(vault);
         let auth = Arc::new(SchoolAuthService::with_status_cache(
-            Vault(vault),
+            school_vault,
             data.join("school-credential-status.json"),
         ));
         // A provider runs only with its store: iCloud needs `NativeCloud`,
@@ -885,6 +897,19 @@ async fn initialize(
         )),
     });
     inner.core.runtime.notes.at(inner.files.clone());
+    // Before the runtime starts syncing: the scene is in place by the first
+    // read.
+    #[cfg(feature = "demo")]
+    {
+        let core = inner.core.clone();
+        let files = inner.files.clone();
+        tokio::task::spawn_blocking(move || app_core::demo::seed(&core, &files))
+            .await
+            .map_err(app_core::runtime_tasks::RuntimeTaskError::from)?
+            .map_err(|detail| SdkError::Internal {
+                detail: format!("demo scene: {detail}"),
+            })?;
+    }
     // Core's deadline duties use these ports from now on.
     inner.core.attach_ports(app_core::facade::PlatformPorts {
         exporter: Some(Arc::new(Exporter(

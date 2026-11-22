@@ -17,11 +17,18 @@ keeps the full-size captures in `screenshots/{ja,zh,en}/`.
   (`~/Library/Application Support/app.isctcompanion.demo/`, course files in
   `Courses/` inside it), keychain service, WebKit storage and signing
   identifier. `build.rs` refuses `demo` under any other identifier, and
-  `app-core` refuses it in a release build.
+  `app-core` refuses it in a release build. On iOS and iPadOS the Xcode
+  configuration `Demo` builds `app.isctcompanion.demo` ("IsctCompanion
+  Demo") with its own extension ids, keychain group, URL scheme
+  (`isctcompanion-demo`) and data container, and no iCloud or App Group;
+  every identifier derives from the build setting `ISCT_APP_ID`. A build
+  phase refuses an SDK built with `--demo` under an id that does not end in
+  `.demo`, and the other way round.
 - **One clock.** Every reading of the time in Core and the shells goes through
   `app_core::clock::now` (`clippy.toml` rejects `Utc::now`). In the demo it
   starts at the scene's moment and runs on; the desktop page gets the same
-  offset as `__ISCT_COMPANION_CLOCK_OFFSET_MS__` (`wallNow()`).
+  offset as `__ISCT_COMPANION_CLOCK_OFFSET_MS__` (`wallNow()`), the iOS app
+  as `clockOffsetMs()` (`AppClock`).
 - **The scene.** `crates/app-core/src/demo/scene.json` is written once into
   an empty store through the same ingest functions and intents a real sync
   uses (`app_core::demo::seed`): the course catalog, LMS enrolment, course
@@ -56,6 +63,22 @@ rm -rf ~/Library/Application\ Support/app.isctcompanion.demo
 
 Only one demo instance can hold the data folder; quit the dev run before
 opening the bundle.
+
+On an iPhone or iPad, beside the App Store app (a Personal Team build passes
+its own id, which must still end in `.demo`):
+
+```sh
+CARGO_TARGET_DIR=/Users/xby/isct-companion/target ISCT_SDK_PROFILE=dev node scripts/bindings/build-ios.mjs --device-only --demo
+(cd apps/ios && xcodegen generate)
+xcodebuild -project apps/ios/IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Demo \
+  -destination generic/platform=iOS -allowProvisioningUpdates \
+  DEVELOPMENT_TEAM=<team> ISCT_APP_ID=<id>.demo build
+xcrun devicectl device install app --device <device> \
+  ~/Library/Developer/Xcode/DerivedData/IsctCompanion-*/Build/Products/Demo-iphoneos/IsctCompanion.app
+```
+
+Delete the demo app from the device to start its scene over. Rebuild the SDK
+without `--demo` before building any other configuration.
 
 ## Capturing
 

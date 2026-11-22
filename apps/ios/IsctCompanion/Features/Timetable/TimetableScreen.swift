@@ -10,7 +10,7 @@ import TipKit
 struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
-    @State private var monday = TimetableScreen.monday(of: Date())
+    @State private var monday = TimetableScreen.monday(of: AppClock.now)
     private var week: ScheduleView? { model.timetableWeeks[monday] }
     @State private var year: TimetableYear?
     @State private var showsPicker = false
@@ -156,7 +156,7 @@ struct TimetableScreen: View {
 
     /// 今日 rests while this week is shown, which doubles as "you are here".
     private var todayButton: some View {
-        let thisWeek = TimetableScreen.monday(of: Date())
+        let thisWeek = TimetableScreen.monday(of: AppClock.now)
         let atThisWeek = monday == thisWeek
         return Button {
             withAnimation(Motion.base(reduceMotion)) { show(thisWeek) }
@@ -438,7 +438,7 @@ private struct NowLine: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
-            if let offset = axis.now(context.date) {
+            if let offset = axis.now(AppClock.at(context.date)) {
                 HStack(spacing: 0) {
                     Circle().fill(Theme.danger).frame(width: 8, height: 8)
                     Rectangle().fill(Theme.danger).frame(height: 2)

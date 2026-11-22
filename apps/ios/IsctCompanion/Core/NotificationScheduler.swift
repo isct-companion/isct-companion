@@ -79,7 +79,7 @@ final class NotificationScheduler: NativeReminderPort {
                 continue
             }
             // The old request could have fired since Core read the pending list.
-            if let previous = pendingAt[item.key], previous <= Date() { continue }
+            if let previous = pendingAt[item.key], previous <= AppClock.now { continue }
             var parts = Calendar.tokyo.dateComponents([.year, .month, .day, .hour, .minute, .second], from: at)
             parts.calendar = Calendar.tokyo
             parts.timeZone = .tokyo

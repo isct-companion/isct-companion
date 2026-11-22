@@ -24,15 +24,18 @@ export const iosDeploymentTarget = "17.0";
 export const androidMinSdk = 34;
 export const androidCompileSdk = 34;
 // `campusMap`: the campus map's reads, built into the iOS and Android SDKs.
+// `demo`: the website screenshot scene, for the separate iOS demo app only.
 export function sdkFeatureArgs({
   bindgen = false,
   ocr = false,
   campusMap = false,
+  demo = false,
 } = {}) {
   const features = [
     bindgen && "bindgen",
     ocr && "ocr",
     campusMap && "campus-map",
+    demo && "demo",
   ].filter(Boolean);
   return features.length > 0 ? ["--features", features.join(",")] : [];
 }

@@ -8,6 +8,27 @@ options:
     iOS: "18.0"
   developmentLanguage: en
   createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+  # The website screenshot scene (docs/screenshots/README.md): a debug build
+  # of the separate app app.isctcompanion.demo over an SDK built with
+  # `build-ios.mjs --demo`. Its own bundle ids, keychain group, URL scheme
+  # and data; no iCloud and no App Group.
+  Demo: debug
+# Every identifier the app and its extensions own derives from ISCT_APP_ID,
+# so one setting moves them all (a Personal Team build passes its own).
+settings:
+  base:
+    ISCT_APP_ID: app.isctcompanion
+    ISCT_APP_GROUP: group.$(ISCT_APP_ID)
+    ISCT_DISPLAY_NAME: IsctCompanion
+    ISCT_URL_SCHEME: isctcompanion
+  configs:
+    Demo:
+      ISCT_APP_ID: app.isctcompanion.demo
+      ISCT_DISPLAY_NAME: IsctCompanion Demo
+      ISCT_URL_SCHEME: isctcompanion-demo
 packages:
   IsctWidgets:
     path: ../../bindings/apple-widgets
@@ -47,8 +68,9 @@ targets:
     info:
       path: IsctCompanion/Info.plist
       properties:
-        CFBundleDisplayName: IsctCompanion
-        IsctWidgetGroup: group.app.isctcompanion
+        CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
+        # The app's one App Group: widget data and the share inbox.
+        IsctWidgetGroup: $(ISCT_APP_GROUP)
         CFBundleDevelopmentRegion: en
         # System UI (share sheet, photo picker) follows these; the app's own
         # text follows settings.locale.
@@ -79,8 +101,8 @@ targets:
         # inbox (slotledger `approach/share-entry-points`).
         # The share extension's "open the app" link.
         CFBundleURLTypes:
-          - CFBundleURLName: app.isctcompanion.inbox
-            CFBundleURLSchemes: [isctcompanion]
+          - CFBundleURLName: $(ISCT_APP_ID).inbox
+            CFBundleURLSchemes: [$(ISCT_URL_SCHEME)]
         CFBundleDocumentTypes:
           - CFBundleTypeName: File
             LSHandlerRank: Alternate
@@ -94,26 +116,30 @@ targets:
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.
         IsctGoogleClientID: $(ISCT_GOOGLE_IOS_CLIENT_ID)
-    entitlements:
-      path: IsctCompanion/IsctCompanion.entitlements
-      properties:
-        keychain-access-groups:
-          - $(AppIdentifierPrefix)app.isctcompanion
-        # The Mac app's CloudKit container (Core's `cloudkitRecord`).
-        com.apple.developer.icloud-container-identifiers:
-          - iCloud.app.isctcompanion
-        com.apple.developer.icloud-services:
-          - CloudKit
-        # Development-signed builds would otherwise use CloudKit's separate
-        # Development database and never see what the released Mac app wrote.
-        com.apple.developer.icloud-container-environment: Production
-        # The inbox the share extension writes (SharedInbox.swift).
-        com.apple.security.application-groups:
-          - group.app.isctcompanion
+    # The demo scene and the demo identifier come only together, as on the
+    # desktop (src-tauri/build.rs): the scene never ships under the real app.
+    preBuildScripts:
+      - name: Check the SDK's demo scene against the bundle id
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/../../bindings/swift/artifacts/sdk-build.json
+        script: |
+          demo=$(plutil -extract demo raw -o - "$SCRIPT_INPUT_FILE_0")
+          case "$PRODUCT_BUNDLE_IDENTIFIER" in *.demo) wanted=true ;; *) wanted=false ;; esac
+          if [ "$demo" != "$wanted" ]; then
+            echo "error: $PRODUCT_BUNDLE_IDENTIFIER needs an SDK with demo=$wanted (build-ios.mjs --demo builds the demo app's)"
+            exit 1
+          fi
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion
+        PRODUCT_BUNDLE_IDENTIFIER: $(ISCT_APP_ID)
         PRODUCT_NAME: IsctCompanion
+        # Kept as files, one per configuration: the keychain group, the Mac
+        # app's CloudKit container (Core's `cloudkitRecord`, in CloudKit's
+        # Production database even for development builds, which would
+        # otherwise never see what the released Mac app wrote) and the App
+        # Group of the share inbox (SharedInbox.swift).
+        CODE_SIGN_ENTITLEMENTS: IsctCompanion/IsctCompanion.entitlements
         MARKETING_VERSION: 1.0.0
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "5.0"
@@ -123,6 +149,12 @@ targets:
         ENABLE_PREVIEWS: true
         CODE_SIGN_STYLE: Automatic
         ISCT_GOOGLE_IOS_CLIENT_ID: 681098185092-eksknsk0j37gt4vnvq843m1f3tbmfjmv.apps.googleusercontent.com
+      configs:
+        # Only its keychain group: no iCloud container, as the demo workspace
+        # never reaches a cloud, and no App Group (see the extensions).
+        Demo:
+          CODE_SIGN_ENTITLEMENTS: IsctCompanion/IsctCompanion.demo.entitlements
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) ISCT_NO_ICLOUD
   IsctWidgetsExtension:
     type: app-extension
     platform: iOS
@@ -139,28 +171,28 @@ targets:
     info:
       path: build/IsctWidgetsExtension/Info.plist
       properties:
-        CFBundleDisplayName: IsctCompanion
+        CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
         CFBundleLocalizations: [en, ja, zh-Hans]
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
-        IsctWidgetGroup: $(ISCT_WIDGET_GROUP)
+        IsctWidgetGroup: $(ISCT_APP_GROUP)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
-    entitlements:
-      path: build/IsctWidgetsExtension/IsctWidgets.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - $(ISCT_WIDGET_GROUP)
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.widgetkit
+        PRODUCT_BUNDLE_IDENTIFIER: $(ISCT_APP_ID).widgetkit
+        CODE_SIGN_ENTITLEMENTS: IsctWidgetsExtension/IsctWidgets.entitlements
         MARKETING_VERSION: 1.0.0
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: "6.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         APPLICATION_EXTENSION_API_ONLY: YES
-        ISCT_WIDGET_GROUP: group.app.isctcompanion
+      configs:
+        # The demo app has no App Group (a Personal Team cannot provision
+        # one): its inbox and widget data stay empty.
+        Demo:
+          CODE_SIGN_ENTITLEMENTS: ""
   # Share extension: what is shared from another app goes to the app's inbox
   # in the App Group, optionally for an assignment picked in the sheet. It
   # never loads Core; the app hands the files in.
@@ -185,7 +217,8 @@ targets:
     info:
       path: IsctShare/Info.plist
       properties:
-        CFBundleDisplayName: IsctCompanion
+        CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
+        IsctWidgetGroup: $(ISCT_APP_GROUP)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -197,14 +230,10 @@ targets:
               NSExtensionActivationSupportsFileWithMaxCount: 32
               NSExtensionActivationSupportsImageWithMaxCount: 32
               NSExtensionActivationSupportsMovieWithMaxCount: 32
-    entitlements:
-      path: IsctShare/IsctShare.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.app.isctcompanion
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.share
+        PRODUCT_BUNDLE_IDENTIFIER: $(ISCT_APP_ID).share
+        CODE_SIGN_ENTITLEMENTS: IsctShare/IsctShare.entitlements
         PRODUCT_NAME: IsctShare
         MARKETING_VERSION: 1.0.0
         CURRENT_PROJECT_VERSION: 1
@@ -212,6 +241,11 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         APPLICATION_EXTENSION_API_ONLY: YES
+      configs:
+        # The demo app has no App Group (a Personal Team cannot provision
+        # one): its inbox and widget data stay empty.
+        Demo:
+          CODE_SIGN_ENTITLEMENTS: ""
   # Action extension: "Open in IsctCompanion" in the share sheet's actions.
   # Hands a selection to the app's assignment picker.
   IsctOpen:
@@ -226,7 +260,8 @@ targets:
     info:
       path: IsctOpen/Info.plist
       properties:
-        CFBundleDisplayName: Open in IsctCompanion
+        CFBundleDisplayName: Open in $(ISCT_DISPLAY_NAME)
+        IsctWidgetGroup: $(ISCT_APP_GROUP)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -239,14 +274,10 @@ targets:
               NSExtensionActivationSupportsFileWithMaxCount: 32
               NSExtensionActivationSupportsImageWithMaxCount: 32
               NSExtensionActivationSupportsMovieWithMaxCount: 32
-    entitlements:
-      path: IsctOpen/IsctOpen.entitlements
-      properties:
-        com.apple.security.application-groups:
-          - group.app.isctcompanion
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.isctcompanion.open
+        PRODUCT_BUNDLE_IDENTIFIER: $(ISCT_APP_ID).open
+        CODE_SIGN_ENTITLEMENTS: IsctOpen/IsctOpen.entitlements
         PRODUCT_NAME: IsctOpen
         MARKETING_VERSION: 1.0.0
         CURRENT_PROJECT_VERSION: 1
@@ -254,3 +285,8 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         APPLICATION_EXTENSION_API_ONLY: YES
+      configs:
+        # The demo app has no App Group (a Personal Team cannot provision
+        # one): its inbox and widget data stay empty.
+        Demo:
+          CODE_SIGN_ENTITLEMENTS: ""

@@ -342,12 +342,15 @@ impl Session {
     ) -> Result<Arc<Operation>, SdkError> {
         self.start(false, move |inner, _| async move {
             let workspace = inner.core.store.load_fields(&[])?;
-            if !app_core::app_updates::check_now(
-                &workspace,
-                last_checked.as_deref(),
-                app_core::clock::now(),
-                manual,
-            ) {
+            // The demo scene never offers an update.
+            if cfg!(feature = "demo")
+                || !app_core::app_updates::check_now(
+                    &workspace,
+                    last_checked.as_deref(),
+                    app_core::clock::now(),
+                    manual,
+                )
+            {
                 return Ok(OperationResult::AppUpdate {
                     checked: false,
                     release: None,

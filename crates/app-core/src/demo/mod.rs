@@ -1,8 +1,9 @@
 //! The website screenshot scene: a fictional second-year Computer Science
 //! student on Thursday 2026-07-23 at 10:20 JST, in 2026 2Q.
 //!
-//! Only a `demo` build (`yarn desktop:demo`, the separate debug app
-//! `app.isctcompanion.demo`) compiles this. Its clock starts at
+//! Only a `demo` build (`yarn desktop:demo` or the iOS `Demo`
+//! configuration, the separate debug app `app.isctcompanion.demo`) compiles
+//! this. Its clock starts at
 //! [`scene_start`] (`crate::clock`), its school accounts read as signed in
 //! from [`DemoVault`] while no school request is ever sent, and [`seed`]
 //! writes `scene.json` once, through the same ingest functions and intents a

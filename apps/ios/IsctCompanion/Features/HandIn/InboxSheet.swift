@@ -63,7 +63,7 @@ struct InboxSheet: View {
         if !available.isEmpty {
             Section(title) {
                 ForEach(available, id: \.assignmentId) { item in
-                    Button { give(to: item.assignmentId, title: item.title) } label: { DeadlineRow(item: item, now: Date()) }
+                    Button { give(to: item.assignmentId, title: item.title) } label: { DeadlineRow(item: item, now: AppClock.now) }
                         .buttonStyle(.plain)
                         .disabled(inbox.working)
                 }

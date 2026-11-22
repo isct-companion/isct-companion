@@ -20,10 +20,17 @@ if (process.platform !== "darwin")
   throw new Error("Building XCFrameworks requires Xcode");
 const profile = process.env.ISCT_SDK_PROFILE ?? "release";
 const ocr = !process.argv.includes("--no-ocr");
+// `--demo`: the screenshot scene for the iOS demo app, which only a debug
+// build carries (app-core refuses it in release). The Swift API is the same
+// either way; the app's build phase checks the scene and the demo identifier
+// come together (apps/ios/project.yml).
+const demo = process.argv.includes("--demo");
+if (demo && profile !== "dev")
+  throw new Error("--demo builds only with ISCT_SDK_PROFILE=dev");
 // The bindings are generated from the same features the library has, so the
 // campus map's records and calls are in the Swift package.
 const bindingFeatures = sdkFeatureArgs({ bindgen: true, ocr, campusMap: true });
-const targetFeatures = sdkFeatureArgs({ ocr, campusMap: true });
+const targetFeatures = sdkFeatureArgs({ ocr, campusMap: true, demo });
 run("cargo", [
   "build",
   "-p",
@@ -105,6 +112,7 @@ writeFileSync(
         .version,
       profile,
       ocr,
+      demo,
       minimumIos: iosDeploymentTarget,
     },
     null,
