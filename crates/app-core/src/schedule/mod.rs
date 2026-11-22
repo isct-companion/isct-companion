@@ -709,10 +709,8 @@ pub fn query(
             to,
             include_personal,
         } => {
-            let term = Term::parse(&term)?;
-            let term_id = term.to_string();
-            let overview = workspace_overview(workspace, school, &term_id)?;
-            let courses = overview.courses.clone();
+            let term = Term::parse(&term)?.to_string();
+            let overview = workspace_overview(workspace, school, &term)?;
             let agendas = range::calendar_between_with_personal(
                 workspace,
                 school,
@@ -720,12 +718,13 @@ pub fn query(
                 &to,
                 include_personal,
             )?;
+            let exams = exam_views(workspace, school, &term);
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
-                term: term.to_string(),
+                term,
                 range: overview.range,
-                courses,
+                courses: overview.courses,
                 agendas,
-                exams: exam_views(workspace, school, &term_id),
+                exams,
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
                 on_timetable_course_ids: overview.on_timetable_course_ids,
@@ -857,62 +856,67 @@ pub fn query(
     }
 }
 
-fn workspace_overview(
+struct WorkspaceTerms {
+    current: Term,
+    selected: String,
+    planning: String,
+    shown: Term,
+    available: Vec<String>,
+}
+
+fn workspace_terms(
     workspace: &Value,
     school: &SchoolReads,
-    term: &str,
-) -> Result<WorkspaceOverview, ScheduleError> {
-    let current_term = text(workspace, "currentTerm")
-        .or_else(|| (!term.is_empty()).then_some(term))
-        .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?
-        .to_owned();
-    let selected_term = text(workspace, "selectedTerm")
-        .unwrap_or(&current_term)
-        .to_owned();
-    let mut on_timetable_course_ids: Vec<String> = array(workspace, "memberships")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(|row| text(row, "courseId").map(str::to_owned))
-        .collect();
-    on_timetable_course_ids.extend(
-        array(workspace, "planItems")
-            .iter()
-            .filter(|row| visible(row))
-            .filter_map(|row| text(row, "courseId").map(str::to_owned)),
-    );
-    on_timetable_course_ids.sort();
-    on_timetable_course_ids.dedup();
-    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
-    let mut all_terms: Vec<String> = exams::exam_terms(workspace, school).into_iter().collect();
-    all_terms.extend(earned.keys().cloned());
-    all_terms.extend(
+    requested: &str,
+    graded_terms: impl IntoIterator<Item = String>,
+) -> Result<WorkspaceTerms, ScheduleError> {
+    let current = text(workspace, "currentTerm")
+        .or_else(|| (!requested.is_empty()).then_some(requested))
+        .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?;
+    let current_term = Term::parse(current)?;
+    let selected = text(workspace, "selectedTerm").unwrap_or(current);
+    let mut available = exams::exam_terms(workspace, school);
+    available.extend(graded_terms);
+    available.extend(
         array(workspace, "terms")
             .iter()
             .filter_map(Value::as_str)
             .map(str::to_owned),
     );
-    if !current_term.is_empty() {
-        all_terms.push(current_term.clone());
-    }
-    all_terms.sort();
-    all_terms.dedup();
+    available.insert(current.to_owned());
+    let planning = if available.contains(selected) {
+        selected
+    } else {
+        current
+    };
+    let shown = if requested.is_empty() { planning } else { requested };
+    Ok(WorkspaceTerms {
+        current: current_term,
+        selected: selected.into(),
+        planning: planning.into(),
+        shown: Term::parse(shown)?,
+        available: available.into_iter().collect(),
+    })
+}
+
+fn workspace_overview(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: &str,
+) -> Result<WorkspaceOverview, ScheduleError> {
+    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
+    let terms = workspace_terms(workspace, school, term, earned.keys().cloned())?;
+    let term = terms.shown.to_string();
+    let on_timetable_course_ids = course_scope::placements(workspace)
+        .filter_map(|row| text(row, "courseId").map(str::to_owned))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
     let colors = array(workspace, "courses")
         .iter()
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    let today_term = current_term.clone();
-    let courses_term = if all_terms.contains(&selected_term) {
-        selected_term.clone()
-    } else {
-        current_term.clone()
-    };
-    let term = if term.is_empty() {
-        courses_term.clone()
-    } else {
-        Term::parse(term)?.to_string()
-    };
-    Term::parse(&term)?;
     let courses = scheduled_courses(workspace, &term);
     let term_course_ids = course_scope::lecture_courses(workspace, Some(&term))
         .into_iter()
@@ -924,8 +928,9 @@ fn workspace_overview(
         .filter_map(|row| text(row, "courseId").map(str::to_owned))
         .collect();
     let declared_credits = declared_term_credits(array(workspace, "registrations"), &term)?;
-    let current = Term::parse(&current_term)?;
-    let selected = Term::parse(&term)?;
+    let current = terms.current;
+    let current_term = current.to_string();
+    let selected = terms.shown;
     let current_semester =
         current.year == selected.year && (current.quarter - 1) / 2 == (selected.quarter - 1) / 2;
     let term_credits = if current_semester {
@@ -939,11 +944,10 @@ fn workspace_overview(
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))
             .sum()
     });
-    let planned = Term::parse(&term)?;
-    let mut default_finder_keys = vec![if term == current_term {
+    let mut default_finder_keys = vec![if selected == current {
         "curr".into()
     } else {
-        format!("{}Q", planned.quarter)
+        format!("{}Q", selected.quarter)
     }];
     let department_id = workspace
         .pointer("/settings/departmentId")
@@ -960,10 +964,10 @@ fn workspace_overview(
     }
     Ok(WorkspaceOverview {
         term: term.clone(),
+        today_term: current_term.clone(),
         current_term,
-        selected_term,
-        today_term,
-        courses_term,
+        selected_term: terms.selected,
+        courses_term: terms.planning,
         range: calendar::quarter_range(workspace, &term)?,
         courses,
         term_course_ids,
@@ -972,7 +976,7 @@ fn workspace_overview(
         colors,
         enrolled_course_ids,
         on_timetable_course_ids,
-        all_terms,
+        all_terms: terms.available,
         default_finder_keys,
     })
 }

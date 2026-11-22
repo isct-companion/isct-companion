@@ -2,13 +2,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::{
-    add_days, exam_views, range::calendar_between_with_personal, text, today::at, tokyo_date,
-    workspace_overview, ExamView, OccurrenceKind, ScheduleError, SchoolReads,
+    add_days, array, course_scope::lecture_courses, credits::earned_credits_by_term, exam_views,
+    range::calendar_between_with_personal, text, today::at, tokyo_date, workspace_terms, ExamView,
+    OccurrenceKind, ScheduleError, SchoolReads,
 };
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
@@ -48,7 +49,9 @@ pub(super) fn lecture_list(
     term: &str,
     now: DateTime<FixedOffset>,
 ) -> Result<LectureList, ScheduleError> {
-    let overview = workspace_overview(workspace, school, term)?;
+    let graded_terms = earned_credits_by_term(array(workspace, "grades")).into_keys();
+    let terms = workspace_terms(workspace, school, term, graded_terms)?;
+    let term = terms.shown.to_string();
     let date = tokyo_date(now);
     let agendas =
         calendar_between_with_personal(workspace, school, &date, &add_days(&date, 7)?, false)?;
@@ -57,7 +60,7 @@ pub(super) fn lecture_list(
         for block in day.occurrences.into_iter().filter(|block| {
             block.is_active_class()
                 && block.kind == OccurrenceKind::Course
-                && block.term_id.as_deref() == Some(term)
+                && block.term_id.as_deref() == Some(term.as_str())
         }) {
             for slot in block.course_slots() {
                 if now
@@ -86,21 +89,15 @@ pub(super) fn lecture_list(
             }
         }
     }
-    let ids: HashSet<_> = overview
-        .term_course_ids
-        .iter()
-        .map(String::as_str)
-        .collect();
-    let mut courses: Vec<_> = super::array(workspace, "courses")
-        .iter()
-        .filter(|course| {
-            super::visible(course) && text(course, "id").is_some_and(|id| ids.contains(id))
-        })
-        .map(|course| LectureCourse {
-            id: text(course, "id").unwrap_or_default().into(),
-            title: text(course, "title").unwrap_or_default().into(),
-            code: text(course, "code").unwrap_or_default().into(),
-            color: super::display_color(course),
+    let mut courses: Vec<_> = lecture_courses(workspace, Some(&term))
+        .into_iter()
+        .filter_map(|course| {
+            Some(LectureCourse {
+                id: text(course, "id")?.into(),
+                title: text(course, "title").unwrap_or_default().into(),
+                code: text(course, "code").unwrap_or_default().into(),
+                color: super::display_color(course),
+            })
         })
         .collect();
     courses.sort_by_cached_key(|course| {
@@ -115,7 +112,7 @@ pub(super) fn lecture_list(
     Ok(LectureList {
         courses,
         next_by_course: next,
-        exams: exam_views(workspace, school, term),
-        all_terms: overview.all_terms,
+        exams: exam_views(workspace, school, &term),
+        all_terms: terms.available,
     })
 }
