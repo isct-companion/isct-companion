@@ -392,12 +392,6 @@ impl SchoolBrowserEngine {
         surface: &str,
         entry: SchoolWebEntry,
     ) -> Result<SchoolWebResult, SchoolBrowserError> {
-        // The demo scene never loads a school page.
-        if cfg!(feature = "demo") {
-            return Err(SchoolBrowserError::Platform(
-                "The demo has no school web.".into(),
-            ));
-        }
         let (view, current, presenter) = {
             let state = self.0.state.guard();
             let view = state.views.get(&site);
@@ -801,6 +795,13 @@ impl SchoolBrowserEngine {
         site: SchoolSite,
         initial: Url,
     ) -> Result<BrowserId, SchoolBrowserError> {
+        // The demo scene never loads a school page: every way to one (open,
+        // the address bar, a sign-in) creates its view here first.
+        if cfg!(feature = "demo") {
+            return Err(SchoolBrowserError::Platform(
+                "The demo has no school web.".into(),
+            ));
+        }
         let created = {
             let mut state = self.0.state.guard();
             if self.0.sessions.web_cleanup_pending() {

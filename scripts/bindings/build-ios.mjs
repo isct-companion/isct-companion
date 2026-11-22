@@ -98,6 +98,10 @@ for (const triple of triples) {
 const artifacts = join(root, "bindings/swift/artifacts");
 mkdirSync(artifacts, { recursive: true });
 const framework = join(artifacts, "IsctCore.xcframework");
+// The marker says which scene the library holds (the Xcode build checks it):
+// gone until the new library is in place, so a build stopped halfway leaves
+// none rather than a stale one.
+rmSync(join(artifacts, "sdk-build.json"), { force: true });
 rmSync(framework, { recursive: true, force: true });
 run("xcodebuild", ["-create-xcframework", ...options, "-output", framework]);
 copyFileSync(

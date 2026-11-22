@@ -1,4 +1,7 @@
 //! Native client for the ScienceTokyoExam sharing service.
+// A demo build answers every action from its scene (`demo`), which leaves
+// this client unused there.
+#![cfg_attr(feature = "demo", allow(dead_code))]
 mod cache;
 mod client;
 #[cfg(feature = "demo")]

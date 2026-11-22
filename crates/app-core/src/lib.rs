@@ -1,7 +1,4 @@
 //! Shared domain rules and state, independent of UI and platform frameworks.
-// A demo build answers past exams and school reads from its scene, which
-// leaves the real clients unused there; release builds keep the lint.
-#![cfg_attr(feature = "demo", allow(dead_code))]
 #![cfg_attr(
     not(test),
     deny(
@@ -41,6 +38,10 @@ pub mod deadlines;
 compile_error!("the `demo` feature is for debug builds only");
 #[cfg(feature = "demo")]
 pub mod demo;
+/// Whether this Core is the demo scene's. Each shell asserts at compile time
+/// that it matches its own `demo` feature, so Cargo cannot switch the scene
+/// on in Core alone (its clock and school gates) under a normal app's data.
+pub const DEMO: bool = cfg!(feature = "demo");
 pub mod diagnostics;
 pub mod download_names;
 pub mod downloads;

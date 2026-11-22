@@ -651,7 +651,9 @@ impl Downloader {
         }))
     }
 
-    /// The school sessions downloads read with. Set once, by Core.
+    /// The school sessions downloads read with. Set once, by Core; never in
+    /// a demo build, whose course files are all on disk already.
+    #[cfg_attr(feature = "demo", allow(dead_code))]
     pub(crate) fn attach_sessions(&self, sessions: SchoolSessions) {
         let _ = self.0.sessions.set(sessions);
     }

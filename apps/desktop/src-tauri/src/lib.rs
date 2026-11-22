@@ -2,6 +2,12 @@
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 compile_error!("The IsctCompanion desktop app is built for macOS and Windows only (AGENTS.md).");
+// The demo scene runs only as the demo app: `build.rs` ties this crate's
+// `demo` feature to the demo identifier, and this ties Core's to this one.
+const _: () = assert!(
+    app_core::DEMO == cfg!(feature = "demo"),
+    "app-core's `demo` feature must match the desktop app's"
+);
 
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -110,7 +116,7 @@ fn require_bundled_origin(webview: &tauri::Webview) -> Result<(), CommandError> 
     let trusted = packaged
         || (url.scheme() == "http"
             && url.host_str() == Some("localhost")
-            && url.port() == Some(4173));
+            && url.port().map(|port| port.to_string()).as_deref() == Some(DEV_PORT));
     #[cfg(not(debug_assertions))]
     let trusted = packaged;
     if !trusted {
@@ -119,11 +125,17 @@ fn require_bundled_origin(webview: &tauri::Webview) -> Result<(), CommandError> 
     Ok(())
 }
 
+/// The Vite dev server's port for this build (`build.rs`, from
+/// `scripts/desktop/tauri.mjs`).
+#[cfg(debug_assertions)]
+const DEV_PORT: &str = env!("ISCT_DEV_PORT");
+
 /// Where a window of the bundled application loads it from.
 #[cfg(dev)]
 fn app_url() -> WebviewUrl {
     WebviewUrl::External(
-        tauri::Url::parse("http://localhost:4173").expect("the local Vite URL is valid"),
+        tauri::Url::parse(&format!("http://localhost:{DEV_PORT}"))
+            .expect("the local Vite URL is valid"),
     )
 }
 
@@ -432,13 +444,13 @@ pub fn run() {
             app.manage(DesktopCloudService::new(vault.clone()).map_err(std::io::Error::other)?);
             // The demo scene's school accounts live in memory only.
             #[cfg(feature = "demo")]
-            let school_vault = app_core::demo::DemoVault::default();
+            let school_auth = SchoolAuthService::demo().map_err(std::io::Error::other)?;
             #[cfg(not(feature = "demo"))]
-            let school_vault = vault.clone();
-            app.manage(std::sync::Arc::new(SchoolAuthService::with_status_cache(
-                school_vault,
+            let school_auth = SchoolAuthService::with_status_cache(
+                vault.clone(),
                 app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
-            )));
+            );
+            app.manage(std::sync::Arc::new(school_auth));
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
                 app.state::<std::sync::Arc<SchoolAuthService>>()

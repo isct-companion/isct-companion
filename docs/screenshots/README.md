@@ -36,18 +36,35 @@ keeps the full-size captures in `screenshots/{ja,zh,en}/`.
   department, course colours and weekly events, then the items Today lists as
   new. Exams, the academic calendar and department recommendations download
   from the public Isct-Data as usual.
-- **No school network.** Both school accounts read as connected from an
-  in-memory vault (`DemoVault`); sign-ins end offline before sending anything,
-  the planner never schedules a school read, the school web refuses to open,
-  cloud sync supports no provider, and the update check never runs. Past exams
-  answer from the scene (`exam_share/demo.rs`); every document opens
-  `sample-exam.pdf`, printed from `sample-exam.html`:
+- **No network but public Isct-Data.** Every HTTP client in Core and the
+  desktop shell is built by `app_core::net::client_builder`; in a demo build
+  it uses no proxy and a resolver that answers only Isct-Data's host
+  (`demo::network_gate`), so school, cloud, update and campus requests fail
+  before connecting, whatever path makes them. On top of that: both school
+  accounts read as connected from an in-memory vault
+  (`SchoolAuthService::demo`, its status kept in memory too); sign-ins end
+  offline; the planner never schedules a school read; no school web view is
+  ever created (`ensure_browser`); syllabus links are empty; cloud sync
+  supports no provider and refuses one before any sign-in; the desktop
+  build has no campus tools (printer, Wi-Fi, VPN). Past exams answer from the
+  scene (`exam_share/demo.rs`); every document opens `sample-exam.pdf`,
+  printed from `sample-exam.html`:
   `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=sample-exam.pdf sample-exam.html`.
+- **Beside the other apps.** The desktop demo keeps its course files in its
+  own data folder (no other folder can be chosen), listens on its own MCP
+  port (47834) and serves its hot-reload page on its own Vite port (4174), so
+  it runs next to the dev and release apps.
+- **Guards.** `app_core::DEMO` says whether Core was built with the scene;
+  the desktop crate and `app-ffi` assert at compile time that it matches
+  their own `demo` feature, the desktop `build.rs` ties that feature to the
+  demo identifier, and the iOS build phase ties the `Demo` configuration, a
+  `.demo` bundle id and the SDK's marker together.
 
 Change the scene by editing `scene.json` (the payloads are Core's own:
 `LmsEnrolment`, `LmsCourseContent`, `LmsDeadlines`, `WorkspaceIntent`,
 `ExamSubjectPage`), then delete the demo data folder so the next launch seeds
-it again. A seeded store is left as it is.
+it again. A complete seed is left as it is; a launch that finds a seed cut
+short refuses to start and names the folder to delete.
 
 ## Running it
 

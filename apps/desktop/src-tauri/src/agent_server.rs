@@ -41,7 +41,15 @@ use tauri::Manager;
 use tokio::sync::{Mutex, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-const PORT: u16 = if cfg!(isolated_dev) { 47_833 } else { 47_832 };
+/// The release, dev and demo apps each listen on their own port, so any two
+/// run side by side.
+const PORT: u16 = if cfg!(feature = "demo") {
+    47_834
+} else if cfg!(isolated_dev) {
+    47_833
+} else {
+    47_832
+};
 const MAX_REQUEST: usize = 64 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(65);
 const MAX_CONCURRENT_REQUESTS: usize = 8;

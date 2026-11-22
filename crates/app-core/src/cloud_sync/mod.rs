@@ -375,6 +375,18 @@ impl CloudSync {
         enabled: bool,
         sign_in: &dyn CloudSignIn,
     ) -> Result<SyncState, CloudSyncError> {
+        // Before any sign-in: a provider this build cannot sync never asks
+        // the person to authorize it.
+        if !self
+            .state()?
+            .providers
+            .iter()
+            .any(|row| row.provider == provider)
+        {
+            return Err(CloudSyncError::Compatibility(
+                "Unsupported sync provider".into(),
+            ));
+        }
         // Outside the task scope: a person may take minutes to sign in, and
         // shutdown has nothing to wait for in a half-finished sign-in.
         if enabled && provider == CloudProvider::GoogleDrive && !sign_in.signed_in(provider)? {
@@ -524,16 +536,6 @@ impl CloudSync {
         provider: CloudProvider,
         enabled: bool,
     ) -> Result<SyncState, CloudSyncError> {
-        if !self
-            .state()?
-            .providers
-            .iter()
-            .any(|row| row.provider == provider)
-        {
-            return Err(CloudSyncError::Compatibility(
-                "Unsupported sync provider".into(),
-            ));
-        }
         let _run = self.0.run.lock().await;
         if !enabled {
             services.transport.disconnect(provider)?;

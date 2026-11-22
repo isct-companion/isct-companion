@@ -6,3 +6,6 @@ crates/app-core/tests/fixtures/subscriptions/** text eol=lf
 crates/adpt-printer/assets/*.PPD -text
 # Built by `yarn markdown-viewer` and bundled by the Android and iOS apps.
 resources/markdown-viewer/* text eol=lf linguist-generated=true
+# Compiled in byte for byte (include_bytes!): a line-ending checkout would
+# break the PDFs' cross-reference offsets.
+*.pdf binary

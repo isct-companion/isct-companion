@@ -11,6 +11,13 @@
     )
 )]
 uniffi::setup_scaffolding!();
+// The demo scene runs only in the demo SDK: Core's `demo` feature must come
+// through this crate's own, which the iOS demo build checks against its
+// configuration.
+const _: () = assert!(
+    app_core::DEMO == cfg!(feature = "demo"),
+    "app-core's `demo` feature must match app-ffi's"
+);
 #[cfg(target_os = "android")]
 mod android_tls;
 mod campus_print;

@@ -806,11 +806,10 @@ async fn initialize(
         let (store, _) = DataStore::initialize_dir(data.clone())?;
         // The demo scene's school accounts live in memory only.
         #[cfg(feature = "demo")]
-        let school_vault = app_core::demo::DemoVault::default();
+        let auth = Arc::new(SchoolAuthService::demo()?);
         #[cfg(not(feature = "demo"))]
-        let school_vault = Vault(vault);
         let auth = Arc::new(SchoolAuthService::with_status_cache(
-            school_vault,
+            Vault(vault),
             data.join("school-credential-status.json"),
         ));
         // A provider runs only with its store: iCloud needs `NativeCloud`,

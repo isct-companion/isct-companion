@@ -496,8 +496,19 @@ impl Core {
         service.act(action, cancel, &self.store).await
     }
 
+    /// The demo scene keeps no downloads: its sample exam is always at hand.
+    #[cfg(feature = "demo")]
+    pub async fn retain_open_exam(
+        &self,
+        _id: &str,
+        _path: &std::path::Path,
+    ) -> Result<bool, crate::exam_share::ExamError> {
+        Ok(false)
+    }
+
     /// Keep the already opened exam version for offline use, without contacting
     /// the service. Returns whether the download list changed.
+    #[cfg(not(feature = "demo"))]
     pub async fn retain_open_exam(
         &self,
         id: &str,
@@ -510,9 +521,20 @@ impl Core {
         service.retain_open_copy(id, path).await
     }
 
+    /// The demo scene's documents export under their own file names.
+    #[cfg(feature = "demo")]
+    pub async fn open_exam_export_name(
+        &self,
+        id: &str,
+        _path: &std::path::Path,
+    ) -> Result<String, crate::exam_share::ExamError> {
+        crate::exam_share::demo::export_name(id)
+    }
+
     /// The file name a copy of the opened exam version is exported under:
     /// the uploader's name, with the validated type's suffix when its own
     /// extension is not one that type allows.
+    #[cfg(not(feature = "demo"))]
     pub async fn open_exam_export_name(
         &self,
         id: &str,

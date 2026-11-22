@@ -22,7 +22,17 @@ pub enum CatalogError {
 }
 
 use adpt_isct::urls::SYLLABUS_ORIGIN;
-pub use adpt_isct::urls::{syllabus_url, KYOMU_SEARCH_PATH};
+pub use adpt_isct::urls::KYOMU_SEARCH_PATH;
+
+/// The school's シラバス page of one offering (`adpt_isct::urls::syllabus_url`),
+/// which the shells frame as given. None in the demo scene: its offerings are
+/// made up, and its frames never load a school page.
+pub fn syllabus_url(offering_id: &str, language: &str) -> String {
+    if cfg!(feature = "demo") {
+        return String::new();
+    }
+    adpt_isct::urls::syllabus_url(offering_id, language)
+}
 
 /// The offering a シラバス link names, by its `jwc` query value or its last
 /// path segment; `None` for any other link.

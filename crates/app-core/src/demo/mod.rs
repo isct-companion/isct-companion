@@ -5,10 +5,11 @@
 //! configuration, the separate debug app `app.isctcompanion.demo`) compiles
 //! this. Its clock starts at
 //! [`scene_start`] (`crate::clock`), its school accounts read as signed in
-//! from [`DemoVault`] while no school request is ever sent, and [`seed`]
-//! writes `scene.json` once, through the same ingest functions and intents a
-//! real sync and real edits use. Course codes, the calendar and exams are
-//! public; everything personal (names, notes, past-exam files) is made up.
+//! (`SchoolAuthService::demo`), its HTTP clients reach only public Isct-Data
+//! ([`network_gate`]), and [`seed`] writes `scene.json` once, through the
+//! same ingest functions and intents a real sync and real edits use. Course
+//! codes, the calendar and exams are public; everything personal (names,
+//! notes, past-exam files) is made up.
 
 use crate::course_materials::{course_folder, material_path};
 use crate::data::{DataError, DataStore, WorkspaceChangeSource};
@@ -88,27 +89,45 @@ pub(crate) fn scene() -> Result<&'static Scene, String> {
         .map_err(Clone::clone)
 }
 
-/// The school accounts' vault: both accounts saved with fictional
-/// credentials, held in memory only. Sign-ins never run (`SchoolSessions`
-/// stays offline), so the accounts read as connected without a request.
-pub struct DemoVault(Mutex<HashMap<String, String>>);
+/// Hosts the demo's HTTP clients may resolve: public Isct-Data only.
+const PUBLIC_HOSTS: [&str; 1] = [crate::net::Host::IsctData.name()];
 
-impl Default for DemoVault {
-    fn default() -> Self {
-        let accounts = json!({"version": 1, "accounts": {
-            "science": {"username": "demo.student", "password": "demo",
-                        "otpSecret": "JBSWY3DPEHPK3PXP", "matrix": ""},
-            "tokyo-tech": {"username": "25B00000", "password": "demo", "otpSecret": "",
-                           "matrix": "A".repeat(70)},
-        }});
-        Self(Mutex::new(HashMap::from([(
-            "school-accounts".to_owned(),
-            accounts.to_string(),
-        )])))
+/// Every client `crate::net::client_builder` makes in a demo build: no proxy
+/// (a proxy would resolve names itself), and a resolver that refuses every
+/// name but [`PUBLIC_HOSTS`], so no school, cloud, update or campus request
+/// leaves the process, whichever path builds it. Every school and cloud URL
+/// in the app is a name, never an address literal.
+pub(crate) fn network_gate(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    builder
+        .no_proxy()
+        .dns_resolver(std::sync::Arc::new(PublicOnly))
+}
+
+struct PublicOnly;
+
+impl reqwest::dns::Resolve for PublicOnly {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_owned();
+        Box::pin(async move {
+            if !PUBLIC_HOSTS.contains(&host.as_str()) {
+                return Err(format!("the demo does not reach {host}").into());
+            }
+            let addrs = tokio::task::spawn_blocking(move || {
+                std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), 0))
+                    .map(|addrs| addrs.collect::<Vec<_>>())
+            })
+            .await??;
+            Ok(Box::new(addrs.into_iter()) as reqwest::dns::Addrs)
+        })
     }
 }
 
-impl SecretVault for DemoVault {
+/// A vault that lives as long as the process: the demo's school accounts
+/// and their status markers (`SchoolAuthService::demo`).
+#[derive(Default)]
+pub(crate) struct MemoryVault(Mutex<HashMap<String, String>>);
+
+impl SecretVault for MemoryVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
         self.items()?.insert(account.to_owned(), secret.to_owned());
         Ok(())
@@ -124,7 +143,7 @@ impl SecretVault for DemoVault {
     }
 }
 
-impl DemoVault {
+impl MemoryVault {
     fn items(&self) -> Result<std::sync::MutexGuard<'_, HashMap<String, String>>, SecretError> {
         self.0
             .lock()
@@ -132,18 +151,30 @@ impl DemoVault {
     }
 }
 
-/// Writes the scene into a store that does not hold it yet; the course
-/// files and notes go under `course_root`. A second launch finds the LMS
-/// enrolment stored and leaves everything as the last session left it.
+/// Written into the store's folder once the whole scene is in place.
+const SEEDED_MARKER: &str = "demo-scene-seeded";
+
+/// Writes the scene into an empty store; the course files and notes go
+/// under `course_root`. A launch after a complete seed leaves everything as
+/// the last session left it. A seed that stopped halfway (the app quit, the
+/// disk filled) is refused, not resumed: start over by deleting the demo's
+/// data folder.
 pub fn seed(core: &Core, course_root: &Path) -> Result<(), String> {
     let scene = scene()?;
     let store = &core.store;
-    let seeded = store
+    let marker = store.paths().root().join(SEEDED_MARKER);
+    if marker.exists() {
+        return Ok(());
+    }
+    let started = store
         .write(None, |tx| sync_state::get(tx, &Key::lms_enrolment()))
         .map_err(text)?
         .is_some();
-    if seeded {
-        return Ok(());
+    if started {
+        return Err(format!(
+            "an earlier launch stopped before the scene was complete; delete {} to start over",
+            store.paths().root().display()
+        ));
     }
     store.catalog_upsert_offerings(&scene.offerings).map_err(text)?;
     school_pull(store, |tx| {
@@ -197,6 +228,7 @@ pub fn seed(core: &Core, course_root: &Path) -> Result<(), String> {
             .save(store, folder, String::new(), note.text.clone())
             .map_err(text)?;
     }
+    std::fs::write(&marker, b"").map_err(text)?;
     Ok(())
 }
 

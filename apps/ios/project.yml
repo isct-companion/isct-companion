@@ -71,6 +71,7 @@ targets:
         CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
         # The app's one App Group: widget data and the share inbox.
         IsctWidgetGroup: $(ISCT_APP_GROUP)
+        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleDevelopmentRegion: en
         # System UI (share sheet, photo picker) follows these; the app's own
         # text follows settings.locale.
@@ -116,18 +117,25 @@ targets:
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.
         IsctGoogleClientID: $(ISCT_GOOGLE_IOS_CLIENT_ID)
-    # The demo scene and the demo identifier come only together, as on the
-    # desktop (src-tauri/build.rs): the scene never ships under the real app.
+    # The demo scene, the Demo configuration and the demo identifier come
+    # only together, as on the desktop (src-tauri/build.rs): the scene never
+    # ships under the real app, and the Demo configuration never installs
+    # over it. The SDK's mode is the marker build-ios.mjs writes after the
+    # library (it deletes the marker first, so a half-done build has none).
     preBuildScripts:
-      - name: Check the SDK's demo scene against the bundle id
+      - name: Check the SDK's demo scene against the configuration and bundle id
         basedOnDependencyAnalysis: false
         inputFiles:
           - $(SRCROOT)/../../bindings/swift/artifacts/sdk-build.json
         script: |
-          demo=$(plutil -extract demo raw -o - "$SCRIPT_INPUT_FILE_0")
-          case "$PRODUCT_BUNDLE_IDENTIFIER" in *.demo) wanted=true ;; *) wanted=false ;; esac
-          if [ "$demo" != "$wanted" ]; then
-            echo "error: $PRODUCT_BUNDLE_IDENTIFIER needs an SDK with demo=$wanted (build-ios.mjs --demo builds the demo app's)"
+          demo=$(plutil -extract demo raw -o - "$SCRIPT_INPUT_FILE_0") || {
+            echo "error: no SDK build marker; run build-ios.mjs again"
+            exit 1
+          }
+          if [ "$CONFIGURATION" = Demo ]; then wanted=true; else wanted=false; fi
+          case "$PRODUCT_BUNDLE_IDENTIFIER" in *.demo) named=true ;; *) named=false ;; esac
+          if [ "$demo" != "$wanted" ] || [ "$named" != "$wanted" ]; then
+            echo "error: $CONFIGURATION ($PRODUCT_BUNDLE_IDENTIFIER) needs demo=$wanted for both the SDK (now $demo) and a .demo bundle id (now $named); build-ios.mjs --demo builds the Demo configuration's SDK"
             exit 1
           fi
     settings:
@@ -176,6 +184,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
+        IsctURLScheme: $(ISCT_URL_SCHEME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -219,6 +228,7 @@ targets:
       properties:
         CFBundleDisplayName: $(ISCT_DISPLAY_NAME)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
+        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -257,11 +267,14 @@ targets:
         buildPhase: resources
       - path: ExtensionShared
       - path: IsctCompanion/Shared/SharedInbox.swift
+    dependencies:
+      - package: IsctWidgets
     info:
       path: IsctOpen/Info.plist
       properties:
         CFBundleDisplayName: Open in $(ISCT_DISPLAY_NAME)
         IsctWidgetGroup: $(ISCT_APP_GROUP)
+        IsctURLScheme: $(ISCT_URL_SCHEME)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:

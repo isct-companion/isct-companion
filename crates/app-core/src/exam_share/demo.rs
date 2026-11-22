@@ -63,14 +63,10 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
                 .collect(),
         ),
         ExamAction::Open { id, .. } => {
-            let document = pages
-                .iter()
-                .flat_map(|page| &page.sets)
-                .flat_map(|set| &set.documents)
-                .find(|document| document.id == id)
-                .cloned()
-                .ok_or(ExamError::NotFound)?;
-            let folder = store.paths().root().join("demo-past-exams");
+            let document = document(pages, &id)?;
+            // Under the past-exam files' root, where the shells' open and
+            // save-copy actions look for them.
+            let folder = store.paths().root().join("exam-share").join("demo");
             std::fs::create_dir_all(&folder).map_err(|_| ExamError::Storage)?;
             let path = folder.join(format!("{id}.pdf"));
             std::fs::write(&path, crate::demo::SAMPLE_EXAM_PDF).map_err(|_| ExamError::Storage)?;
@@ -83,7 +79,7 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
                 export_name: document.file_name.clone(),
                 document,
                 path: path.to_string_lossy().into_owned(),
-                downloaded: false,
+                downloaded: true,
                 saved: Some(false),
                 offline: false,
                 web_url: WEB_URL.into(),
@@ -104,4 +100,22 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
         }),
         _ => return Err(ExamError::Unavailable),
     })
+}
+
+fn document(pages: &[ExamSubjectPage], id: &str) -> Result<ExamDocument, ExamError> {
+    pages
+        .iter()
+        .flat_map(|page| &page.sets)
+        .flat_map(|set| &set.documents)
+        .find(|document| document.id == id)
+        .cloned()
+        .ok_or(ExamError::NotFound)
+}
+
+/// The name a saved copy of a scene document takes: its own file name.
+pub(crate) fn export_name(id: &str) -> Result<String, ExamError> {
+    let pages = &crate::demo::scene()
+        .map_err(|_| ExamError::Unavailable)?
+        .past_exams;
+    Ok(document(pages, id)?.file_name)
 }
