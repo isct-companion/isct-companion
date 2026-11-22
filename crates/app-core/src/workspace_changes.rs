@@ -239,7 +239,7 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     ("manual_courses", &[Courses], Owner::User),
     ("manual_memberships", &[Courses], Owner::User),
     ("course_overrides", &[Courses], Owner::User),
-    ("course_keys", &[Courses], Owner::User),
+    ("course_keys", &[Courses, Plans], Owner::User),
     ("merged_rows", &[Courses], Owner::Cache),
     ("merge_state", &[], Owner::Cache),
     ("lms_items", &[Materials], Owner::Cache),

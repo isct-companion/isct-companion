@@ -345,16 +345,17 @@ impl CloudTransport for FakeTransport {
         })
     }
 
-    fn version_document<'a>(
+    fn restore_documents<'a>(
         &'a self,
         _provider: CloudProvider,
         _revision: u64,
-    ) -> CloudFuture<'a, Value> {
+    ) -> CloudFuture<'a, (Value, Value)> {
         Box::pin(async move {
             self.remote
                 .lock()
                 .map_err(|_| CloudSyncError::Transport("Fake transport lock unavailable".into()))?
                 .clone()
+                .map(|remote| (remote.clone(), remote))
                 .ok_or_else(|| CloudSyncError::Transport("version missing".into()))
         })
     }
@@ -1032,16 +1033,115 @@ async fn pending_apply_survives_journal_failure_and_replays() {
 }
 
 #[tokio::test]
-async fn invalid_restore_is_compatibility_error_before_local_mutation() {
-    let fixture = Fixture::new("invalid-restore");
+async fn file_restore_works_offline_and_validates_before_local_mutation() {
+    let fixture = Fixture::with("offline-file-restore", &[], None);
     fixture.add_event("keep");
+    let saved = fixture.backup.snapshot().unwrap();
+    fixture.add_event("extra");
     let error = fixture
         .sync
         .restore_document(fixture.services(), json!({"not":"a backup"}))
         .await
         .unwrap_err();
     assert!(matches!(error, CloudSyncError::Compatibility(_)));
-    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
+    assert_eq!(fixture.titles(), ["extra", "keep"]);
+    fixture
+        .sync
+        .restore_document(fixture.services(), saved)
+        .await
+        .unwrap();
+    assert_eq!(fixture.titles(), ["keep"]);
+}
+
+#[tokio::test]
+async fn history_restore_writes_above_unseen_cloud_edits_using_local_course_keys() {
+    let drive = CloudProvider::GoogleDrive;
+    let clouds = Arc::new(MemoryClouds::default());
+    let origin = Fixture::on("history-origin", &[drive], &clouds);
+    let restoring = Fixture::on("history-restore", &[drive], &clouds);
+    let course = |fixture: &Fixture| {
+        let mut connection = fixture.store.test_connection();
+        let transaction = connection.transaction().unwrap();
+        let id = crate::data::resolve_course_id(
+            &transaction,
+            "lms",
+            "42",
+            2026,
+            Some("202602440"),
+        )
+        .unwrap();
+        transaction.commit().unwrap();
+        id
+    };
+    let origin_target = format!("{}-weekly-0-2026-10-05", course(&origin));
+    let restoring_target = format!("{}-weekly-0-2026-10-05", course(&restoring));
+    assert_ne!(origin_target, restoring_target);
+    let first = origin
+        .store
+        .put_user_record(
+            "schedule_overrides",
+            json!({"targetKey":origin_target,"targetKind":"course","mark":"exam","hidden":false}),
+        )
+        .unwrap();
+    let id = first["id"].as_str().unwrap();
+    origin
+        .sync
+        .sync(origin.services(), Direction::Upload)
+        .await
+        .unwrap();
+    origin.add_event("added after the snapshot");
+    origin
+        .sync
+        .sync(origin.services(), Direction::Upload)
+        .await
+        .unwrap();
+    let state = restoring
+        .sync
+        .sync(restoring.services(), Direction::Pull)
+        .await
+        .unwrap();
+    let selected = state.versions.first().unwrap().id.clone();
+
+    origin.store.delete_user_record("schedule_overrides", id).unwrap();
+    for mark in ["cancelled", "class", "quiz"] {
+        origin
+            .store
+            .put_user_record(
+                "schedule_overrides",
+                json!({"id":"later-mark","targetKey":origin_target,"targetKind":"course","mark":mark,"hidden":false}),
+            )
+            .unwrap();
+    }
+    origin
+        .sync
+        .sync(origin.services(), Direction::Upload)
+        .await
+        .unwrap();
+
+    // This device still has the selected mark unchanged. The provider has
+    // since deleted it and stored a separate edit of the same occurrence.
+    let before = restoring.store.load_workspace().unwrap();
+    assert_eq!(before["scheduleOverrides"][0]["targetKey"], restoring_target);
+    assert_eq!(before["scheduleOverrides"][0]["mark"], "exam");
+    restoring.sync.restore(restoring.services(), selected).await.unwrap();
+
+    let local = restoring.store.load_workspace().unwrap();
+    assert_eq!(local["scheduleOverrides"].as_array().unwrap().len(), 1);
+    let restored = &local["scheduleOverrides"][0];
+    assert_eq!(restored["id"], id);
+    assert_eq!(restored["targetKey"], restoring_target);
+    assert_eq!(restored["mark"], "exam");
+    assert!(restored["deletedAt"].is_null());
+    assert!(restoring.titles().is_empty());
+
+    let uploaded = clouds.document(drive);
+    let rows = uploaded["tables"]["schedule_overrides"].as_array().unwrap();
+    let restored = rows.iter().find(|row| row["id"] == id).unwrap();
+    assert_eq!(restored["targetKey"], "offering:2026:202602440-weekly-0-2026-10-05");
+    assert!(restored["deletedAt"].is_null());
+    let later = rows.iter().find(|row| row["id"] == "later-mark").unwrap();
+    assert!(later["deletedAt"].is_string());
+    assert!(cloud_merge::compare(restored, later).is_gt());
 }
 
 #[tokio::test]

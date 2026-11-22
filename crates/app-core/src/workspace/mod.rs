@@ -11,7 +11,11 @@ mod courses;
 pub(crate) use calendar::set_assignment_mark;
 use calendar::*;
 use catalog::*;
-pub(crate) use catalog::{catalog_instructor_names, meetings_from_grid, planned_catalog_course};
+pub(crate) use catalog::{
+    catalog_instructor_names, catalog_meetings, meetings_from_grid, planned_catalog_course,
+};
+#[cfg(feature = "agent")]
+pub(crate) use catalog::{plan_catalog_courses, remove_catalog_plans};
 use courses::*;
 
 use crate::data::{DataError, DataStore, WorkspaceWrite};
@@ -101,6 +105,10 @@ pub enum WorkspaceIntent {
     },
     DeleteCourseBatch {
         course_ids: Vec<String>,
+    },
+    RemoveCatalogPlans {
+        course_ids: Vec<String>,
+        term_id: String,
     },
     EditCourseBatch {
         course_ids: Vec<String>,
@@ -316,17 +324,6 @@ pub struct WorkspaceService {
     catalog_undo: Arc<Mutex<Option<CatalogAddReceipt>>>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct CatalogAddReceipt {
-    term_id: String,
-    /// Sorted offering ids the add was asked for.
-    offering_ids: Vec<String>,
-    /// Plan items the add put on the timetable (new or brought back).
-    placed: Vec<String>,
-    /// Plan items the add took off because their course clashed.
-    replaced: Vec<String>,
-}
-
 impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
@@ -522,6 +519,10 @@ fn apply_intent(
         WorkspaceIntent::DeleteCourseBatch { course_ids } => {
             delete_course_batch(write, current, course_ids)
         }
+        WorkspaceIntent::RemoveCatalogPlans {
+            course_ids,
+            term_id,
+        } => remove_course_plans_from_term(write, current, &course_ids, &term_id),
         WorkspaceIntent::EditCourseBatch {
             course_ids,
             changes,
@@ -539,7 +540,7 @@ fn apply_intent(
             offering_ids,
         } => {
             let receipt = catalog_undo.take();
-            undo_catalog_courses(write, current, &term_id, offering_ids, receipt)
+            undo_catalog_courses(write, &term_id, offering_ids, receipt)
         }
         WorkspaceIntent::SaveEvent {
             draft,
