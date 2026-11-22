@@ -279,7 +279,7 @@ pub fn course_timeline(
 
 /// Live memberships and plan items: the rows that put a course on the
 /// timetable of their quarter.
-fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
+pub(super) fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
     array(workspace, "memberships")
         .iter()
         .chain(array(workspace, "planItems"))

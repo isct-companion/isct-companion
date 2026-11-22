@@ -70,8 +70,8 @@ export type WorkspaceOverview = Omit<
     todayTerm: TermId;
     coursesTerm: TermId;
   };
-export type LectureList = Omit<Protocol.LectureList, "courses" | "allTerms"> &
-  Pick<ScheduleOverviewFields, "courses" | "allTerms">;
+export type LectureList = Omit<Protocol.LectureList, "allTerms"> &
+  Pick<ScheduleOverviewFields, "allTerms">;
 export type ScheduleView = Omit<
   Protocol.ScheduleView,
   keyof ScheduleOverviewFields | "agendas"

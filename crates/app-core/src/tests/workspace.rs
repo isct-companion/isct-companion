@@ -1567,6 +1567,40 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     .unwrap();
     assert!(placed_terms(&off, &id("202630020")).is_empty());
 
+    // Removing the final placement leaves the catalog description available
+    // for a later add, but it cannot surface as a lecture or a search hit.
+    use crate::schedule::{query, WorkspaceQuery, WorkspaceQueryResult};
+    let snapshot = service.read_back().unwrap();
+    let roster = query(
+        &snapshot.workspace,
+        &snapshot.school,
+        WorkspaceQuery::LectureList {
+            term: "2026-4Q".into(),
+            now: "2026-12-07T08:00:00+09:00".into(),
+        },
+    )
+    .unwrap();
+    let WorkspaceQueryResult::LectureList(roster) = roster else {
+        panic!("lecture list expected")
+    };
+    assert!(roster
+        .courses
+        .iter()
+        .all(|course| course.id != id("202630020")));
+    let search = query(
+        &snapshot.workspace,
+        &snapshot.school,
+        WorkspaceQuery::LectureSearch {
+            term: Some("2026-4Q".into()),
+            query: "BBB.B200".into(),
+        },
+    )
+    .unwrap();
+    let WorkspaceQueryResult::LectureSearch(search) = search else {
+        panic!("lecture search expected")
+    };
+    assert!(!search.course_ids.contains(&id("202630020")));
+
     // Deleting a catalog course removes it and its placements.
     let deleted = run(
         &service,

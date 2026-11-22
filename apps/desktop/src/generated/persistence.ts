@@ -2158,8 +2158,7 @@ export type WorkspaceOverview = {
   range: QuarterRange | null;
   courses: unknown[];
   /**
-   * Every visible course belonging to `term` (own quarter or placed
-   * there), on its timetable or not.
+   * The quarter's lecture roster, including courses with no meeting time.
    */
   termCourseIds: Array<string>;
   declaredCredits: number | null;
@@ -2190,6 +2189,13 @@ export type ExamCourse = {
 
 export type ExamCourseList = { courses: Array<ExamCourse> };
 
+export type LectureCourse = {
+  id: string;
+  title: string;
+  code: string;
+  color: string;
+};
+
 export type LectureMeeting = {
   date: string;
   startTime: string;
@@ -2198,7 +2204,7 @@ export type LectureMeeting = {
 };
 
 export type LectureList = {
-  courses: unknown[];
+  courses: Array<LectureCourse>;
   nextByCourse: { [key in string]: LectureMeeting };
   exams: Array<ExamView>;
   allTerms: Array<string>;

@@ -3,7 +3,7 @@ import SwiftUI
 
 /// 授業 (iPad): a quarter's courses or its assignments, as desktop's
 /// LectureDesk switches them, with the academic year and quarter picked above
-/// the list. Courses are `WorkspaceOverview.termCourseIds`, assignments the
+/// the list. Courses are `LectureList.courses`, assignments the
 /// quarter's `AssignmentBoard.record`. Stacked, a row pushes its page; on the
 /// workstation it selects the page shown beside the list.
 struct LecturesScreen: View {
@@ -11,7 +11,7 @@ struct LecturesScreen: View {
     var selects = false
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
-    @State private var overview: WorkspaceOverview?
+    @State private var lectures: LectureList?
     @State private var board: AssignmentBoard?
 
     var body: some View {
@@ -20,7 +20,7 @@ struct LecturesScreen: View {
         PageHeader(t("common.courses"))
         List(selection: selection) {
             Section {
-                TermPicker(term: term, terms: overview?.allTerms ?? []) { navigator.lectureTerm = $0 }
+                TermPicker(term: term, terms: lectures?.allTerms ?? []) { navigator.lectureTerm = $0 }
                 Picker(t("lectures.show"), selection: $navigator.lectureMode) {
                     Text(t("common.courses")).tag(LectureMode.courses)
                     Text(t("common.assignments")).tag(LectureMode.assignments)
@@ -33,11 +33,12 @@ struct LecturesScreen: View {
             switch navigator.lectureMode {
             case .courses:
                 Section {
-                    ForEach(overview?.termCourseIds ?? [], id: \.self) { id in
+                    ForEach(lectures?.courses ?? [], id: \.id) { course in
+                        let id = course.id
                         if selects {
-                            row(id).tag(id)
+                            row(course).tag(id)
                         } else {
-                            NavigationLink(value: CourseRoute(id: id, zoom: "lecture-\(id)")) { row(id) }
+                            NavigationLink(value: CourseRoute(id: id, zoom: "lecture-\(id)")) { row(course) }
                                 .courseZoomSource("lecture-\(id)")
                         }
                     }
@@ -60,9 +61,9 @@ struct LecturesScreen: View {
         .toolbar(.hidden, for: .navigationBar)
         .task(id: "\(term ?? "")-\(model.contentRevision)") {
             guard let term else { return }
-            async let courses = model.overview(term)
+            async let courses = model.lectureList(term)
             async let assignments = model.board(term: term)
-            (overview, board) = await (courses, assignments)
+            (lectures, board) = await (courses, assignments)
         }
         .onChange(of: term) {
             navigator.lecture = nil
@@ -82,7 +83,7 @@ struct LecturesScreen: View {
 
     private var isEmpty: Bool {
         switch navigator.lectureMode {
-        case .courses: overview?.termCourseIds.isEmpty == true
+        case .courses: lectures?.courses.isEmpty == true
         case .assignments: board.map { Self.isEmpty($0.record) } == true
         }
     }
@@ -92,16 +93,20 @@ struct LecturesScreen: View {
             && record.pastRecent.isEmpty && record.pastEarlier.isEmpty && record.hidden.isEmpty
     }
 
-    private func row(_ id: String) -> some View {
-        let course = model.records.courses[id] ?? [:]
+    private func row(_ course: LectureCourse) -> some View {
+        let meeting = lectures?.nextByCourse[course.id]
+        let timing = meeting.map {
+            $0.inClass ? t("common.now") : "\(Format.dayTitle($0.date)) \($0.startTime)"
+        }
+        let detail = [course.code, timing, meeting?.room].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
         return HStack(spacing: Theme.rowGap) {
             RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(Color(hex: overview?.colors[id] ?? model.colors[id]))
+                .fill(Color(hex: course.color))
                 .frame(width: 6, height: 32)
             VStack(alignment: .leading, spacing: Theme.space1) {
-                Text(course.text("title") ?? id).font(.body.weight(.medium)).foregroundStyle(Theme.ink).lineLimit(2)
-                if let code = course.text("code") {
-                    Text(code).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
+                Text(course.title).font(.body.weight(.medium)).foregroundStyle(Theme.ink).lineLimit(2)
+                if !detail.isEmpty {
+                    Text(detail).font(.footnote.monospaced()).foregroundStyle(Theme.muted)
                 }
             }
         }

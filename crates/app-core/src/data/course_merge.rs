@@ -680,7 +680,7 @@ fn registration_room<'a>(
 /// Quarters an LMS course is on. Category metadata bootstraps old caches; a
 /// captured grid then owns its quarter: an array means present (including
 /// non-weekly), null means confirmed absent.
-fn lms_terms(lms: &Value) -> Vec<String> {
+pub(crate) fn lms_terms(lms: &Value) -> Vec<String> {
     let timetables = &lms["timetables"];
     let captured = timetables
         .as_object()

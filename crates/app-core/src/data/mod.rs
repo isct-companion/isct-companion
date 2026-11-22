@@ -6,6 +6,7 @@ mod changes;
 mod connection;
 pub(crate) mod course_keys;
 mod course_merge;
+pub(crate) use course_merge::lms_terms;
 mod defaults;
 mod lms_store;
 mod records;

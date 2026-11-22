@@ -22,7 +22,7 @@ export function ExamEditor({
   onRemoved,
 }: {
   exam: ExamView;
-  courses: Course[];
+  courses: Pick<Course, "id" | "code" | "title">[];
   onSaved?: () => void;
   onRemoved?: () => void;
 }) {

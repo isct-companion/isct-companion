@@ -66,7 +66,7 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
-pub use lecture_list::{LectureList, LectureMeeting};
+pub use lecture_list::{LectureCourse, LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use occurrence::placement_terms;
@@ -504,8 +504,7 @@ pub struct WorkspaceOverview {
     pub range: Option<QuarterRange>,
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub courses: Vec<Value>,
-    /// Every visible course belonging to `term` (own quarter or placed
-    /// there), on its timetable or not.
+    /// The quarter's lecture roster, including courses with no meeting time.
     pub term_course_ids: Vec<String>,
     pub declared_credits: Option<f64>,
     pub term_credits: f64,
@@ -910,7 +909,7 @@ fn workspace_overview(
     };
     Term::parse(&term)?;
     let courses = scheduled_courses(workspace, &term);
-    let term_course_ids = term_courses(workspace, &term)
+    let term_course_ids = lecture_list::lecture_courses(workspace, Some(&term))
         .into_iter()
         .filter_map(|course| text(course, "id").map(str::to_owned))
         .collect();
@@ -1122,6 +1121,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         WorkspaceOverview::decl(cfg),
         ExamCourse::decl(cfg),
         ExamCourseList::decl(cfg),
+        LectureCourse::decl(cfg),
         LectureMeeting::decl(cfg),
         LectureList::decl(cfg),
         ScheduleView::decl(cfg),
