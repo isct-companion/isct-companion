@@ -164,7 +164,7 @@ pub(super) fn lecture_search(
     term: Option<&str>,
     query: &str,
 ) -> LectureSearch {
-    let courses = super::lecture_list::lecture_courses(workspace, term);
+    let courses = super::course_scope::lecture_courses(workspace, term);
     let mut result = LectureSearch::default();
     for course in &courses {
         if matches(&course_fields(workspace, school, course), query) {

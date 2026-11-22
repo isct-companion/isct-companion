@@ -153,7 +153,7 @@ fun TodayScreen() {
                     if (model.needsAccount) ConnectCard { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
                     model.syncSnapshot?.let { snapshot ->
                         if (snapshot.showsLoading &&
-                            model.records.courses.isEmpty() && model.records.assignments.isEmpty()
+                            model.today?.hasAcademicRecords != true
                         ) {
                             FirstLoadCard(snapshot)
                         }

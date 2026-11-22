@@ -7,6 +7,7 @@ mod civil;
 mod colors;
 mod course_content;
 mod course_detail;
+mod course_scope;
 mod credits;
 mod exam_courses;
 mod exams;
@@ -64,15 +65,16 @@ pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, exam_association, exam_views,
     linked_exam_override, marked_session_override, removed_exam_override, ExamCorrection,
 };
-pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
+pub use exams::{ExamAssociation, ExamConflict, ExamLinkCourse, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub use lecture_list::{LectureCourse, LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
-pub(crate) use occurrence::placement_terms;
+pub(crate) use course_scope::placement_terms;
+pub use course_scope::{course_terms, term_courses};
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, planning_week, resolve_day_agenda,
-    schedule_problems, scheduled_courses, term_courses, validate_academic_profile, AgendaOptions,
+    course_timeline, intensive_days, planning_week, resolve_day_agenda,
+    schedule_problems, scheduled_courses, validate_academic_profile, AgendaOptions,
     CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
     PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
@@ -208,7 +210,7 @@ pub enum WorkspaceQuery {
     },
     ExamAssociation {
         exam_key: String,
-        course_id: String,
+        course_id: Option<String>,
     },
     LectureSearch {
         term: Option<String>,
@@ -598,7 +600,10 @@ pub fn query(
             exam_key,
             course_id,
         } => Ok(WorkspaceQueryResult::ExamAssociation(exam_association(
-            workspace, school, &exam_key, &course_id,
+            workspace,
+            school,
+            &exam_key,
+            course_id.as_deref(),
         )?)),
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
@@ -909,7 +914,7 @@ fn workspace_overview(
     };
     Term::parse(&term)?;
     let courses = scheduled_courses(workspace, &term);
-    let term_course_ids = lecture_list::lecture_courses(workspace, Some(&term))
+    let term_course_ids = course_scope::lecture_courses(workspace, Some(&term))
         .into_iter()
         .filter_map(|course| text(course, "id").map(str::to_owned))
         .collect();
@@ -1099,6 +1104,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamView::decl(cfg),
         ExamSchedule::decl(cfg),
         ExamConflict::decl(cfg),
+        ExamLinkCourse::decl(cfg),
         ExamAssociation::decl(cfg),
         LectureSearch::decl(cfg),
         TaskDeadlineView::decl(cfg),

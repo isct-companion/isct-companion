@@ -158,6 +158,8 @@ pub(crate) fn recent_version<'a>(
 pub struct TodayView {
     pub date: String,
     pub term: String,
+    /// Enough course or assignment data to leave the first-load state.
+    pub has_academic_records: bool,
     /// Week of the quarter, counted from its first day.
     pub teaching_week: Option<u32>,
     pub no_classes: bool,
@@ -496,6 +498,8 @@ pub fn today_view(
     let mut view = TodayView {
         date: date.clone(),
         term,
+        has_academic_records: super::course_scope::has_courses(workspace)
+            || array(workspace, "assignments").iter().any(visible),
         teaching_week,
         no_classes,
         calendar_notice,

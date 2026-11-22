@@ -90,14 +90,12 @@ export function LectureExamList({
 
 export function LectureExamDetails({
   selectedExam,
-  courses,
   entering,
   endEntrance,
   sidebarToggle,
   onRemoved,
 }: {
   selectedExam?: LectureList["exams"][number];
-  courses: LectureList["courses"];
   entering: string | null;
   endEntrance: (event: React.AnimationEvent) => void;
   sidebarToggle: ReactNode;
@@ -125,7 +123,6 @@ export function LectureExamDetails({
           <ExamEditor
             key={selectedExam.key}
             exam={selectedExam}
-            courses={courses}
             onRemoved={onRemoved}
           />
         </>

@@ -1965,7 +1965,10 @@ export type ExamConflict = {
   removed: boolean;
 };
 
+export type ExamLinkCourse = { id: string; title: string; code: string };
+
 export type ExamAssociation = {
+  courses: Array<ExamLinkCourse>;
   /**
    * Other exams (not exam-week classes) already linked to the course.
    */
@@ -2096,6 +2099,10 @@ export type RecentKind = "grade" | "material";
 export type TodayView = {
   date: string;
   term: string;
+  /**
+   * Enough course or assignment data to leave the first-load state.
+   */
+  hasAcademicRecords: boolean;
   /**
    * Week of the quarter, counted from its first day.
    */
@@ -2245,7 +2252,7 @@ export type WorkspaceQuery =
   | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
-  | { kind: "examAssociation"; examKey: string; courseId: string }
+  | { kind: "examAssociation"; examKey: string; courseId: string | null }
   | { kind: "lectureSearch"; term: string | null; query: string }
   | { kind: "lectureList"; term: string; now: string }
   | {

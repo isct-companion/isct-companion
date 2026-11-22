@@ -42,39 +42,6 @@ pub struct LectureList {
     pub all_terms: Vec<String>,
 }
 
-/// A saved catalog description outlives the plan that placed it. Only a live
-/// placement or LMS quarter includes a course in the lecture roster.
-pub(super) fn lecture_courses<'a>(workspace: &'a Value, term: Option<&str>) -> Vec<&'a Value> {
-    let in_term = |row: &Value| term.is_none_or(|term| text(row, "termId") == Some(term));
-    let placed: HashSet<_> = super::occurrence::placements(workspace)
-        .filter(|row| in_term(row) && text(row, "status") != Some("withdrawn"))
-        .filter_map(|row| text(row, "courseId"))
-        .collect();
-    let mut lms_ids = HashSet::new();
-    let mut offerings = HashSet::new();
-    for row in super::array(workspace, "lmsCourses").iter().filter(|row| {
-        super::visible(row)
-            && row["hidden"] != true
-            && crate::data::lms_terms(row)
-                .iter()
-                .any(|quarter| term.is_none_or(|t| t == quarter))
-    }) {
-        lms_ids.extend(row["lmsId"].as_u64());
-        offerings.extend(text(row, "offeringId").filter(|id| !id.is_empty()));
-    }
-    super::array(workspace, "courses")
-        .iter()
-        .filter(|course| {
-            super::visible(course)
-                && (text(course, "id").is_some_and(|id| placed.contains(id))
-                    || course["lmsCourseId"]
-                        .as_u64()
-                        .is_some_and(|id| lms_ids.contains(&id))
-                    || text(course, "offeringId").is_some_and(|id| offerings.contains(id)))
-        })
-        .collect()
-}
-
 pub(super) fn lecture_list(
     workspace: &Value,
     school: &SchoolReads,

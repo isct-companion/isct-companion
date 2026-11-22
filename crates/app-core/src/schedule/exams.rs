@@ -104,8 +104,18 @@ pub struct ExamConflict {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExamAssociation {
+    pub courses: Vec<ExamLinkCourse>,
     /// Other exams (not exam-week classes) already linked to the course.
     pub conflicts: Vec<ExamView>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamLinkCourse {
+    pub id: String,
+    pub title: String,
+    pub code: String,
 }
 
 /// Values from the exam form. An empty or source-equal field follows the
@@ -122,20 +132,36 @@ pub(crate) fn exam_association(
     workspace: &Value,
     school: &SchoolReads,
     key: &str,
-    course_id: &str,
+    course_id: Option<&str>,
 ) -> Result<ExamAssociation, ScheduleError> {
     let source = published_source(workspace, school, key)?;
-    require_term_course(workspace, &source.term, course_id)?;
-    let conflicts = exam_terms(workspace, school)
-        .iter()
-        .flat_map(|term| exam_views(workspace, school, term))
-        .filter(|other| {
-            other.key != key
-                && other.kind == "exam"
-                && other.course_id.as_deref() == Some(course_id)
+    let courses = term_courses(workspace, &source.term);
+    let conflicts = match course_id {
+        Some(course_id) => {
+            require_link_course(&courses, course_id)?;
+            exam_terms(workspace, school)
+                .iter()
+                .flat_map(|term| exam_views(workspace, school, term))
+                .filter(|other| {
+                    other.key != key
+                        && other.kind == "exam"
+                        && other.course_id.as_deref() == Some(course_id)
+                })
+                .collect()
+        }
+        None => Vec::new(),
+    };
+    let courses = courses
+        .into_iter()
+        .filter_map(|course| {
+            Some(ExamLinkCourse {
+                id: text(course, "id")?.into(),
+                title: text(course, "title").unwrap_or_default().into(),
+                code: text(course, "code").unwrap_or_default().into(),
+            })
         })
         .collect();
-    Ok(ExamAssociation { conflicts })
+    Ok(ExamAssociation { courses, conflicts })
 }
 
 /// The stored correction after replacing the exam's date, time and room
@@ -360,7 +386,7 @@ pub(crate) fn linked_exam_override(
 ) -> Result<Option<Value>, ScheduleError> {
     let source = published_source(workspace, school, key)?;
     if let Some(course_id) = course_id {
-        require_term_course(workspace, &source.term, course_id)?;
+        require_link_course(&term_courses(workspace, &source.term), course_id)?;
     }
     let mut row = override_base(workspace, school, key, &source);
     keep_schedule_fields(workspace, school, key, &mut row);
@@ -984,12 +1010,8 @@ fn published_row<'a>(school: &'a SchoolReads, key: &str) -> Option<(&'a Value, S
         .find_map(|exam| Some((exam, exam_term(exam)?)))
 }
 
-fn require_term_course(
-    workspace: &Value,
-    term: &str,
-    course_id: &str,
-) -> Result<(), ScheduleError> {
-    if term_courses(workspace, term)
+fn require_link_course(courses: &[&Value], course_id: &str) -> Result<(), ScheduleError> {
+    if courses
         .iter()
         .any(|course| text(course, "id") == Some(course_id))
     {

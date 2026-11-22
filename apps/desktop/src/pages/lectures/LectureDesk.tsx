@@ -410,7 +410,6 @@ function LectureDeskBody({
           {mode === "exams" && (
             <LectureExamDetails
               selectedExam={selectedExam}
-              courses={courses}
               entering={entering}
               endEntrance={endEntrance}
               sidebarToggle={contentStart}

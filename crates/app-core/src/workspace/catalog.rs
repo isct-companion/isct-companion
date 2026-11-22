@@ -1,6 +1,19 @@
 use super::*;
 use crate::locale::{pick, ContentLanguage};
 
+#[derive(Clone)]
+pub(super) struct CatalogAddReceipt {
+    term_id: String,
+    offering_ids: Vec<String>,
+    changes: Vec<PlanChange>,
+}
+
+#[derive(Clone)]
+struct PlanChange {
+    after: Value,
+    was_live: bool,
+}
+
 /// Adds catalog offerings to the timetable of `term_id`, the quarter on
 /// screen.  An offering running over several quarters (3Q–4Q) that is added
 /// in one of them is planned into each of them; added outside its quarters
@@ -71,14 +84,13 @@ pub(super) fn add_catalog_courses(
         .collect::<Result<Vec<_>, _>>()?;
     offering_ids.sort();
     offering_ids.dedup();
-    let mut receipt = CatalogAddReceipt {
-        term_id: term_id.to_string(),
-        offering_ids,
-        ..CatalogAddReceipt::default()
-    };
     // Working copies, so later offerings see what earlier ones changed.
     let mut courses: Vec<Value> = rows(current, "courses")?.cloned().collect();
     let mut plans: Vec<Value> = rows(current, "planItems")?.cloned().collect();
+    let previously_planned: HashSet<_> = rows(current, "planItems")?
+        .filter(|row| is_live(row))
+        .filter_map(|row| row["id"].as_str())
+        .collect();
     let members: Vec<&Value> = rows(current, "memberships")?
         .filter(|row| is_live(row))
         .collect();
@@ -112,17 +124,16 @@ pub(super) fn add_catalog_courses(
             .cloned()
             .collect();
         for victim in crate::course_query::clashing_courses(&offering, &on_timetable) {
-            let Some(plan) = plans.iter_mut().find(|row| {
+            // Several devices can plan the same offering independently.
+            for plan in plans.iter_mut().filter(|row| {
                 is_live(row)
                     && row.get("courseId") == victim.get("id")
                     && row.get("termId").and_then(Value::as_str) == Some(term_id)
-            }) else {
-                continue;
-            };
-            let id = string(plan, "id")?.to_string();
-            write.delete("plan_items", &id, revision(plan))?;
-            plan["deletedAt"] = Value::String("replaced".into());
-            receipt.replaced.push(id);
+            }) {
+                *plan = write
+                    .delete("plan_items", string(plan, "id")?, revision(plan))?
+                    .ok_or_else(|| DataError::storage("the replaced plan was not found"))?;
+            }
         }
         let live_course = courses.iter().find(|course| {
             is_live(course)
@@ -187,10 +198,22 @@ pub(super) fn add_catalog_courses(
             let id = string(&plan, "id")?.to_string();
             plans.retain(|row| row.get("id").and_then(Value::as_str) != Some(&id));
             plans.push(plan);
-            receipt.placed.push(id);
         }
     }
-    Ok(receipt)
+    // Within a batch, one offering can replace another just added by
+    // that batch. Undo only the difference from before the whole batch.
+    let changes = plans
+        .into_iter()
+        .filter_map(|after| {
+            let was_live = previously_planned.contains(after["id"].as_str()?);
+            (was_live != is_live(&after)).then_some(PlanChange { after, was_live })
+        })
+        .collect();
+    Ok(CatalogAddReceipt {
+        term_id: term_id.into(),
+        offering_ids,
+        changes,
+    })
 }
 
 /// Meetings from the LMS timetable grid, with the syllabus room for the same
@@ -250,11 +273,10 @@ pub(crate) fn meetings_from_grid(
     Ok(Value::Array(meetings))
 }
 
-/// Reverses the last `AddCatalogCourses` of this session: removes only the
-/// plan items it placed and brings back the ones it replaced.
+/// Reverses the last `AddCatalogCourses` of this session, provided its
+/// affected plans still match the add's result.
 pub(super) fn undo_catalog_courses(
     write: &WorkspaceWrite<'_, '_>,
-    current: &Value,
     term_id: &str,
     mut offering_ids: Vec<String>,
     receipt: Option<CatalogAddReceipt>,
@@ -265,14 +287,16 @@ pub(super) fn undo_catalog_courses(
     let receipt = receipt
         .filter(|receipt| receipt.term_id == term_id && receipt.offering_ids == offering_ids)
         .ok_or_else(|| "this add can no longer be undone".to_string())?;
-    for plan in rows(current, "planItems")? {
-        let Some(id) = plan.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        if is_live(plan) && receipt.placed.iter().any(|placed| placed == id) {
-            write.delete("plan_items", id, revision(plan))?;
-        } else if !is_live(plan) && receipt.replaced.iter().any(|replaced| replaced == id) {
-            write.put("plan_items", plan.clone(), revision(plan))?;
+    let plans = write.rows("plan_items")?;
+    for change in receipt.changes {
+        if !plans.contains(&change.after) {
+            return Err("this add can no longer be undone".into());
+        }
+        let expected = revision(&change.after);
+        if change.was_live {
+            write.put("plan_items", change.after, expected)?;
+        } else {
+            write.delete("plan_items", string(&change.after, "id")?, expected)?;
         }
     }
     Ok(())

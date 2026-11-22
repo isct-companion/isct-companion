@@ -628,7 +628,7 @@ describe("the lecture desk", () => {
                 ? [exam, bound, weekClass]
                 : [upcoming],
           }),
-          examAssociation: () => ({ conflicts: [exam] }),
+          examAssociation: () => ({ courses: [historical], conflicts: [exam] }),
           // Core owns search; this script matches the exam titles above.
           lectureSearch: (query) => ({
             courseIds: [],
@@ -715,7 +715,10 @@ describe("the lecture desk", () => {
       "the right-hand exam editor",
     );
     await chooseOption(
-      editor.querySelector<HTMLInputElement>('[role="combobox"]')!,
+      await required(
+        () => editor.querySelector<HTMLInputElement>('[role="combobox"]:enabled'),
+        "the exam association choices",
+      ),
       "history",
     );
     // The link applies on its own; it carries no schedule fields.

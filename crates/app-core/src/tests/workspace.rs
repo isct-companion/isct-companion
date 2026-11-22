@@ -557,7 +557,7 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     assert!(view(&before, first).auto_linked);
     // Linking reports the course's other exam but no longer blocks.
     let preview =
-        crate::schedule::exam_association(&before.workspace, &before.school, second, &course_id)
+        crate::schedule::exam_association(&before.workspace, &before.school, second, Some(&course_id))
             .unwrap();
     assert_eq!(preview.conflicts.len(), 1);
     let linked = mutate(
@@ -738,6 +738,53 @@ fn exam_corrections_keep_only_changed_fields_so_source_refreshes_still_arrive() 
     );
     assert_eq!(stored(&restored).len(), 1); // only the first exam's unlink
     assert_eq!(view(&restored, second).status, "scheduled");
+
+    // Both the feed's match and a personal link follow the course's plan.
+    for key in [first, second] {
+        mutate(
+            &service,
+            WorkspaceIntent::LinkExam {
+                exam_key: key.into(),
+                course_id: Some(course_id.clone()),
+            },
+        );
+    }
+    let removed = mutate(
+        &service,
+        WorkspaceIntent::SetCourseOnTimetable {
+            course_id: course_id.clone(),
+            on_timetable: false,
+        },
+    );
+    assert_eq!(view(&removed, first).course_id, None);
+    assert_eq!(view(&removed, second).course_id, None);
+    let choices =
+        crate::schedule::exam_association(&removed.workspace, &removed.school, second, None)
+            .unwrap();
+    assert!(choices.courses.iter().all(|course| course.id != course_id));
+    assert!(matches!(
+        run(
+            &service,
+            WorkspaceIntent::LinkExam {
+                exam_key: second.into(),
+                course_id: Some(course_id.clone()),
+            },
+        ),
+        Err(DataError::InvalidInput(_))
+    ));
+    let replanned = mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-2Q".into(),
+            offerings: vec![offering("202602001", "CSC.T241", &["2Q"])],
+        },
+    );
+    for key in [first, second] {
+        assert_eq!(
+            view(&replanned, key).course_id.as_deref(),
+            Some(course_id.as_str())
+        );
+    }
 }
 
 #[test]
@@ -1613,6 +1660,100 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     assert!(rows(&deleted, "courses")
         .unwrap()
         .any(|row| row["id"] == id("202630010") && !is_live(row)));
+
+    let before_batch = live_plans(&deleted);
+    let batch = mutate(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offerings: vec![
+                offering("202630010", "AAA.A100", &["3Q"]),
+                offering("202630020", "BBB.B200", &["3Q", "4Q"]),
+            ],
+        },
+    );
+    assert!(placed_terms(&batch.workspace, &id("202630010")).is_empty());
+    assert!(!placed_terms(&batch.workspace, &id("202630020")).is_empty());
+    let undone = mutate(
+        &service,
+        WorkspaceIntent::UndoCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offering_ids: vec!["202630010".into(), "202630020".into()],
+        },
+    );
+    assert_eq!(live_plans(&undone.workspace), before_batch);
+
+    let backup = crate::backup::BackupService::new(service.store.clone());
+    let before_add = backup.snapshot().unwrap();
+    add("2026-3Q", offering("202630010", "AAA.A100", &["3Q"]));
+    let with_plan = backup.snapshot().unwrap();
+    add("2026-3Q", offering("202630020", "BBB.B200", &["3Q", "4Q"]));
+    backup
+        .restore(&before_add, crate::data::WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    assert!(matches!(
+        run(
+            &service,
+            WorkspaceIntent::UndoCatalogCourses {
+                term_id: "2026-3Q".into(),
+                offering_ids: vec!["202630020".into()],
+            },
+        ),
+        Err(DataError::InvalidInput(_))
+    ));
+    assert_eq!(
+        live_plans(&service.read_back().unwrap().workspace),
+        before_batch
+    );
+
+    // A fresh device can read that plan immediately from the backup, before
+    // any catalog or school cache has been fetched.
+    let restored = self::service("catalog-plan-fresh-restore");
+    let restored_backup = crate::backup::BackupService::new(restored.store.clone());
+    let restore = |document: &Value| {
+        restored_backup
+            .restore(document, crate::data::WorkspaceChangeSource::CloudRestore)
+            .unwrap();
+        let snapshot = restored.read_back().unwrap();
+        crate::schedule::scheduled_courses(&snapshot.workspace, "2026-3Q")
+            .iter()
+            .any(|course| course["offeringId"] == "202630010")
+    };
+    assert!(restore(&with_plan));
+    assert!(!restore(&before_add));
+    let directory = restored.store.directory().to_path_buf();
+    drop(restored_backup);
+    drop(restored);
+    std::fs::remove_dir_all(directory).unwrap();
+
+    let other_device = self::service("catalog-plan-merged");
+    mutate(
+        &other_device,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offerings: vec![offering("202630010", "AAA.A100", &["3Q"])],
+        },
+    );
+    crate::backup::BackupService::new(other_device.store.clone())
+        .apply(&with_plan, crate::data::WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    let replaced = mutate(
+        &other_device,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-3Q".into(),
+            offerings: vec![offering("202630020", "BBB.B200", &["3Q", "4Q"])],
+        },
+    );
+    let courses = crate::schedule::scheduled_courses(&replaced.workspace, "2026-3Q");
+    assert!(courses
+        .iter()
+        .all(|course| course["offeringId"] != "202630010"));
+    assert!(courses
+        .iter()
+        .any(|course| course["offeringId"] == "202630020"));
+    let directory = other_device.store.directory().to_path_buf();
+    drop(other_device);
+    std::fs::remove_dir_all(directory).unwrap();
 }
 
 #[test]

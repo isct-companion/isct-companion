@@ -316,31 +316,20 @@ fn put_user_record_in_transaction(
     if !DataStore::user_table(table) {
         return Err("table is not user-owned".into());
     }
+    let offering_key = (table == "manual_courses")
+        .then(|| course_keys::saved_offering_key(&value))
+        .flatten();
     let object = value
         .as_object_mut()
         .ok_or_else(|| "record must be an object".to_string())?;
-    if table == "manual_courses" {
-        let offering = object
-            .get("offeringId")
+    if let Some(key) = offering_key {
+        // The course its offering already names, or this record's own id.
+        let own = object
+            .get("id")
             .and_then(Value::as_str)
-            .map(str::to_string);
-        let year = object
-            .get("termId")
-            .and_then(Value::as_str)
-            .and_then(|term| term.get(..4))
-            .and_then(|year| year.parse::<i32>().ok());
-        if let Some(key) = offering
-            .zip(year)
-            .and_then(|(offering, year)| course_keys::offering_key(year, &offering))
-        {
-            // The course its offering already names, or this record's own id.
-            let own = object
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|id| !id.is_empty());
-            let course_id = course_keys::resolve_or(transaction, &[key], own)?;
-            object.insert("id".into(), Value::String(course_id));
-        }
+            .filter(|id| !id.is_empty());
+        let course_id = course_keys::resolve_or(transaction, &[key], own)?;
+        object.insert("id".into(), Value::String(course_id));
     }
     let requested_id = object
         .get("id")
@@ -490,7 +479,7 @@ fn delete_user_record_in_transaction(
     id: &str,
     actor: &str,
     expected_rev: Option<u64>,
-) -> Result<bool, DataError> {
+) -> Result<Option<Value>, DataError> {
     if !DataStore::user_table(table) {
         return Err("table is not user-owned".into());
     }
@@ -508,7 +497,7 @@ fn delete_user_record_in_transaction(
                 "revision conflict: {table}/{id} expected {expected}, actual 0"
             )));
         }
-        return Ok(false);
+        return Ok(None);
     };
     if let Some(expected) = expected_rev.filter(|expected| *expected != revision as u64) {
         return Err(DataError::conflict(format!(
@@ -529,7 +518,7 @@ fn delete_user_record_in_transaction(
     );
     object.insert("deletedAt".into(), Value::String(timestamp));
     upsert_row(transaction, table, &value, true)?;
-    Ok(true)
+    Ok(Some(value))
 }
 
 #[cfg(feature = "agent")]
@@ -577,12 +566,11 @@ impl WorkspaceWrite<'_, '_> {
         table: &str,
         id: &str,
         expected_rev: Option<u64>,
-    ) -> Result<bool, DataError> {
+    ) -> Result<Option<Value>, DataError> {
         delete_user_record_in_transaction(self.transaction, table, id, self.actor, expected_rev)
     }
 
     /// Every stored row of a user table, deleted ones included.
-    #[cfg(feature = "agent")]
     pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !DataStore::user_table(table) {
             return Err("table is not user-owned".into());
@@ -1015,6 +1003,7 @@ impl DataStore {
         let source = WorkspaceChangeSource::UserIntent;
         self.write(Some(source), |transaction| {
             delete_user_record_in_transaction(transaction, table, id, source.actor(), expected_rev)
+                .map(|deleted| deleted.is_some())
         })
     }
 

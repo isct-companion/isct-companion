@@ -316,17 +316,6 @@ pub struct WorkspaceService {
     catalog_undo: Arc<Mutex<Option<CatalogAddReceipt>>>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
-struct CatalogAddReceipt {
-    term_id: String,
-    /// Sorted offering ids the add was asked for.
-    offering_ids: Vec<String>,
-    /// Plan items the add put on the timetable (new or brought back).
-    placed: Vec<String>,
-    /// Plan items the add took off because their course clashed.
-    replaced: Vec<String>,
-}
-
 impl WorkspaceService {
     pub fn new(store: DataStore) -> Self {
         Self {
@@ -539,7 +528,7 @@ fn apply_intent(
             offering_ids,
         } => {
             let receipt = catalog_undo.take();
-            undo_catalog_courses(write, current, &term_id, offering_ids, receipt)
+            undo_catalog_courses(write, &term_id, offering_ids, receipt)
         }
         WorkspaceIntent::SaveEvent {
             draft,

@@ -23,6 +23,11 @@ pub(crate) fn offering_key(year: i32, offering: &str) -> Option<String> {
     .then(|| format!("offering:{year}:{offering}"))
 }
 
+pub(super) fn saved_offering_key(course: &Value) -> Option<String> {
+    let year = course["termId"].as_str()?.get(..4)?.parse().ok()?;
+    offering_key(year, course["offeringId"].as_str()?)
+}
+
 pub(crate) fn lms_key(lms_id: impl std::fmt::Display) -> String {
     format!("lms:{lms_id}")
 }
@@ -391,18 +396,29 @@ pub(crate) fn to_synced(
     Ok(())
 }
 
+/// Bind the keys of a backed-up course description before resolving the
+/// other rows that refer to it. Keep this device's id when the offering
+/// already has one.
+pub(super) fn from_synced_course(
+    transaction: &Transaction<'_>,
+    row: &mut Value,
+) -> Result<(), DataError> {
+    let id = string_field(row, "id")?;
+    let keys = saved_offering_key(row)
+        .into_iter()
+        .chain([manual_key(id)])
+        .collect::<Vec<_>>();
+    row["id"] = resolve_or(transaction, &keys, Some(id))?.into();
+    Ok(())
+}
+
 /// A synced copy of `row` as this device stores it: course references by
-/// internal id. A course made on another device also gets its own key.
+/// internal id.
 pub(crate) fn from_synced(
     transaction: &Transaction<'_>,
     table: &str,
     row: &mut Value,
 ) -> Result<(), DataError> {
-    if table == "manual_courses" {
-        if let Some(id) = row.get("id").and_then(Value::as_str) {
-            resolve_or(transaction, &[manual_key(id)], Some(id))?;
-        }
-    }
     for field in course_fields(table) {
         let Some(reference) = row.get(*field).and_then(Value::as_str).map(str::to_owned) else {
             continue;

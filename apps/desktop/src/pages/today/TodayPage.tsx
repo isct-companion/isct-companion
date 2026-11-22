@@ -219,7 +219,6 @@ export function Today({
             </header>
             <ExamCards
               exams={exams?.slice(0, 3) ?? []}
-              courses={data.courses}
               open={(id) => open(id)}
               openExam={openExam}
             />

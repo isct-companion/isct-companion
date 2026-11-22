@@ -2450,7 +2450,7 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
         &data,
         &SchoolReads::fixture(&data),
         "reference:mine",
-        "course",
+        Some("course"),
     )
     .unwrap();
     assert!(association.conflicts.iter().any(|exam| exam.key == key));

@@ -16,6 +16,7 @@ use super::alternation::{self, Alternation, Resolution};
 use super::calendar::{calendar_state, quarter_range};
 use super::civil::weekday;
 use super::colors::display_color;
+use super::course_scope::{course_terms, placements};
 use super::{
     add_days, array, parse_civil_date, text, visible, ScheduleError, ScheduleIntensiveDay,
 };
@@ -277,15 +278,6 @@ pub fn course_timeline(
     })
 }
 
-/// Live memberships and plan items: the rows that put a course on the
-/// timetable of their quarter.
-pub(super) fn placements(workspace: &Value) -> impl Iterator<Item = &Value> {
-    array(workspace, "memberships")
-        .iter()
-        .chain(array(workspace, "planItems"))
-        .filter(|row| visible(row))
-}
-
 /// Courses on the timetable of `term`: those with a live membership or plan
 /// item there. A course running 3Q–4Q is one course (its `termId` is where it
 /// was added) with a row in each quarter.
@@ -334,50 +326,6 @@ pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
             course
         })
         .collect()
-}
-
-/// Every quarter a course belongs to, sorted: its own `termId` and each
-/// quarter a live membership or plan item places it in.
-pub fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
-    let id = text(course, "id");
-    let mut terms: Vec<String> = text(course, "termId")
-        .into_iter()
-        .chain(
-            placements(workspace)
-                .filter(|row| id.is_some() && text(row, "courseId") == id)
-                .filter_map(|row| text(row, "termId")),
-        )
-        .map(str::to_owned)
-        .collect();
-    terms.sort();
-    terms.dedup();
-    terms
-}
-
-/// Visible courses that belong to `term` (see [`course_terms`]), whether or
-/// not they are on its timetable.
-pub fn term_courses<'a>(workspace: &'a Value, term: &str) -> Vec<&'a Value> {
-    let placed: HashSet<&str> = placements(workspace)
-        .filter(|row| text(row, "termId") == Some(term))
-        .filter_map(|row| text(row, "courseId"))
-        .collect();
-    array(workspace, "courses")
-        .iter()
-        .filter(|row| {
-            visible(row)
-                && (text(row, "termId") == Some(term)
-                    || text(row, "id").is_some_and(|id| placed.contains(id)))
-        })
-        .collect()
-}
-
-/// Every quarter that has a visible course or a live placement.
-pub(crate) fn placement_terms(workspace: &Value) -> impl Iterator<Item = &str> {
-    array(workspace, "courses")
-        .iter()
-        .filter(|row| visible(row))
-        .chain(placements(workspace))
-        .filter_map(|row| text(row, "termId"))
 }
 
 /// The course sources and single-session changes used by every dated read of a term.
