@@ -80,6 +80,25 @@ UniFFI checks signatures when the library loads.
   window size (iOS moves it to the leading edge in a wide one), and a card
   folds to its header, its one other stop; the position button follows the
   person until they move the map, with no heading mode.
+- The building's floors as a stack seen at an angle (`Stack`), to show
+  whether a room is above or below the way in, are drawn as on iOS (this
+  fork): Core gives each floor a height (the export's street floor at 0)
+  and its shapes, and the shell draws the stack over the map rather than in
+  it, needing only the map's ground projection: each point at a height is
+  projected through the ground point on the same line of sight from
+  MapLibre's camera (`Sight`), which stands where MapLibre's field of view
+  puts it (MapKit gives its camera's distance instead). The floors are outlines, the floor picked
+  with its corridors and rooms and each floor named at its side; the
+  building's footprint at the street floor is the ground over the floors
+  under it, and thins while one of them is picked; the selected room is a
+  block in the accent over everything; the entrances keep the flat map's
+  icons on the floor picked, and every floor with a way in is named so,
+  in the stack and in the level picker. Picking a building goes to its
+  street floor. Panning the stack onto another building moves it there,
+  by the flat map's focus rule over the near half of the view (the far
+  half is foreshortened); turning or tilting does not. A room string that
+  names a room on the plans (from a course
+  or 今日) opens the map as the stack straight away.
 - Logins stay on the device (Keystore); there is no iCloud Keychain to share
   them with the desktop app.
 - The quarter export is a share button in the 時間割 header rather than a long

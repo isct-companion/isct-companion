@@ -350,16 +350,42 @@ struct CampusMapScreen: View {
     /// MapKit's compass and position button are drawn by the map itself in
     /// the space this column keeps for them.
     private func rail(available: CGFloat) -> some View {
-        let pickerHeight = available - CampusMapChrome.railHeaderHeight
+        let header = CampusMapChrome.railHeaderHeight
+        let pickerHeight = available - 2 * header
         return Group {
-            if pickerHeight >= CampusMapChrome.controlSide {
-                levels
-                    .frame(height: pickerHeight, alignment: .top)
-                    .padding(.top, CampusMapChrome.railHeaderHeight)
+            // Under the compass, the stack's button, then the floors.
+            if let scene, !scene.levels.isEmpty, available >= 2 * header {
+                VStack(spacing: CampusMapChrome.controlGap) {
+                    stackButton(scene.stacked)
+                    if pickerHeight >= CampusMapChrome.controlSide {
+                        levels.frame(height: pickerHeight, alignment: .top)
+                    }
+                }
+                .padding(.top, header)
             }
         }
         .frame(width: CampusMapChrome.controlSide, height: available, alignment: .top)
         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { railLeading = $0 }
+    }
+
+    /// The building's floors as a stack seen at an angle, and back.
+    private func stackButton(_ stacked: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: Theme.radiusChip, style: .continuous)
+        return Button {
+            send(.stack(on: !stacked))
+        } label: {
+            Image(systemName: "square.3.layers.3d")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(stacked ? Theme.accentInk : Theme.ink)
+                .frame(width: CampusMapChrome.controlSide, height: CampusMapChrome.controlSide)
+                .background(stacked ? Theme.accent : .clear)
+                .clipShape(shape)
+                .floatingGlass(in: shape)
+                .contentShape(.interaction, shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(t(stacked ? "campusMap.stackOff" : "campusMap.stackOn"))
+        .accessibilityAddTraits(stacked ? .isSelected : [])
     }
 
     @ViewBuilder

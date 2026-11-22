@@ -1096,6 +1096,8 @@
   "campusMap.photos.upload": "上传楼层照片",
   "campusMap.position": "当前位置",
   "campusMap.search": "搜索楼和教室",
+  "campusMap.stackOff": "显示单层",
+  "campusMap.stackOn": "立体显示楼层",
   "campusMap.showBuilding": "显示{{name}}",
   "campusMap.streetFloor": "入口层",
   "campusMap.suzukakedai": "铃悬台",

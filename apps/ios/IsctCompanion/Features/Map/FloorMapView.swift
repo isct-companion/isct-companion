@@ -78,7 +78,8 @@ struct CampusMapPanelLayoutProbe: UIViewRepresentable {
 /// Apple's base map with Core's scene drawn over it by role. Core decides
 /// every layer and mark; this view only batches and paints them, moves the
 /// camera where Core frames, and reports the person's own moves of it over
-/// the part of the map the controls leave visible.
+/// the part of the map the controls leave visible. In the stack it is seen
+/// at an angle, and the floors are drawn over the map (`StackOverlayView`).
 struct FloorMapView: UIViewRepresentable {
     let scene: CampusMapScene?
     let chrome: CampusMapChrome
@@ -155,6 +156,15 @@ struct FloorMapView: UIViewRepresentable {
         contact.delegate = coordinator
         map.addGestureRecognizer(contact)
         coordinator.contact = contact
+        // Over the map's own content, under the compass.
+        let stack = StackOverlayView(frame: map.bounds)
+        stack.onSelect = { [weak coordinator] id in coordinator?.onSelect(.entrance(id: id)) }
+        map.addSubview(stack)
+        coordinator.stackView = stack
+        coordinator.ticker.tick = { [weak coordinator, weak map] in
+            guard let coordinator, let map else { return }
+            coordinator.raise(map)
+        }
         let compass = MKCompassButton(mapView: map)
         compass.compassVisibility = .adaptive
         map.addSubview(compass)
@@ -163,6 +173,7 @@ struct FloorMapView: UIViewRepresentable {
             guard let coordinator, let map else { return }
             coordinator.layOut(map)
             coordinator.applyFraming(to: map)
+            coordinator.raise(map)
         }
         return map
     }
@@ -207,7 +218,10 @@ struct FloorMapView: UIViewRepresentable {
         {
             coordinator.pendingFraming = framing
         }
+        coordinator.stackScene = scene
+        coordinator.tilt(map, stacked: scene?.stacked == true)
         coordinator.applyFraming(to: map)
+        coordinator.raise(map)
     }
 
     final class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
@@ -230,6 +244,16 @@ struct FloorMapView: UIViewRepresentable {
         var pendingFraming: CampusMapFraming?
         weak var compass: MKCompassButton?
         weak var contact: MapContactRecognizer?
+        weak var stackView: StackOverlayView?
+        /// The scene drawn, for the stack, which follows the camera.
+        var stackScene: CampusMapScene?
+        let ticker = StackTicker()
+        /// The camera is tilted for the stack.
+        private(set) var stacked = false
+        /// Where the centre of the view was on the ground when the person's
+        /// touch began: in the stack, a turn or tilt that leaves it in place
+        /// is no move to another building.
+        private var movedFrom: CLLocationCoordinate2D?
         /// The framing this view is moving the camera for: a move made
         /// meanwhile is not the person's, unless a finger interrupts it.
         /// Native animations run one at a time; a newer framing waits while
@@ -239,6 +263,8 @@ struct FloorMapView: UIViewRepresentable {
         private var appearance: String?
         private var overlays: [String: MKOverlay] = [:]
         private var marks: [String: FloorMark] = [:]
+
+        deinit { ticker.stop() }
 
         // MARK: Visible part
 
@@ -256,7 +282,8 @@ struct FloorMapView: UIViewRepresentable {
                 width: max(right - leading, 1), height: max(bottom - top, 1))
         }
 
-        /// The compass sits at the top of the same rail as the floor picker.
+        /// The compass sits at the top of the same rail as the floor picker;
+        /// the stack covers the map.
         func layOut(_ map: MKMapView) {
             guard map.bounds.width > 0, map.bounds.height > 0 else { return }
             let side = CampusMapChrome.controlSide
@@ -265,6 +292,7 @@ struct FloorMapView: UIViewRepresentable {
             let open = map.window == nil ? chrome.top : map.convert(CGPoint(x: 0, y: chrome.top), from: nil).y
             let compassY = max(open, map.bounds.minY + map.safeAreaInsets.top)
             compass?.frame = CGRect(x: x, y: compassY, width: side, height: side)
+            if stackView?.frame != map.bounds { stackView?.frame = map.bounds }
         }
 
         // MARK: Framing
@@ -342,6 +370,7 @@ struct FloorMapView: UIViewRepresentable {
         }
 
         private func frame(_ framing: CampusMapFraming, in visible: CGRect, on map: MKMapView, animated: Bool) {
+            let first = appliedFraming == 0
             let bounds = framing.bounds
             let corner = MKMapPoint(CLLocationCoordinate2D(latitude: bounds.north, longitude: bounds.west))
             let opposite = MKMapPoint(CLLocationCoordinate2D(latitude: bounds.south, longitude: bounds.east))
@@ -357,7 +386,21 @@ struct FloorMapView: UIViewRepresentable {
             appliedFraming = framing.key
             activeFraming = framing.key
             announced = false
-            map.setVisibleMapRect(rect, edgePadding: padding, animated: animated)
+            // The stack is framed at its angle, and a floor after it from
+            // above again; MapKit fits a box only from above.
+            let pitch = stacked ? CampusMapStack.pitch : 0
+            if pitch > 0 || map.camera.pitch > 0.5 {
+                // A first framing puts the camera on campus from above, which
+                // gives the map's scale to work the angle out from.
+                if first { map.setVisibleMapRect(rect, edgePadding: padding, animated: false) }
+                if let camera = angledCamera(bounds, in: visible, on: map, pitch: pitch) {
+                    map.setCamera(camera, animated: animated)
+                } else {
+                    map.setVisibleMapRect(rect, edgePadding: padding, animated: animated)
+                }
+            } else {
+                map.setVisibleMapRect(rect, edgePadding: padding, animated: animated)
+            }
             // A no-op framing need not produce region callbacks. Give MapKit
             // the current update before acknowledging it, rather than assuming
             // callbacks must occur synchronously inside setVisibleMapRect.
@@ -367,9 +410,80 @@ struct FloorMapView: UIViewRepresentable {
             }
         }
 
+        /// A camera at `pitch` that shows the bounds, and in the stack its
+        /// lowest and highest floors, in the visible part, keeping the map's
+        /// heading.
+        private func angledCamera(
+            _ bounds: CampusMapBounds, in visible: CGRect, on map: MKMapView, pitch: CLLocationDegrees
+        ) -> MKMapCamera? {
+            // The focal length, from the map's scale across the centre of
+            // the view, which is the camera's distance over it.
+            let centre = CGPoint(x: map.bounds.midX, y: map.bounds.midY)
+            let span: CGFloat = 100
+            let here = map.convert(centre, toCoordinateFrom: map)
+            let across = map.convert(CGPoint(x: centre.x + span, y: centre.y), toCoordinateFrom: map)
+            let metresPerPoint = MKMapPoint(here).distance(to: MKMapPoint(across)) / Double(span)
+            let distance = map.camera.centerCoordinateDistance
+            guard metresPerPoint > 0, distance > 0 else { return nil }
+            let floors = stacked ? stackScene?.stack ?? [] : []
+            let heights = [floors.first?.baseM ?? 0, floors.last?.baseM ?? 0]
+            let margin = FloorMapView.framingMargin
+            guard
+                let fit = StackFraming.fit(
+                    bounds, heights: heights, focal: distance / metresPerPoint, view: map.bounds.size,
+                    room: visible.insetBy(dx: margin, dy: margin), pitch: pitch, heading: map.camera.heading)
+            else { return nil }
+            return MKMapCamera(
+                lookingAtCenter: fit.center, fromDistance: fit.distance, pitch: pitch, heading: map.camera.heading)
+        }
+
+        /// The stack is seen at an angle and may be turned and tilted; a
+        /// single floor is seen from above. A framing for this scene sets
+        /// the angle itself; otherwise the camera tilts where it is. Either
+        /// is this view's own move, which is reported to no one.
+        func tilt(_ map: MKMapView, stacked: Bool) {
+            guard stacked != self.stacked else { return }
+            self.stacked = stacked
+            map.isPitchEnabled = stacked
+            // Apple's own buildings would rise through the floors.
+            map.showsBuildings = !stacked
+            movedFrom = nil
+            guard pendingFraming == nil, appliedFraming != 0 else { return }
+            guard let camera = map.camera.copy() as? MKMapCamera else { return }
+            camera.pitch = stacked ? CampusMapStack.pitch : 0
+            let key = appliedFraming
+            activeFraming = key
+            announced = false
+            map.setCamera(camera, animated: animatesCamera)
+            DispatchQueue.main.async { [weak self, weak map] in
+                guard let self, let map, activeFraming == key, !announced else { return }
+                finishFraming(on: map)
+            }
+        }
+
+        /// Draws the stack for the camera as it is now, or takes it away.
+        func raise(_ map: MKMapView) {
+            guard let stackView else { return }
+            guard let scene = stackScene, scene.stacked, map.bounds.width > 0, map.bounds.height > 0,
+                let sight = StackSight(map: map, in: stackView)
+            else {
+                if !stackView.isHidden { stackView.show(nil, entrances: []) }
+                return
+            }
+            let (picture, entrances) = StackPicture.make(scene, sight: sight, visible: visible(in: map))
+            stackView.show(picture, entrances: entrances)
+        }
+
         // MARK: Camera and taps
 
+        /// Every step of the camera, the person's and MapKit's own.
+        func mapViewDidChangeVisibleRegion(_ map: MKMapView) {
+            raise(map)
+        }
+
         func mapView(_ map: MKMapView, regionWillChangeAnimated animated: Bool) {
+            // MapKit need not report every step of a move it animates.
+            if stacked { ticker.start() }
             if contact?.fingersDown == true {
                 activeFraming = nil
             } else if activeFraming != nil {
@@ -378,6 +492,8 @@ struct FloorMapView: UIViewRepresentable {
         }
 
         func mapView(_ map: MKMapView, regionDidChangeAnimated animated: Bool) {
+            ticker.stop()
+            raise(map)
             finishFraming(on: map, byUser: activeFraming == nil || contact?.fingersDown == true)
         }
 
@@ -385,6 +501,9 @@ struct FloorMapView: UIViewRepresentable {
             if recognizer.fingersDown {
                 // Latch the interruption through deceleration after release.
                 activeFraming = nil
+                if recognizer.state == .began, let map = recognizer.view as? MKMapView {
+                    movedFrom = map.centerCoordinate
+                }
             } else if let map = recognizer.view as? MKMapView {
                 DispatchQueue.main.async { [weak self, weak map] in
                     guard let self, let map else { return }
@@ -405,10 +524,23 @@ struct FloorMapView: UIViewRepresentable {
         }
 
         /// The visible part's corners on the ground: a turned map gives a
-        /// turned box.
+        /// turned box. In the stack, seen at an angle, only its near half:
+        /// the far half reaches far off and would weigh far more than it
+        /// shows. A turn or tilt of the stack is not reported.
         private func report(_ map: MKMapView) {
             guard appliedFraming != 0, map.window != nil else { return }
-            let visible = visible(in: map)
+            let from = movedFrom
+            movedFrom = nil
+            if stacked, let from {
+                let at = map.convert(from, toPointTo: map)
+                let moved = hypot(at.x - map.bounds.midX, at.y - map.bounds.midY)
+                if moved < CampusMapStack.panPoints { return }
+            }
+            var visible = visible(in: map)
+            if stacked {
+                visible = CGRect(
+                    x: visible.minX, y: visible.midY, width: visible.width, height: visible.height / 2)
+            }
             let at = { (x: CGFloat, y: CGFloat) -> CampusMapPoint in
                 let coordinate = map.convert(CGPoint(x: x, y: y), toCoordinateFrom: map)
                 return CampusMapPoint(latitude: coordinate.latitude, longitude: coordinate.longitude)
@@ -547,6 +679,7 @@ struct FloorMapView: UIViewRepresentable {
             for mark in marks.values {
                 (map.view(for: mark) as? FloorMarkView)?.show(mark, traits: map.traitCollection)
             }
+            stackView?.restyle()
         }
 
         func mapView(_ map: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {

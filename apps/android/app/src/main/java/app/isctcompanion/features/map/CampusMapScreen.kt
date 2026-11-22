@@ -9,6 +9,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.rounded.GpsFixed
+import androidx.compose.material.icons.rounded.Layers
 import kotlin.math.abs
 import app.isctcompanion.design.LocalReducedMotion
 import android.content.Context
@@ -33,6 +34,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
@@ -74,7 +76,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
@@ -255,8 +259,9 @@ fun CampusMapScreen(room: String?) {
             modifier = Modifier.fillMaxSize(),
         )
 
-        // The control rail: MapLibre's compass heads it, then the floors,
-        // which scroll within what the card and the position button leave.
+        // The control rail: MapLibre's compass heads it, then the stack's
+        // button and the floors, which scroll within what the card and the
+        // position button leave.
         if (scene != null && scene.levels.isNotEmpty()) {
             Column(
                 Modifier
@@ -268,6 +273,29 @@ fun CampusMapScreen(room: String?) {
                     )
                     .width(Control),
             ) {
+                // The building's floors as a stack seen at an angle, and back
+                // (this fork).
+                val stacked = scene.stacked
+                val stackLabel = t(if (stacked) "campusMap.stackOff" else "campusMap.stackOn")
+                Box(
+                    Modifier
+                        .size(Control)
+                        .floating(RoundedCornerShape(Theme.radiusChip))
+                        .background(if (stacked) Theme.colors.accent else Color.Transparent)
+                        .clickable(role = Role.Button) { send(CampusMapIntent.Stack(!stacked)) }
+                        .semantics {
+                            contentDescription = stackLabel
+                            this.selected = stacked
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        Icons.Rounded.Layers, null,
+                        tint = if (stacked) Theme.colors.accentInk else Theme.colors.ink,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                Spacer(Modifier.height(with(density) { gap.toDp() }))
                 LevelPicker(scene.levels, scene.levelId, scene.markedLevelId, Modifier.weight(1f, fill = false)) {
                     haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
                     send(CampusMapIntent.Level(it))

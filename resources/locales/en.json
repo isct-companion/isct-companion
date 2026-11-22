@@ -1096,6 +1096,8 @@
   "campusMap.photos.upload": "Upload floor photos",
   "campusMap.position": "Current location",
   "campusMap.search": "Search buildings and rooms",
+  "campusMap.stackOff": "Show one floor",
+  "campusMap.stackOn": "Show floors in 3D",
   "campusMap.showBuilding": "Show {{name}}",
   "campusMap.streetFloor": "Entrance floor",
   "campusMap.suzukakedai": "Suzukakedai",

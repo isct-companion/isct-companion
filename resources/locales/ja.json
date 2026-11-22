@@ -1096,6 +1096,8 @@
   "campusMap.photos.upload": "フロアの写真を送る",
   "campusMap.position": "現在地",
   "campusMap.search": "建物・教室を検索",
+  "campusMap.stackOff": "1フロアで表示",
+  "campusMap.stackOn": "フロアを立体表示",
   "campusMap.showBuilding": "{{name}}を表示",
   "campusMap.streetFloor": "入口階",
   "campusMap.suzukakedai": "すずかけ台",

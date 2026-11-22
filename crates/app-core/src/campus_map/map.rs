@@ -364,8 +364,48 @@ impl Map {
                 ordinal: levels[index].ordinal,
                 name: levels[index].name.clone(),
                 street: Some(index) == street,
+                has_plan: true,
+                entered: self.entered(building, index),
             })
             .collect()
+    }
+
+    /// The building has an entrance on this floor.
+    pub(super) fn entered(&self, building: usize, level: usize) -> bool {
+        let record = &self.export.buildings[building];
+        let id = record.levels[level].id.as_str();
+        record
+            .entrances
+            .iter()
+            .any(|entrance| entrance.level_id.as_deref() == Some(id))
+    }
+
+    /// Every ordinal from a building's lowest floor to its highest, lowest
+    /// first, with the level of that ordinal where the export has a plan:
+    /// W9's 1F to 7F, 4F to 6F without.
+    pub(super) fn stack_levels(&self, building: usize) -> Vec<(i32, Option<usize>)> {
+        let levels = &self.export.buildings[building].levels;
+        let (Some(lowest), Some(highest)) = (
+            levels.iter().map(|level| level.ordinal).min(),
+            levels.iter().map(|level| level.ordinal).max(),
+        ) else {
+            return Vec::new();
+        };
+        (lowest..=highest)
+            .map(|ordinal| {
+                (
+                    ordinal,
+                    levels.iter().position(|level| level.ordinal == ordinal),
+                )
+            })
+            .collect()
+    }
+
+    /// The street floor's ordinal; 0 for a building with no floors.
+    pub(super) fn street_ordinal(&self, building: usize) -> i32 {
+        self.street_level(building).map_or(0, |level| {
+            self.export.buildings[building].levels[level].ordinal
+        })
     }
 
     /// The floor that feels like the ground floor: the one the main

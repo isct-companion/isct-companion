@@ -2,9 +2,12 @@ import IsctCore
 import SwiftUI
 
 /// Floors top floor first, as in Apple Maps. A dot marks the floor the
-/// selected room is on, the entrance icon the floor the building is entered
-/// on from the street. A tall building (J2・J3 has 20 floors) scrolls within
-/// the space the page leaves, keeping the floor shown in view.
+/// selected room is on, the entrance icon every floor the building has an
+/// entrance on, in the accent on the street floor (the main entrance's) and
+/// muted on the rest. A tall building (J2・J3 has 20 floors) scrolls within
+/// the space the page leaves, keeping the floor shown in view. A floor with
+/// no plan (the stack lists the ones between two that have one) is greyed
+/// and cannot be picked.
 struct LevelPicker: View {
     let levels: [CampusMapLevel]
     let selected: String?
@@ -41,7 +44,8 @@ struct LevelPicker: View {
                 } label: {
                     Text(level.name)
                         .font(.footnote.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(isSelected ? Theme.accentInk : Theme.ink)
+                        .foregroundStyle(
+                            isSelected ? Theme.accentInk : level.hasPlan ? Theme.ink : Theme.muted.opacity(0.5))
                         .padding(.horizontal, Theme.space3)
                         .frame(minWidth: 44, minHeight: 44)
                         .background(isSelected ? Theme.accent : .clear)
@@ -55,12 +59,13 @@ struct LevelPicker: View {
                             }
                         }
                         .overlay(alignment: .bottomLeading) {
-                            if level.street {
+                            if level.street || level.entered {
                                 Image("CampusMap/entrance")
                                     .renderingMode(.template)
                                     .resizable()
                                     .frame(width: 11, height: 11)
-                                    .foregroundStyle(isSelected ? Theme.accentInk : Theme.accent)
+                                    .foregroundStyle(
+                                        isSelected ? Theme.accentInk : level.street ? Theme.accent : Theme.muted)
                                     .padding(3)
                                     .accessibilityHidden(true)
                             }
@@ -68,12 +73,14 @@ struct LevelPicker: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(!level.hasPlan)
                 .id(level.id)
                 .accessibilityLabel(t("campusMap.level", ["name": level.name]))
                 .accessibilityValue(
                     [
                         level.id == marked ? t("campusMap.destinationFloor") : nil,
                         level.street ? t("campusMap.streetFloor") : nil,
+                        level.entered && !level.street ? t("campusMap.entrance") : nil,
                     ].compactMap { $0 }.joined(separator: ", "))
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             }

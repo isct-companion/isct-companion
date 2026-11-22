@@ -35,9 +35,11 @@ import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
 
 /** Floors top floor first. A dot marks the floor the selected room is on,
- * the entrance icon the floor the building is entered on from the street. A
+ * the entrance icon every floor the building has an entrance on, in the
+ * accent on the street floor (the main entrance's) and muted on the rest. A
  * tall building scrolls within the space the page leaves, keeping the floor
- * shown in view. */
+ * shown in view. A floor with no plan (the stack lists the ones between two
+ * that have one) is greyed and cannot be picked. */
 @Composable
 internal fun LevelPicker(
     levels: List<CampusMapLevel>,
@@ -59,13 +61,14 @@ internal fun LevelPicker(
             val state = listOfNotNull(
                 t("campusMap.destinationFloor").takeIf { level.id == marked },
                 t("campusMap.streetFloor").takeIf { level.street },
+                t("campusMap.entrance").takeIf { level.entered && !level.street },
             ).joinToString(", ")
             val mark = if (isSelected) Theme.colors.accentInk else Theme.colors.accent
             Box(
                 Modifier
                     .size(Control)
                     .background(if (isSelected) Theme.colors.accent else Color.Transparent)
-                    .clickable(role = Role.Button) { pick(level.id) }
+                    .clickable(enabled = level.hasPlan, role = Role.Button) { pick(level.id) }
                     .semantics {
                         contentDescription = spoken
                         stateDescription = state
@@ -76,7 +79,11 @@ internal fun LevelPicker(
                 Text(
                     level.name,
                     style = MaterialTheme.typography.bodySmall.tabular(), fontWeight = FontWeight.SemiBold,
-                    color = if (isSelected) Theme.colors.accentInk else Theme.colors.ink,
+                    color = when {
+                        isSelected -> Theme.colors.accentInk
+                        level.hasPlan -> Theme.colors.ink
+                        else -> Theme.colors.muted.copy(alpha = 0.5f)
+                    },
                     maxLines = 1,
                 )
                 if (level.id == marked) {
@@ -89,10 +96,10 @@ internal fun LevelPicker(
                             .background(mark),
                     )
                 }
-                if (level.street) {
+                if (level.street || level.entered) {
                     Icon(
                         painterResource(R.drawable.campus_map_entrance), null,
-                        tint = mark,
+                        tint = if (level.street) mark else if (isSelected) Theme.colors.accentInk else Theme.colors.muted,
                         modifier = Modifier.align(Alignment.BottomStart).padding(3.dp).size(11.dp),
                     )
                 }
