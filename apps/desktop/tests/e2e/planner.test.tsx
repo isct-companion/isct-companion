@@ -13,7 +13,7 @@ import {
   planItemFor,
   planningWeekFor,
   readRepoFile,
-  scheduleViewFor,
+  lectureListFor,
   textOf,
   typeInto,
   until,
@@ -293,8 +293,8 @@ function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
       }),
     planningWeek: (_query: unknown, core: FakeCore) =>
       planningWeekFor(core.workspace),
-    scheduleView: (_query: unknown, core: FakeCore) =>
-      scheduleViewFor(core.workspace),
+    lectureList: (_query: unknown, core: FakeCore) =>
+      lectureListFor(core.workspace),
   };
 }
 

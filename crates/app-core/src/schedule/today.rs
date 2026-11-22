@@ -21,7 +21,7 @@ use super::tasks::{
 };
 use super::{
     array, calendar_between, display_color, parse_civil_date, teaching_periods, text, tokyo_date,
-    visible, Occurrence, OccurrenceKind, ScheduleError, TeachingPeriod,
+    visible, Occurrence, ScheduleError, TeachingPeriod,
 };
 use crate::locale::ContentLanguage;
 
@@ -259,10 +259,7 @@ fn class(block: Occurrence, periods: &[TeachingPeriod]) -> Result<TodayClass, Sc
 pub(crate) fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
     agenda
         .iter()
-        .filter(|block| {
-            matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-                && block.cancelled != Some(true)
-        })
+        .filter(|block| block.is_active_class())
         .cloned()
         .collect()
 }

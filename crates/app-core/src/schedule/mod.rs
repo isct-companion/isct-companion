@@ -18,6 +18,7 @@ mod range;
 mod reminders;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
 pub use reminders::{reminder_lead_options, ReminderLeadOptions};
+mod lecture_list;
 mod requests;
 mod school;
 mod search;
@@ -65,6 +66,7 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
+pub use lecture_list::{LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use occurrence::placement_terms;
@@ -211,6 +213,10 @@ pub enum WorkspaceQuery {
     LectureSearch {
         term: Option<String>,
         query: String,
+    },
+    LectureList {
+        term: String,
+        now: String,
     },
     ScheduleView {
         /// Toolbar/credit context only; agendas include every term in the date range.
@@ -366,7 +372,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::ScheduleView { .. } => &[
+            Self::ScheduleView { .. } | Self::LectureList { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -542,6 +548,7 @@ pub enum WorkspaceQueryResult {
     CourseContent(Option<CourseContent>),
     ExamAssociation(ExamAssociation),
     LectureSearch(LectureSearch),
+    LectureList(LectureList),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
@@ -689,6 +696,9 @@ pub fn query(
             workspace,
             parse_timestamp(&now)?,
         )?)),
+        WorkspaceQuery::LectureList { term, now } => Ok(WorkspaceQueryResult::LectureList(
+            lecture_list::lecture_list(workspace, school, &term, parse_timestamp(&now)?)?,
+        )),
         WorkspaceQuery::ScheduleView {
             term,
             from,
@@ -1112,6 +1122,8 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         WorkspaceOverview::decl(cfg),
         ExamCourse::decl(cfg),
         ExamCourseList::decl(cfg),
+        LectureMeeting::decl(cfg),
+        LectureList::decl(cfg),
         ScheduleView::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),
         WorkspaceQuery::decl(cfg),

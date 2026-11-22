@@ -2190,6 +2190,20 @@ export type ExamCourse = {
 
 export type ExamCourseList = { courses: Array<ExamCourse> };
 
+export type LectureMeeting = {
+  date: string;
+  startTime: string;
+  room: string;
+  inClass: boolean;
+};
+
+export type LectureList = {
+  courses: unknown[];
+  nextByCourse: { [key in string]: LectureMeeting };
+  exams: Array<ExamView>;
+  allTerms: Array<string>;
+};
+
 export type ScheduleView = {
   term: string;
   range: QuarterRange | null;
@@ -2227,6 +2241,7 @@ export type WorkspaceQuery =
   | { kind: "assignmentDetail"; assignmentId: string }
   | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
+  | { kind: "lectureList"; term: string; now: string }
   | {
       kind: "scheduleView";
       /**
@@ -2293,6 +2308,7 @@ export type WorkspaceQueryResult =
   | { kind: "courseContent"; value: CourseContent | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
+  | { kind: "lectureList"; value: LectureList }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }

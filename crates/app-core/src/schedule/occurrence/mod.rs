@@ -117,9 +117,22 @@ pub struct GridSlot {
     pub lanes: u8,
 }
 
+pub(crate) struct CourseSlot<'a> {
+    pub course_id: &'a str,
+    pub start_time: &'a str,
+    pub end_time: &'a str,
+    pub room: &'a str,
+}
+
 impl Occurrence {
-    /// Its course, or both courses of a shared 演習・実験 block.
-    pub fn course_ids(&self) -> impl Iterator<Item = &str> {
+    /// A teaching session which still takes place, including exams.
+    pub(crate) fn is_active_class(&self) -> bool {
+        matches!(self.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
+            && self.cancelled != Some(true)
+    }
+
+    /// Each course keeps its own time and room in a shared 演習・実験 block.
+    pub(crate) fn course_slots(&self) -> impl Iterator<Item = CourseSlot<'_>> {
         let pair = self
             .alternation
             .as_ref()
@@ -127,9 +140,24 @@ impl Occurrence {
             .unwrap_or_default();
         self.course_id
             .as_deref()
+            .filter(|_| pair.is_empty())
+            .map(|course_id| CourseSlot {
+                course_id,
+                start_time: &self.start_time,
+                end_time: &self.end_time,
+                room: &self.room,
+            })
             .into_iter()
-            .filter(move |_| pair.is_empty())
-            .chain(pair.iter().map(|course| course.course_id.as_str()))
+            .chain(pair.iter().map(|course| CourseSlot {
+                course_id: &course.course_id,
+                start_time: &course.start_time,
+                end_time: &course.end_time,
+                room: &course.room,
+            }))
+    }
+
+    pub fn course_ids(&self) -> impl Iterator<Item = &str> {
+        self.course_slots().map(|slot| slot.course_id)
     }
 }
 
@@ -218,11 +246,10 @@ pub fn course_timeline(
                     include_personal: false,
                     ..AgendaOptions::default()
                 },
-            )?
-            .into_iter()
-            .filter(|row| row.course_ids().any(|id| id == course_id))
-            {
-                starts.push(format!("{}T{}", row.date, row.start_time));
+            )? {
+                if let Some(slot) = row.course_slots().find(|slot| slot.course_id == course_id) {
+                    starts.push(format!("{}T{}", row.date, slot.start_time));
+                }
             }
         }
     }

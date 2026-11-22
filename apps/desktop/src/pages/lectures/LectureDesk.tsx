@@ -10,13 +10,11 @@ import {
 } from "../../components/ResizableWorkspace";
 import { KeptPage } from "../../app/KeptPage";
 import { usePanelRef } from "react-resizable-panels";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { TermId, Workspace } from "../../lib/model";
 import {
   addCivilDays as addDays,
   civilWeekday,
-  jstClock,
-  jstMinutes,
   tokyoDate,
 } from "../../lib/civil-date";
 import { UiSelect } from "../../components/ui";
@@ -26,27 +24,29 @@ import { useClock } from "../../platform/use-clock";
 import {
   useScheduleQueries,
   useScheduleQuery,
-  type ScheduleView,
+  type LectureList,
   type TaskView,
 } from "../../platform/core-query";
 import { withRecords } from "../../platform/records";
 import { LectureAssignments } from "./LectureAssignments";
 import { LectureExamList, LectureExamDetails } from "./LectureExams";
-import type { TaskDeadlineView } from "../../generated/persistence";
+import type { LectureMeeting } from "../../generated/persistence";
 
-type Lecture = {
-  id: string;
-  title: string;
-  code: string;
-  color: string;
-  /** Minutes from now to the next meeting within a week; 0 while in class. */
-  rank: number;
-  when?: string;
-  room?: string;
-  due?: TaskDeadlineView;
-};
+function meetingLabel(
+  meeting: LectureMeeting,
+  today: string,
+  tomorrow: string,
+) {
+  if (meeting.inClass) return t("common.now");
+  const day =
+    meeting.date === today
+      ? "common.today"
+      : meeting.date === tomorrow
+        ? "common.tomorrow"
+        : dayShort[civilWeekday(meeting.date) - 1];
+  return `${t(day)} ${meeting.startTime.replace(/^0/, "")}`;
+}
 
-/** This quarter's lectures, in class order, and the open lecture's workspace. */
 /**
  * Applies each entrance once. Revealing the retained Activity re-runs effects,
  * which must resume the page as it was rather than replay the entrance.
@@ -170,16 +170,10 @@ function LectureDeskBody({
     if (takeChoice()) setEntering(`exam:${examEntry.key}`);
   });
   const nowIso = useClock(active);
-  const now = useMemo(() => new Date(nowIso), [nowIso]);
-  const today = tokyoDate(now);
-  const snapshotQuery = useScheduleQueries<[ScheduleView, TaskView]>([
-    {
-      kind: "scheduleView",
-      term: shownTerm,
-      from: today,
-      to: addDays(today, 7),
-      includePersonal: true,
-    },
+  const today = tokyoDate(new Date(nowIso));
+  const tomorrow = addDays(today, 1);
+  const snapshotQuery = useScheduleQueries<[LectureList, TaskView]>([
+    { kind: "lectureList", term: shownTerm, now: nowIso },
     { kind: "taskView", now: nowIso },
   ]);
   const snapshot = snapshotQuery.value;
@@ -200,54 +194,10 @@ function LectureDeskBody({
       ? schedule?.exams?.find((exam) => exam.key === examKey)
       : undefined;
 
-  const lectures = useMemo(() => {
-    const minutes = jstMinutes(now);
-    const clock = jstClock(now);
-    const next = new Map<
-      string,
-      { rank: number; when: string; room?: string }
-    >();
-    for (const [offset, agenda] of (schedule?.agendas ?? []).entries()) {
-      const date = agenda.date;
-      for (const block of agenda.occurrences) {
-        if (block.kind !== "course" || next.has(block.id)) continue;
-        if (offset === 0 && block.endTime <= clock) continue;
-        const [h, m] = block.startTime.split(":").map(Number);
-        const inClass = offset === 0 && block.startTime <= clock;
-        next.set(block.id, {
-          rank: inClass ? 0 : offset * 1440 + h * 60 + m - minutes,
-          when: inClass
-            ? t("common.now")
-            : `${offset === 0 ? t("common.today") : offset === 1 ? t("common.tomorrow") : t(dayShort[civilWeekday(date) - 1])} ${block.startTime.replace(/^0/, "")}`,
-          room: block.room || undefined,
-        });
-      }
-    }
-    return courses
-      .map((course): Lecture => {
-        const meeting = next.get(course.id);
-        const workId = taskView?.nearestByCourse[course.id];
-        const due = workId ? taskView?.deadlines?.[workId] : undefined;
-        return {
-          id: course.id,
-          title: course.title,
-          code: course.code,
-          color: course.color,
-          rank: meeting?.rank ?? Infinity,
-          when: meeting?.when,
-          room: meeting?.room,
-          due,
-        };
-      })
-      .sort(
-        (left, right) =>
-          left.rank - right.rank || left.title.localeCompare(right.title),
-      );
-  }, [courses, now, schedule?.agendas, taskView, today]);
   const needle = query.trim().toLowerCase();
   const shown = needle
-    ? lectures.filter((lecture) => search?.courseIds.includes(lecture.id))
-    : lectures;
+    ? courses.filter((course) => search?.courseIds.includes(course.id))
+    : courses;
 
   // The two most recent lectures stay mounted so switching back is instant.
   const [recent, setRecent] = useState<CourseEntry[]>([]);
@@ -417,32 +367,39 @@ function LectureDeskBody({
           {mode === "lectures" && listLoading && <Skeleton count={5} />}
           {mode === "lectures" &&
             !listLoading &&
-            shown.map((lecture) => (
-              <button
-                type="button"
-                key={lecture.id}
-                className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${lecture.rank === 0 ? " now" : ""}`}
-                aria-current={
-                  entry?.courseId === lecture.id ? "true" : undefined
-                }
-                style={{ "--course": lecture.color } as React.CSSProperties}
-                onClick={() => choose(lecture.id)}
-              >
-                <b>{lecture.title}</b>
-                <small>
-                  {[lecture.code, lecture.when, lecture.room]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </small>
-                {lecture.due && (
-                  <DueChip due={lecture.due} locale={data.settings.locale} />
-                )}
-              </button>
-            ))}
+            shown.map((lecture) => {
+              const meeting = schedule?.nextByCourse[lecture.id];
+              const workId = taskView?.nearestByCourse[lecture.id];
+              const due = workId ? taskView?.deadlines[workId] : undefined;
+              return (
+                <button
+                  type="button"
+                  key={lecture.id}
+                  className={`lectureRow${entry?.courseId === lecture.id ? " selected" : ""}${meeting?.inClass ? " now" : ""}`}
+                  aria-current={
+                    entry?.courseId === lecture.id ? "true" : undefined
+                  }
+                  style={{ "--course": lecture.color } as React.CSSProperties}
+                  onClick={() => choose(lecture.id)}
+                >
+                  <b>{lecture.title}</b>
+                  <small>
+                    {[
+                      lecture.code,
+                      meeting && meetingLabel(meeting, today, tomorrow),
+                      meeting?.room,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </small>
+                  {due && <DueChip due={due} locale={data.settings.locale} />}
+                </button>
+              );
+            })}
           {mode === "lectures" && !listLoading && !shown.length && (
             <EmptyState compact icon={BookOpen}>
               {t(
-                lectures.length
+                courses.length
                   ? "lectures.noMatchingLectures"
                   : "lectures.noLecturesOnThisQuarters",
               )}

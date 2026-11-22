@@ -233,6 +233,11 @@ export function planningWeekFor(
   };
 }
 
+export function lectureListFor(workspace: Workspace) {
+  const { courses, allTerms } = overviewFor(workspace);
+  return { courses, allTerms, nextByCourse: {}, exams: [] };
+}
+
 export function scheduleViewFor(
   workspace: Workspace,
   overrides: Record<string, unknown> = {},

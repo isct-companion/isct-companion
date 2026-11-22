@@ -101,6 +101,14 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
         friday.calendar_notice.as_deref(),
         Some("No classes due to Campus Festival")
     );
+    let list = lecture_list::lecture_list(
+        &data,
+        &SchoolReads::fixture(&data),
+        "2026-3Q",
+        parse_timestamp("2026-10-08T18:00:00+09:00").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(list.next_by_course["course"].date, "2026-10-13");
     // The day's calendar row reaches the shell with its label already read.
     assert_eq!(
         friday.calendar_state.as_ref().unwrap()["label"],
