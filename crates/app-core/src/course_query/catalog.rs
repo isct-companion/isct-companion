@@ -102,8 +102,11 @@ impl FinderCatalog {
             .into_iter()
             .filter_map(normalize_offering)
             .map(|mut course| {
-                let url = crate::catalog::syllabus_url(text(&course, "id"), language.code());
-                course["syllabusUrl"] = url.into();
+                // The demo scene's offerings are made up: no syllabus page.
+                if !cfg!(feature = "demo") {
+                    let url = crate::catalog::syllabus_url(text(&course, "id"), language.code());
+                    course["syllabusUrl"] = url.into();
+                }
                 IndexedCourse::new(course, language)
             })
             .collect();

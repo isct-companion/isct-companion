@@ -83,6 +83,10 @@ pub(super) fn lms_record<'a>(workspace: &'a Value, course: &Value) -> Option<&'a
 /// The course's シラバス page in the content language, from its offering or
 /// a シラバス link the course or its materials carry.
 fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Option<String> {
+    // The demo scene's offerings are made up: no syllabus page exists.
+    if cfg!(feature = "demo") {
+        return None;
+    }
     let linked = || {
         std::iter::once(text(course, "url"))
             .chain(materials.iter().map(|row| text(row, "resourceUrl")))

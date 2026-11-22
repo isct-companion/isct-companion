@@ -163,9 +163,12 @@ fn main() {
         "cargo::rustc-check-cfg=cfg(tool, values({}))",
         ids.join(", ")
     );
+    // The demo app has no campus tools: on launch the VPN plugin would watch
+    // the helper the release app installed, and the scene shows no tools.
+    let demo_build = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
     let tools = TOOLS
         .iter()
-        .filter(|(_, systems)| systems.contains(&os.as_str()))
+        .filter(|(_, systems)| !demo_build && systems.contains(&os.as_str()))
         .map(|(id, _)| *id)
         .collect::<Vec<_>>();
     for tool in &tools {
@@ -188,9 +191,8 @@ fn main() {
     });
     // The demo scene and the demo identifier come only together, so the
     // fictional workspace can never land in the release or dev app's data.
-    let demo = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
     assert_eq!(
-        demo,
+        demo_build,
         identifier.as_deref() == Some(DEMO_IDENTIFIER),
         "the `demo` feature builds only as {DEMO_IDENTIFIER} (`yarn desktop:demo`)"
     );

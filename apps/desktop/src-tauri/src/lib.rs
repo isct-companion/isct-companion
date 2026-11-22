@@ -74,13 +74,27 @@ fn native_bootstrap() -> String {
     format!(
         "Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_TARGET__',{{value:'native-desktop',writable:false,configurable:false}});\
          Object.defineProperty(window,'__ISCT_COMPANION_NATIVE_OS__',{{value:'{}',writable:false,configurable:false}});\
-         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});\
-         Object.defineProperty(window,'__ISCT_COMPANION_CLOCK_OFFSET_MS__',{{value:{},writable:false,configurable:false}});",
+         Object.defineProperty(window,'__ISCT_COMPANION_WINDOW_MATERIAL__',{{value:'{}',writable:false,configurable:false}});         Object.defineProperty(window,'__ISCT_COMPANION_TOOLS__',{{value:Object.freeze({}),writable:false,configurable:false}});{}",
         std::env::consts::OS,
         window_material().unwrap_or(""),
         plugins::tools_json(),
+        demo_clock()
+    )
+}
+
+/// The demo scene's clock offset for the page (`wallNow`); a normal build's
+/// page reads the system clock.
+#[cfg(feature = "demo")]
+fn demo_clock() -> String {
+    format!(
+        "Object.defineProperty(window,'__ISCT_COMPANION_CLOCK_OFFSET_MS__',{{value:{},writable:false,configurable:false}});",
         app_core::clock::offset().num_milliseconds()
     )
+}
+
+#[cfg(not(feature = "demo"))]
+fn demo_clock() -> &'static str {
+    ""
 }
 
 /// The system material drawn behind the transparent page, which then keeps

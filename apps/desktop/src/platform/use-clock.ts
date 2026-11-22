@@ -3,10 +3,14 @@ import { useSyncExternalStore } from "react";
 const MINUTE = 60_000;
 
 /** The shell's wall clock, in milliseconds. It runs as far ahead of the
- * system clock as Core's does (whole minutes, only in a demo build), so the
- * page and Core agree on the moment. */
+ * system clock as Core's does (only in a demo build, whose bootstrap injects
+ * the offset), so the page and Core agree on the moment. */
 export function wallNow(): number {
-  return Date.now() + (window.__ISCT_COMPANION_CLOCK_OFFSET_MS__ ?? 0);
+  const offset =
+    typeof window === "undefined"
+      ? undefined
+      : window.__ISCT_COMPANION_CLOCK_OFFSET_MS__;
+  return Date.now() + (offset ?? 0);
 }
 
 /** The current time floored to the minute. Every Core query that takes `now`
@@ -34,7 +38,7 @@ function arm() {
           notify();
           arm();
         },
-        MINUTE - (Date.now() % MINUTE),
+        MINUTE - (wallNow() % MINUTE),
       )
     : undefined;
 }

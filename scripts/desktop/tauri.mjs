@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -19,8 +19,8 @@ const flags =
   cargoSeparator === -1 ? command : command.slice(0, cargoSeparator);
 const dev = command[0] === "dev";
 const debug = flags.includes("--debug") || flags.includes("-d");
-if (demo && !dev && !(command[0] === "build" && debug)) {
-  console.error("--demo runs only with `dev` or `build --debug`.");
+if (demo && !dev && !(command[0] === "build" && debug && flags.includes("--no-sign"))) {
+  console.error("--demo runs only with `dev` or `build --debug --no-sign`.");
   process.exit(1);
 }
 const packageVersion = JSON.parse(
@@ -79,11 +79,15 @@ const windowsConfig = windowsSigningEndpoint
       },
     }
   : undefined;
-const vpnBundle = campusVpnBundle({
-  macOS: macConfig?.bundle.macOS,
-  packagesApp,
-  signing,
-});
+// The demo app has no VPN tool, so its bundle neither carries nor rebuilds
+// the helper the release app installs.
+const vpnBundle = demo
+  ? undefined
+  : campusVpnBundle({
+      macOS: macConfig?.bundle.macOS,
+      packagesApp,
+      signing,
+    });
 const tauriCommand = [...command];
 if (demo) tauriCommand.splice(1, 0, "--features", "demo");
 if (macConfig || windowsConfig || version || vpnBundle || isolatedApp) {
@@ -154,4 +158,20 @@ child.on("error", (error) => {
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   else process.exitCode = code ?? 1;
+  // The demo bundle answers no URL scheme: src-tauri/Info.plist registers the
+  // release app's `isctcompanion`, and a release widget's link must never
+  // open the screenshot app. The bundle is unsigned, so its plist can change.
+  if (demo && bundleCommand && macOS && code === 0) {
+    const target = process.env.CARGO_TARGET_DIR ?? path.join(root, "target");
+    const plist = path.join(
+      target,
+      "debug/bundle/macos/IsctCompanion Demo.app/Contents/Info.plist",
+    );
+    const removed = spawnSync(
+      "/usr/libexec/PlistBuddy",
+      ["-c", "Delete :CFBundleURLTypes", plist],
+      { stdio: "inherit" },
+    );
+    if (removed.status !== 0) process.exitCode = 1;
+  }
 });

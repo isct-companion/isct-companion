@@ -68,7 +68,7 @@ short refuses to start and names the folder to delete.
 ## Running it
 
 ```sh
-export CARGO_TARGET_DIR=/Users/xby/isct-companion/target
+export CARGO_TARGET_DIR=<the shared cargo target directory>
 # Iterate on code: hot reload, a bare executable (screen tools cannot address it).
 yarn desktop:demo
 # Capture: an unsigned debug bundle that macOS and screen tools treat as an app.
@@ -85,7 +85,7 @@ On an iPhone or iPad, beside the App Store app (a Personal Team build passes
 its own id, which must still end in `.demo`):
 
 ```sh
-CARGO_TARGET_DIR=/Users/xby/isct-companion/target ISCT_SDK_PROFILE=dev node scripts/bindings/build-ios.mjs --device-only --demo
+ISCT_SDK_PROFILE=dev node scripts/bindings/build-ios.mjs --device-only --demo
 (cd apps/ios && xcodegen generate)
 xcodebuild -project apps/ios/IsctCompanion.xcodeproj -scheme IsctCompanion -configuration Demo \
   -destination generic/platform=iOS -allowProvisioningUpdates \

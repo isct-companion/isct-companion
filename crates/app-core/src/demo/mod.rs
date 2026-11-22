@@ -92,15 +92,12 @@ pub(crate) fn scene() -> Result<&'static Scene, String> {
 /// Hosts the demo's HTTP clients may resolve: public Isct-Data only.
 const PUBLIC_HOSTS: [&str; 1] = [crate::net::Host::IsctData.name()];
 
-/// Every client `crate::net::client_builder` makes in a demo build: no proxy
-/// (a proxy would resolve names itself), and a resolver that refuses every
-/// name but [`PUBLIC_HOSTS`], so no school, cloud, update or campus request
-/// leaves the process, whichever path builds it. Every school and cloud URL
-/// in the app is a name, never an address literal.
+/// Every client `crate::net::client_builder` makes in a demo build gets a
+/// resolver that refuses every name but [`PUBLIC_HOSTS`]. The demo never
+/// starts a school or cloud request on its own; this is the backstop. The
+/// system proxy stays, so public Isct-Data downloads where it needs one.
 pub(crate) fn network_gate(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-    builder
-        .no_proxy()
-        .dns_resolver(std::sync::Arc::new(PublicOnly))
+    builder.dns_resolver(std::sync::Arc::new(PublicOnly))
 }
 
 struct PublicOnly;
