@@ -13,7 +13,7 @@ import {
   planItemFor,
   planningWeekFor,
   readRepoFile,
-  lectureListFor,
+  scheduleViewFor,
   textOf,
   typeInto,
   until,
@@ -31,7 +31,6 @@ import type {
   FinderCourse,
   FinderPage,
   FinderRowView,
-  WorkspaceOverview,
 } from "@app/generated/persistence";
 import type { Course, TermId, Workspace } from "@app/lib/model";
 import type { WorkspaceIntent } from "@app/lib/workspace-intents";
@@ -100,20 +99,15 @@ function finderPage(
     ...(includeIneligible ? (options.widened ?? []) : []),
   ];
   const eligibility = options.eligibility ?? {};
-  const placedOfferingIds = core.workspace.courses
+  const placedCodes = core.workspace.courses
     .filter((row) => !row.deletedAt)
-    .map(
-      (row) =>
-        row.offeringId ??
-        courses.find((course) => course.code === row.code)?.id,
-    )
-    .filter((id): id is string => !!id);
+    .map((row) => row.code);
   const row = (course: FinderCourse): FinderRowView => {
     const verdict = eligibility[course.id];
     return {
       course,
       matched: [],
-      placed: placedOfferingIds.includes(course.id),
+      placed: placedCodes.includes(course.code),
       clash: (options.clashes ?? []).some((clash) => clash.id === course.id),
       replaces: options.replacements?.[course.id] ?? [],
       credits:
@@ -155,7 +149,7 @@ function finderPage(
         ? [`${"月火水木金土".indexOf(time[1]) + 1}:${time[2]}-${time[3]}`]
         : [];
     }),
-    placedOfferingIds,
+    placedCodes,
     commitKey: null,
     pasteHandled: false,
     pasted: [],
@@ -287,24 +281,20 @@ afterEach(async () => {
   app = undefined;
 });
 
-function plannerQueries(
-  allTerms: TermId[] = [FALLBACK],
-  placements: WorkspaceOverview["placements"] = {},
-) {
+function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
   return {
     workspaceOverview: (query: unknown, core: FakeCore) =>
       overviewFor(core.workspace, {
         term: (query as { term: string }).term || core.workspace.selectedTerm,
         allTerms,
-        placements,
         coursesTerm: core.workspace.selectedTerm,
         selectedTerm: core.workspace.selectedTerm,
         currentTerm: core.workspace.currentTerm,
       }),
     planningWeek: (_query: unknown, core: FakeCore) =>
       planningWeekFor(core.workspace),
-    lectureList: (_query: unknown, core: FakeCore) =>
-      lectureListFor(core.workspace),
+    scheduleView: (_query: unknown, core: FakeCore) =>
+      scheduleViewFor(core.workspace),
   };
 }
 
@@ -881,6 +871,7 @@ describe("the course planner", () => {
       "the course details panel",
     );
     expect(panel.textContent).toContain("Graph Algorithms");
+    expect(panel.textContent).toContain("Remove");
     // Planning only: materials and assignments are read in Lectures.
     expect(panel.querySelector('[role="tab"]')).toBeNull();
     // The search stays behind the panel, and a click on a block never removes it.
@@ -1057,13 +1048,7 @@ describe("replacing a clashing course", () => {
   function clashApp() {
     return {
       workspace: before,
-      queries: plannerQueries([FALLBACK], {
-        [eligibleCourse.id]: {
-          canRemovePlan: true,
-          canDeleteCourse: false,
-          timetable: null,
-        },
-      }),
+      queries: plannerQueries(),
       handle: finderHandler({
         courses: [eligible, clashing],
         clashes: [clashing],
@@ -1074,8 +1059,6 @@ describe("replacing a clashing course", () => {
           core.publish(after, `${core.revision}+after`);
         else if (intent.kind === "undoCatalogCourses")
           core.publish(before, `${core.revision}+before`);
-        else if (intent.kind === "removeCatalogPlans")
-          core.publish(workspaceFixture(), `${core.revision}+removed`);
       },
     };
   }
@@ -1188,24 +1171,6 @@ describe("replacing a clashing course", () => {
     const undoIntent = recordedIntent(core, "undoCatalogCourses");
     expect(undoIntent.termId).toBe("2026-3Q");
     expect(undoIntent.offeringIds).toEqual([clashing.id]);
-
-    await click(
-      await required(
-        () => host.querySelector<HTMLButtonElement>(".ttBlock.course"),
-        "the restored draft",
-      ),
-    );
-    await click(
-      await required(
-        () => buttonByText(host, "Remove draft from all quarters"),
-        "draft removal",
-      ),
-    );
-    expect(recordedIntent(core, "removeCatalogPlans")).toMatchObject({
-      courseIds: [eligibleCourse.id],
-      termId: "2026-3Q",
-    });
-    await settled(() => expect(timetableTitles(host)).toEqual([]));
     expect(host.querySelector(".pageError")).toBeNull();
     consoleWatch.expectClean();
     consoleWatch.restore();

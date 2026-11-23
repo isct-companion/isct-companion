@@ -153,12 +153,11 @@ pub trait CloudTransport: Send + Sync {
         device: &'a str,
     ) -> CloudFuture<'a, Value>;
     fn versions<'a>(&'a self, provider: CloudProvider) -> CloudFuture<'a, Vec<CloudVersion>>;
-    /// The selected version and current records from the same provider read.
-    fn restore_documents<'a>(
+    fn version_document<'a>(
         &'a self,
         provider: CloudProvider,
         revision: u64,
-    ) -> CloudFuture<'a, (Value, Value)>;
+    ) -> CloudFuture<'a, Value>;
 }
 
 /// Signs this device in to a provider that needs it before it can be turned

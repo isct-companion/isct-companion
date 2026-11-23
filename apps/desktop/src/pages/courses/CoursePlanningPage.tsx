@@ -139,9 +139,6 @@ export function CoursePlanningPage({
   const panelCourse = panelCourseId
     ? data.courses.find((c) => c.id === panelCourseId && !c.deletedAt)
     : undefined;
-  const panelPlacement = panelCourse
-    ? workspaceView.placements[panelCourse.id]
-    : undefined;
   const termCredits = workspaceView.termCredits;
   const addFinderCourses = async (rows: FinderCourse[]) => {
     await academicIntentOrThrow({
@@ -150,25 +147,18 @@ export function CoursePlanningPage({
       offerings: rows,
     });
   };
-  const removePlan = async (course: Course) => {
-    try {
-      await academicIntentOrThrow({
-        kind: "removeCatalogPlans",
-        courseIds: [course.id],
-        termId: courseTerm,
-      });
-      setPanelCourseId(null);
-    } catch (error) {
-      notify.error(error);
-    }
-  };
-  const showOnTimetable = async (course: Course, on: boolean) => {
+  const removeFromTimetable = async (course: Course) => {
+    const school = data.memberships.some(
+      (item) =>
+        item.courseId === course.id &&
+        !item.deletedAt &&
+        item.evidence?.provider !== "manual",
+    );
     if (
-      !on &&
-      workspaceView.placements[course.id]?.timetable?.kind === "lms" &&
+      school &&
       !(await confirmAction(
-        t("courses.hideLmsTimetableTitle", { title: course.title }),
-        t("courses.hideLmsTimetable"),
+        t("app.removeThisCourseFromThe"),
+        t("common.remove"),
       ))
     )
       return;
@@ -176,7 +166,7 @@ export function CoursePlanningPage({
       await academicIntentOrThrow({
         kind: "setCourseOnTimetable",
         courseId: course.id,
-        onTimetable: on,
+        onTimetable: false,
       });
       setPanelCourseId(null);
     } catch (error) {
@@ -263,7 +253,7 @@ export function CoursePlanningPage({
             <OfferingPanel
               key={shownOffering.course.id}
               course={shownOffering.course}
-              placed={finder.placedOfferingIds.has(shownOffering.course.id)}
+              placed={finder.placedCodes.has(shownOffering.course.code)}
               replaces={shownOffering.replaces.map(
                 (id) =>
                   data.courses.find((course) => course.id === id)?.title ?? "",
@@ -285,18 +275,11 @@ export function CoursePlanningPage({
               course={panelCourse}
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
-              timetable={panelPlacement?.timetable}
-              removePlan={
-                workspaceView.term === courseTerm &&
-                panelPlacement?.canRemovePlan
-                  ? () => void removePlan(panelCourse)
-                  : undefined
-              }
-              showOnTimetable={(on) => void showOnTimetable(panelCourse, on)}
+              remove={() => void removeFromTimetable(panelCourse)}
               edit={() =>
                 courseEditors.editCourse({
                   course: panelCourse,
-                  term: courseTerm,
+                  term: panelCourse.termId,
                 })
               }
               editIntensive={() => courseEditors.editIntensive(panelCourse.id)}

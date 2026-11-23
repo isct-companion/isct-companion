@@ -357,7 +357,7 @@ struct TimetableScreen: View {
                         let bottom = axis.offset(block.grid?.endTime ?? block.endTime) * rowHeight
                         let lanes = CGFloat(block.grid?.lanes ?? 1)
                         let width = column.size.width / lanes
-                        blockView(block, height: max(bottom - top - 4, 24), narrow: lanes > 1)
+                        blockView(block, height: max(bottom - top - 4, 24), holiday: holiday, narrow: lanes > 1)
                             .frame(width: width)
                             // Placed by layout, not by offset, so where a block
                             // is drawn is where it answers a tap.

@@ -11,7 +11,7 @@ import {
   mountApp,
   overviewFor,
   planningWeekFor,
-  lectureListFor,
+  scheduleViewFor,
   lectureSearchFor,
   typeInto,
   until,
@@ -214,8 +214,8 @@ const homeQueries = {
     overviewFor(core.workspace),
   planningWeek: (_query: unknown, core: FakeCore) =>
     planningWeekFor(core.workspace),
-  lectureList: (_query: unknown, core: FakeCore) =>
-    lectureListFor(core.workspace),
+  scheduleView: (_query: unknown, core: FakeCore) =>
+    scheduleViewFor(core.workspace),
 };
 
 /* ------------------------------------------------------------------ *
@@ -431,25 +431,37 @@ function lectureWorkspace(): Workspace {
   return workspace;
 }
 
+/**
+ * The block at index 0 is the desk's "today", so it is the one that can read
+ * "Now". Its window spans the whole day, which keeps the chip independent of
+ * the minute the suite happens to run at.
+ */
 function lectureSchedule(workspace: Workspace) {
-  return {
-    ...lectureListFor(workspace),
-    nextByCourse: {
-      now: { date: jstDay(0), startTime: "08:50", inClass: true, room: "R3" },
-      later: {
+  return scheduleViewFor(workspace, {
+    allTerms: [TERM],
+    agendas: [
+      {
+        date: jstDay(0),
+        occurrences: [lectureBlock("now", jstDay(0), "00:00", "24:00", "R3")],
+        importantDates: [],
+        noClasses: false,
+      },
+      {
         date: jstDay(1),
-        startTime: "08:50",
-        inClass: false,
-        room: "R3",
+        occurrences: [lectureBlock("later", jstDay(1), "08:50", "10:30", "R3")],
+        importantDates: [],
+        noClasses: false,
       },
-      friday: {
+      {
         date: jstDay(2),
-        startTime: "08:50",
-        inClass: false,
-        room: "R5",
+        occurrences: [
+          lectureBlock("friday", jstDay(2), "08:50", "10:30", "R5"),
+        ],
+        importantDates: [],
+        noClasses: false,
       },
-    },
-  };
+    ],
+  });
 }
 
 function lectureTasks(workspace: Workspace): TaskView {
@@ -479,7 +491,7 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
       workspace,
       queries: {
         ...homeQueries,
-        lectureList: (_query, core) => lectureSchedule(core.workspace),
+        scheduleView: (_query, core) => lectureSchedule(core.workspace),
         taskView: (_query, core) => lectureTasks(core.workspace),
         lectureSearch: (query, core) => lectureSearchFor(core.workspace, query),
       },
@@ -573,50 +585,17 @@ describe("the lecture desk", () => {
       term: TERM,
       courseId: "now",
       title: "Upcoming linked exam",
-      date: jstDay(2),
+      date: jstDay(1),
     };
     app = await mountApp(
       {
         workspace,
         queries: {
           ...homeQueries,
-          // The calendar keeps tomorrow's cancelled class. Today points past
-          // it to the exam, whose own key and quarter open its detail.
-          calendarRange: () => [
-            {
-              date: jstDay(1),
-              occurrences: [
-                {
-                  ...lectureBlock("later", jstDay(1), "08:50", "10:30", "R3"),
-                  cancelled: true,
-                  mark: "cancelled",
-                },
-              ],
-              importantDates: [],
-              noClasses: true,
-            },
-          ],
-          today: () => ({
-            date: jstDay(0),
-            upcoming: [
-              {
-                occurrence: {
-                  ...lectureBlock(
-                    "now",
-                    upcoming.date,
-                    "10:45",
-                    "12:25",
-                    upcoming.room,
-                  ),
-                  kind: "exam",
-                  key: upcoming.key,
-                  termId: upcoming.term,
-                },
-              },
-            ],
-          }),
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
           upcomingExams: () => [upcoming],
-          lectureList: (query, core) => ({
+          scheduleView: (query, core) => ({
             ...lectureSchedule(core.workspace),
             allTerms: [TERM, "2026-2Q"],
             courses:
@@ -626,9 +605,9 @@ describe("the lecture desk", () => {
             exams:
               (query as { term: string }).term === "2026-2Q"
                 ? [exam, bound, weekClass]
-                : [upcoming],
+                : [],
           }),
-          examAssociation: () => ({ courses: [historical], conflicts: [exam] }),
+          examAssociation: () => ({ conflicts: [exam] }),
           // Core owns search; this script matches the exam titles above.
           lectureSearch: (query) => ({
             courseIds: [],
@@ -654,24 +633,19 @@ describe("the lecture desk", () => {
     expect(
       app.host.querySelector('[aria-label="Upcoming exams"]')?.textContent,
     ).toContain("Upcoming linked exam");
-    const next = await required(
-      () => app!.host.querySelector<HTMLButtonElement>(".nextClass"),
-      "the next class",
+    await app.go(paths.lectures());
+    await readyLectureRows(app.host);
+    await click(
+      [
+        ...app.host.querySelectorAll<HTMLButtonElement>(".lectureMode button"),
+      ].find((row) => row.textContent === "Exams")!,
     );
-    await click(next);
-    await until(() =>
-      expect(window.location.hash.slice(1)).toBe(
-        paths.exam(upcoming.key, upcoming.term),
-      ),
+    await chooseOption(
+      app.host.querySelector<HTMLInputElement>(
+        '.lectureTerm [role="combobox"]',
+      )!,
+      "2026-2Q",
     );
-    const quarter = await required(
-      () =>
-        app!.host.querySelector<HTMLInputElement>(
-          '.lectureTerm [role="combobox"]',
-        ),
-      "the lecture desk's quarter picker",
-    );
-    await chooseOption(quarter, "2026-2Q");
     await required(
       () =>
         [...app!.host.querySelectorAll<HTMLElement>(".lectureRow.exam")].find(
@@ -715,10 +689,7 @@ describe("the lecture desk", () => {
       "the right-hand exam editor",
     );
     await chooseOption(
-      await required(
-        () => editor.querySelector<HTMLInputElement>('[role="combobox"]:enabled'),
-        "the exam association choices",
-      ),
+      editor.querySelector<HTMLInputElement>('[role="combobox"]')!,
       "history",
     );
     // The link applies on its own; it carries no schedule fields.
@@ -823,16 +794,8 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
-          calendarRange: () => [
-            {
-              date: jstDay(0),
-              occurrences: [
-                lectureBlock("now", jstDay(0), "00:00", "24:00", "R3"),
-              ],
-              importantDates: [],
-              noClasses: false,
-            },
-          ],
+          calendarRange: (_query, core) =>
+            lectureSchedule(core.workspace).agendas,
           taskView: (_query, core) => lectureTasks(core.workspace),
         },
         handle: nativeNoise,
@@ -997,7 +960,7 @@ describe("the lecture desk", () => {
         workspace: lectureWorkspace(),
         queries: {
           ...homeQueries,
-          lectureList: (_query, core) => ({
+          scheduleView: (_query, core) => ({
             ...lectureSchedule(core.workspace),
             allTerms: [TERM, "2026-4Q"],
           }),

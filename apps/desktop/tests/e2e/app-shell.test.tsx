@@ -22,7 +22,6 @@ import {
   overviewFor,
   planItemFor,
   planningWeekFor,
-  lectureListFor,
   scheduleViewFor,
   typeInto,
   until,
@@ -186,8 +185,8 @@ function shellQueries(): QueryTable {
   return {
     workspaceOverview: (_query: unknown, core: FakeCore) =>
       overviewFor(core.workspace),
-    lectureList: (_query: unknown, core: FakeCore) =>
-      lectureListFor(core.workspace),
+    scheduleView: (_query: unknown, core: FakeCore) =>
+      scheduleViewFor(core.workspace),
     planningWeek: (_query: unknown, core: FakeCore) =>
       planningWeekFor(core.workspace),
     taskView: {
@@ -220,7 +219,7 @@ const emptyFinder = (request: Record<string, unknown>): FinderPage => ({
   stored: 0,
   ineligible: 0,
   activeSlots: [],
-  placedOfferingIds: [],
+  placedCodes: [],
   commitKey: null,
   pasteHandled: false,
   pasted: [],
@@ -441,10 +440,10 @@ describe("shell navigation", () => {
         revision: "rev:retain-lectures",
         queries: {
           ...shellQueries(),
-          lectureList: (_query: unknown, core: FakeCore) => ({
-            ...lectureListFor(core.workspace),
-            allTerms: ["2026-3Q", "2026-2Q"],
-          }),
+          scheduleView: (_query: unknown, core: FakeCore) =>
+            scheduleViewFor(core.workspace, {
+              allTerms: ["2026-3Q", "2026-2Q"],
+            }),
         },
       }),
       { route: paths.lectures(placedCourse.id) },

@@ -1,19 +1,15 @@
 mod backup_store;
 #[cfg(feature = "campus-map")]
 mod campus_map_store;
-pub(crate) mod catalog_drafts;
 mod catalog_store;
 mod changes;
 mod connection;
 pub(crate) mod course_keys;
 mod course_merge;
-pub(crate) use course_merge::lms_terms;
 mod defaults;
 mod lms_store;
-pub(crate) mod lms_visibility;
 mod records;
 mod reset_store;
-mod schedule_overrides;
 mod school_projection;
 mod settings;
 mod views;
@@ -319,28 +315,31 @@ fn put_user_record_in_transaction(
     if !DataStore::user_table(table) {
         return Err("table is not user-owned".into());
     }
-    if table == "plan_items" {
-        if let Some(id) = catalog_drafts::catalog_plan_id(&value) {
-            value["id"] = id.into();
-            if let Some(fields) = value.as_object_mut() {
-                fields.remove(catalog_drafts::BASELINE_REVISION);
-            }
-        }
-    }
-    let catalog_description = table == "manual_courses" && catalog_drafts::is_description(&value);
-    let offering_key = (table == "manual_courses" && !catalog_description)
-        .then(|| catalog_drafts::offering_key(&value))
-        .flatten();
     let object = value
         .as_object_mut()
         .ok_or_else(|| "record must be an object".to_string())?;
-    if let Some(key) = offering_key {
-        let own = object
-            .get("id")
+    if table == "manual_courses" {
+        let offering = object
+            .get("offeringId")
             .and_then(Value::as_str)
-            .filter(|id| !id.is_empty());
-        let id = course_keys::resolve_or(transaction, &[key], own)?;
-        object.insert("id".into(), id.into());
+            .map(str::to_string);
+        let year = object
+            .get("termId")
+            .and_then(Value::as_str)
+            .and_then(|term| term.get(..4))
+            .and_then(|year| year.parse::<i32>().ok());
+        if let Some(key) = offering
+            .zip(year)
+            .and_then(|(offering, year)| course_keys::offering_key(year, &offering))
+        {
+            // The course its offering already names, or this record's own id.
+            let own = object
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty());
+            let course_id = course_keys::resolve_or(transaction, &[key], own)?;
+            object.insert("id".into(), Value::String(course_id));
+        }
     }
     let requested_id = object
         .get("id")
@@ -370,10 +369,19 @@ fn put_user_record_in_transaction(
             })
             .transpose()?
             .flatten()
-    } else if table == "schedule_overrides" && requested_id.is_none() {
+    } else if table == "schedule_overrides" {
         target_key
             .as_deref()
-            .map(|target_key| schedule_overrides::effective_id(transaction, target_key))
+            .map(|target_key| {
+                transaction
+                    .query_row(
+                        "SELECT id FROM schedule_overrides WHERE target_key=?1",
+                        [target_key],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(DataError::from)
+            })
             .transpose()?
             .flatten()
     } else {
@@ -382,7 +390,7 @@ fn put_user_record_in_transaction(
     let id = requested_id
         .or(overlay_id)
         .unwrap_or_else(|| Uuid::now_v7().to_string());
-    if table == "manual_courses" && !catalog_description {
+    if table == "manual_courses" {
         // Known everywhere by its own id (`course_keys`).
         course_keys::resolve_or(transaction, &[course_keys::manual_key(&id)], Some(&id))?;
     }
@@ -410,14 +418,9 @@ fn put_user_record_in_transaction(
         "updatedBy".into(),
         read_setting(transaction, "deviceId")?.unwrap_or_else(|| Value::String(actor.to_string())),
     );
-    object.entry("source").or_insert_with(|| {
-        let provider = if table == "plan_items" && actor == WorkspaceChangeSource::Mcp.actor() {
-            "mcp"
-        } else {
-            "manual"
-        };
-        json!({"provider":provider})
-    });
+    object
+        .entry("source")
+        .or_insert_with(|| json!({"provider":"manual"}));
     object.remove("deletedAt");
     if let Some(source_key) = source_key {
         if matches!(table, "assignment_marks" | "course_overrides") {
@@ -467,6 +470,14 @@ fn put_user_record_in_transaction(
                     ],
                 ).map_err(DataError::from)?;
         }
+        "schedule_overrides" => {
+            transaction
+                .execute(
+                    "UPDATE schedule_overrides SET target_key=?2 WHERE id=?1",
+                    params![id, value.get("targetKey").and_then(Value::as_str)],
+                )
+                .map_err(DataError::from)?;
+        }
         _ => {}
     }
     Ok(value)
@@ -478,7 +489,7 @@ fn delete_user_record_in_transaction(
     id: &str,
     actor: &str,
     expected_rev: Option<u64>,
-) -> Result<Option<Value>, DataError> {
+) -> Result<bool, DataError> {
     if !DataStore::user_table(table) {
         return Err("table is not user-owned".into());
     }
@@ -496,7 +507,7 @@ fn delete_user_record_in_transaction(
                 "revision conflict: {table}/{id} expected {expected}, actual 0"
             )));
         }
-        return Ok(None);
+        return Ok(false);
     };
     if let Some(expected) = expected_rev.filter(|expected| *expected != revision as u64) {
         return Err(DataError::conflict(format!(
@@ -509,9 +520,6 @@ fn delete_user_record_in_transaction(
     let object = value
         .as_object_mut()
         .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
-    if table == "plan_items" {
-        object.remove(catalog_drafts::BASELINE_REVISION);
-    }
     object.insert("rev".into(), Value::from(revision + 1));
     object.insert("updatedAt".into(), Value::String(timestamp.clone()));
     object.insert(
@@ -520,7 +528,7 @@ fn delete_user_record_in_transaction(
     );
     object.insert("deletedAt".into(), Value::String(timestamp));
     upsert_row(transaction, table, &value, true)?;
-    Ok(Some(value))
+    Ok(true)
 }
 
 #[cfg(feature = "agent")]
@@ -568,16 +576,39 @@ impl WorkspaceWrite<'_, '_> {
         table: &str,
         id: &str,
         expected_rev: Option<u64>,
-    ) -> Result<Option<Value>, DataError> {
+    ) -> Result<bool, DataError> {
         delete_user_record_in_transaction(self.transaction, table, id, self.actor, expected_rev)
     }
 
     /// Every stored row of a user table, deleted ones included.
+    #[cfg(feature = "agent")]
     pub(crate) fn rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !DataStore::user_table(table) {
             return Err("table is not user-owned".into());
         }
         read_rows(self.transaction, table)
+    }
+
+    /// A detailed catalog offering; search-only rows cannot be planned.
+    #[cfg(feature = "agent")]
+    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
+        catalog_offering_in(self.transaction, id)
+    }
+
+    /// Whether a live row with this ID is stored in the given user table.
+    pub(crate) fn has_user_row(&self, table: &str, id: &str) -> Result<bool, DataError> {
+        if !DataStore::user_table(table) {
+            return Err("table is not user-owned".into());
+        }
+        self.transaction
+            .query_row(
+                &format!("SELECT 1 FROM {table} WHERE id=?1 AND deleted_at IS NULL"),
+                [id],
+                |_| Ok(()),
+            )
+            .optional()
+            .map(|row| row.is_some())
+            .map_err(DataError::from)
     }
 
     pub(crate) fn catalog_row(&self, id: &str) -> Result<Option<Value>, DataError> {
@@ -684,8 +715,6 @@ fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
 
 /// Device identity, settings and built-in tasks a new or reset database needs.
 fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
-    schedule_overrides::initialize_lookup(transaction)?;
-    catalog_drafts::cut_over_plans(transaction)?;
     let existing_device_id = read_setting(transaction, "deviceId")?;
     let workspace = empty_workspace();
     let device_id = existing_device_id
@@ -985,7 +1014,6 @@ impl DataStore {
         let source = WorkspaceChangeSource::UserIntent;
         self.write(Some(source), |transaction| {
             delete_user_record_in_transaction(transaction, table, id, source.actor(), expected_rev)
-                .map(|deleted| deleted.is_some())
         })
     }
 

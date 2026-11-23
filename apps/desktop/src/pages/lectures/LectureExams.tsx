@@ -6,7 +6,7 @@ import { ExamEditor } from "../../components/exams/ExamEditor";
 import { TitleRow } from "../../components/TitleRow";
 import { type ReactNode } from "react";
 import { t } from "../../i18n";
-import { type LectureList } from "../../platform/core-query";
+import { type ScheduleView } from "../../platform/core-query";
 import type { LectureSearch } from "../../generated/persistence";
 
 export function LectureExamList({
@@ -16,7 +16,7 @@ export function LectureExamList({
   examKey,
   chooseExam,
 }: {
-  schedule?: LectureList;
+  schedule?: ScheduleView;
   query: string;
   search?: LectureSearch;
   examKey: string | null;
@@ -90,12 +90,14 @@ export function LectureExamList({
 
 export function LectureExamDetails({
   selectedExam,
+  courses,
   entering,
   endEntrance,
   sidebarToggle,
   onRemoved,
 }: {
-  selectedExam?: LectureList["exams"][number];
+  selectedExam?: ScheduleView["exams"][number];
+  courses: ScheduleView["courses"];
   entering: string | null;
   endEntrance: (event: React.AnimationEvent) => void;
   sidebarToggle: ReactNode;
@@ -123,6 +125,7 @@ export function LectureExamDetails({
           <ExamEditor
             key={selectedExam.key}
             exam={selectedExam}
+            courses={courses}
             onRemoved={onRemoved}
           />
         </>

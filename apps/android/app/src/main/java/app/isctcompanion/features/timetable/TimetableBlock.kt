@@ -65,6 +65,7 @@ internal val laneGap = 2.dp
 @Composable
 internal fun Block(
     block: Occurrence,
+    holiday: Boolean,
     week: ScheduleView?,
     axis: TimetableAxis,
     rowHeight: Dp,
@@ -85,7 +86,7 @@ internal fun Block(
     val lane = grid?.lane?.toInt() ?: 0
     val laneWidth = (columnWidth - laneGap * 2 - laneGap * (lanes - 1)) / lanes
     val planned = block.planned == true
-    val cancelled = block.cancelled == true
+    val cancelled = block.cancelled == true || holiday
     val exam = block.kind == OccurrenceKind.EXAM && !cancelled
     val quiz = exam && block.quiz == true
     val tint = courseColor(block.color)

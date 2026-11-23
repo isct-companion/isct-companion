@@ -17,10 +17,7 @@ import {
   classSlots as teachingClassSlots,
   type ClassSlot,
 } from "../../lib/timetable-layout";
-import type {
-  CourseTimetableControl,
-  TeachingPeriod,
-} from "../../generated/persistence";
+import type { TeachingPeriod } from "../../generated/persistence";
 import { dayNames, dayShort } from "../../components/timetable/timetable";
 import {
   Checkbox,
@@ -52,7 +49,7 @@ export type CourseDraft = {
   color: string;
   url: string;
   meetings: Meeting[];
-  onTimetable?: boolean;
+  onTimetable: boolean;
 };
 
 const periodRangeSlot = (periods: readonly number[]) =>
@@ -184,20 +181,18 @@ function EditorDrawer({
 export function CourseEditor({
   course,
   term,
-  timetable,
+  onTimetable,
   onClose,
   onSave,
   onDelete,
-  deletingPlan = false,
   teachingPeriods,
 }: {
   course?: Course;
   term: TermId;
-  timetable: CourseTimetableControl | null;
+  onTimetable: boolean;
   onClose: () => void;
   onSave: (draft: CourseDraft) => Promise<unknown> | void;
   onDelete?: () => Promise<unknown> | void;
-  deletingPlan?: boolean;
   teachingPeriods: readonly TeachingPeriod[];
 }) {
   const submission = useSubmissionGuard();
@@ -210,9 +205,8 @@ export function CourseEditor({
     language: course?.instructionLanguage ?? "ja",
     color: course?.color ?? palette[0],
     url: course?.url ?? "",
+    onTimetable,
   });
-  const [timetableChoice, setTimetableChoice] = useState<boolean>();
-  const onTimetable = timetableChoice ?? timetable?.visible;
   const [rows, setRows] = useState<MeetingRow[]>(() =>
     course?.meetings.length
       ? course.meetings.map((meeting) => rowFromMeeting(meeting, classSlots))
@@ -238,11 +232,7 @@ export function CourseEditor({
         room: row.room.trim(),
       });
     }
-    const timetableChange =
-      timetable?.kind === "lms" ? timetableChoice : onTimetable;
-    void submission.run(() =>
-      onSave({ ...values, meetings, onTimetable: timetableChange }),
-    );
+    void submission.run(() => onSave({ ...values, meetings }));
   };
   return (
     <EditorDrawer
@@ -338,20 +328,17 @@ export function CourseEditor({
               />
             </div>
           </div>
-          {onTimetable !== undefined && (
-            <Checkbox
-              className="wide"
-              checked={onTimetable}
-              label={t(
-                timetable?.kind === "lms"
-                  ? "courses.showLmsTimetable"
-                  : "courses.showOnTheTimetable",
-              )}
-              onCheckedChange={(checked) =>
-                setTimetableChoice(checked === true)
-              }
-            />
-          )}
+          <Checkbox
+            className="wide"
+            checked={values.onTimetable}
+            label={t("courses.showOnTheTimetable")}
+            onCheckedChange={(checked) =>
+              setValues({
+                ...values,
+                onTimetable: checked === true,
+              })
+            }
+          />
         </section>
         <section className="sheetCol">
           <div className="sheetColHead">
@@ -461,16 +448,8 @@ export function CourseEditor({
       {course && onDelete && (
         <footer className="sheetDangerZone">
           <div>
-            <b>
-              {t(
-                deletingPlan
-                  ? "courses.removeCoursePlan"
-                  : "courses.deleteCourse",
-              )}
-            </b>
-            {!deletingPlan && (
-              <span>{t("courses.removeThisLocalCourseAnd")}</span>
-            )}
+            <b>{t("courses.deleteCourse")}</b>
+            <span>{t("courses.removeThisLocalCourseAnd")}</span>
           </div>
           <UiButton
             type="button"
@@ -479,21 +458,16 @@ export function CourseEditor({
             onClick={async () => {
               if (
                 await confirmAction(
-                  t(
-                    deletingPlan
-                      ? "courses.removeCoursePlanTitle"
-                      : "courses.deleteTitleThisCannotBe",
-                    {
-                      title: course.title,
-                    },
-                  ),
-                  t(deletingPlan ? "common.remove" : "common.delete"),
+                  t("courses.deleteTitleThisCannotBe", {
+                    title: course.title,
+                  }),
+                  t("common.delete"),
                 )
               )
                 void submission.run(onDelete);
             }}
           >
-            {t(deletingPlan ? "common.remove" : "common.delete")}
+            {t("common.delete")}
           </UiButton>
         </footer>
       )}

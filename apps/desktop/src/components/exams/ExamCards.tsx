@@ -1,6 +1,7 @@
 import { Modal, UiButton } from "../ui";
 import { useState } from "react";
 import type { ExamView } from "../../generated/persistence";
+import type { Course } from "../../lib/model";
 import { ExamEditor } from "./ExamEditor";
 import { t } from "../../i18n";
 import "./exams.css";
@@ -36,10 +37,12 @@ export const examWhen = (
 
 export function ExamCards({
   exams,
+  courses,
   open,
   openExam,
 }: {
   exams: ExamView[];
+  courses: Course[];
   open?: (courseId: string) => void;
   openExam?: (key: string, term: string) => void;
 }) {
@@ -110,6 +113,7 @@ export function ExamCards({
           <ExamEditor
             key={editing.key}
             exam={editing}
+            courses={courses}
             onSaved={() => setEditingKey(null)}
             onRemoved={() => setEditingKey(null)}
           />

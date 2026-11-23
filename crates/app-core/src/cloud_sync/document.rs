@@ -226,22 +226,18 @@ impl<T: WorkspaceTransport> CloudTransport for DocumentCloud<T> {
         })
     }
 
-    fn restore_documents<'a>(
+    fn version_document<'a>(
         &'a self,
         provider: CloudProvider,
         revision: u64,
-    ) -> CloudFuture<'a, (Value, Value)> {
+    ) -> CloudFuture<'a, Value> {
         Box::pin(async move {
-            let file = self
-                .transport
+            self.transport
                 .read(provider)
                 .await
                 .map_err(transport_error)?
-                .ok_or_else(|| transport_error(DocumentError::VersionMissing))?;
-            let selected = file
-                .version_document(revision)
-                .ok_or_else(|| transport_error(DocumentError::VersionMissing))?;
-            Ok((selected.clone(), file.merged_document()))
+                .and_then(|file| file.version_document(revision).cloned())
+                .ok_or_else(|| transport_error(DocumentError::VersionMissing))
         })
     }
 }

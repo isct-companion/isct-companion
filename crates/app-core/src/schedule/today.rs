@@ -21,7 +21,7 @@ use super::tasks::{
 };
 use super::{
     array, calendar_between, display_color, parse_civil_date, teaching_periods, text, tokyo_date,
-    visible, Occurrence, ScheduleError, TeachingPeriod,
+    visible, Occurrence, OccurrenceKind, ScheduleError, TeachingPeriod,
 };
 use crate::locale::ContentLanguage;
 
@@ -158,8 +158,6 @@ pub(crate) fn recent_version<'a>(
 pub struct TodayView {
     pub date: String,
     pub term: String,
-    /// Enough course or assignment data to leave the first-load state.
-    pub has_academic_records: bool,
     /// Week of the quarter, counted from its first day.
     pub teaching_week: Option<u32>,
     pub no_classes: bool,
@@ -261,7 +259,10 @@ fn class(block: Occurrence, periods: &[TeachingPeriod]) -> Result<TodayClass, Sc
 pub(crate) fn classes_on(agenda: &[Occurrence]) -> Vec<Occurrence> {
     agenda
         .iter()
-        .filter(|block| block.is_active_class())
+        .filter(|block| {
+            matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
+                && block.cancelled != Some(true)
+        })
         .cloned()
         .collect()
 }
@@ -498,8 +499,6 @@ pub fn today_view(
     let mut view = TodayView {
         date: date.clone(),
         term,
-        has_academic_records: super::course_scope::has_courses(workspace)
-            || array(workspace, "assignments").iter().any(visible),
         teaching_week,
         no_classes,
         calendar_notice,

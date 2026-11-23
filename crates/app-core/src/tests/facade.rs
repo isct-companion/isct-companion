@@ -93,12 +93,12 @@ impl CloudTransport for NoopCloud {
     fn versions<'a>(&'a self, _provider: CloudProvider) -> CloudFuture<'a, Vec<CloudVersion>> {
         Box::pin(async { Ok(Vec::new()) })
     }
-    fn restore_documents<'a>(
+    fn version_document<'a>(
         &'a self,
         _provider: CloudProvider,
         _revision: u64,
-    ) -> CloudFuture<'a, (serde_json::Value, serde_json::Value)> {
-        Box::pin(async { Err(CloudSyncError::Transport("version missing".into())) })
+    ) -> CloudFuture<'a, serde_json::Value> {
+        Box::pin(async { Ok(serde_json::json!({})) })
     }
 }
 

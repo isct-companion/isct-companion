@@ -535,8 +535,8 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         (query(WorkspaceQuery.DeadlineDisplay(at, Instant.now().toString())) as? WorkspaceQueryResult.DeadlineDisplay)?.v1
 
     /** The quarter's courses as Core lists them for the course list. */
-    suspend fun lectureList(term: String): LectureList? =
-        (query(WorkspaceQuery.LectureList(term, Format.timestamp(Instant.now()))) as? WorkspaceQueryResult.LectureList)?.v1
+    suspend fun overview(term: String): WorkspaceOverview? =
+        (query(WorkspaceQuery.WorkspaceOverview(term)) as? WorkspaceQueryResult.WorkspaceOverview)?.v1
 
     suspend fun examShare(action: ExamAction): ExamAnswer {
         val session = session ?: throw SdkException.Closed()

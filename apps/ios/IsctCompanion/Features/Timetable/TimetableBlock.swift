@@ -82,9 +82,9 @@ extension TimetableScreen {
     /// One block (slotledger `approach/timetable-*`): a solid course fill,
     /// deeper for an exam; a ring only for the class in progress; an exam or
     /// quiz tag above the title; a class that does not take place striped.
-    func blockView(_ block: Occurrence, height: CGFloat, narrow: Bool) -> some View {
+    func blockView(_ block: Occurrence, height: CGFloat, holiday: Bool, narrow: Bool) -> some View {
         let planned = block.planned == true
-        let cancelled = block.cancelled == true
+        let cancelled = block.cancelled == true || holiday
         let exam = block.kind == .exam && !cancelled
         let quiz = exam && block.quiz == true
         let current = isCurrent(block)

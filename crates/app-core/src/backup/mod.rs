@@ -59,19 +59,6 @@ impl BackupService {
         Ok(self.store.restore_records(document, source)?)
     }
 
-    /// A history restore has observed the provider's current records. Merge
-    /// and restore together so both use the device's latest committed edits.
-    pub(crate) fn restore_from_head(
-        &self,
-        selected: &Value,
-        head: &Value,
-        source: WorkspaceChangeSource,
-    ) -> Result<(), BackupError> {
-        Self::validate(selected)?;
-        Self::validate(head)?;
-        Ok(self.store.restore_records_with_head(selected, Some(head), source)?)
-    }
-
     pub fn device_id(&self) -> Result<String, BackupError> {
         self.store.load_fields(&[])?["deviceId"]
             .as_str()

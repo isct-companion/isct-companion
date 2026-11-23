@@ -29,11 +29,7 @@ impl CloudSync {
         let service = self.clone();
         self.0
             .tasks
-            .run(async move {
-                service
-                    .restore_document_inner(&services, document, None)
-                    .await
-            })
+            .run(async move { service.restore_document_inner(&services, document).await })
             .await
             .map_err(CloudSyncError::from)?
     }
@@ -56,15 +52,15 @@ impl CloudSync {
             .next()
             .and_then(|value| value.parse().ok())
             .ok_or_else(|| CloudSyncError::Compatibility("Invalid cloud version".into()))?;
-        let (old, head) = self
+        let old = self
             .remote(
                 services
                     .transport
-                    .restore_documents(cloud_version.provider, revision),
+                    .version_document(cloud_version.provider, revision),
                 CloudSyncError::Interrupted,
             )
             .await?;
-        self.restore_document_inner(services, old, Some(head)).await
+        self.restore_document_inner(services, old).await
     }
 
     /// A restore is this device's newest edit (`BackupService::restore`). It
@@ -74,26 +70,16 @@ impl CloudSync {
         &self,
         services: &CloudServices,
         old: Value,
-        head: Option<Value>,
     ) -> Result<SyncState, CloudSyncError> {
-        let (old, head) = blocking(move || {
-            BackupService::validate(&old).map_err(backup_compatibility)?;
-            if let Some(head) = &head {
-                BackupService::validate(head).map_err(backup_compatibility)?;
-            }
-            Ok((old, head))
-        })
-        .await?;
+        let validated = old.clone();
+        blocking(move || BackupService::validate(&validated).map_err(backup_compatibility)).await?;
         let _run = self.0.run.lock().await;
         self.finish_apply(services).await?;
         let backup = services.backup.clone();
         blocking(move || {
-            let source = WorkspaceChangeSource::CloudRestore;
-            match head {
-                Some(head) => backup.restore_from_head(&old, &head, source),
-                None => backup.restore(&old, source),
-            }
-            .map_err(backup_storage)
+            backup
+                .restore(&old, WorkspaceChangeSource::CloudRestore)
+                .map_err(backup_storage)
         })
         .await?;
         let restored = snapshot(&services.backup).await?;

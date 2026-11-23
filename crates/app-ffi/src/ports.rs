@@ -867,11 +867,11 @@ impl app_core::cloud_sync::CloudTransport for NoCloud {
     ) -> app_core::cloud_sync::CloudFuture<'a, Vec<app_core::cloud_sync::CloudVersion>> {
         Box::pin(async { Err(no_cloud()) })
     }
-    fn restore_documents<'a>(
+    fn version_document<'a>(
         &'a self,
         _: app_core::cloud_sync::CloudProvider,
         _: u64,
-    ) -> app_core::cloud_sync::CloudFuture<'a, (serde_json::Value, serde_json::Value)> {
+    ) -> app_core::cloud_sync::CloudFuture<'a, serde_json::Value> {
         Box::pin(async { Err(no_cloud()) })
     }
 }

@@ -415,7 +415,7 @@ private fun DayColumn(
             Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
                 Box(Modifier.fillMaxSize()) {
                     for (block in blocks) key(block.key) {
-                        Block(block, week, axis, rowHeight, width, block.key == current)
+                        Block(block, holiday, week, axis, rowHeight, width, block.key == current)
                     }
                 }
             }

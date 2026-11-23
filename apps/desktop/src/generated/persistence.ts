@@ -192,10 +192,6 @@ export type PlanItem = {
   termId: `${number}-${Quarter}`;
   offeringId?: string;
   courseId?: string;
-  /**
-   * Combined revisions of pre-cutover ids, present only on imported revision zero.
-   */
-  baselineRevision?: number;
   state: "candidate" | "planned";
   id: string;
   rev: number;
@@ -1969,10 +1965,7 @@ export type ExamConflict = {
   removed: boolean;
 };
 
-export type ExamLinkCourse = { id: string; title: string; code: string };
-
 export type ExamAssociation = {
-  courses: Array<ExamLinkCourse>;
   /**
    * Other exams (not exam-week classes) already linked to the course.
    */
@@ -2104,10 +2097,6 @@ export type TodayView = {
   date: string;
   term: string;
   /**
-   * Enough course or assignment data to leave the first-load state.
-   */
-  hasAcademicRecords: boolean;
-  /**
    * Week of the quarter, counted from its first day.
    */
   teachingWeek: number | null;
@@ -2160,16 +2149,6 @@ export type AssignmentBoard = {
 
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
 
-export type CourseTimetableControl =
-  | { kind: "manual"; visible: boolean }
-  | { kind: "lms"; visible: boolean; canRestore: boolean };
-
-export type CoursePlacementActions = {
-  canRemovePlan: boolean;
-  canDeleteCourse: boolean;
-  timetable: CourseTimetableControl | null;
-};
-
 export type WorkspaceOverview = {
   term: string;
   currentTerm: string;
@@ -2179,14 +2158,15 @@ export type WorkspaceOverview = {
   range: QuarterRange | null;
   courses: unknown[];
   /**
-   * The quarter's lecture roster, including courses with no meeting time.
+   * Every visible course belonging to `term` (own quarter or placed
+   * there), on its timetable or not.
    */
   termCourseIds: Array<string>;
   declaredCredits: number | null;
   termCredits: number;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
-  placements: { [key in string]: CoursePlacementActions };
+  onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
   defaultFinderKeys: Array<string>;
 };
@@ -2210,27 +2190,6 @@ export type ExamCourse = {
 
 export type ExamCourseList = { courses: Array<ExamCourse> };
 
-export type LectureCourse = {
-  id: string;
-  title: string;
-  code: string;
-  color: string;
-};
-
-export type LectureMeeting = {
-  date: string;
-  startTime: string;
-  room: string;
-  inClass: boolean;
-};
-
-export type LectureList = {
-  courses: Array<LectureCourse>;
-  nextByCourse: { [key in string]: LectureMeeting };
-  exams: Array<ExamView>;
-  allTerms: Array<string>;
-};
-
 export type ScheduleView = {
   term: string;
   range: QuarterRange | null;
@@ -2240,6 +2199,7 @@ export type ScheduleView = {
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
+  onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
   /**
    * Stored plans and overrides left out of `agendas`.
@@ -2265,9 +2225,8 @@ export type WorkspaceQuery =
   | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
-  | { kind: "examAssociation"; examKey: string; courseId: string | null }
+  | { kind: "examAssociation"; examKey: string; courseId: string }
   | { kind: "lectureSearch"; term: string | null; query: string }
-  | { kind: "lectureList"; term: string; now: string }
   | {
       kind: "scheduleView";
       /**
@@ -2334,7 +2293,6 @@ export type WorkspaceQueryResult =
   | { kind: "courseContent"; value: CourseContent | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
-  | { kind: "lectureList"; value: LectureList }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
@@ -2389,7 +2347,6 @@ export type WorkspaceIntent =
   | { kind: "removeTerm"; termId: string }
   | { kind: "saveCourse"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteCourseBatch"; courseIds: Array<string> }
-  | { kind: "removeCatalogPlans"; courseIds: Array<string>; termId: string }
   | {
       kind: "editCourseBatch";
       courseIds: Array<string>;
@@ -2626,9 +2583,9 @@ export type FinderPage = {
   ineligible: number;
   activeSlots: Array<string>;
   /**
-   * Catalog offering IDs on the term's timetable.
+   * Codes on the term's timetable.
    */
-  placedOfferingIds: Array<string>;
+  placedCodes: Array<string>;
   commitKey: string | null;
   pasteHandled: boolean;
   pasted: Array<FinderRowView>;

@@ -14,7 +14,7 @@ import {
   mountApp,
   overviewFor,
   planningWeekFor,
-  lectureListFor,
+  scheduleViewFor,
   until,
   workspaceFixture,
   YEAR,
@@ -144,7 +144,7 @@ function mountSettings(
       queries: {
         workspaceOverview: (_query, core) => overviewFor(core.workspace),
         planningWeek: (_query, core) => planningWeekFor(core.workspace),
-        lectureList: (_query, core) => lectureListFor(core.workspace),
+        scheduleView: (_query, core) => scheduleViewFor(core.workspace),
         academicYears: { currentYear: YEAR },
         ...options.queries,
       },
@@ -2104,6 +2104,17 @@ describe("Academic calendar profile", () => {
               })),
             };
           },
+          scheduleView: (_query, core) =>
+            scheduleViewFor(core.workspace, {
+              agendas: [
+                {
+                  date: "2026-10-12",
+                  noClasses: false,
+                  importantDates: [],
+                  occurrences: [],
+                },
+              ],
+            }),
         },
         handle: (command) => {
           if (command === "mutate_workspace" && rejectSave)

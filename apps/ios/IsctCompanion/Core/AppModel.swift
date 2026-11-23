@@ -540,12 +540,12 @@ final class AppModel {
     }
 
     /// The quarter's courses as Core lists them for the course list.
-    func lectureList(_ term: String) async -> LectureList? {
+    func overview(_ term: String) async -> WorkspaceOverview? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .lectureList(term: term, now: Self.timestamp(Date()))
+                .workspaceOverview(term: term)
             ]).value(),
-            case let .lectureList(view)? = result.values.first
+            case let .workspaceOverview(view)? = result.values.first
         else { return nil }
         return view
     }

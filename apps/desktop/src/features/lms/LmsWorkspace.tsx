@@ -90,7 +90,6 @@ export function LmsWorkspaceBody({
   markLesson,
   headerStart,
   openPastExams,
-  restoreTimetable,
   openWeb,
   openAccounts,
 }: {
@@ -101,7 +100,6 @@ export function LmsWorkspaceBody({
   schoolWebAvailable: boolean;
   headerStart?: ReactNode;
   openPastExams?: () => void;
-  restoreTimetable?: () => void;
   /** Opens a school page on the Web page. */
   openWeb?: (url: string) => void;
   openAccounts?: () => void;
@@ -767,15 +765,6 @@ export function LmsWorkspaceBody({
                     {t("examShare.openCourse")}
                   </button>
                 )}
-                {restoreTimetable && (
-                  <button
-                    type="button"
-                    className="lmsRefresh"
-                    onClick={restoreTimetable}
-                  >
-                    {t("courses.restoreHiddenLmsQuarters")}
-                  </button>
-                )}
                 {(progress != null || refresh) && (
                   <div className="lmsPullControls">
                     {progress != null && (
@@ -983,6 +972,9 @@ export function LmsWorkspaceBody({
                       <h2>{t("common.exams")}</h2>
                       <ExamCards
                         exams={courseExams}
+                        courses={data.courses.filter(
+                          (row) => row.id === course.id,
+                        )}
                       />
                     </section>
                   )}

@@ -84,9 +84,7 @@ Write tools change only the person's own data on this device: the plan
 `weekly_event_update`, `weekly_event_delete`) and locally hidden assignments
 (`hide_assignment`, `restore_assignment`), plus `workspace_create` and
 `submission_prepare`. Tools that remove or overwrite carry
-`destructiveHint`; those safe to repeat carry `idempotentHint`. `plan_remove`
-removes the named draft from one quarter. School timetable and enrollment
-records are read independently of the plan.
+`destructiveHint`; those safe to repeat carry `idempotentHint`.
 
 Writes pass through the same validation and versioned store as the
 application. Each write commits in one transaction, with access checked

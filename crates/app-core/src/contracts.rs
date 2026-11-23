@@ -182,8 +182,6 @@ contract!(PlanItem {
     #[cfg_attr(feature = "ts", ts(type = "`${number}-${Quarter}`"))] pub term_id: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub offering_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub course_id: Option<String>,
-    /// Combined revisions of pre-cutover ids, present only on imported revision zero.
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub baseline_revision: Option<u64>,
     #[cfg_attr(feature = "ts", ts(type = "\"candidate\" | \"planned\""))] pub state: String,
 });
 contract!(CalendarException {

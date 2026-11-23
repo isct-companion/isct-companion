@@ -101,14 +101,6 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
         friday.calendar_notice.as_deref(),
         Some("No classes due to Campus Festival")
     );
-    let list = lecture_list::lecture_list(
-        &data,
-        &SchoolReads::fixture(&data),
-        "2026-3Q",
-        parse_timestamp("2026-10-08T18:00:00+09:00").unwrap(),
-    )
-    .unwrap();
-    assert_eq!(list.next_by_course["course"].date, "2026-10-13");
     // The day's calendar row reaches the shell with its label already read.
     assert_eq!(
         friday.calendar_state.as_ref().unwrap()["label"],
@@ -274,7 +266,7 @@ fn malformed_period_meeting_is_reported_without_hiding_a_good_course() {
 }
 
 #[test]
-fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
+fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     let mut data = workspace();
     data["selectedTerm"] = json!("2099-4Q");
     data["settings"]["departmentId"] = json!("undergraduate:cs");
@@ -301,7 +293,9 @@ fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     assert!(!view.all_terms.contains(&"2099-4Q".to_string()));
     assert!(view.all_terms.contains(&"2027-1Q".to_string()));
     assert_eq!(view.enrolled_course_ids, vec!["course"]);
-    assert_eq!(view.term_course_ids, vec!["course"]);
+    assert!(view
+        .on_timetable_course_ids
+        .contains(&"future-course".to_string()));
     assert_eq!(
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
@@ -319,7 +313,6 @@ fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
     assert_eq!(future.courses_term, "2026-1Q");
     assert_eq!(future.term, "2027-1Q");
-    assert_eq!(future.term_course_ids, vec!["future-course"]);
 }
 
 #[test]
@@ -2449,7 +2442,7 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
         &data,
         &SchoolReads::fixture(&data),
         "reference:mine",
-        Some("course"),
+        "course",
     )
     .unwrap();
     assert!(association.conflicts.iter().any(|exam| exam.key == key));
@@ -2569,7 +2562,7 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
         &data,
         &SchoolReads::fixture(&data),
         "reference:extra",
-        Some("course")
+        "course"
     )
     .unwrap()
     .conflicts
