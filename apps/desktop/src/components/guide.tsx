@@ -16,7 +16,7 @@ import "./guide.css";
 export const GUIDE_KEY = "isct-companion-guide";
 
 /** Every tip, so tests and "Show tips again" can name them all. */
-export const TIPS = ["lesson-mark", "timetable-marks"] as const;
+export const TIPS = ["lesson-mark", "timetable-marks", "feedback"] as const;
 export type TipId = (typeof TIPS)[number];
 
 type GuideState = { welcome?: boolean; tips?: string[] };

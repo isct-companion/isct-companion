@@ -22,6 +22,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub const USER_AGENT: &str = "Mozilla/5.0 (compatible; IsctCompanion/0.1)";
 /// A desktop Safari's, for the campus VPN's APM: its access policy sends any
 /// other agent, ours included, to its refusal page.
+#[cfg(feature = "campus-vpn")]
 pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
     AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
@@ -50,17 +51,19 @@ pub enum Host {
     ScienceAccount,
     IsctData,
     /// The F5 APM in front of the campus VPN.
+    #[cfg(feature = "campus-vpn")]
     CampusVpn,
 }
 
 impl Host {
-    pub const ALL: [Host; 7] = [
+    pub const ALL: &[Host] = &[
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
         Host::GetAccessRouter,
         Host::ScienceAccount,
         Host::IsctData,
+        #[cfg(feature = "campus-vpn")]
         Host::CampusVpn,
     ];
 
@@ -72,6 +75,7 @@ impl Host {
             Host::GetAccessRouter => "rp.nap.gsic.titech.ac.jp",
             Host::ScienceAccount => "isct.ex-tic.com",
             Host::IsctData => "raw.githubusercontent.com",
+            #[cfg(feature = "campus-vpn")]
             Host::CampusVpn => "apm.nap.gsic.titech.ac.jp",
         }
     }
@@ -86,7 +90,7 @@ impl Host {
             return None;
         }
         let name = url.host_str()?;
-        Host::ALL.into_iter().find(|host| host.name() == name)
+        Host::ALL.iter().copied().find(|host| host.name() == name)
     }
 
     /// Concurrent requests and the fixed spacing between request starts.
@@ -96,8 +100,9 @@ impl Host {
             Host::Kyomu
             | Host::GetAccess
             | Host::GetAccessRouter
-            | Host::ScienceAccount
-            | Host::CampusVpn => (1, Duration::from_millis(300)),
+            | Host::ScienceAccount => (1, Duration::from_millis(300)),
+            #[cfg(feature = "campus-vpn")]
+            Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),
         }
     }

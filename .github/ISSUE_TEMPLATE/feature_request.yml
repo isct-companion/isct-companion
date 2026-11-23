@@ -1,6 +1,6 @@
 name: Feature request / 機能の提案
 description: Propose an improvement, starting from the problem it solves. / 解決したい問題から改善を提案する。
-labels: ["enhancement"]
+labels: ["enhancement", "needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -8,6 +8,46 @@ body:
         Issues may be written in Japanese, English or Chinese. / 日本語・英語・中国語のどれで書いてもかまいません。
 
         Proposals are judged against the project's written principles, not against "it works". Read the [design and quality bar](https://github.com/isct-companion/isct-companion/blob/main/CONTRIBUTING.md#design-and-quality-bar) first. / 提案は「動くかどうか」ではなく、文書化された原則に照らして判断します。先に [Design and quality bar](https://github.com/isct-companion/isct-companion/blob/main/CONTRIBUTING.md#design-and-quality-bar) を読んでください。
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform / プラットフォーム
+      description: Select the platforms where you would use this. / この機能を使いたい環境を選んでください。
+      multiple: true
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - iPhone
+        - iPad
+        - Android
+  - type: dropdown
+    id: feature
+    attributes:
+      label: Affected feature / 対象機能
+      description: Choose the closest match if you know it. / 当てはまる機能がわかる場合に選んでください。
+      options:
+        - Today and timetable / 今日・時間割
+        - Course search and planning / 科目検索・履修計画
+        - Exam dates and rooms / 試験日程・教室
+        - Past exam library / 過去問ライブラリ
+        - Assignment lists and deadlines / 課題一覧・締切
+        - Assignment submission / 課題提出
+        - Course files and workspaces / 授業資料・ワークスペース
+        - File preview / ファイルプレビュー
+        - School sign-in and OTP / 学内ログイン・OTP
+        - School websites / 学内ウェブサイト
+        - Cloud sync / クラウド同期
+        - Backup and restore / バックアップ・復元
+        - Campus VPN / 学内 VPN
+        - Campus printing / 学内プリンター
+        - Campus map / キャンパスマップ
+        - Matrix card scanning / マトリクスカードの読み取り
+        - Notifications and reminders / 通知・リマインダー
+        - Home Screen widgets / ホーム画面ウィジェット
+        - MCP and agent access / MCP・エージェント連携
+        - Translations and language / 翻訳・言語
+        - Installation and updates / インストール・更新
   - type: textarea
     id: problem
     attributes:

@@ -864,30 +864,24 @@ define_class!(
             navigation: &WKNavigationResponse,
             handler: &DynBlock<dyn Fn(WKNavigationResponsePolicy)>,
         ) {
-            if displayable_attachment(navigation) {
-                handler.call((WKNavigationResponsePolicy::Download,));
-                return;
-            }
             match &self.ivars().original {
-                Some(original)
-                    if original.respondsToSelector(sel!(webView:decidePolicyForNavigationResponse:decisionHandler:)) =>
-                unsafe {
+                Some(original) => unsafe {
                     original.webView_decidePolicyForNavigationResponse_decisionHandler(
                         web_view, navigation, handler,
                     )
                 },
-                Some(_) => handler.call((WKNavigationResponsePolicy::Allow,)),
-                // A popup saves what WebKit cannot show.
-                None if !unsafe { navigation.canShowMIMEType() } => {
+                // Popups have no wry delegate to start the download.
+                None if !unsafe { navigation.canShowMIMEType() }
+                    || displayable_attachment(navigation) =>
+                {
                     handler.call((WKNavigationResponsePolicy::Download,))
                 }
                 None => handler.call((WKNavigationResponsePolicy::Allow,)),
             }
         }
 
-        // wry only turns responses WebKit cannot display into downloads, so a
-        // displayable attachment here is always one the shim started. The
-        // shim keeps one it shows in place; wry saves the rest like any file.
+        // The shim takes over downloads it shows in place and downloads from
+        // its own popups. Wry saves the main view's other files.
         #[unsafe(method(webView:navigationResponse:didBecomeDownload:))]
         fn response_did_become_download(
             &self,

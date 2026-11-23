@@ -2,12 +2,16 @@ name: Triage labels
 
 on:
   # pull_request_target gives a fork's pull request a token that can write
-  # labels, so this workflow and its rules always come from main. Nothing here
-  # may check out or run the pull request's code.
+  # labels. The PR job reads rules from the trusted base and never checks out
+  # or runs the pull request's code.
   pull_request_target:
     types: [opened, reopened, synchronize]
   issues:
     types: [opened]
+  push:
+    branches: [main]
+    paths: [.github/labels.yml, .github/workflows/triage-labels.yml]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -34,3 +38,23 @@ jobs:
         with:
           configuration-path: .github/issue-labeler.yml
           enable-versioned-regex: 0
+
+  sync-catalog:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency: triage-label-catalog
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          sparse-checkout: .github/labels.yml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: EndBug/label-sync@2f0dca846207aa9095344c7aa7d3574d81ab0833 # Node.js 24
+        with:
+          config-file: .github/labels.yml
+          delete-other-labels: false

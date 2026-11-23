@@ -19,7 +19,7 @@ export type VpnNotice =
   | { kind: "demandStopped"; code: string };
 /** Campus VPN as the helper reports it; `error` is a code the UI keys on. */
 export type VpnStatus = {
-  /** `unavailable`: this build has no VPN payload (Intel Macs). */
+  /** `unavailable`: this development build has no staged VPN payload. */
   state: "disconnected" | "connecting" | "connected" | "error" | "unavailable";
   address?: string | null;
   /** When the campus session ends (RFC 3339), for the countdown. */
@@ -64,7 +64,7 @@ type CampusPrinterSetup =
 export interface CampusToolsBridge {
   /** What the Wi-Fi interface is on now (macOS builds only). */
   campusWifiStatus?(): Promise<CampusWifiStatus>;
-  /** Campus VPN state from the privileged helper (macOS and Windows builds). */
+  /** Campus VPN state from the privileged helper (Apple Silicon and Windows builds). */
   vpnStatus?(): Promise<VpnStatus>;
   /** One administrator approval installs or updates the helper and openconnect. */
   vpnInstall?(): Promise<VpnStatus>;
@@ -104,34 +104,40 @@ export function campusToolsCommands(
     installCampusPrinter: (prompt) =>
       result("plugin:campus-printer|install", { prompt }),
     campusWifiStatus: () => invokeCommand("plugin:campus-wifi|status"),
-    vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
-    vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
-    vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
-    vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
-    vpnOnDemand: (enabled) =>
-      invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
-    vpnPublishers: (list) =>
-      invokeCommand("plugin:campus-vpn|publishers", { list }),
-    onVpnStatus: (callback) =>
-      subscribe<VpnStatus>(
-        listen,
-        "vpn-status",
-        (payload) => (typeof payload?.state === "string" ? payload : undefined),
-        callback,
-      ),
-    onVpnNotice: (callback) =>
-      subscribe<VpnNotice>(
-        listen,
-        "vpn-notice",
-        (payload) =>
-          payload?.kind === "ended" ||
-          (payload?.kind === "demandStopped" &&
-            typeof payload.code === "string") ||
-          (payload?.kind === "ending" && typeof payload.minutes === "number")
-            ? payload
-            : undefined,
-        callback,
-      ),
+    ...(import.meta.env.ISCT_CAMPUS_VPN === false
+      ? {}
+      : ({
+          vpnStatus: () => invokeCommand("plugin:campus-vpn|status"),
+          vpnInstall: () => invokeCommand("plugin:campus-vpn|install"),
+          vpnConnect: () => invokeCommand("plugin:campus-vpn|connect"),
+          vpnDisconnect: () => invokeCommand("plugin:campus-vpn|disconnect"),
+          vpnOnDemand: (enabled) =>
+            invokeCommand("plugin:campus-vpn|on_demand", { enabled }),
+          vpnPublishers: (list) =>
+            invokeCommand("plugin:campus-vpn|publishers", { list }),
+          onVpnStatus: (callback) =>
+            subscribe<VpnStatus>(
+              listen,
+              "vpn-status",
+              (payload) =>
+                typeof payload?.state === "string" ? payload : undefined,
+              callback,
+            ),
+          onVpnNotice: (callback) =>
+            subscribe<VpnNotice>(
+              listen,
+              "vpn-notice",
+              (payload) =>
+                payload?.kind === "ended" ||
+                (payload?.kind === "demandStopped" &&
+                  typeof payload.code === "string") ||
+                (payload?.kind === "ending" &&
+                  typeof payload.minutes === "number")
+                  ? payload
+                  : undefined,
+              callback,
+            ),
+        } satisfies CampusToolsBridge)),
     campusWifiConnect: (leaveScienceTokyoX, onStep) => {
       const steps = new Channel<CampusWifiStep>();
       steps.onmessage = onStep;

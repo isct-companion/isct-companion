@@ -61,13 +61,13 @@ fn now_unix() -> i64 {
 impl Http {
     pub fn new() -> Result<Self, NetError> {
         let mut lanes = HashMap::new();
-        for host in Host::ALL {
+        for &host in Host::ALL {
             let builder = super::client_builder()
                 .user_agent(USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .connect_timeout(CONNECT)
                 .pool_idle_timeout(Duration::from_secs(90));
-            #[cfg(target_os = "macos")]
+            #[cfg(all(target_os = "macos", feature = "campus-vpn"))]
             let builder = if host == Host::CampusVpn {
                 // The macOS helper reaches the APM over IPv4. On IPv6-only
                 // Wi-Fi the default path leaves through NAT64 from another

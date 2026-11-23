@@ -21,6 +21,7 @@ demo = ["url/serde"]
 # The campus printer: the desktops, and Android through its print service
 # (app-ffi turns it on for that target only). iOS never prints to it.
 campus-printer = ["dep:adpt-printer", "dep:ipp", "tokio/net"]
+campus-vpn = ["dep:vpn-protocol", "adpt-isct/campus-vpn"]
 # The campus map: its Isct-Data file, room matching and floor read models;
 # the iOS and Android bindings switch it on, desktop does not. `hmac` signs
 # floor photo uploads.
@@ -29,7 +30,7 @@ campus-map = ["dep:flate2", "dep:hmac"]
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }
 adpt-printer = { path = "../adpt-printer", optional = true }
-vpn-protocol = { path = "../vpn-protocol" }
+vpn-protocol = { path = "../vpn-protocol", optional = true }
 log = "0.4"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

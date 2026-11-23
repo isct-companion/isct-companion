@@ -40,6 +40,7 @@ mod presentation;
 mod site;
 mod snapshot;
 mod store;
+#[cfg(feature = "campus-vpn")]
 mod vpn;
 mod walk;
 mod web;
@@ -55,6 +56,7 @@ pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
 pub use snapshot::{
     SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
 };
+#[cfg(feature = "campus-vpn")]
 pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
 

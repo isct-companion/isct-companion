@@ -1,6 +1,6 @@
 name: Bug report / 不具合の報告
 description: Something in the app does not work as expected. / アプリが期待どおりに動かない。
-labels: ["bug"]
+labels: ["bug", "needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -32,6 +32,33 @@ body:
         - Android
     validations:
       required: true
+  - type: dropdown
+    id: feature
+    attributes:
+      label: Affected feature / 対象機能
+      description: Choose the closest match if you know it. / 当てはまる機能がわかる場合に選んでください。
+      options:
+        - Today and timetable / 今日・時間割
+        - Course search and planning / 科目検索・履修計画
+        - Exam dates and rooms / 試験日程・教室
+        - Past exam library / 過去問ライブラリ
+        - Assignment lists and deadlines / 課題一覧・締切
+        - Assignment submission / 課題提出
+        - Course files and workspaces / 授業資料・ワークスペース
+        - File preview / ファイルプレビュー
+        - School sign-in and OTP / 学内ログイン・OTP
+        - School websites / 学内ウェブサイト
+        - Cloud sync / クラウド同期
+        - Backup and restore / バックアップ・復元
+        - Campus VPN / 学内 VPN
+        - Campus printing / 学内プリンター
+        - Campus map / キャンパスマップ
+        - Matrix card scanning / マトリクスカードの読み取り
+        - Notifications and reminders / 通知・リマインダー
+        - Home Screen widgets / ホーム画面ウィジェット
+        - MCP and agent access / MCP・エージェント連携
+        - Translations and language / 翻訳・言語
+        - Installation and updates / インストール・更新
   - type: textarea
     id: steps
     attributes:

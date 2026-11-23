@@ -198,7 +198,7 @@ jobs:
         if: inputs.full
         run: >-
           cargo test --workspace --exclude isct-companion --exclude app-ffi --locked --no-fail-fast
-          --features app-core/ts,app-core/desktop-workspaces,app-core/agent,app-core/campus-printer
+          --features app-core/ts,app-core/desktop-workspaces,app-core/agent,app-core/campus-printer,app-core/campus-vpn
 
   apple:
     name: macOS Rust (${{ matrix.target }})
