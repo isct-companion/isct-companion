@@ -13,7 +13,7 @@ import {
   mountApp,
   offering,
   overviewFor,
-  scheduleViewFor,
+  lectureListFor,
   typeInto,
   until,
   workspaceFixture,
@@ -1580,7 +1580,7 @@ describe("the reading workspace on its lecture route", () => {
         },
         queries: {
           workspaceOverview: (_query, core) => overviewFor(core.workspace),
-          scheduleView: (_query, core) => scheduleViewFor(core.workspace),
+          lectureList: (_query, core) => lectureListFor(core.workspace),
           courseContent: (query) =>
             (query as { courseId: string }).courseId === f.course.id
               ? contentFor(f)

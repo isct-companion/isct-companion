@@ -1,4 +1,5 @@
 use super::*;
+use crate::data::lms_visibility::{current_lms_placements, restores_lms_timetable};
 
 pub(super) fn validate_term(term: &str) -> Result<(), DataError> {
     let bytes = term.as_bytes();
@@ -60,15 +61,10 @@ pub(super) fn save_course(
             ["title", "instructor", "color"]
                 .map(|key| (key, draft.get(key).cloned().unwrap_or(Value::Null))),
         )?;
-        return set_course_on_timetable(
-            write,
-            current,
-            string(existing, "id")?,
-            draft
-                .get("onTimetable")
-                .and_then(Value::as_bool)
-                .unwrap_or(true),
-        );
+        if let Some(on) = draft.get("onTimetable").and_then(Value::as_bool) {
+            set_course_on_timetable(write, current, string(existing, "id")?, on)?;
+        }
+        return Ok(());
     }
     let mut course = existing.cloned().unwrap_or_else(|| {
         json!({
@@ -119,58 +115,70 @@ pub(super) fn save_course(
     Ok(())
 }
 
-/// Deletes the selected courses, whatever added them, with every quarter
-/// they are placed in.
+/// Delete manually authored courses, including the personal placements that refer to them.
 pub(super) fn delete_course_batch(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     course_ids: Vec<String>,
 ) -> Result<(), DataError> {
-    let ids: HashSet<_> = course_ids.into_iter().collect();
-    for course in rows(current, "courses")?.filter(|row| {
-        is_live(row)
-            && row
-                .get("id")
-                .and_then(Value::as_str)
-                .is_some_and(|id| ids.contains(id))
-    }) {
-        let id = string(course, "id")?;
-        // Courses the school cache lists are not user rows; delete reports
-        // false for them and their placements still go.
-        write.delete("manual_courses", id, None)?;
-        remove_placements(write, current, id, None)?;
+    let mut owned: Vec<_> = course_ids
+        .into_iter()
+        .filter(|id| {
+            visible_row(current, "courses", id)
+                .is_some_and(|course| course["source"]["provider"] == "manual")
+        })
+        .collect();
+    owned.sort_unstable();
+    owned.dedup();
+    remove_course_plans(write, current, &owned)?;
+    for id in owned {
+        write.delete("manual_courses", &id, None)?;
+        remove_manual_memberships(write, current, &id)?;
     }
     Ok(())
 }
 
-/// Tombstones the live memberships and plan items that put a course on the
-/// timetable: in `term`, or in every quarter it runs in.
-pub(super) fn remove_placements(
+/// The action is available from a quarter with a live draft. It removes
+/// every quarter of that course's draft, after checking the acted-on quarter.
+pub(super) fn remove_course_plans_from_term(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    course_ids: &[String],
+    term_id: &str,
+) -> Result<(), DataError> {
+    validate_term(term_id)?;
+    let planned = crate::schedule::planned_courses(current, term_id);
+    if course_ids.iter().any(|id| !planned.contains(id.as_str())) {
+        return Err(DataError::conflict(
+            "This course has no draft in the displayed quarter.",
+        ));
+    }
+    remove_course_plans(write, current, course_ids)
+}
+
+fn remove_course_plans(
+    write: &WorkspaceWrite<'_, '_>,
+    current: &Value,
+    course_ids: &[String],
+) -> Result<(), DataError> {
+    let ids: HashSet<_> = course_ids.iter().map(String::as_str).collect();
+    remove_catalog_plans(
+        write,
+        rows(current, "planItems")?
+            .filter(|row| row["courseId"].as_str().is_some_and(|id| ids.contains(id))),
+    )
+    .map(|_| ())
+}
+
+fn remove_manual_memberships(
     write: &WorkspaceWrite<'_, '_>,
     current: &Value,
     course_id: &str,
-    term: Option<&str>,
 ) -> Result<(), DataError> {
-    for (field, table) in [
-        ("memberships", "manual_memberships"),
-        ("planItems", "plan_items"),
-    ] {
-        for row in rows(current, field)?.filter(|row| {
-            is_live(row)
-                && row.get("courseId").and_then(Value::as_str) == Some(course_id)
-                && term.is_none_or(|term| row.get("termId").and_then(Value::as_str) == Some(term))
-        }) {
-            let id = string(row, "id")?;
-            if field == "memberships"
-                && row.pointer("/evidence/provider").and_then(Value::as_str) == Some("lms")
-                && !write.has_user_row(table, id)?
-            {
-                // A projected LMS placement has no backing user row. Persist
-                // its tombstone so a later cache projection respects removal.
-                write.put(table, row.clone(), None)?;
-            }
-            write.delete(table, id, None)?;
-        }
+    for row in rows(current, "memberships")?.filter(|row| {
+        is_live(row) && row["courseId"] == course_id && row["evidence"]["provider"] == "manual"
+    }) {
+        write.delete("manual_memberships", string(row, "id")?, revision(row))?;
     }
     Ok(())
 }
@@ -205,6 +213,7 @@ pub(super) fn edit_course_batch(
         .map(str::trim)
         .filter(|instructor| !instructor.is_empty());
     let ids: HashSet<_> = course_ids.into_iter().collect();
+    let saved = write.rows("manual_courses")?;
     for course in rows(current, "courses")?.filter(|row| {
         row.get("id")
             .and_then(Value::as_str)
@@ -220,15 +229,24 @@ pub(super) fn edit_course_batch(
         if language.is_none() && changes.credits.is_none() && (instructor.is_none() || !manual) {
             continue;
         }
-        if !write.has_user_row("manual_courses", id)? {
-            return Err(
+        let original = saved.iter().find(|row| {
+            is_live(row) && row["id"] == id && !crate::data::catalog_drafts::is_description(row)
+        });
+        let editing_draft =
+            rows(current, "planItems")?.any(|plan| is_live(plan) && plan["courseId"] == id);
+        let original = original.or_else(|| {
+            let offering = course["offeringId"].as_str()?;
+            (editing_draft && course["source"]["provider"] == "kyomu")
+                .then(|| crate::data::catalog_drafts::description(&saved, offering))
+                .flatten()
+        });
+        let original = original.ok_or_else(|| {
+            DataError::InvalidInput(
                 "credits and language of a school timetable course cannot be edited".into(),
-            );
-        }
-        let mut updated = course.clone();
+            )
+        })?;
+        let mut updated = original.clone();
         let object = object_mut(&mut updated, "course")?;
-        // The read model embeds the overlay; the stored row never contains it.
-        object.remove("overrides");
         if let Some(language) = language {
             object.insert("instructionLanguage".into(), Value::from(language));
         }
@@ -238,7 +256,7 @@ pub(super) fn edit_course_batch(
         if let Some(credits) = changes.credits {
             object.insert("credits".into(), Value::from(credits));
         }
-        write.put("manual_courses", updated, revision(course))?;
+        write.put("manual_courses", updated, revision(original))?;
     }
     Ok(())
 }
@@ -282,17 +300,57 @@ pub(super) fn set_course_on_timetable(
 ) -> Result<(), DataError> {
     let course = visible_row(current, "courses", course_id)
         .ok_or_else(|| "course was not found".to_string())?;
-    if !on {
-        // Off takes the course out of every quarter it runs in (3Q–4Q
-        // alike), whoever placed it there.
-        return remove_placements(write, current, course_id, None);
+    if course["source"]["provider"] == "manual" {
+        if !on {
+            return remove_manual_memberships(write, current, course_id);
+        }
+        let placed = rows(current, "memberships")?.any(|row| {
+            is_live(row) && row["courseId"] == course_id && row["evidence"]["provider"] == "manual"
+        });
+        if !placed {
+            let term = string(course, "termId")?;
+            write.put(
+                "manual_memberships",
+                json!({"kind":"membership","termId":term,"courseId":course_id,
+                "status":"declared","evidence":{"provider":"manual"}}),
+                None,
+            )?;
+        }
+        return Ok(());
     }
-    let placed = rows(current, "memberships")?
-        .chain(rows(current, "planItems")?)
-        .any(|row| is_live(row) && row.get("courseId").and_then(Value::as_str) == Some(course_id));
-    if !placed {
-        let term = string(course, "termId")?;
-        write.put("manual_memberships", json!({"id":Uuid::now_v7().to_string(),"kind":"membership","rev":0,"updatedAt":"","updatedBy":"","termId":term,"courseId":course_id,"status":"declared","evidence":{"provider":"manual"}}), None)?;
+
+    // The LMS visibility preference is per source course and quarter. The
+    // timetable toggle applies to every known quarter of the selected course.
+    let choices = write.rows("manual_memberships")?;
+    let lms_placements = current_lms_placements(current);
+    for row in rows(current, "memberships")?.filter(|row| {
+        row["courseId"] == course_id
+            && is_live(row) != on
+            && row["id"]
+                .as_str()
+                .is_some_and(|id| lms_placements.contains(id))
+    }) {
+        let id = string(row, "id")?;
+        if on {
+            write.put("manual_memberships", row.clone(), revision(row))?;
+        } else {
+            if let Some(prior_hide) = choices.iter().find(|choice| choice["id"] == id) {
+                for legacy in choices
+                    .iter()
+                    .filter(|choice| restores_lms_timetable(choice, prior_hide))
+                {
+                    write.delete(
+                        "manual_memberships",
+                        string(legacy, "id")?,
+                        revision(legacy),
+                    )?;
+                }
+            }
+            // LMS supplies the live row. Save the preference under the same
+            // identity so new school evidence cannot change the selection.
+            let saved = write.put("manual_memberships", row.clone(), None)?;
+            write.delete("manual_memberships", id, revision(&saved))?;
+        }
     }
     Ok(())
 }

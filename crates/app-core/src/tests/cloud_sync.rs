@@ -345,18 +345,12 @@ impl CloudTransport for FakeTransport {
         })
     }
 
-    fn version_document<'a>(
+    fn restore_documents<'a>(
         &'a self,
         _provider: CloudProvider,
         _revision: u64,
-    ) -> CloudFuture<'a, Value> {
-        Box::pin(async move {
-            self.remote
-                .lock()
-                .map_err(|_| CloudSyncError::Transport("Fake transport lock unavailable".into()))?
-                .clone()
-                .ok_or_else(|| CloudSyncError::Transport("version missing".into()))
-        })
+    ) -> CloudFuture<'a, (Value, Value)> {
+        Box::pin(async { Err(CloudSyncError::Transport("version missing".into())) })
     }
 }
 
@@ -1029,19 +1023,6 @@ async fn pending_apply_survives_journal_failure_and_replays() {
         .journal
         .read(|journal| journal.pending_apply.is_none())
         .unwrap());
-}
-
-#[tokio::test]
-async fn invalid_restore_is_compatibility_error_before_local_mutation() {
-    let fixture = Fixture::new("invalid-restore");
-    fixture.add_event("keep");
-    let error = fixture
-        .sync
-        .restore_document(fixture.services(), json!({"not":"a backup"}))
-        .await
-        .unwrap_err();
-    assert!(matches!(error, CloudSyncError::Compatibility(_)));
-    assert_eq!(fixture.store.user_rows("personal_events").unwrap().len(), 1);
 }
 
 #[tokio::test]

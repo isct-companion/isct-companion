@@ -571,6 +571,7 @@ export function WorkspaceApp() {
   const lecturesPage = (
     <LectureWorkspacePage
       data={data}
+      placements={workspaceView.placements}
       lectureRailHovered={lectureRailHovered}
       todayTerm={todayTerm}
       examEntry={renderedRoutes.current.examEntry}

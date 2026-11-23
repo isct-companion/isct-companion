@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 pub(super) struct PlanArgs {
     /// A catalog offering id from `search_catalog`.
     offering_id: String,
-    /// YYYY-nQ, one of the offering's quarters.
+    /// YYYY-nQ. Adding uses one of the offering's quarters.
     term: String,
 }
 
@@ -42,12 +42,9 @@ impl Tool for PlanAdd {
         let offering_id = non_empty(&args.offering_id, "offeringId")?;
         let term = non_empty(&args.term, "term")?;
         let (year, quarter) = parse_term(term)?;
-        if cx.store.catalog_offering(offering_id)?.is_none() {
-            return Err("offering was not found in the local catalog".into());
-        }
         Ok(cx.store.agent_write(|write, latest_workspace| {
-            let offering = write.catalog_offering(offering_id)?.ok_or_else(|| {
-                DataError::InvalidInput("offering is no longer available in the local catalog".into())
+            let offering = write.catalog_row(offering_id)?.ok_or_else(|| {
+                DataError::InvalidInput("offering was not found in the local catalog".into())
             })?;
             if offering.get("year").and_then(Value::as_i64) != Some(year) {
                 return Err(DataError::InvalidInput(
@@ -68,102 +65,26 @@ impl Tool for PlanAdd {
                     quarters.join(", ")
                 )));
             }
-            // A 3Q–4Q offering is planned into each of its quarters, like
-            // `AddCatalogCourses`.
-            let terms = if quarters.is_empty() {
-                vec![term.to_string()]
-            } else {
-                quarters
-                    .iter()
-                    .map(|quarter| format!("{year}-{quarter}"))
-                    .collect::<Vec<_>>()
-            };
-            for plan_term in &terms {
-                let eligibility = crate::study_profile::catalog_course_eligibility(
-                    latest_workspace,
-                    plan_term,
-                    &offering,
-                );
-                if let Some(message) =
-                    crate::study_profile::ineligibility_message(&offering, eligibility)
-                {
-                    return Err(DataError::InvalidInput(message));
-                }
-            }
-            // One course per offering and year, whatever quarter it sits in.
-            // Use the transaction snapshot so a concurrent school ingest or
-            // local write cannot make this decision stale.
-            let canonical = format!("{year}-{offering_id}");
-            let existing = visible_rows(latest_workspace, "courses")
-                .into_iter()
-                .find(|row| {
-                    text(row, "id") == Some(canonical.as_str())
-                        || text(row, "offeringId") == Some(offering_id)
-                });
-            // One builder serves this path and `AddCatalogCourses`; both
-            // resolve the teaching table first so a profile override reaches
-            // the meetings either way.
-            let course_value = crate::workspace::planned_catalog_course(
-                &offering,
-                &canonical,
+            let receipt = crate::workspace::plan_catalog_courses(
+                write,
+                latest_workspace,
                 term,
-                crate::locale::ContentLanguage::of(latest_workspace),
-                &crate::schedule::teaching_periods(latest_workspace).map_err(DataError::from)?,
+                vec![offering],
+                false,
             )?;
-            let stored_course = write
-                .rows("manual_courses")?
-                .into_iter()
-                .find(|row| text(row, "offeringId") == Some(offering_id));
-            // A live course for the offering is reused; a deleted row is
-            // revived only when no other live course stands for it.
-            let course = match (stored_course, existing) {
-                (Some(course), _) if course.get("deletedAt").is_none() => course,
-                (_, Some(course)) => course,
-                (stored, None) => write.put(
-                    "manual_courses",
-                    course_value,
-                    Some(
-                        stored
-                            .and_then(|row| row.get("rev").and_then(Value::as_u64))
-                            .unwrap_or(0),
-                    ),
-                )?,
-            };
-            let course_id = text(&course, "id")
-                .ok_or_else(|| DataError::InvalidInput("course identity could not be created".into()))?
-                .to_string();
-            let rows = write.rows("plan_items")?;
-            let mut plan_item_id = None;
-            for plan_term in &terms {
-                let planned = rows.iter().find(|row| {
-                    text(row, "courseId") == Some(course_id.as_str())
-                        && text(row, "termId") == Some(plan_term.as_str())
-                        && row.get("deletedAt").is_none()
-                });
-                let row = match planned {
-                    Some(row) => row.clone(),
-                    None => {
-                        let plan_id = format!("mcp-plan:{plan_term}:{offering_id}");
-                        let value = json!({"id":plan_id.clone(),"kind":"plan-item","termId":plan_term,
-                            "offeringId":offering_id,"courseId":course_id,"state":"planned",
-                            "source":{"provider":"mcp"}});
-                        let expected = rows
-                            .iter()
-                            .find(|row| text(row, "id") == Some(plan_id.as_str()))
-                            .and_then(|row| row.get("rev"))
-                            .and_then(Value::as_u64)
-                            .unwrap_or(0);
-                        write.put("plan_items", value, Some(expected))?
-                    }
-                };
-                if plan_term == term {
-                    plan_item_id = text(&row, "id").map(str::to_string);
-                }
-            }
+            let placement = receipt
+                .placements
+                .iter()
+                .find(|placement| placement.term_id == term)
+                .ok_or_else(|| DataError::storage("the requested term was not planned"))?;
             Ok(PlanAdded {
-                course_id,
-                plan_item_id,
-                terms,
+                course_id: placement.course_id.clone(),
+                plan_item_id: Some(placement.plan_id.clone()),
+                terms: receipt
+                    .placements
+                    .into_iter()
+                    .map(|placement| placement.term_id)
+                    .collect(),
             })
         })?)
     }
@@ -189,18 +110,13 @@ impl Tool for PlanRemove {
         let term = non_empty(&args.term, "term")?;
         parse_term(term)?;
         let removed = cx.store.agent_write(|write, _| {
-            let mut removed = 0;
-            for row in write.rows("plan_items")? {
-                if text(&row, "offeringId") == Some(offering_id)
-                    && text(&row, "termId") == Some(term)
-                    && row.get("deletedAt").is_none()
-                {
-                    if let Some(id) = text(&row, "id") {
-                        write.delete("plan_items", id, row.get("rev").and_then(Value::as_u64))?;
-                        removed += 1;
-                    }
-                }
-            }
+            let plans = write.rows("plan_items")?;
+            let removed = crate::workspace::remove_catalog_plans(
+                write,
+                plans
+                    .iter()
+                    .filter(|row| row["offeringId"] == offering_id && row["termId"] == term),
+            )?;
             if removed == 0 {
                 return Err(DataError::InvalidInput(format!(
                     "offering {offering_id} is not planned for {term}"

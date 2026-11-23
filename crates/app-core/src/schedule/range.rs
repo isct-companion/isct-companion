@@ -9,7 +9,7 @@ use super::agenda_layout::finalize_agenda;
 use super::calendar::{academic_year_of, calendar_state, shown_label};
 use super::occurrence::{personal_occurrences, CourseSessions};
 use super::{
-    array, parse_civil_date, teaching_periods, text, visible, DatedAgenda, OccurrenceKind,
+    array, parse_civil_date, teaching_periods, text, visible, DatedAgenda, Occurrence,
     ScheduleError, Term,
 };
 use crate::locale::ContentLanguage;
@@ -135,11 +135,8 @@ pub(super) fn calendar_between_with_personal(
         let occurrences = finalize_agenda(blocks, &periods)?;
         // Exams and timetable classes still happen when the weekly pattern
         // stops; such a day must not read as a day without classes.
-        let no_classes = weekly_classes_stop
-            && !occurrences.iter().any(|block| {
-                block.cancelled != Some(true)
-                    && matches!(block.kind, OccurrenceKind::Course | OccurrenceKind::Exam)
-            });
+        let no_classes =
+            weekly_classes_stop && !occurrences.iter().any(Occurrence::is_active_class);
         if notices.is_empty() && weekly_classes_stop {
             notices.push(
                 match (exam_period, language == ContentLanguage::Ja) {
