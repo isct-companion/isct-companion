@@ -11,7 +11,7 @@ import {
   mountApp,
   overviewFor,
   planningWeekFor,
-  scheduleViewFor,
+  lectureListFor,
   lectureSearchFor,
   typeInto,
   until,
@@ -28,7 +28,7 @@ import type {
   TermId,
   Workspace,
 } from "@app/lib/model";
-import type { ExamView, AssignmentGroups } from "@app/generated/persistence";
+import type { AssignmentGroups } from "@app/generated/persistence";
 
 /**
  * Today, the lecture desk and the grades panel, driven through the real shell
@@ -214,8 +214,8 @@ const homeQueries = {
     overviewFor(core.workspace),
   planningWeek: (_query: unknown, core: FakeCore) =>
     planningWeekFor(core.workspace),
-  scheduleView: (_query: unknown, core: FakeCore) =>
-    scheduleViewFor(core.workspace),
+  lectureList: (_query: unknown, core: FakeCore) =>
+    lectureListFor(core.workspace),
 };
 
 /* ------------------------------------------------------------------ *
@@ -431,44 +431,10 @@ function lectureWorkspace(): Workspace {
   return workspace;
 }
 
-/**
- * The block at index 0 is the desk's "today", so it is the one that can read
- * "Now". Its window spans the whole day, which keeps the chip independent of
- * the minute the suite happens to run at.
- */
-function lectureSchedule(workspace: Workspace) {
-  return scheduleViewFor(workspace, {
-    allTerms: [TERM],
-    agendas: [
-      {
-        date: jstDay(0),
-        occurrences: [lectureBlock("now", jstDay(0), "00:00", "24:00", "R3")],
-        importantDates: [],
-        noClasses: false,
-      },
-      {
-        date: jstDay(1),
-        occurrences: [lectureBlock("later", jstDay(1), "08:50", "10:30", "R3")],
-        importantDates: [],
-        noClasses: false,
-      },
-      {
-        date: jstDay(2),
-        occurrences: [
-          lectureBlock("friday", jstDay(2), "08:50", "10:30", "R5"),
-        ],
-        importantDates: [],
-        noClasses: false,
-      },
-    ],
-  });
-}
-
 function lectureTasks(workspace: Workspace): TaskView {
   const view = taskViewFor(workspace);
   return {
     ...view,
-    nearestByCourse: { later: "a1" },
     deadlines: {
       ...view.deadlines,
       a1: {
@@ -491,7 +457,6 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
       workspace,
       queries: {
         ...homeQueries,
-        scheduleView: (_query, core) => lectureSchedule(core.workspace),
         taskView: (_query, core) => lectureTasks(core.workspace),
         lectureSearch: (query, core) => lectureSearchFor(core.workspace, query),
       },
@@ -529,263 +494,6 @@ async function assignmentModeButton(
 }
 
 describe("the lecture desk", () => {
-  it("shows upcoming exams, links a historical published exam at once and saves or resets its corrections", async () => {
-    const workspace = lectureWorkspace();
-    const exam: ExamView = {
-      id: "published-exam",
-      key: "reference:exam:2q",
-      kind: "exam",
-      origin: "published",
-      term: "2026-2Q",
-      courseId: null,
-      code: "CSC.T241-02",
-      title: "Published exam",
-      date: "2026-08-04",
-      startTime: "10:45",
-      endTime: "12:25",
-      periods: [3, 4],
-      room: "Published room",
-      color: "#c98245",
-      status: "scheduled",
-      autoLinked: false,
-      source: {
-        date: "2026-08-04",
-        startTime: "10:45",
-        endTime: "12:25",
-        room: "Published room",
-      },
-      edited: false,
-    };
-    const historical = courseRow("history", "Historical course", {
-      termId: "2026-2Q",
-      code: "CSC.T241",
-    });
-    workspace.courses.push(historical);
-    const bound = {
-      ...exam,
-      id: "existing-exam",
-      key: "reference:existing",
-      courseId: historical.id,
-      title: "Existing linked exam",
-      room: "My room",
-      edited: true,
-    };
-    const weekClass: ExamView = {
-      ...bound,
-      id: "week-class",
-      key: "reference:week-class",
-      kind: "class",
-      title: "Exam-week session",
-      edited: false,
-    };
-    const upcoming = {
-      ...exam,
-      id: "upcoming",
-      key: "reference:upcoming",
-      term: TERM,
-      courseId: "now",
-      title: "Upcoming linked exam",
-      date: jstDay(1),
-    };
-    app = await mountApp(
-      {
-        workspace,
-        queries: {
-          ...homeQueries,
-          calendarRange: (_query, core) =>
-            lectureSchedule(core.workspace).agendas,
-          upcomingExams: () => [upcoming],
-          scheduleView: (query, core) => ({
-            ...lectureSchedule(core.workspace),
-            allTerms: [TERM, "2026-2Q"],
-            courses:
-              (query as { term: string }).term === "2026-2Q"
-                ? [historical]
-                : lectureSchedule(core.workspace).courses,
-            exams:
-              (query as { term: string }).term === "2026-2Q"
-                ? [exam, bound, weekClass]
-                : [],
-          }),
-          examAssociation: () => ({ conflicts: [exam] }),
-          // Core owns search; this script matches the exam titles above.
-          lectureSearch: (query) => ({
-            courseIds: [],
-            assignmentIds: [],
-            examKeys: [exam, bound]
-              .filter((row) =>
-                row.title
-                  .toLowerCase()
-                  .includes((query as { query: string }).query.toLowerCase()),
-              )
-              .map((row) => row.key),
-          }),
-          taskView: (_query, core) => lectureTasks(core.workspace),
-        },
-        handle: nativeNoise,
-      },
-      { route: paths.home() },
-    );
-    await required(
-      () => app!.host.querySelector('[aria-label="Upcoming exams"] .examCard'),
-      "the upcoming exam card",
-    );
-    expect(
-      app.host.querySelector('[aria-label="Upcoming exams"]')?.textContent,
-    ).toContain("Upcoming linked exam");
-    await app.go(paths.lectures());
-    await readyLectureRows(app.host);
-    await click(
-      [
-        ...app.host.querySelectorAll<HTMLButtonElement>(".lectureMode button"),
-      ].find((row) => row.textContent === "Exams")!,
-    );
-    await chooseOption(
-      app.host.querySelector<HTMLInputElement>(
-        '.lectureTerm [role="combobox"]',
-      )!,
-      "2026-2Q",
-    );
-    await required(
-      () =>
-        [...app!.host.querySelectorAll<HTMLElement>(".lectureRow.exam")].find(
-          (row) => row.textContent?.includes("Existing linked exam"),
-        ),
-      "the automatically linked exam",
-    );
-    // A class the timetable lists in exam week has its own group after the exams.
-    const listed = [
-      ...app.host.querySelectorAll<HTMLElement>(
-        ".lectureList .lectureExamScope small, .lectureRow.exam b",
-      ),
-    ].map((node) => node.textContent);
-    expect(listed).toEqual([
-      "My exams",
-      "Existing linked exam",
-      "Classes in exam week",
-      "Exam-week session",
-    ]);
-    expect(
-      app.host.querySelector(".lectureRow.examWeekClass")?.textContent,
-    ).toContain("Exam-week session");
-    expect(app.host.querySelector(".lectureList")?.textContent).not.toContain(
-      "Published exam",
-    );
-    await typeInto(
-      app.host.querySelector<HTMLInputElement>(
-        ".lectureFilter input, input.lectureFilter",
-      )!,
-      "Published exam",
-    );
-    const card = await required(
-      () => app!.host.querySelector<HTMLButtonElement>(".lectureRow.exam"),
-      "the searched published exam",
-    );
-    expect(card.textContent).toContain("Not linked");
-    await click(card);
-    const editor = await required(
-      () =>
-        app!.host.querySelector<HTMLElement>(".lectureExamDetails .examEditor"),
-      "the right-hand exam editor",
-    );
-    await chooseOption(
-      editor.querySelector<HTMLInputElement>('[role="combobox"]')!,
-      "history",
-    );
-    // The link applies on its own; it carries no schedule fields.
-    await until(() =>
-      expect(app!.core.intents).toContainEqual({
-        kind: "linkExam",
-        examKey: "reference:exam:2q",
-        courseId: "history",
-      }),
-    );
-    await typeInto(
-      editor.querySelector<HTMLInputElement>('input[name="room"]')!,
-      "Personal room",
-    );
-    await click(
-      [...editor.querySelectorAll<HTMLButtonElement>("button")].find(
-        (row) => row.textContent === "Save",
-      )!,
-    );
-    await until(() =>
-      expect(app!.core.intents).toContainEqual(
-        expect.objectContaining({
-          kind: "editExam",
-          examKey: "reference:exam:2q",
-          date: "2026-08-04",
-          room: "Personal room",
-        }),
-      ),
-    );
-    expect(document.querySelector('[role="dialog"]')).toBeNull();
-
-    await typeInto(
-      app.host.querySelector<HTMLInputElement>(
-        ".lectureFilter input, input.lectureFilter",
-      )!,
-      "Existing linked exam",
-    );
-    await click(
-      await required(
-        () =>
-          [
-            ...app!.host.querySelectorAll<HTMLButtonElement>(
-              ".lectureRow.exam",
-            ),
-          ].find((row) => row.textContent?.includes("Existing linked exam")),
-        "the edited exam",
-      ),
-    );
-    const edited = await required(
-      () =>
-        app!.host.querySelector<HTMLElement>(".lectureExamDetails .examEditor"),
-      "the edited exam's editor",
-    );
-    await until(() => {
-      expect(edited.textContent).toContain("Source: Published room");
-      expect(edited.textContent).toContain(
-        "This course also has: Published exam · 2026-08-04",
-      );
-    });
-    await click(
-      [...edited.querySelectorAll<HTMLButtonElement>("button")].find(
-        (row) => row.textContent === "Reset to source",
-      )!,
-    );
-    await until(() =>
-      expect(app!.core.intents).toContainEqual({
-        kind: "editExam",
-        examKey: "reference:existing",
-      }),
-    );
-    // Delete unlinks the exam; the notice's Undo links its course again.
-    const linked = app.core.intents.length;
-    await click(
-      [...edited.querySelectorAll<HTMLButtonElement>("button")].find(
-        (row) => row.textContent === "Delete",
-      )!,
-    );
-    const undo = await required(
-      () =>
-        [...document.querySelectorAll<HTMLButtonElement>("button")].find(
-          (row) => row.textContent === "Undo",
-        ),
-      "the notice's Undo",
-    );
-    await click(undo);
-    await until(() =>
-      expect(app!.core.intents.slice(linked)).toEqual([
-        { kind: "removeExam", examKey: "reference:existing" },
-        expect.objectContaining({
-          kind: "linkExam",
-          examKey: "reference:existing",
-        }),
-      ]),
-    );
-  }, 30_000);
-
   it("asks once about data accuracy and marks a calendar session from its right-click menu", async () => {
     const workspace = lectureWorkspace();
     delete workspace.settings.dataNoticeAcknowledgedAt;
@@ -794,8 +502,16 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
-          calendarRange: (_query, core) =>
-            lectureSchedule(core.workspace).agendas,
+          calendarRange: () => [
+            {
+              date: jstDay(0),
+              occurrences: [
+                lectureBlock("now", jstDay(0), "00:00", "24:00", "R3"),
+              ],
+              importantDates: [],
+              noClasses: false,
+            },
+          ],
           taskView: (_query, core) => lectureTasks(core.workspace),
         },
         handle: nativeNoise,
@@ -862,21 +578,6 @@ describe("the lecture desk", () => {
       }),
     );
   }, 30_000);
-
-  it("lists lectures in class order with the Now chip and each lecture's next deadline", async () => {
-    const mounted = await mountLectures(lectureWorkspace());
-    const rows = await readyLectureRows(mounted.host);
-
-    expect(rows.map((row) => row.querySelector("b")?.textContent)).toEqual([
-      "Course now",
-      "Course later",
-      "Course friday",
-    ]);
-    // The course code leads the meeting details.
-    expect(rows[0].querySelector("small")?.textContent).toBe("NOW · Now · R3");
-    expect(rows[0].className).toContain("now");
-    expect(rows[1].querySelector(".dueChip")?.textContent).toBe("1d 12h");
-  }, 20_000);
 
   it("waits for an explicit selection instead of opening a lecture on its own", async () => {
     const mounted = await mountLectures(lectureWorkspace());
@@ -960,8 +661,8 @@ describe("the lecture desk", () => {
         workspace: lectureWorkspace(),
         queries: {
           ...homeQueries,
-          scheduleView: (_query, core) => ({
-            ...lectureSchedule(core.workspace),
+          lectureList: (_query, core) => ({
+            ...lectureListFor(core.workspace),
             allTerms: [TERM, "2026-4Q"],
           }),
           taskView: (_query, core) => lectureTasks(core.workspace),

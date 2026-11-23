@@ -13,7 +13,7 @@ import {
   planItemFor,
   planningWeekFor,
   readRepoFile,
-  scheduleViewFor,
+  lectureListFor,
   textOf,
   typeInto,
   until,
@@ -58,9 +58,7 @@ type FinderOptions = {
   courses: FinderCourse[];
   /** Rows the finder only returns once unavailable courses are asked for. */
   widened?: FinderCourse[];
-  clashes?: FinderCourse[];
   eligibility?: Record<string, { status: string; reason: string }>;
-  replacements?: Record<string, string[]>;
   recommended?: Record<string, { group: string; mark?: string }>;
   suggestions?: FinderPage["suggestions"];
 };
@@ -99,17 +97,18 @@ function finderPage(
     ...(includeIneligible ? (options.widened ?? []) : []),
   ];
   const eligibility = options.eligibility ?? {};
-  const placedCodes = core.workspace.courses
+  const placedOfferingIds = core.workspace.courses
     .filter((row) => !row.deletedAt)
-    .map((row) => row.code);
+    .map((row) => row.offeringId)
+    .filter((id): id is string => !!id);
   const row = (course: FinderCourse): FinderRowView => {
     const verdict = eligibility[course.id];
     return {
       course,
       matched: [],
-      placed: placedCodes.includes(course.code),
-      clash: (options.clashes ?? []).some((clash) => clash.id === course.id),
-      replaces: options.replacements?.[course.id] ?? [],
+      placed: placedOfferingIds.includes(course.id),
+      clash: false,
+      replaces: [],
       credits:
         course.credits.lecture + course.credits.exercise + course.credits.lab,
       ...(verdict && verdict.status !== "allowed"
@@ -149,7 +148,7 @@ function finderPage(
         ? [`${"月火水木金土".indexOf(time[1]) + 1}:${time[2]}-${time[3]}`]
         : [];
     }),
-    placedCodes,
+    placedOfferingIds,
     commitKey: null,
     pasteHandled: false,
     pasted: [],
@@ -293,8 +292,8 @@ function plannerQueries(allTerms: TermId[] = [FALLBACK]) {
       }),
     planningWeek: (_query: unknown, core: FakeCore) =>
       planningWeekFor(core.workspace),
-    scheduleView: (_query: unknown, core: FakeCore) =>
-      scheduleViewFor(core.workspace),
+    lectureList: (_query: unknown, core: FakeCore) =>
+      lectureListFor(core.workspace),
   };
 }
 
@@ -871,7 +870,6 @@ describe("the course planner", () => {
       "the course details panel",
     );
     expect(panel.textContent).toContain("Graph Algorithms");
-    expect(panel.textContent).toContain("Remove");
     // Planning only: materials and assignments are read in Lectures.
     expect(panel.querySelector('[role="tab"]')).toBeNull();
     // The search stays behind the panel, and a click on a block never removes it.
@@ -1036,33 +1034,6 @@ describe("course eligibility", () => {
  * ------------------------------------------------------------------ */
 
 describe("replacing a clashing course", () => {
-  const before = workspaceFixture({
-    courses: [eligibleCourse],
-    planItems: [planItemFor(eligibleCourse)],
-  });
-  const after = workspaceFixture({
-    courses: [clashingCourse],
-    planItems: [planItemFor(clashingCourse)],
-  });
-
-  function clashApp() {
-    return {
-      workspace: before,
-      queries: plannerQueries(),
-      handle: finderHandler({
-        courses: [eligible, clashing],
-        clashes: [clashing],
-        replacements: { [clashing.id]: [eligibleCourse.id] },
-      }),
-      apply: (intent: { kind: string }, core: FakeCore) => {
-        if (intent.kind === "addCatalogCourses")
-          core.publish(after, `${core.revision}+after`);
-        else if (intent.kind === "undoCatalogCourses")
-          core.publish(before, `${core.revision}+before`);
-      },
-    };
-  }
-
   it("explains a placed clash where the course is clicked and offers both ways out", async () => {
     const sectioned = { ...clashingCourse, code: "CSC.T999-02" };
     const workspace = workspaceFixture({
@@ -1132,48 +1103,6 @@ describe("replacing a clashing course", () => {
         keys: ["CSC.T999"],
       }),
     );
-  }, 60_000);
-
-  it("offers Replace for a clashing course, commits it, and Undo restores the previous one", async () => {
-    const consoleWatch = watchConsoleErrors();
-    app = await mountApp(clashApp(), { route: paths.timetable() });
-    const { host, core } = app;
-    await enablePlanning(app);
-
-    await settled(() =>
-      expect(timetableTitles(host)).toEqual(["Graph Algorithms"]),
-    );
-    const replace = await required(
-      () =>
-        [...host.querySelectorAll<HTMLButtonElement>(".finderAdd")].find(
-          (button) => button.textContent === "Replace",
-        ),
-      "the Replace action",
-    );
-    expect(host.textContent).toContain("Conflict");
-    await click(replace);
-
-    await settled(() =>
-      expect(timetableTitles(host)).toEqual(["Clashing Lecture"]),
-    );
-    const intent = recordedIntent(core, "addCatalogCourses");
-    expect(intent.termId).toBe("2026-3Q");
-    expect((intent.offerings as FinderCourse[]).map((row) => row.id)).toEqual([
-      clashing.id,
-    ]);
-
-    const undo = await required(() => buttonByText(host, "Undo"), "Undo");
-    await click(undo);
-
-    await settled(() =>
-      expect(timetableTitles(host)).toEqual(["Graph Algorithms"]),
-    );
-    const undoIntent = recordedIntent(core, "undoCatalogCourses");
-    expect(undoIntent.termId).toBe("2026-3Q");
-    expect(undoIntent.offeringIds).toEqual([clashing.id]);
-    expect(host.querySelector(".pageError")).toBeNull();
-    consoleWatch.expectClean();
-    consoleWatch.restore();
   }, 60_000);
 });
 

@@ -32,31 +32,7 @@ impl DataStore {
         source: WorkspaceChangeSource,
     ) -> Result<(), DataError> {
         self.write(Some(source), |transaction| {
-            for table in USER_BACKUP_TABLES {
-                // Compared as synced copies, which name courses by external key.
-                let local = synced_rows(transaction, table)?;
-                for incoming in remote["tables"][table].as_array().into_iter().flatten() {
-                    validate_user_record(table, incoming)?;
-                    let old = local.iter().find(|row| row["id"] == incoming["id"]);
-                    if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
-                        let mut stored = incoming.clone();
-                        course_keys::from_synced(transaction, table, &mut stored)?;
-                        upsert_row(transaction, table, &stored, true)?;
-                    }
-                }
-            }
-            let local = read_settings_export(transaction)?;
-            for incoming in backup_settings(remote) {
-                let key = string_field(&incoming, "key")?;
-                if local
-                    .iter()
-                    .find(|row| row["key"] == key)
-                    .is_none_or(|old| cloud_merge::compare(&incoming, old).is_gt())
-                {
-                    import_setting(transaction, &incoming)?;
-                }
-            }
-            Ok(())
+            merge_cloud_records(transaction, remote)
         })
     }
 
@@ -70,23 +46,46 @@ impl DataStore {
         old: &Value,
         source: WorkspaceChangeSource,
     ) -> Result<(), DataError> {
+        self.restore_records_with_head(old, None, source)
+    }
+
+    pub(crate) fn restore_records_with_head(
+        &self,
+        old: &Value,
+        head: Option<&Value>,
+        source: WorkspaceChangeSource,
+    ) -> Result<(), DataError> {
         self.write(Some(source), |transaction| {
+            if let Some(head) = head {
+                merge_cloud_records(transaction, head)?;
+            }
             let timestamp = now();
             let device = read_setting(transaction, "deviceId")?
                 .and_then(|id| id.as_str().map(str::to_owned))
                 .ok_or_else(|| DataError::storage("device id missing"))?;
             let stamp = |row: &mut Value, rev: u64| {
+                if let Some(fields) = row.as_object_mut() {
+                    fields.remove(catalog_drafts::BASELINE_REVISION);
+                }
                 row["rev"] = Value::from(rev + 1);
                 row["updatedAt"] = Value::String(timestamp.clone());
                 row["updatedBy"] = Value::String(device.clone());
             };
             for table in USER_BACKUP_TABLES {
-                let local = synced_rows(transaction, table)?;
-                let restored = old["tables"][table].as_array().cloned().unwrap_or_default();
-                for incoming in &restored {
+                let local = read_rows(transaction, table)?;
+                let mut restored = Vec::new();
+                for incoming in cloud_merge::document_rows(old, table).iter() {
                     validate_user_record(table, incoming)?;
+                    let mut row = incoming.clone();
+                    course_keys::from_synced(transaction, table, &mut row)?;
+                    restored.push(row);
+                }
+                for incoming in &restored {
                     let current = local.iter().find(|row| row["id"] == incoming["id"]);
-                    if current.is_some_and(|current| same_record(current, incoming)) {
+                    if current.is_some_and(|current| {
+                        catalog_drafts::baseline_revision(current).is_none()
+                            && same_record(current, incoming)
+                    }) {
                         continue;
                     }
                     let mut stored = incoming.clone();
@@ -94,11 +93,11 @@ impl DataStore {
                         &mut stored,
                         revision(incoming).max(current.map_or(0, revision)),
                     );
-                    course_keys::from_synced(transaction, table, &mut stored)?;
                     upsert_row(transaction, table, &stored, true)?;
                 }
                 for current in &local {
-                    if current.get("deletedAt").is_some_and(Value::is_string)
+                    if (current.get("deletedAt").is_some_and(Value::is_string)
+                        && catalog_drafts::baseline_revision(current).is_none())
                         || restored.iter().any(|row| row["id"] == current["id"])
                     {
                         continue;
@@ -106,8 +105,10 @@ impl DataStore {
                     let mut stored = current.clone();
                     stamp(&mut stored, revision(current));
                     stored["deletedAt"] = Value::String(timestamp.clone());
-                    course_keys::from_synced(transaction, table, &mut stored)?;
                     upsert_row(transaction, table, &stored, true)?;
+                }
+                if *table == "schedule_overrides" {
+                    schedule_overrides::restore_effective(transaction, restored, &stamp)?;
                 }
             }
             // A setting the old copy lacks keeps its current value: settings
@@ -126,6 +127,34 @@ impl DataStore {
             Ok(())
         })
     }
+}
+
+fn merge_cloud_records(transaction: &Transaction<'_>, remote: &Value) -> Result<(), DataError> {
+    for table in USER_BACKUP_TABLES {
+        // Compared as synced copies, which name courses by external key.
+        let local = synced_rows(transaction, table)?;
+        for incoming in cloud_merge::document_rows(remote, table).iter() {
+            validate_user_record(table, incoming)?;
+            let old = local.iter().find(|row| row["id"] == incoming["id"]);
+            if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {
+                let mut stored = incoming.clone();
+                course_keys::from_synced(transaction, table, &mut stored)?;
+                upsert_row(transaction, table, &stored, true)?;
+            }
+        }
+    }
+    let local = read_settings_export(transaction)?;
+    for incoming in backup_settings(remote) {
+        let key = string_field(&incoming, "key")?;
+        if local
+            .iter()
+            .find(|row| row["key"] == key)
+            .is_none_or(|old| cloud_merge::compare(&incoming, old).is_gt())
+        {
+            import_setting(transaction, &incoming)?;
+        }
+    }
+    Ok(())
 }
 
 /// The settings rows a backup may carry, sanitized as every merge does.

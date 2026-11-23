@@ -76,7 +76,7 @@ struct TodayScreen: View {
             }
             if model.needsAccount { ConnectCard() }
             if let snapshot = model.syncSnapshot, snapshot.showsLoading,
-                model.records.courses.isEmpty, model.records.assignments.isEmpty
+                model.today?.hasAcademicRecords != true
             {
                 FirstLoadCard(snapshot: snapshot)
             }

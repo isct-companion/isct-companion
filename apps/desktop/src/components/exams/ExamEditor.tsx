@@ -2,7 +2,6 @@ import { Button, Select, TextInput } from "../ui";
 import { useState } from "react";
 import { useSubmissionGuard } from "../use-submission-guard";
 import type { ExamAssociation, ExamView } from "../../generated/persistence";
-import type { Course } from "../../lib/model";
 import { useScheduleQuery } from "../../platform/core-query";
 import { workspaceActions } from "../../store/workspace";
 import { notify } from "../notifications/notify";
@@ -17,12 +16,10 @@ const timeRange = (start: string | null, end: string | null) =>
  * source corrections still reach every field the user left alone. */
 export function ExamEditor({
   exam,
-  courses,
   onSaved,
   onRemoved,
 }: {
   exam: ExamView;
-  courses: Course[];
   onSaved?: () => void;
   onRemoved?: () => void;
 }) {
@@ -34,9 +31,9 @@ export function ExamEditor({
     {
       kind: "examAssociation",
       examKey: exam.key,
-      courseId: exam.courseId ?? "",
+      courseId: exam.courseId,
     },
-    published && Boolean(exam.courseId),
+    published,
   );
   const run = (
     intent: Parameters<typeof workspaceActions.mutate>[0],
@@ -168,14 +165,14 @@ export function ExamEditor({
           }
           data={[
             { value: "", label: t("common.notLinked") },
-            ...courses.map((course) => ({
+            ...(association.value?.courses ?? []).map((course) => ({
               value: course.id,
               label: `${course.title} · ${course.code}`,
             })),
           ]}
           searchable
           allowDeselect={false}
-          disabled={saving}
+          disabled={saving || !association.value}
         />
       )}
       {conflicts.length > 0 && (

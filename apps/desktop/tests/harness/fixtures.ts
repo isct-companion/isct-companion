@@ -186,7 +186,7 @@ export function overviewFor(
     termCredits: active.reduce((total, row) => total + row.credits, 0),
     colors,
     enrolledCourseIds: active.map((row) => row.id),
-    onTimetableCourseIds: active.map((row) => row.id),
+    placements: {},
     allTerms: [TERM],
     defaultFinderKeys: [],
     ...overrides,
@@ -231,6 +231,11 @@ export function planningWeekFor(
     conflicts: [],
     ...overrides,
   };
+}
+
+export function lectureListFor(workspace: Workspace) {
+  const { courses, allTerms } = overviewFor(workspace);
+  return { courses, allTerms, nextByCourse: {}, exams: [] };
 }
 
 export function scheduleViewFor(

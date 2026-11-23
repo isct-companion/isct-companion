@@ -126,6 +126,69 @@ fn restore_rewrites_old_records_as_new_edits_that_other_devices_merge() {
 }
 
 #[test]
+fn history_restore_overrides_unseen_edits_to_the_same_class() {
+    let origin = Fixture::new();
+    let restoring = Fixture::new();
+    let session = |fixture: &Fixture| {
+        let mut connection = fixture.store.test_connection();
+        let tx = connection.transaction().unwrap();
+        let id = data::resolve_course_id(&tx, "lms", "42", 2026, Some("202602440")).unwrap();
+        tx.commit().unwrap();
+        format!("{id}-weekly-0-2026-10-05")
+    };
+    let origin_key = session(&origin);
+    let restoring_key = session(&restoring);
+    assert_ne!(origin_key, restoring_key);
+    let mark = |id, kind| {
+        origin.store.put_user_record("schedule_overrides", json!({
+            "id":id, "targetKey":origin_key, "targetKind":"course", "mark":kind, "hidden":false
+        })).unwrap();
+    };
+    let check_mark = |fixture: &Fixture, target: &str| {
+        let workspace = fixture.store.load_workspace().unwrap();
+        let rows = workspace["scheduleOverrides"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row["targetKey"], target);
+        assert_eq!(row["id"], "original");
+        assert_eq!(row["mark"], "exam");
+        assert!(row["deletedAt"].is_null());
+        assert!(fixture.events().is_empty());
+    };
+    mark("original", "exam");
+    let selected = origin.backup.snapshot().unwrap();
+    restoring
+        .backup
+        .apply(&selected, WorkspaceChangeSource::CloudSync)
+        .unwrap();
+
+    // The other device deleted the original and edited the same class again.
+    origin
+        .store
+        .delete_user_record("schedule_overrides", "original")
+        .unwrap();
+    mark("later", "class");
+    mark("later", "quiz");
+    origin.add_event("added after the selected version");
+    let head = origin.backup.snapshot().unwrap();
+    check_mark(&restoring, &restoring_key);
+    restoring
+        .backup
+        .restore_from_head(&selected, &head, WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+
+    check_mark(&restoring, &restoring_key);
+    origin
+        .backup
+        .apply(
+            &restoring.backup.snapshot().unwrap(),
+            WorkspaceChangeSource::CloudSync,
+        )
+        .unwrap();
+    check_mark(&origin, &origin_key);
+}
+
+#[test]
 fn invalid_records_are_rejected_before_any_local_changes() {
     let fixture = Fixture::new();
     fixture.add_event("kept");

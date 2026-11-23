@@ -295,10 +295,7 @@ export function WeekTimetable({
                 grid &&
                 (grid.startTime !== block.startTime ||
                   grid.endTime !== block.endTime);
-              // A holiday's classes are drawn as not taking place.
-              const cancelled =
-                block.cancelled ||
-                (column.noClasses && block.kind === "course");
+              const cancelled = block.cancelled;
               const exam = block.kind === "exam" && !cancelled;
               const button = (
                 <UiButton

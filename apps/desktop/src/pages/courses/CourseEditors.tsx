@@ -28,6 +28,12 @@ export function CourseEditors({
   const intensiveCourse = intensiveCourseId
     ? data.courses.find((item) => item.id === intensiveCourseId)
     : undefined;
+  const editorCourse = courseEditor?.course;
+  const placement = editorCourse
+    ? workspaceView.placements[editorCourse.id]
+    : undefined;
+  const canRemovePlan =
+    workspaceView.term === courseEditor?.term && placement?.canRemovePlan;
   const currentTerm = workspaceView.currentTerm;
   return (
     <>
@@ -57,13 +63,12 @@ export function CourseEditors({
             data.academicProfile.teachingPeriods,
           )}
           term={courseEditor.term}
-          onTimetable={
-            courseEditor.course
-              ? workspaceView.onTimetableCourseIds.includes(
-                  courseEditor.course.id,
-                )
-              : true
+          timetable={
+            editorCourse
+              ? (placement?.timetable ?? null)
+              : { kind: "manual", visible: true }
           }
+          deletingPlan={canRemovePlan && !placement?.canDeleteCourse}
           onClose={() => courseEditors.editCourse(null)}
           onSave={async (draft) => {
             await academicIntentOrThrow({
@@ -79,8 +84,8 @@ export function CourseEditors({
                 meetings: draft.meetings,
                 onTimetable: draft.onTimetable,
               },
-              termId: courseEditor.term,
-              existingId: courseEditor.course?.id,
+              termId: editorCourse?.termId ?? courseEditor.term,
+              existingId: editorCourse?.id,
             });
             courseEditors.editCourse(null);
             notify.info(
@@ -88,14 +93,28 @@ export function CourseEditors({
             );
           }}
           onDelete={
-            courseEditor.course
+            editorCourse && (placement?.canDeleteCourse || canRemovePlan)
               ? async () => {
-                  await academicIntentOrThrow({
-                    kind: "deleteCourseBatch",
-                    courseIds: [courseEditor.course!.id],
-                  });
+                  await academicIntentOrThrow(
+                    placement?.canDeleteCourse
+                      ? {
+                          kind: "deleteCourseBatch",
+                          courseIds: [editorCourse.id],
+                        }
+                      : {
+                          kind: "removeCatalogPlans",
+                          courseIds: [editorCourse.id],
+                          termId: courseEditor.term,
+                        },
+                  );
                   courseEditors.editCourse(null);
-                  notify.info(t("app.courseDeleted"));
+                  notify.info(
+                    t(
+                      placement?.canDeleteCourse
+                        ? "app.courseDeleted"
+                        : "courses.coursePlanRemoved",
+                    ),
+                  );
                 }
               : undefined
           }
