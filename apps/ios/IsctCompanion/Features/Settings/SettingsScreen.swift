@@ -1,5 +1,6 @@
 import IsctCore
 import SwiftUI
+import TipKit
 import UIKit
 
 /// Settings pages, pushed onto whichever page's stack opened them, as the
@@ -111,6 +112,7 @@ struct SettingsScreen: View {
                                 SettingsIcon(symbol: "bubble.left.and.text.bubble.right", tint: Theme.muted)
                             }
                         }
+                        .popoverTip(FeedbackTip(), arrowEdge: .bottom)
                     }
                     if let policy = URL(string: "https://github.com/isct-companion/isct-companion/blob/main/docs/legal/PRIVACY.md") {
                         Link(destination: policy) {

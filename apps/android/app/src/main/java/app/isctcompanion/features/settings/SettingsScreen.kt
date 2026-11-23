@@ -82,6 +82,7 @@ import app.isctcompanion.core.feedbackFormUrl
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Guide
+import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
@@ -277,6 +278,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
                 val url = feedbackFormUrl(appVersion(context), device())
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
+            GuideTip("feedback", "guide.feedbackHint")
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
         }

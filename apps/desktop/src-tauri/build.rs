@@ -1,12 +1,15 @@
-/// The desktop tools, in page order, and the systems each is built for: the
+/// The desktop tools, in page order, and the Rust targets each is built for: the
 /// one place a tool's platforms are named. Each tool is a Tauri plugin of the
 /// same name (`src/plugins/`); the code tests the tool, not the system
 /// (`#[cfg(tool = "campus-printer")]`), and the page lists what the binary
 /// reports (`__ISCT_COMPANION_TOOLS__`).
 const TOOLS: &[(&str, &[&str])] = &[
-    ("campus-wifi", &["macos"]),
-    ("campus-vpn", &["macos", "windows"]),
-    ("campus-printer", &["macos", "windows"]),
+    ("campus-wifi", &["aarch64-apple-darwin", "x86_64-apple-darwin"]),
+    ("campus-vpn", &["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]),
+    (
+        "campus-printer",
+        &["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"],
+    ),
 ];
 
 /// Commands that each tool grants to the main window.
@@ -149,6 +152,7 @@ const DEMO_IDENTIFIER: &str = "app.isctcompanion.demo";
 
 fn main() {
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let target = std::env::var("TARGET").expect("Rust target is missing");
     if os == "macos" {
         build_widget_bridge();
     }
@@ -168,7 +172,7 @@ fn main() {
     let demo_build = std::env::var_os("CARGO_FEATURE_DEMO").is_some();
     let tools = TOOLS
         .iter()
-        .filter(|(_, systems)| !demo_build && systems.contains(&os.as_str()))
+        .filter(|(_, targets)| !demo_build && targets.contains(&target.as_str()))
         .map(|(id, _)| *id)
         .collect::<Vec<_>>();
     for tool in &tools {

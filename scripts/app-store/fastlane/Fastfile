@@ -61,24 +61,44 @@ platform :ios do
         UI.success("Initialized the confirmed age-rating questionnaire")
       end
       AppStoreListing.prepare(app, current, ROOT)
+      screenshots_path = File.join(ROOT, "resources/app-store/screenshots")
+      display_types = { "iphone-6.9" => "APP_IPHONE_67", "iphone-6.3" => "APP_IPHONE_61", "ipad-13" => "APP_IPAD_PRO_3GEN_129" }
+      expected_screenshots = Dir[File.join(screenshots_path, "*")].to_h do |directory|
+        sets = display_types.to_h do |prefix, display_type|
+          files = Dir[File.join(directory, "#{prefix}-*.png")].sort
+          [display_type, files.map { |file| Digest::MD5.file(file).hexdigest }]
+        end
+        [File.basename(directory), sets]
+      end
+      # New versions can inherit screenshots, and deliver otherwise appends by checksum.
+      current.get_app_store_version_localizations.each do |localization|
+        expected_sets = expected_screenshots[localization.locale]
+        next unless expected_sets
+
+        localization.get_app_screenshot_sets.each do |set|
+          expected = expected_sets[set.screenshot_display_type]
+          next unless expected
+
+          set.app_screenshots.to_a.each do |screenshot|
+            screenshot.delete! unless expected.include?(screenshot.source_file_checksum)
+          end
+        end
+      end
       upload_to_app_store(
         api_key: key, app_identifier: "app.isctcompanion", platform: "ios",
         app_version: version_number, build_number: build.version,
         skip_binary_upload: true, skip_metadata: true,
-        screenshots_path: File.join(ROOT, "resources/app-store/screenshots"),
+        screenshots_path: screenshots_path,
         overwrite_screenshots: false, submit_for_review: false, force: true,
         run_precheck_before_submit: false
       )
       current.select_build(build_id: build.id)
       localizations = current.get_app_store_version_localizations
-      display_types = { "iphone-6.9" => "APP_IPHONE_67", "iphone-6.3" => "APP_IPHONE_61", "ipad-13" => "APP_IPAD_PRO_3GEN_129" }
-      Dir[File.join(ROOT, "resources/app-store/screenshots/*")].each do |directory|
-        locale = File.basename(directory)
+      expected_screenshots.each do |locale, expected_sets|
         localization = localizations.find { |l| l.locale == locale }
         UI.user_error!("Missing localization #{locale}") unless localization
         sets = localization.get_app_screenshot_sets
-        display_types.each do |prefix, display_type|
-          expected = Dir[File.join(directory, "#{prefix}-*.png")].sort.map { |f| Digest::MD5.file(f).hexdigest }
+        expected_sets.each do |display_type, expected|
           actual = sets.find { |s| s.screenshot_display_type == display_type }&.app_screenshots || []
           unless actual.all?(&:complete?) && actual.map(&:source_file_checksum) == expected
             UI.user_error!("Screenshot count, order, checksum or processing mismatch: #{locale}/#{display_type}")

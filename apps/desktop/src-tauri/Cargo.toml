@@ -46,9 +46,6 @@ url = "2.5"
 scraper = "0.29"
 tauri-plugin-secure-storage = "1.5.0"
 tauri-plugin-clipboard-manager = "2"
-# The campus VPN helper's wire format (`src/vpn.rs`).
-vpn-protocol = { path = "../../../crates/vpn-protocol" }
-
 # The embedded MCP HTTP transport.
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 rmcp = { version = "3.8", default-features = false, features = ["server", "transport-streamable-http-server"] }
@@ -64,13 +61,19 @@ if-addrs = "0.15"
 # another copy against the same data. It injects no script into webviews.
 tauri-plugin-single-instance = "2"
 
+[target.'cfg(any(all(target_os = "macos", target_arch = "aarch64"), all(target_os = "windows", target_arch = "x86_64")))'.dependencies]
+app-core = { path = "../../../crates/app-core", features = ["campus-vpn"] }
+vpn-protocol = { path = "../../../crates/vpn-protocol" }
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
+# The campus VPN helper as a launchd daemon inside the app (campus_vpn/macos.rs).
+objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService", "SMErrors"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # The login name the campus printer queue is restricted to (campus_printer_cups.rs).
 libc = "0.2"
 security-framework = { version = "3.7", features = ["OSX_10_15"] }
 block2 = "0.6"
-# The campus VPN helper as a launchd daemon inside the app (campus_vpn/macos.rs).
-objc2-service-management = { version = "0.3.2", default-features = false, features = ["std", "objc2", "objc2-foundation", "SMAppService", "SMErrors"] }
 objc2-cloud-kit = { version = "0.3.2", default-features = false, features = ["CKAsset", "CKContainer", "CKDatabase", "CKRecord", "CKRecordID", "block2"] }
 # Campus Wi-Fi (campus_wifi.rs): Wi-Fi interface and DNS bound to it.
 objc2-core-wlan = { version = "0.3.2", default-features = false, features = ["std", "CWWiFiClient", "CWInterface"] }

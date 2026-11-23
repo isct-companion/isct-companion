@@ -1,0 +1,168 @@
+# Managed GitHub labels. Triage labels syncs this catalog from main.
+# Platforms
+- name: platform:macos
+  color: "5319e7"
+  description: Reported on macOS or touching macOS-specific desktop code
+- name: platform:windows
+  color: "5319e7"
+  description: Reported on Windows or touching Windows-specific desktop code
+- name: platform:ios
+  color: "5319e7"
+  description: Reported on iPhone
+- name: platform:ipados
+  color: "5319e7"
+  description: Reported on iPad
+- name: platform:android
+  color: "5319e7"
+  description: Reported on Android
+
+# Implementation
+- name: area:desktop
+  color: "1d76db"
+  description: Shared macOS and Windows desktop app
+- name: area:ios
+  color: "1d76db"
+  description: Apple mobile shell shared by iPhone and iPad
+- name: area:android
+  color: "1d76db"
+  description: Android app shell
+- name: area:core
+  color: "1d76db"
+  description: Shared Rust domain logic in app-core
+- name: area:native-sdk
+  color: "1d76db"
+  description: UniFFI boundary, Swift and Kotlin bindings and SDK packaging
+- name: area:design-system
+  color: "1d76db"
+  description: Design tokens and shared UI primitives
+- name: area:ci
+  color: "1d76db"
+  description: GitHub Actions, automated checks and repository automation
+
+# Features and integrations
+- name: area:schedule
+  color: "0e6e61"
+  description: Today, the timetable, calendar and class occurrences
+- name: area:course-catalog
+  color: "0e6e61"
+  description: Course search, personal course plans and study profiles
+- name: area:exam-schedule
+  color: "0e6e61"
+  description: Dates, times and rooms for upcoming exams
+- name: area:past-exams
+  color: "0e6e61"
+  description: Past exam search, requests, uploads and ScienceTokyoExam accounts
+- name: area:assignments
+  color: "0e6e61"
+  description: Assignment lists, due dates and completion shown from the LMS
+- name: area:submission
+  color: "0e6e61"
+  description: Hand-in, the share inbox, attachments and LMS submission
+- name: area:course-files
+  color: "0e6e61"
+  description: Course materials, downloads and local course workspaces
+- name: area:file-preview
+  color: "0e6e61"
+  description: In-app PDF, Markdown and archive previews
+- name: area:school-auth
+  color: "0e6e61"
+  description: School accounts, sign-in, session renewal and two-factor authentication
+- name: area:school-web
+  color: "0e6e61"
+  description: Opening and using the LMS and academic affairs sites in the app
+- name: area:cloud-sync
+  color: "0e6e61"
+  description: Sync between devices through iCloud or Google Drive
+- name: area:backup
+  color: "0e6e61"
+  description: Creating, importing and restoring backups or transferred settings
+- name: area:vpn
+  color: "0e6e61"
+  description: Campus VPN setup, connections and routing
+- name: area:campus-printer
+  color: "0e6e61"
+  description: Campus printer setup, system print integration and print jobs
+- name: area:campus-map
+  color: "0e6e61"
+  description: Buildings, floors, rooms, indoor routes and map search
+- name: area:matrix-ocr
+  color: "0e6e61"
+  description: Matrix card camera capture and character recognition
+- name: area:notifications
+  color: "0e6e61"
+  description: Permissions, scheduling and delivery of app reminders
+- name: area:widgets
+  color: "0e6e61"
+  description: Course and assignment widgets and their published timelines
+- name: area:mcp
+  color: "0e6e61"
+  description: Local MCP server, tools and agent integration
+- name: area:localization
+  color: "0e6e61"
+  description: Translations, locale selection and localized formatting
+- name: area:release
+  color: "0e6e61"
+  description: Packaging, distribution, installation and built-in updates
+
+# Kinds
+- name: bug
+  color: "d73a4a"
+  description: Something does not work as expected
+- name: enhancement
+  color: "a2eeef"
+  description: A new feature or improvement
+- name: documentation
+  color: "0075ca"
+  description: Documentation work
+- name: dependencies
+  color: "0366d6"
+  description: Dependency updates
+- name: kind:refactor
+  color: "bfdadc"
+  description: Internal restructuring for existing behaviour
+- name: kind:tests
+  color: "bfdadc"
+  description: Changes limited to tests or their fixtures
+- name: kind:release
+  color: "bfdadc"
+  description: A release or release promotion PR
+
+# Impact
+- name: regression
+  color: "e99695"
+  description: Previously working behaviour broke after an identifiable change or release
+- name: crash
+  color: "e99695"
+  description: The app exits unexpectedly
+- name: data-loss
+  color: "e99695"
+  description: User data is lost, overwritten or becomes inaccessible
+- name: performance
+  color: "e99695"
+  description: Slow, stalled or resource-heavy behaviour or work to improve it
+- name: accessibility
+  color: "f143ab"
+  description: A barrier affecting people with disabilities
+- name: release-blocker
+  color: "b60205"
+  description: Must be resolved before the affected release can ship
+
+# Triage and contribution
+- name: needs-triage
+  color: "fbca04"
+  description: Awaiting an initial maintainer review
+- name: needs-info
+  color: "d4c5f9"
+  description: Waiting for specific information from the reporter
+- name: needs-repro
+  color: "d4c5f9"
+  description: Needs a reproducible case or confirmation on an affected platform
+- name: blocked
+  color: "b60205"
+  description: Progress depends on an identified external action or prerequisite
+- name: good first issue
+  color: "7057ff"
+  description: A scoped task with enough guidance for a first contribution
+- name: help wanted
+  color: "008672"
+  description: Extra help is welcome on this work

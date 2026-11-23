@@ -7,6 +7,7 @@ description = "Institute of Science Tokyo specifics for IsctCompanion Core: page
 
 [features]
 default = []
+campus-vpn = []
 ts = ["dep:ts-rs"]
 
 [dependencies]

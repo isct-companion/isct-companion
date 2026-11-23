@@ -7,6 +7,7 @@ import { macosBuildSigning } from "./macos-signing.mjs";
 import { macWidgets } from "./macos-widgets.mjs";
 import { developmentVersion } from "../lib/build-version.mjs";
 import { campusVpnBundle } from "./bundle-vpn.mjs";
+import { desktopTarget } from "./desktop-target.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 // `--demo` is ours, not Tauri's: the website screenshot scene (Cargo feature
@@ -33,6 +34,7 @@ const version =
 const bundleCommand = command[0] === "build" || command[0] === "bundle";
 const noSign = flags.includes("--no-sign");
 const packagesApp = bundleCommand && !flags.includes("--no-bundle");
+const target = desktopTarget(flags);
 const macOS = process.platform === "darwin";
 const runMacDev = macOS && dev;
 const signing =
@@ -55,7 +57,7 @@ if (isolated)
   console.log(`Development app: ${host}, separate from the release app.`);
 const macConfig =
   macOS && packagesApp && !noSign
-    ? macWidgets(root, flags, signing.macOS, {
+    ? macWidgets(root, target, signing.macOS, {
         version: packageVersion,
         host,
         debug,
@@ -84,6 +86,7 @@ const windowsConfig = windowsSigningEndpoint
 const vpnBundle = demo
   ? undefined
   : campusVpnBundle({
+      target,
       macOS: macConfig?.bundle.macOS,
       packagesApp,
       signing,

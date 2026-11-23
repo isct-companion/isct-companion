@@ -50,6 +50,30 @@ Interface changes:
 Report a reproducible problem or propose a focused improvement through [GitHub Issues](https://github.com/isct-companion/isct-companion/issues).
 Include the app version, operating system, steps and expected behaviour. Use sample data in screenshots and logs; remove account identifiers and credentials before sharing.
 
+## Triage labels
+
+Use `area:*` to identify the affected feature or code, such as `area:exam-schedule` for upcoming exam dates
+and `area:past-exams` for the past exam library. Add `platform:*` when the report identifies a platform or
+the change touches platform-specific files. Shared shell changes use `area:desktop`, `area:ios` or
+`area:android`. For example, `is:issue label:area:school-auth label:platform:ipados` finds iPad sign-in
+reports and `is:pr label:area:school-auth label:area:core` finds changes to shared sign-in logic.
+
+New reports and proposals start with `needs-triage` and get area and platform labels from the form choices.
+During triage, correct those labels as needed and remove `needs-triage` after the first review. Use
+`needs-info` when the reporter needs to answer a specific question and `needs-repro` when someone needs to
+reproduce the behaviour. Use impact labels such as `regression` and `data-loss` once supported by the report
+or investigation. Use `release-blocker` when the release must wait for a fix.
+
+PRs get area labels from changed paths. The `fix/`, `feat/`, `enhance/`, `refactor/` and `release/` branch
+prefixes can supply a change kind. `documentation` and `kind:tests` are applied automatically when all
+changed paths are in scope. Maintainers can add labels for impacts that cross shared code and remove stale
+labels when the scope changes.
+
+The [label catalog](.github/labels.yml) stores label descriptions and colours. The `Triage labels` workflow
+syncs it when the catalog changes on `main`. When moving a feature, update its paths in the
+[PR rules](.github/labeler.yml). When changing an issue form option, update the
+[issue rules](.github/issue-labeler.yml) alongside both forms.
+
 ## Make a change
 
 1. Read [AGENTS.md](AGENTS.md) and the [development guide](docs/development.md).

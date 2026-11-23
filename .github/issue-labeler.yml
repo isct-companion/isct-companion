@@ -1,12 +1,32 @@
-# Issue labels, read by .github/workflows/triage-labels.yml. Each regex reads
-# the answer under the bug report's Platform heading, not the rest of the body.
-# Keep the names in step with .github/ISSUE_TEMPLATE/bug_report.yml.
+# Issue labels read the dropdown answers under the exact form headings.
+# Keep the options in step with both issue forms. GitHub renders platform
+# selections on one comma-separated line. An edited iPhone answer may include
+# an installation note, such as "iPhone (sideloaded)".
 
-area:desktop:
-  - '#{2,3} Platform[^\n]*\s+[^\n]*(macOS|Windows)'
+platform:macos: '(?:^|\n)#{2,3} Platform / プラットフォーム[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:[^,\r\n]+,[ \t]*)*(?:macOS \(Apple silicon\)|macOS \(Intel\))[ \t]*(?:,|\r?\n|$)'
+platform:windows: '(?:^|\n)#{2,3} Platform / プラットフォーム[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:[^,\r\n]+,[ \t]*)*Windows[ \t]*(?:,|\r?\n|$)'
+platform:ios: '(?:^|\n)#{2,3} Platform / プラットフォーム[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:[^,\r\n]+,[ \t]*)*iPhone(?:[ \t]+\([^,\r\n()]+\))?[ \t]*(?:,|\r?\n|$)'
+platform:ipados: '(?:^|\n)#{2,3} Platform / プラットフォーム[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:[^,\r\n]+,[ \t]*)*iPad[ \t]*(?:,|\r?\n|$)'
+platform:android: '(?:^|\n)#{2,3} Platform / プラットフォーム[ \t]*\r?\n(?:[ \t]*\r?\n)*[ \t]*(?:[^,\r\n]+,[ \t]*)*Android[ \t]*(?:,|\r?\n|$)'
 
-area:ios:
-  - '#{2,3} Platform[^\n]*\s+[^\n]*(iPhone|iPad)'
-
-area:android:
-  - '#{2,3} Platform[^\n]*\s+[^\n]*Android'
+area:schedule: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Today and timetable / 今日・時間割[ \t]*(?:\r?\n|$)'
+area:course-catalog: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Course search and planning / 科目検索・履修計画[ \t]*(?:\r?\n|$)'
+area:exam-schedule: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Exam dates and rooms / 試験日程・教室[ \t]*(?:\r?\n|$)'
+area:past-exams: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Past exam library / 過去問ライブラリ[ \t]*(?:\r?\n|$)'
+area:assignments: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Assignment lists and deadlines / 課題一覧・締切[ \t]*(?:\r?\n|$)'
+area:submission: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Assignment submission / 課題提出[ \t]*(?:\r?\n|$)'
+area:course-files: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Course files and workspaces / 授業資料・ワークスペース[ \t]*(?:\r?\n|$)'
+area:file-preview: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*File preview / ファイルプレビュー[ \t]*(?:\r?\n|$)'
+area:school-auth: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*School sign-in and OTP / 学内ログイン・OTP[ \t]*(?:\r?\n|$)'
+area:school-web: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*School websites / 学内ウェブサイト[ \t]*(?:\r?\n|$)'
+area:cloud-sync: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Cloud sync / クラウド同期[ \t]*(?:\r?\n|$)'
+area:backup: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Backup and restore / バックアップ・復元[ \t]*(?:\r?\n|$)'
+area:vpn: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Campus VPN / 学内 VPN[ \t]*(?:\r?\n|$)'
+area:campus-printer: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Campus printing / 学内プリンター[ \t]*(?:\r?\n|$)'
+area:campus-map: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Campus map / キャンパスマップ[ \t]*(?:\r?\n|$)'
+area:matrix-ocr: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Matrix card scanning / マトリクスカードの読み取り[ \t]*(?:\r?\n|$)'
+area:notifications: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Notifications and reminders / 通知・リマインダー[ \t]*(?:\r?\n|$)'
+area:widgets: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Home Screen widgets / ホーム画面ウィジェット[ \t]*(?:\r?\n|$)'
+area:mcp: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*MCP and agent access / MCP・エージェント連携[ \t]*(?:\r?\n|$)'
+area:localization: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Translations and language / 翻訳・言語[ \t]*(?:\r?\n|$)'
+area:release: '(?:^|\n)#{2,3} Affected feature / 対象機能[ \t]*\r?\n(?:[ \t]*\r?\n)*Installation and updates / インストール・更新[ \t]*(?:\r?\n|$)'

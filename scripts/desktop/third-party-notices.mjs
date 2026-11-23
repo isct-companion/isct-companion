@@ -13,6 +13,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { hasCampusVpn, hostTriple } from "./desktop-target.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const LICENSE_FILE = /^(licen[cs]e|copying|notice)/i;
@@ -60,11 +61,6 @@ function npmComponents(moduleIds) {
       },
     ];
   });
-}
-
-function hostTriple() {
-  const info = execFileSync("rustc", ["-vV"], { encoding: "utf8" });
-  return /^host: (.+)$/m.exec(info)?.[1];
 }
 
 function crateComponents(target) {
@@ -147,7 +143,7 @@ export function buildNotices({ moduleIds, native }) {
     ...npmComponents(moduleIds),
     ...(native ? crateComponents(native) : []),
     ...modelComponents(),
-    ...vpnComponents(),
+    ...(hasCampusVpn(native) ? vpnComponents() : []),
   ].sort(
     (a, b) =>
       a.group.localeCompare(b.group) ||
