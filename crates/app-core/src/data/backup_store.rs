@@ -64,9 +64,6 @@ impl DataStore {
                 .and_then(|id| id.as_str().map(str::to_owned))
                 .ok_or_else(|| DataError::storage("device id missing"))?;
             let stamp = |row: &mut Value, rev: u64| {
-                if let Some(fields) = row.as_object_mut() {
-                    fields.remove(catalog_drafts::BASELINE_REVISION);
-                }
                 row["rev"] = Value::from(rev + 1);
                 row["updatedAt"] = Value::String(timestamp.clone());
                 row["updatedBy"] = Value::String(device.clone());
@@ -74,7 +71,7 @@ impl DataStore {
             for table in USER_BACKUP_TABLES {
                 let local = read_rows(transaction, table)?;
                 let mut restored = Vec::new();
-                for incoming in cloud_merge::document_rows(old, table).iter() {
+                for incoming in cloud_merge::document_rows(old, table) {
                     validate_user_record(table, incoming)?;
                     let mut row = incoming.clone();
                     course_keys::from_synced(transaction, table, &mut row)?;
@@ -82,10 +79,7 @@ impl DataStore {
                 }
                 for incoming in &restored {
                     let current = local.iter().find(|row| row["id"] == incoming["id"]);
-                    if current.is_some_and(|current| {
-                        catalog_drafts::baseline_revision(current).is_none()
-                            && same_record(current, incoming)
-                    }) {
+                    if current.is_some_and(|current| same_record(current, incoming)) {
                         continue;
                     }
                     let mut stored = incoming.clone();
@@ -96,8 +90,7 @@ impl DataStore {
                     upsert_row(transaction, table, &stored, true)?;
                 }
                 for current in &local {
-                    if (current.get("deletedAt").is_some_and(Value::is_string)
-                        && catalog_drafts::baseline_revision(current).is_none())
+                    if current.get("deletedAt").is_some_and(Value::is_string)
                         || restored.iter().any(|row| row["id"] == current["id"])
                     {
                         continue;
@@ -133,7 +126,7 @@ fn merge_cloud_records(transaction: &Transaction<'_>, remote: &Value) -> Result<
     for table in USER_BACKUP_TABLES {
         // Compared as synced copies, which name courses by external key.
         let local = synced_rows(transaction, table)?;
-        for incoming in cloud_merge::document_rows(remote, table).iter() {
+        for incoming in cloud_merge::document_rows(remote, table) {
             validate_user_record(table, incoming)?;
             let old = local.iter().find(|row| row["id"] == incoming["id"]);
             if old.is_none_or(|old| cloud_merge::compare(incoming, old).is_gt()) {

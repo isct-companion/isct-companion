@@ -1786,79 +1786,10 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     assert!(courses
         .iter()
         .any(|course| course["offeringId"] == "202630020"));
-    // A stored version from before draft IDs were shared must obey the same
-    // deletion on another device. Only an explicit history restore re-adds it.
-    let mut archived = with_plan.clone();
-    for plan in archived["tables"]["plan_items"].as_array_mut().unwrap() {
-        if plan["offeringId"] == "202630010" {
-            plan["id"] = Uuid::now_v7().to_string().into();
-        }
-    }
-    // A history restore confirms even an inherited state that looks unchanged:
-    // current 3Q stays placed and the missing, already-deleted 4Q stays absent.
-    let inherited = self::service("catalog-plan-inherited-restore");
-    let local = crate::backup::BackupService::new(inherited.store.clone());
-    let mut selected = archived.clone();
-    let plan = archived["tables"]["plan_items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|plan| plan["offeringId"] == "202630010")
-        .unwrap()
-        .clone();
-    selected["tables"]["plan_items"] = json!([plan]);
-    let mut quarter_four = plan.clone();
-    quarter_four["id"] = Uuid::now_v7().to_string().into();
-    quarter_four["termId"] = "2026-4Q".into();
-    quarter_four["deletedAt"] = quarter_four["updatedAt"].clone();
-    let mut old = selected.clone();
-    old["tables"]["plan_items"] = json!([plan, quarter_four]);
-    local
-        .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
-        .unwrap();
-    local
-        .restore(&selected, crate::data::WorkspaceChangeSource::CloudRestore)
-        .unwrap();
-    let archived_plans = old["tables"]["plan_items"].as_array_mut().unwrap();
-    archived_plans[0]["deletedAt"] = archived_plans[0]["updatedAt"].clone();
-    archived_plans[1]
-        .as_object_mut()
-        .unwrap()
-        .remove("deletedAt");
-    for row in archived_plans {
-        row["rev"] = 100.into();
-    }
-    local
-        .apply(&old, crate::data::WorkspaceChangeSource::CloudSync)
-        .unwrap();
-    let inherited_view = inherited.read_back().unwrap();
-    let placed_in = |term| {
-        crate::schedule::scheduled_courses(&inherited_view.workspace, term)
-            .iter()
-            .any(|course| course["offeringId"] == "202630010")
-    };
-    assert!(placed_in("2026-3Q"));
-    assert!(!placed_in("2026-4Q"));
-    let directory = inherited.store.directory().to_path_buf();
-    drop(local);
-    drop(inherited);
-    std::fs::remove_dir_all(directory).unwrap();
     let backup = crate::backup::BackupService::new(other_device.store.clone());
-    let scheduled = || {
-        let view = other_device.read_back().unwrap();
-        crate::schedule::scheduled_courses(&view.workspace, "2026-3Q")
-            .into_iter()
-            .filter(|course| course["offeringId"] == "202630010")
-            .count()
-    };
     backup
-        .apply(&archived, crate::data::WorkspaceChangeSource::CloudSync)
+        .restore(&with_plan, crate::data::WorkspaceChangeSource::CloudRestore)
         .unwrap();
-    assert_eq!(scheduled(), 0);
-    backup
-        .restore(&archived, crate::data::WorkspaceChangeSource::CloudRestore)
-        .unwrap();
-    assert_eq!(scheduled(), 1);
     let aaa_id = rows(&other_device.read_back().unwrap().workspace, "courses")
         .unwrap()
         .find(|course| course["offeringId"] == "202630010")
@@ -1927,6 +1858,85 @@ fn a_catalog_add_plans_every_quarter_and_undo_reverses_exactly_that_add() {
     drop(backup);
     let directory = other_device.store.directory().to_path_buf();
     drop(other_device);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn old_catalog_drafts_keep_their_own_edits_across_reopen_sync_and_restore() {
+    use crate::{
+        backup::BackupService,
+        data::{cloud_merge, parse_import, WorkspaceChangeSource},
+    };
+
+    let term = "2026-3Q";
+    let origin = service("old-catalog-draft");
+    mutate(
+        &origin,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: term.into(),
+            offerings: vec![offering("202630010", "AAA.A100", &["3Q"])],
+        },
+    );
+    let mut old = origin.store.export_document().unwrap();
+    let old_id = Uuid::now_v7().to_string();
+    let offline_id = Uuid::now_v7().to_string();
+    old["tables"]["plan_items"][0]["id"] = json!(old_id);
+    let mut offline = old.clone();
+    offline["tables"]["plan_items"][0]["id"] = json!(offline_id);
+    let origin_dir = origin.store.directory().to_path_buf();
+    drop(origin);
+    std::fs::remove_dir_all(origin_dir).unwrap();
+
+    let device = service("offline-catalog-draft");
+    BackupService::new(device.store.clone())
+        .apply(&offline, WorkspaceChangeSource::CloudSync)
+        .unwrap();
+    let directory = device.store.directory().to_path_buf();
+    drop(device);
+    let device = WorkspaceService::new(DataStore::initialize_dir(directory.clone()).unwrap().0);
+    let backup = BackupService::new(device.store.clone());
+    let apply = |document| {
+        backup
+            .apply(document, WorkspaceChangeSource::CloudSync)
+            .unwrap()
+    };
+    let live_ids = || {
+        let view = device.read_back().unwrap();
+        assert_eq!(
+            crate::schedule::scheduled_courses(&view.workspace, term).len(),
+            1
+        );
+        live_plans(&view.workspace)
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect::<HashSet<_>>()
+    };
+    assert_eq!(live_ids(), HashSet::from([offline_id.clone()]));
+
+    // Two v1.4.0 devices could place the same offering under distinct IDs.
+    apply(&old);
+    assert_eq!(
+        live_ids(),
+        HashSet::from([old_id.clone(), offline_id.clone()])
+    );
+    let mut cloud = old.clone();
+    let deleted = &mut cloud["tables"]["plan_items"][0];
+    deleted["deletedAt"] = deleted["updatedAt"].clone();
+    deleted["rev"] = json!(2);
+    let merged = cloud_merge::merge(&backup.snapshot().unwrap(), &cloud);
+    apply(&merged);
+    apply(&old);
+    assert_eq!(live_ids(), HashSet::from([offline_id]));
+
+    // Explicit import revives the selected ID and removes the known extra ID.
+    let imported = parse_import(&old.to_string()).unwrap();
+    backup
+        .restore(&imported, WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    apply(&merged);
+    assert_eq!(live_ids(), HashSet::from([old_id]));
+    drop(backup);
+    drop(device);
     std::fs::remove_dir_all(directory).unwrap();
 }
 

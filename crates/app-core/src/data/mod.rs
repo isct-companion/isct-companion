@@ -319,14 +319,6 @@ fn put_user_record_in_transaction(
     if !DataStore::user_table(table) {
         return Err("table is not user-owned".into());
     }
-    if table == "plan_items" {
-        if let Some(id) = catalog_drafts::catalog_plan_id(&value) {
-            value["id"] = id.into();
-            if let Some(fields) = value.as_object_mut() {
-                fields.remove(catalog_drafts::BASELINE_REVISION);
-            }
-        }
-    }
     let catalog_description = table == "manual_courses" && catalog_drafts::is_description(&value);
     let offering_key = (table == "manual_courses" && !catalog_description)
         .then(|| catalog_drafts::offering_key(&value))
@@ -509,9 +501,6 @@ fn delete_user_record_in_transaction(
     let object = value
         .as_object_mut()
         .ok_or_else(|| DataError::storage(format!("{table} contains a non-object record")))?;
-    if table == "plan_items" {
-        object.remove(catalog_drafts::BASELINE_REVISION);
-    }
     object.insert("rev".into(), Value::from(revision + 1));
     object.insert("updatedAt".into(), Value::String(timestamp.clone()));
     object.insert(
@@ -685,7 +674,6 @@ fn agent_access_enabled_in(connection: &Connection) -> Result<bool, DataError> {
 /// Device identity, settings and built-in tasks a new or reset database needs.
 fn ensure_defaults_in(transaction: &Transaction<'_>) -> Result<(), DataError> {
     schedule_overrides::initialize_lookup(transaction)?;
-    catalog_drafts::cut_over_plans(transaction)?;
     let existing_device_id = read_setting(transaction, "deviceId")?;
     let workspace = empty_workspace();
     let device_id = existing_device_id

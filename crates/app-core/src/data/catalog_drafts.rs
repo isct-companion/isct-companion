@@ -3,9 +3,6 @@
 //! their offering key.
 use super::*;
 use crate::schedule::text_or_empty as text;
-pub(super) use identity::{catalog_plan_id, cut_over_plans, document_plans, BASELINE_REVISION};
-pub(crate) use identity::{baseline_revision, plan_id};
-mod identity;
 
 pub(crate) fn is_description(row: &Value) -> bool {
     row["source"]["provider"] == "kyomu" && row["offeringId"].is_string()
@@ -84,6 +81,8 @@ pub(super) fn project_courses(
     let courses = workspace["courses"]
         .as_array_mut()
         .ok_or_else(|| DataError::storage("Missing courses."))?;
+    // Older devices could save separate records for the same placement.
+    // Keep their IDs for sync and project their shared course only once.
     let mut used = HashSet::new();
     for plan in plans {
         let (id, term, offering) = (

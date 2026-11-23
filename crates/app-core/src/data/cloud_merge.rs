@@ -1,7 +1,7 @@
 //! Pure, platform-independent last-writer-wins merge for user-owned records.
 use super::DataError;
 use serde_json::Value;
-use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
+use std::{cmp::Ordering, collections::BTreeMap};
 
 fn time(row: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
     ["updatedAt", "deletedAt"]
@@ -18,12 +18,10 @@ pub fn compare(a: &Value, b: &Value) -> Ordering {
     // Revisions advance from the imported record, so a subsequent edit still
     // wins if the device clock moved backwards. Concurrent equal revisions
     // use timestamps and a deterministic actor tie-break.
-    let clock = |row: &Value| {
-        let rev = row["rev"].as_u64().unwrap_or(0);
-        (rev, super::catalog_drafts::baseline_revision(row))
-    };
-    clock(a)
-        .cmp(&clock(b))
+    a["rev"]
+        .as_u64()
+        .unwrap_or(0)
+        .cmp(&b["rev"].as_u64().unwrap_or(0))
         .then_with(|| time(a).cmp(&time(b)))
         .then_with(|| {
             a["updatedBy"]
@@ -36,23 +34,18 @@ pub fn compare(a: &Value, b: &Value) -> Ordering {
         .then_with(|| a.to_string().cmp(&b.to_string()))
 }
 
-pub(super) fn document_rows<'a>(doc: &'a Value, table: &str) -> Cow<'a, [Value]> {
-    let rows = doc["tables"][table]
+pub(super) fn document_rows<'a>(doc: &'a Value, table: &str) -> &'a [Value] {
+    doc["tables"][table]
         .as_array()
         .map(Vec::as_slice)
-        .unwrap_or_default();
-    if table == "plan_items" {
-        super::catalog_drafts::document_plans(rows)
-    } else {
-        Cow::Borrowed(rows)
-    }
+        .unwrap_or_default()
 }
 
 fn rows(a: &Value, b: &Value, table: &str, key: &str) -> Value {
     let mut records = BTreeMap::<String, Value>::new();
     let left = document_rows(a, table);
     let right = document_rows(b, table);
-    for row in left.iter().chain(right.iter()) {
+    for row in left.iter().chain(right) {
         let Some(id) = row[key].as_str() else {
             continue;
         };

@@ -177,23 +177,27 @@ pub(crate) fn plan_catalog_courses(
             placed_courses.push(placed);
         }
         for plan_term in catalog_plan_terms(&offering, term_id)? {
-            let plan_id = crate::data::catalog_drafts::plan_id(&plan_term, offering_id);
-            match plans.iter().position(|row| row["id"] == plan_id) {
-                Some(index)
-                    if is_live(&plans[index])
-                        && crate::data::catalog_drafts::baseline_revision(&plans[index])
-                            .is_none() => {}
-                Some(index) => {
-                    let mut revived = plans[index].clone();
-                    revived["courseId"] = json!(course_id);
-                    plans[index] = write.put("plan_items", revived, revision(&plans[index]))?;
+            let existing = plans.iter().find(|row| {
+                is_live(row) && row["termId"] == plan_term && row["offeringId"] == offering_id
+            });
+            let plan_id = match existing {
+                Some(row) => string(row, "id")?.to_owned(),
+                None => format!("catalog-plan:{plan_term}:{offering_id}"),
+            };
+            if existing.is_none() {
+                match plans.iter().position(|row| row["id"] == plan_id) {
+                    Some(index) => {
+                        let mut revived = plans[index].clone();
+                        revived["courseId"] = json!(course_id);
+                        plans[index] = write.put("plan_items", revived, revision(&plans[index]))?;
+                    }
+                    None => plans.push(write.put(
+                        "plan_items",
+                        json!({"id":plan_id,"kind":"plan-item","termId":plan_term,
+                            "courseId":course_id,"offeringId":offering_id,"state":"planned"}),
+                        Some(0),
+                    )?),
                 }
-                None => plans.push(write.put(
-                    "plan_items",
-                    json!({"id":plan_id,"kind":"plan-item","termId":plan_term,
-                        "courseId":course_id,"offeringId":offering_id,"state":"planned"}),
-                    Some(0),
-                )?),
             }
             #[cfg(feature = "agent")]
             placements.push(CatalogPlacement {

@@ -192,10 +192,6 @@ export type PlanItem = {
   termId: `${number}-${Quarter}`;
   offeringId?: string;
   courseId?: string;
-  /**
-   * Combined revisions of pre-cutover ids, present only on imported revision zero.
-   */
-  baselineRevision?: number;
   state: "candidate" | "planned";
   id: string;
   rev: number;
