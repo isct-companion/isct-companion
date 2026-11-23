@@ -1178,133 +1178,96 @@
     "name": "人工知能"
    },
    "rows": [],
-   "classId": null,
-   "webUrl": "https://example.invalid/past-exams",
-   "sets": [
+   "exams": [
     {
+     "id": "demo-CSC.T272-2025-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-CSC.T272-2025-final-question",
-       "subjects": [
-        {
-         "code": "CSC.T272",
-         "name": "人工知能"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T272-2025-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-CSC.T272-2025-final-answer",
-       "subjects": [
-        {
-         "code": "CSC.T272",
-         "name": "人工知能"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "CSC.T272-2025-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2025-final-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-CSC.T272-2025-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T272-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "midterm",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-CSC.T272-2025-midterm-question",
-       "subjects": [
-        {
-         "code": "CSC.T272",
-         "name": "人工知能"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "midterm",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T272-2025-midterm-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-CSC.T272-2024-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2024,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2024-final-answer",
+     "subjects": [
       {
-       "id": "demo-CSC.T272-2024-final-question",
-       "subjects": [
-        {
-         "code": "CSC.T272",
-         "name": "人工知能"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T272-2024-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-CSC.T272-2024-final-answer",
-       "subjects": [
-        {
-         "code": "CSC.T272",
-         "name": "人工知能"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "CSC.T272-2024-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
+       "code": "CSC.T272",
+       "name": "人工知能"
       }
-     ]
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T272-2024-final-answer.pdf",
+     "fileType": "application/pdf"
     }
    ]
   },
@@ -1314,133 +1277,96 @@
     "name": "確率論基礎"
    },
    "rows": [],
-   "classId": null,
-   "webUrl": "https://example.invalid/past-exams",
-   "sets": [
+   "exams": [
     {
+     "id": "demo-MCS.T212-2025-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-MCS.T212-2025-final-question",
-       "subjects": [
-        {
-         "code": "MCS.T212",
-         "name": "確率論基礎"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T212-2025-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-MCS.T212-2025-final-answer",
-       "subjects": [
-        {
-         "code": "MCS.T212",
-         "name": "確率論基礎"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "MCS.T212-2025-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2025-final-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-MCS.T212-2025-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T212-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "midterm",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-MCS.T212-2025-midterm-question",
-       "subjects": [
-        {
-         "code": "MCS.T212",
-         "name": "確率論基礎"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "midterm",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T212-2025-midterm-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-MCS.T212-2024-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2024,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2024-final-answer",
+     "subjects": [
       {
-       "id": "demo-MCS.T212-2024-final-question",
-       "subjects": [
-        {
-         "code": "MCS.T212",
-         "name": "確率論基礎"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T212-2024-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-MCS.T212-2024-final-answer",
-       "subjects": [
-        {
-         "code": "MCS.T212",
-         "name": "確率論基礎"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "MCS.T212-2024-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
+       "code": "MCS.T212",
+       "name": "確率論基礎"
       }
-     ]
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T212-2024-final-answer.pdf",
+     "fileType": "application/pdf"
     }
    ]
   },
@@ -1450,133 +1376,96 @@
     "name": "オートマトンと数理言語論"
    },
    "rows": [],
-   "classId": null,
-   "webUrl": "https://example.invalid/past-exams",
-   "sets": [
+   "exams": [
     {
+     "id": "demo-MCS.T214-2025-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-MCS.T214-2025-final-question",
-       "subjects": [
-        {
-         "code": "MCS.T214",
-         "name": "オートマトンと数理言語論"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T214-2025-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-MCS.T214-2025-final-answer",
-       "subjects": [
-        {
-         "code": "MCS.T214",
-         "name": "オートマトンと数理言語論"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "MCS.T214-2025-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2025-final-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-MCS.T214-2025-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T214-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "midterm",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-MCS.T214-2025-midterm-question",
-       "subjects": [
-        {
-         "code": "MCS.T214",
-         "name": "オートマトンと数理言語論"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "midterm",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T214-2025-midterm-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-MCS.T214-2024-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2024,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2024-final-answer",
+     "subjects": [
       {
-       "id": "demo-MCS.T214-2024-final-question",
-       "subjects": [
-        {
-         "code": "MCS.T214",
-         "name": "オートマトンと数理言語論"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "MCS.T214-2024-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-MCS.T214-2024-final-answer",
-       "subjects": [
-        {
-         "code": "MCS.T214",
-         "name": "オートマトンと数理言語論"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "MCS.T214-2024-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
       }
-     ]
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T214-2024-final-answer.pdf",
+     "fileType": "application/pdf"
     }
    ]
   },
@@ -1586,133 +1475,96 @@
     "name": "データベース"
    },
    "rows": [],
-   "classId": null,
-   "webUrl": "https://example.invalid/past-exams",
-   "sets": [
+   "exams": [
     {
+     "id": "demo-CSC.T343-2025-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-CSC.T343-2025-final-question",
-       "subjects": [
-        {
-         "code": "CSC.T343",
-         "name": "データベース"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T343-2025-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-CSC.T343-2025-final-answer",
-       "subjects": [
-        {
-         "code": "CSC.T343",
-         "name": "データベース"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "CSC.T343-2025-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2025-final-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-CSC.T343-2025-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T343-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2025,
      "occasion": "midterm",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
-      {
-       "id": "demo-CSC.T343-2025-midterm-question",
-       "subjects": [
-        {
-         "code": "CSC.T343",
-         "name": "データベース"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2025,
-       "occasion": "midterm",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T343-2025-midterm-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      }
-     ]
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
     },
     {
+     "id": "demo-CSC.T343-2024-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
      "academicYear": 2024,
      "occasion": "final",
      "occasionNumber": 1,
      "variant": "",
-     "teachers": [],
-     "mine": false,
-     "documents": [
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2024-final-answer",
+     "subjects": [
       {
-       "id": "demo-CSC.T343-2024-final-question",
-       "subjects": [
-        {
-         "code": "CSC.T343",
-         "name": "データベース"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "question",
-       "note": null,
-       "fileName": "CSC.T343-2024-final-question.pdf",
-       "fileType": "application/pdf",
-       "number": null
-      },
-      {
-       "id": "demo-CSC.T343-2024-final-answer",
-       "subjects": [
-        {
-         "code": "CSC.T343",
-         "name": "データベース"
-        }
-       ],
-       "teachers": [],
-       "academicYear": 2024,
-       "occasion": "final",
-       "occasionNumber": 1,
-       "variant": "",
-       "role": "answer",
-       "note": null,
-       "fileName": "CSC.T343-2024-final-answer.pdf",
-       "fileType": "application/pdf",
-       "number": null
+       "code": "CSC.T343",
+       "name": "データベース"
       }
-     ]
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T343-2024-final-answer.pdf",
+     "fileType": "application/pdf"
     }
    ]
   }

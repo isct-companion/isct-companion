@@ -466,6 +466,7 @@ pub fn run() {
                     .clone(),
                 std::sync::Arc::new(core_ports::DesktopEvents(app.handle().clone())),
             )));
+            #[cfg(not(feature = "demo"))]
             exam_share::open(app.handle(), vault);
             core_ports::core(app.handle()).attach_web_cookies(std::sync::Arc::new(
                 school_cookies::DesktopWebCookies::new(app.handle().clone()),

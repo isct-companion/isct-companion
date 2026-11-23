@@ -813,7 +813,7 @@ impl Inner {
             }
         };
         *used = Some(credentials.clone());
-        if self.offline.load(Ordering::SeqCst) {
+        if self.is_offline() {
             return End::Offline;
         }
         log::info!(target: "app_core::school_session", "signing in profile={profile:?}");
@@ -1035,7 +1035,7 @@ impl Inner {
         generation: u64,
         permit: Permit,
     ) -> Checked {
-        let walked = if self.offline.load(Ordering::SeqCst) {
+        let walked = if self.is_offline() {
             None
         } else {
             let cancel = permit.cancel().clone();

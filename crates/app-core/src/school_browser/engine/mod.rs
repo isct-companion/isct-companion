@@ -790,18 +790,24 @@ impl SchoolBrowserEngine {
         self.0.listener.guard().take();
     }
 
+    // Every way to a school page creates its view here first.
+    #[cfg(feature = "demo")]
+    fn ensure_browser(
+        &self,
+        _site: SchoolSite,
+        _initial: Url,
+    ) -> Result<BrowserId, SchoolBrowserError> {
+        Err(SchoolBrowserError::Platform(
+            "The demo has no school web.".into(),
+        ))
+    }
+
+    #[cfg(not(feature = "demo"))]
     fn ensure_browser(
         &self,
         site: SchoolSite,
         initial: Url,
     ) -> Result<BrowserId, SchoolBrowserError> {
-        // The demo scene never loads a school page: every way to one (open,
-        // the address bar, a sign-in) creates its view here first.
-        if cfg!(feature = "demo") {
-            return Err(SchoolBrowserError::Platform(
-                "The demo has no school web.".into(),
-            ));
-        }
         let created = {
             let mut state = self.0.state.guard();
             if self.0.sessions.web_cleanup_pending() {

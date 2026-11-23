@@ -133,6 +133,7 @@ impl Duty for Cloud {
 }
 
 /// Where Core keeps the ScienceTokyoExam client once a shell opens it.
+#[cfg(not(feature = "demo"))]
 pub(crate) type ExamShareSlot = Arc<std::sync::OnceLock<Arc<crate::exam_share::ExamShare>>>;
 
 /// Low-frequency maintenance, the only place stored things are collected:
@@ -144,6 +145,7 @@ pub(crate) type ExamShareSlot = Arc<std::sync::OnceLock<Arc<crate::exam_share::E
 /// restarts in `store-index.db`.
 pub(crate) struct Maintenance {
     store: DataStore,
+    #[cfg(not(feature = "demo"))]
     exam_share: ExamShareSlot,
     #[cfg(feature = "agent")]
     submissions: Option<crate::submissions::SubmissionService>,
@@ -153,7 +155,7 @@ pub(crate) struct Maintenance {
 impl Maintenance {
     pub(crate) fn new(
         store: DataStore,
-        exam_share: ExamShareSlot,
+        #[cfg(not(feature = "demo"))] exam_share: ExamShareSlot,
         #[cfg(feature = "agent")] submissions: Option<crate::submissions::SubmissionService>,
     ) -> Self {
         let earliest = crate::clock::now() + MAINTENANCE_START;
@@ -166,6 +168,7 @@ impl Maintenance {
             .map_or(earliest, |at| at.max(earliest));
         Self {
             store,
+            #[cfg(not(feature = "demo"))]
             exam_share,
             #[cfg(feature = "agent")]
             submissions,
@@ -174,6 +177,7 @@ impl Maintenance {
     }
 
     pub(crate) fn pass(&self, now: DateTime<Utc>) -> Result<(), String> {
+        #[cfg(not(feature = "demo"))]
         let exams = self.exam_share.get().map_or(Ok(()), |cache| {
             cache
                 .clean_cached_materials(now.into())
@@ -200,11 +204,14 @@ impl Maintenance {
         };
         #[cfg(not(feature = "agent"))]
         let ledger: Result<(), String> = Ok(());
-        gc.map(|_| ())
+        let result = gc
+            .map(|_| ())
             .and(retired.map(|_| ()))
             .and(snapshot.map(|_| ()))
-            .and(ledger)
-            .and(exams)
+            .and(ledger);
+        #[cfg(not(feature = "demo"))]
+        let result = result.and(exams);
+        result
     }
 }
 

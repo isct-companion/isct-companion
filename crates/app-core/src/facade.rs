@@ -49,6 +49,7 @@ pub struct Core {
     sessions: SchoolSessions,
     /// The ScienceTokyoExam client once a shell opened it with its ports;
     /// maintenance cleans its file cache.
+    #[cfg(not(feature = "demo"))]
     exam_share: crate::deadlines::ExamShareSlot,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
@@ -345,9 +346,11 @@ impl Core {
             store: store.clone(),
         }));
         sync.register(Arc::new(crate::deadlines::Cloud(runtime.clone())));
+        #[cfg(not(feature = "demo"))]
         let exam_share = crate::deadlines::ExamShareSlot::default();
         sync.register(Arc::new(crate::deadlines::Maintenance::new(
             store.clone(),
+            #[cfg(not(feature = "demo"))]
             exam_share.clone(),
             #[cfg(feature = "agent")]
             submissions.as_ref().as_ref().ok().cloned(),
@@ -383,6 +386,7 @@ impl Core {
             #[cfg(feature = "agent")]
             agent_access,
             sessions,
+            #[cfg(not(feature = "demo"))]
             exam_share,
             school_browser: Mutex::new(None),
             store,
@@ -399,6 +403,7 @@ impl Core {
 
     /// A shell fact or intent for the sync planner. Never blocks.
     pub fn sync_hint(&self, hint: Hint) {
+        #[cfg(not(feature = "demo"))]
         if let Hint::Network { network } = &hint {
             self.sessions.network(*network);
         }
@@ -447,6 +452,7 @@ impl Core {
     /// the build has an OAuth client, its sign-in port. Its files live in the
     /// data folder's `exam-share`. Once only; if it cannot open, past exams
     /// answer `unavailable` and the rest of the app runs on.
+    #[cfg(not(feature = "demo"))]
     pub fn open_exam_share(
         &self,
         vault: Arc<dyn crate::ports::SecretVault>,
@@ -548,6 +554,7 @@ impl Core {
     }
 
     /// Stop every ScienceTokyoExam action in flight, for shutdown.
+    #[cfg(not(feature = "demo"))]
     pub fn cancel_exam_share(&self) {
         if let Some(service) = self.exam_share.get() {
             service.cancel();

@@ -3,11 +3,14 @@
 //! without the ScienceTokyoExam service. Every read answers, so no panel
 //! shows a load error; every document opens the scene's sample exam.
 
+use super::cache::document_export_name;
 use super::model::*;
+use super::remote::{content_language, RemoteDocument, RemoteSubject, SubjectRecords};
 use super::{course_subject, form, ExamError};
 use crate::data::DataStore;
 
 const WEB_URL: &str = "https://example.invalid/past-exams";
+const SAMPLE_EXAM_PDF: &[u8] = include_bytes!("../demo/sample-exam.pdf");
 
 pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, ExamError> {
     let pages = &crate::demo::scene()
@@ -15,23 +18,25 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
         .past_exams;
     // Every read answers: a subject the scene has no sittings for is an
     // empty page, as the service shows one nobody has uploaded to.
-    let page = |code: &str| {
-        ExamAnswer::Subject(
-            pages
-                .iter()
-                .find(|page| page.subject.code == code)
-                .cloned()
-                .unwrap_or_else(|| ExamSubjectPage {
-                    subject: ExamSubject {
-                        code: code.to_owned(),
-                        name: code.to_owned(),
-                    },
-                    rows: Vec::new(),
-                    class_id: None,
-                    web_url: WEB_URL.into(),
-                    sets: Vec::new(),
-                }),
-        )
+    let page = |code: &str, class_id| -> Result<ExamAnswer, ExamError> {
+        let records = pages
+            .iter()
+            .find(|page| page.subject.code == code)
+            .cloned()
+            .unwrap_or_else(|| SubjectRecords {
+                subject: RemoteSubject {
+                    code: code.to_owned(),
+                    name: code.to_owned(),
+                    name_en: None,
+                },
+                rows: Vec::new(),
+                exams: Vec::new(),
+            });
+        Ok(ExamAnswer::Subject(records.present(
+            class_id,
+            content_language(store)?,
+            WEB_URL.into(),
+        )))
     };
     Ok(match action {
         ExamAction::Account => ExamAnswer::Account(ExamAccount {
@@ -46,22 +51,27 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
         }),
         ExamAction::Choices => ExamAnswer::Choices(form::choices()),
         ExamAction::CourseSubject { course_id } => {
-            let (codes, _) = course_subject(store, &course_id)?;
+            let (codes, class_id) = course_subject(store, &course_id)?;
             let code = codes
                 .iter()
                 .find(|code| pages.iter().any(|page| &page.subject.code == *code))
                 .or(codes.first())
                 .ok_or(ExamError::NotFound)?;
-            page(code)
+            page(code, class_id)?
         }
-        ExamAction::Subject { code, .. } => page(&code),
-        ExamAction::Search { query } => ExamAnswer::Subjects(
-            pages
-                .iter()
-                .map(|page| page.subject.clone())
-                .filter(|subject| subject.code.contains(&query) || subject.name.contains(&query))
-                .collect(),
-        ),
+        ExamAction::Subject { code, class_id } => page(&code, class_id)?,
+        ExamAction::Search { query } => {
+            let language = content_language(store)?;
+            ExamAnswer::Subjects(
+                pages
+                    .iter()
+                    .map(|page| page.subject.clone().present(language))
+                    .filter(|subject| {
+                        subject.code.contains(&query) || subject.name.contains(&query)
+                    })
+                    .collect(),
+            )
+        }
         ExamAction::Open { id, .. } => {
             let document = document(pages, &id)?;
             // Under the past-exam files' root, where the shells' open and
@@ -69,15 +79,15 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
             let folder = store.paths().root().join("exam-share").join("demo");
             std::fs::create_dir_all(&folder).map_err(|_| ExamError::Storage)?;
             let path = folder.join(format!("{id}.pdf"));
-            std::fs::write(&path, crate::demo::SAMPLE_EXAM_PDF).map_err(|_| ExamError::Storage)?;
+            std::fs::write(&path, SAMPLE_EXAM_PDF).map_err(|_| ExamError::Storage)?;
             let viewer = crate::file_preview::viewer_of_file(
                 &path,
                 &document.file_name,
                 Some(&document.file_type),
             );
             ExamAnswer::Document(ExamLocalDocument {
-                export_name: document.file_name.clone(),
-                document,
+                export_name: document_export_name(document)?,
+                document: document.clone().present(content_language(store)?),
                 path: path.to_string_lossy().into_owned(),
                 downloaded: true,
                 saved: Some(false),
@@ -102,20 +112,18 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
     })
 }
 
-fn document(pages: &[ExamSubjectPage], id: &str) -> Result<ExamDocument, ExamError> {
+fn document<'a>(pages: &'a [SubjectRecords], id: &str) -> Result<&'a RemoteDocument, ExamError> {
     pages
         .iter()
-        .flat_map(|page| &page.sets)
-        .flat_map(|set| &set.documents)
+        .flat_map(|page| &page.exams)
         .find(|document| document.id == id)
-        .cloned()
         .ok_or(ExamError::NotFound)
 }
 
-/// The name a saved copy of a scene document takes: its own file name.
+/// The name a saved copy of a scene document takes.
 pub(crate) fn export_name(id: &str) -> Result<String, ExamError> {
     let pages = &crate::demo::scene()
         .map_err(|_| ExamError::Unavailable)?
         .past_exams;
-    Ok(document(pages, id)?.file_name)
+    document_export_name(document(pages, id)?)
 }

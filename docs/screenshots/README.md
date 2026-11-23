@@ -45,13 +45,14 @@ keeps the full-size captures in `screenshots/{ja,zh,en}/`.
   screenshot wrong or changes a release build.
 - **No school or cloud traffic.** Every HTTP client in Core and the desktop
   shell is built by `app_core::net::client_builder`; in a demo build it uses
-  no proxy and a resolver that answers only Isct-Data's host
+  a resolver that answers only Isct-Data's host
   (`demo::network_gate`). Both school accounts read as connected from an
   in-memory vault (`SchoolAuthService::demo`, its status kept in memory too);
   sign-ins end offline; the planner never schedules a school read; no school
   web view is created (`ensure_browser`); cloud sync supports no provider.
-  Past exams answer from the scene (`exam_share/demo.rs`); every document
-  opens `sample-exam.pdf`, printed from `sample-exam.html`:
+  Past exams use the scene's subject and document records with Core's normal
+  class priority, exam grouping and export names. Every document opens
+  `sample-exam.pdf`, printed from `sample-exam.html`:
   `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --no-pdf-header-footer --print-to-pdf=sample-exam.pdf sample-exam.html`.
 - **Guards.** `app_core::DEMO` says whether Core was built with the scene;
   the desktop crate and `app-ffi` assert at compile time that it matches
@@ -61,9 +62,9 @@ keeps the full-size captures in `screenshots/{ja,zh,en}/`.
 
 Change the scene by editing `scene.json` (the payloads are Core's own:
 `LmsEnrolment`, `LmsCourseContent`, `LmsDeadlines`, `WorkspaceIntent`,
-`ExamSubjectPage`), then delete the demo data folder so the next launch seeds
-it again. A complete seed is left as it is; a launch that finds a seed cut
-short refuses to start and names the folder to delete.
+past-exam `SubjectRecords`). Delete the demo data folder when you want the next
+launch to seed the rest of the scene again. The app keeps a complete seed. If
+seeding stops partway through, the next launch names the folder to delete.
 
 ## Running it
 

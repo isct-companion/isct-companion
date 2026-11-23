@@ -73,10 +73,12 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "demo"))]
+use std::sync::atomic::AtomicBool;
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicU64, Ordering},
         Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak,
     },
     time::Duration,
@@ -329,6 +331,7 @@ struct Inner {
     /// one lock, so a revision always carries the view it was taken with.
     published: Mutex<Option<SchoolSessionSnapshot>>,
     /// The shell reports no network: a sign-in sends nothing.
+    #[cfg(not(feature = "demo"))]
     offline: AtomicBool,
     credentials: Arc<CredentialSignal>,
 }
@@ -481,8 +484,8 @@ impl SchoolSessions {
             views: Mutex::new(None),
             tasks: RuntimeTasks::default(),
             published: Mutex::new(None),
-            // The demo scene stays offline whatever the shell reports.
-            offline: AtomicBool::new(cfg!(feature = "demo")),
+            #[cfg(not(feature = "demo"))]
+            offline: AtomicBool::new(false),
             credentials: Arc::new(CredentialSignal::default()),
         }))
     }
@@ -909,9 +912,11 @@ impl SchoolSessions {
 
     /// The network the shell reports (`Hint::Network`). While it is
     /// offline a sign-in ends without sending anything.
+    #[cfg(not(feature = "demo"))]
     pub(crate) fn network(&self, network: crate::plan::Network) {
-        let offline = cfg!(feature = "demo") || network == crate::plan::Network::Offline;
-        self.0.offline.store(offline, Ordering::SeqCst);
+        self.0
+            .offline
+            .store(network == crate::plan::Network::Offline, Ordering::SeqCst);
     }
 
     /// The system took the background time back: sign-ins stop.
@@ -1103,6 +1108,17 @@ fn slot(profile: SchoolAuthProfile) -> usize {
 }
 
 impl Inner {
+    #[cfg(not(feature = "demo"))]
+    fn is_offline(&self) -> bool {
+        self.offline.load(Ordering::SeqCst)
+    }
+
+    // The demo scene stays offline whatever the shell reports.
+    #[cfg(feature = "demo")]
+    fn is_offline(&self) -> bool {
+        true
+    }
+
     fn account(&self, profile: SchoolAuthProfile) -> &Account {
         match profile {
             SchoolAuthProfile::Science => &self.accounts[0],

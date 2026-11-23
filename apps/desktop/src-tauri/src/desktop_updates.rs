@@ -4,28 +4,36 @@
 use crate::core_ports;
 use app_core::app_updates::{InstallPhase, InstallRecord, LastInstall};
 use serde::Serialize;
+use std::sync::Mutex;
+#[cfg(not(feature = "demo"))]
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc,
     },
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Manager};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
+#[cfg(not(feature = "demo"))]
+use tauri_plugin_updater::UpdaterExt;
 
+#[cfg(not(feature = "demo"))]
 const REPOSITORY: &str = "isct-companion/isct-companion";
 const RELEASES: &str = "https://github.com/isct-companion/isct-companion/releases/latest";
 const INSTALL_RECORD: &str = "updater-install-result.json";
 // A whole-request timeout would cut off a large installer on a slow link, so
 // the download only fails once no bytes have arrived for this long.
+#[cfg(not(feature = "demo"))]
 const DOWNLOAD_STALL: Duration = Duration::from_secs(60);
 
+#[cfg(not(feature = "demo"))]
 struct UpdateSource {
     release_api: String,
     manifest: String,
     fixture_origin: Option<reqwest::Url>,
 }
+#[cfg(not(feature = "demo"))]
 impl UpdateSource {
     fn current(_app: &AppHandle) -> Result<Self, String> {
         // Manual native verification uses signed fixtures on loopback. This
@@ -138,14 +146,18 @@ struct NativeState {
     status: UpdateStatus,
     pending: Option<(Update, Vec<u8>)>,
     install_requested: bool,
+    #[cfg(not(feature = "demo"))]
     last_checked: Option<String>,
 }
 #[derive(Default)]
 pub struct DesktopUpdates {
     state: Mutex<NativeState>,
+    #[cfg(not(feature = "demo"))]
     busy: AtomicBool,
 }
+#[cfg(not(feature = "demo"))]
 struct Busy<'a>(&'a AtomicBool);
+#[cfg(not(feature = "demo"))]
 impl Drop for Busy<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
@@ -163,6 +175,7 @@ pub fn snapshot(app: &AppHandle) -> Result<UpdateStatus, String> {
         })
         .map_err(|_| "Update state is unavailable.".into())
 }
+#[cfg(not(feature = "demo"))]
 fn phase(
     app: &AppHandle,
     phase: &'static str,
@@ -185,6 +198,7 @@ fn phase(
     Ok(state.status.clone())
 }
 
+#[cfg(not(feature = "demo"))]
 async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u8>, String> {
     update.timeout = None;
     let started = Instant::now();
@@ -223,11 +237,13 @@ async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u
     }
 }
 
+#[cfg(feature = "demo")]
+pub async fn check(app: AppHandle, _manual: bool, _download: bool) -> Result<UpdateStatus, String> {
+    snapshot(&app)
+}
+
+#[cfg(not(feature = "demo"))]
 pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<UpdateStatus, String> {
-    // The demo scene never offers an update.
-    if cfg!(feature = "demo") {
-        return snapshot(&app);
-    }
     let updates = app.state::<DesktopUpdates>();
     if updates
         .busy

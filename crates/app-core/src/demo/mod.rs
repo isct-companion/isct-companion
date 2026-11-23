@@ -13,7 +13,7 @@
 
 use crate::course_materials::{course_folder, material_path};
 use crate::data::{DataError, DataStore, WorkspaceChangeSource};
-use crate::exam_share::ExamSubjectPage;
+use crate::exam_share::SubjectRecords;
 use crate::lms_ingest::{apply_lms_assign, apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
 use crate::notes::CourseFolder;
 use crate::ports::{SecretError, SecretVault};
@@ -37,9 +37,6 @@ pub fn scene_start() -> DateTime<Utc> {
 
 /// The search-algorithms slides the scene's lecture 11 opens.
 pub(crate) const SAMPLE_PDF: &[u8] = include_bytes!("search-algorithms.pdf");
-/// The made-up exam every past-exam document opens, printed from
-/// `sample-exam.html` (Chrome: `--headless --print-to-pdf`).
-pub(crate) const SAMPLE_EXAM_PDF: &[u8] = include_bytes!("sample-exam.pdf");
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,7 +55,7 @@ pub(crate) struct Scene {
     fresh: Vec<LmsCourseContent>,
     materials: Vec<Material>,
     notes: Vec<Note>,
-    pub(crate) past_exams: Vec<ExamSubjectPage>,
+    pub(crate) past_exams: Vec<SubjectRecords>,
 }
 
 /// A downloaded course file: the scene's sample PDF at `url`'s local path.

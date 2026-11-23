@@ -16,6 +16,8 @@ mod sets;
 mod upload;
 mod upload_file;
 pub use model::*;
+#[cfg(feature = "demo")]
+pub(crate) use remote::SubjectRecords;
 
 use crate::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
 use crate::{
