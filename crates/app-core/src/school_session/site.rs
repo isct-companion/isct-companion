@@ -567,7 +567,7 @@ impl Inner {
             until_unix: self
                 .transport
                 .paused_until(host)
-                .unwrap_or_else(|| chrono::Utc::now().timestamp() + 5 * 60),
+                .unwrap_or_else(|| crate::clock::now().timestamp() + 5 * 60),
         }
     }
 
@@ -688,7 +688,7 @@ impl Inner {
                 until.saturating_duration_since(Instant::now())
             });
         AccountWait::Paused {
-            until: chrono::Utc::now() + chrono::Duration::from_std(left).unwrap_or_default(),
+            until: crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default(),
         }
     }
 
@@ -717,7 +717,7 @@ impl Inner {
                 let lines = captured
                     .into_inner()
                     .unwrap_or_else(PoisonError::into_inner);
-                Walked::Ready(Snapshot::from_responses(lines, chrono::Utc::now()))
+                Walked::Ready(Snapshot::from_responses(lines, crate::clock::now()))
             }
             Err(SsoError::SignIn) => Walked::SignIn,
             Ok(Some(notice)) => {

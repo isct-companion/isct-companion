@@ -289,7 +289,7 @@ pub(crate) async fn search(
         Site::KyomuEnglish => search::read_english,
         _ => search::read_search,
     };
-    let fetched_at = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let fetched_at = crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
     let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
         Fetched::Html(html) => html,
         Fetched::SignedOut => return Err(NetError::SignInRequired),

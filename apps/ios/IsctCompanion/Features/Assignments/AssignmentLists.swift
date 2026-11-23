@@ -75,7 +75,7 @@ struct AssignmentListScreen: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        List { TodayAssignmentSections(now: .now) }
+        List { TodayAssignmentSections(now: AppClock.now) }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .background(Theme.bg)
@@ -146,11 +146,11 @@ struct RecordSections: View {
             Section(title) {
                 ForEach(items, id: \.assignmentId) { item in
                     if selectable {
-                        DeadlineRow(item: item, now: Date())
+                        DeadlineRow(item: item, now: AppClock.now)
                             .handInTarget(item)
                             .tag(item.assignmentId)
                     } else {
-                        AssignmentListRow(item: item, hidden: hidden) { DeadlineRow(item: item, now: Date()) }
+                        AssignmentListRow(item: item, hidden: hidden) { DeadlineRow(item: item, now: AppClock.now) }
                     }
                 }
             }

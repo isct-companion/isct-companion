@@ -223,7 +223,7 @@ impl ExamShare {
         let Some(mut pending) = read_pending(&path).await? else {
             return Ok(ExamAnswer::Done);
         };
-        if chrono::Utc::now().timestamp() < pending.retry_after {
+        if crate::clock::now().timestamp() < pending.retry_after {
             return Err(ExamError::UploadPending);
         }
         match pending.phase {
@@ -293,7 +293,7 @@ impl ExamShare {
                 file_hash: file.hash,
             },
             phase: Phase::Transfer,
-            retry_after: chrono::Utc::now().timestamp() + RECOVERY_DELAY,
+            retry_after: crate::clock::now().timestamp() + RECOVERY_DELAY,
         };
         write_pending(path, &pending).await?;
         match interrupt(cancel, self.put(url, file.content_type, file.bytes, size)).await {
@@ -302,7 +302,7 @@ impl ExamShare {
                     .await
             }
             Err(error) => {
-                pending.retry_after = chrono::Utc::now().timestamp() + RECOVERY_DELAY;
+                pending.retry_after = crate::clock::now().timestamp() + RECOVERY_DELAY;
                 write_pending(path, &pending).await?;
                 Err(error)
             }
@@ -367,7 +367,7 @@ impl ExamShare {
     ) -> Result<ExamAnswer, ExamError> {
         self.upload.update(mode(ExamUploadPhase::Registering));
         pending.phase = Phase::Register;
-        pending.retry_after = chrono::Utc::now().timestamp() + RECOVERY_DELAY;
+        pending.retry_after = crate::clock::now().timestamp() + RECOVERY_DELAY;
         write_pending(path, pending).await?;
         let answer: Result<Value, _> = interrupt(
             cancel,
@@ -394,7 +394,7 @@ impl ExamShare {
                 | ExamError::InvalidInput),
             ) => {
                 pending.phase = Phase::Cleanup;
-                pending.retry_after = chrono::Utc::now().timestamp();
+                pending.retry_after = crate::clock::now().timestamp();
                 write_pending(path, pending).await?;
                 let _ = self.rollback_upload(session, path, pending, cancel).await;
                 return Err(error);
@@ -405,7 +405,7 @@ impl ExamShare {
                 | ExamError::Response
                 | ExamError::Unavailable,
             ) => {
-                pending.retry_after = chrono::Utc::now().timestamp() + RECOVERY_DELAY;
+                pending.retry_after = crate::clock::now().timestamp() + RECOVERY_DELAY;
                 write_pending(path, pending).await?;
                 return Err(ExamError::UploadPending);
             }

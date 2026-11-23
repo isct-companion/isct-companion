@@ -143,7 +143,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     })).unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, crate::clock::now())
         })
         .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
@@ -207,7 +207,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, crate::clock::now())
         })
         .unwrap();
     assert!(
@@ -292,7 +292,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     assert_eq!(lms.timetables.len(), 2);
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, crate::clock::now())
         })
         .unwrap();
     lms.timetables = vec![adpt_isct::lms::LmsTimetable {
@@ -302,7 +302,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, crate::clock::now())
         })
         .unwrap();
     let workspace = store.load_workspace().unwrap();
@@ -351,7 +351,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
         .unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &lms, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &lms, crate::clock::now())
         })
         .unwrap();
     assert!(

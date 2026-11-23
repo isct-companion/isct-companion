@@ -122,7 +122,7 @@ fn finish(
                 .lock()
                 .map(|lines| lines.clone())
                 .unwrap_or_default();
-            LoginEnd::SignedIn(Snapshot::from_responses(lines, chrono::Utc::now()))
+            LoginEnd::SignedIn(Snapshot::from_responses(lines, crate::clock::now()))
         }
         Err(Fail::Rejected(kind, what)) => LoginEnd::Rejected(kind, what.into()),
         Err(Fail::NeedsWeb(kind, what)) => LoginEnd::NeedsWeb(kind, what.into()),

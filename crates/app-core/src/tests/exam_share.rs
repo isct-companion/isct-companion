@@ -121,7 +121,7 @@ fn id_token(uid: &str, claims: serde_json::Value) -> String {
         "sub": uid,
         "aud": client::FIREBASE_PROJECT,
         "iss": format!("https://securetoken.google.com/{}", client::FIREBASE_PROJECT),
-        "exp": chrono::Utc::now().timestamp() + 3600,
+        "exp": crate::clock::now().timestamp() + 3600,
         "allowed": true,
     });
     body.as_object_mut()
@@ -473,7 +473,7 @@ fn only_a_current_token_of_this_project_and_account_is_taken() {
         json!({"aud": "another-project"}),
         json!({"iss": "https://securetoken.google.com/another-project"}),
         json!({"sub": "u2"}),
-        json!({"exp": chrono::Utc::now().timestamp() - 1}),
+        json!({"exp": crate::clock::now().timestamp() - 1}),
     ] {
         assert!(matches!(take(claims), Err(ExamError::Response)));
     }

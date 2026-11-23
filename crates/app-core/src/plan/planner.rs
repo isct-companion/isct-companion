@@ -650,6 +650,12 @@ fn first_read(view: &View, key: &Key, inputs: &Inputs) -> bool {
 /// The base attributes of `key`, or `None` when nothing can read it (a
 /// course no longer listed, a reference kind that is off).
 fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
+    // The demo scene's school rows are seeded and never read again, so no
+    // automatic, page or manual read reaches a school account.
+    #[cfg(feature = "demo")]
+    if profile_of(key.dataset).is_some() {
+        return None;
+    }
     let mut watch = Watch {
         priority: Priority::Background,
         rule: Rule::Ttl,

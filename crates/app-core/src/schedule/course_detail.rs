@@ -82,6 +82,7 @@ pub(super) fn lms_record<'a>(workspace: &'a Value, course: &Value) -> Option<&'a
 
 /// The course's シラバス page in the content language, from its offering or
 /// a シラバス link the course or its materials carry.
+#[cfg(not(feature = "demo"))]
 fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Option<String> {
     let linked = || {
         std::iter::once(text(course, "url"))
@@ -112,7 +113,11 @@ pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -
                 && !matches!(text(row, "module"), Some("assign" | "quiz"))
         })
         .collect();
+    #[cfg(not(feature = "demo"))]
     let syllabus_url = syllabus_url(workspace, course, &materials);
+    // The demo scene's offerings have no syllabus page.
+    #[cfg(feature = "demo")]
+    let syllabus_url = None;
     let lms_url = lms_url(workspace, course);
     let section = |row: &&Value| {
         row.get("sectionNumber")

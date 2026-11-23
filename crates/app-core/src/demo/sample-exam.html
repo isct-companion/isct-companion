@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: A4; margin: 22mm 20mm; }
+  body { font-family: "Hiragino Mincho ProN", "Hiragino Sans", serif; color: #1c1c1c; font-size: 11pt; line-height: 1.75; }
+  header { border-bottom: 1.5px solid #1c1c1c; padding-bottom: 6mm; margin-bottom: 8mm; }
+  .meta { display: flex; justify-content: space-between; font-family: "Hiragino Sans", sans-serif; font-size: 9pt; color: #555; }
+  h1 { font-size: 18pt; margin: 4mm 0 2mm; letter-spacing: .04em; }
+  .sub { font-size: 10pt; color: #444; }
+  .notice { font-family: "Hiragino Sans", sans-serif; font-size: 9pt; border: 1px solid #999; padding: 3mm 4mm; margin-bottom: 8mm; }
+  h2 { font-size: 12pt; margin: 8mm 0 2mm; }
+  ol { margin: 0; padding-left: 7mm; }
+  li { margin-bottom: 2mm; }
+  .graph { font-family: Menlo, monospace; font-size: 9.5pt; background: #f4f2ec; padding: 3mm 5mm; margin: 3mm 0; white-space: pre; }
+  .pts { float: right; font-family: "Hiragino Sans", sans-serif; font-size: 9pt; color: #555; }
+  footer { position: fixed; bottom: 0; left: 0; right: 0; font-family: "Hiragino Sans", sans-serif; font-size: 8pt; color: #888; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <div class="meta"><span>CSC.T272 人工知能 / Artificial Intelligence</span><span>2025 年度 2Q 期末試験</span></div>
+  <h1>期末試験 問題</h1>
+  <div class="sub">試験時間 100 分　・　持ち込み不可</div>
+</header>
+<div class="notice">IsctCompanion のデモ用に作成したサンプルです。実際の試験問題ではありません。</div>
+
+<h2>問 1　状態空間 <span class="pts">20 点</span></h2>
+<ol>
+  <li>8 パズルを状態空間探索の問題として定式化せよ。状態、初期状態、行動、遷移関数、目標判定をそれぞれ述べること。</li>
+  <li>この問題の状態空間の大きさを見積もり、その根拠を説明せよ。</li>
+</ol>
+
+<h2>問 2　幅優先探索と深さ優先探索 <span class="pts">30 点</span></h2>
+<p>次のグラフで、ノード S から G への経路を探索する。同じ深さのノードはアルファベット順に展開するものとする。</p>
+<div class="graph">S — A — D — G
+|    |       |
+B — C ——— E — F</div>
+<ol>
+  <li>幅優先探索で展開されるノードの順序と、得られる経路を答えよ。</li>
+  <li>深さ優先探索で展開されるノードの順序と、得られる経路を答えよ。</li>
+  <li>両者の時間計算量と空間計算量を、分岐係数 <i>b</i> と深さ <i>d</i> を用いて比較せよ。</li>
+</ol>
+
+<h2>問 3　A* 探索 <span class="pts">30 点</span></h2>
+<ol>
+  <li>許容的なヒューリスティック関数とは何か。定義を述べよ。</li>
+  <li>8 パズルについて、許容的なヒューリスティック関数を 2 つ挙げ、どちらがより情報量が多いかを説明せよ。</li>
+  <li>A* 探索が最適解を返すための条件を述べ、その理由を簡潔に示せ。</li>
+</ol>
+
+<h2>問 4　ゲーム木探索 <span class="pts">20 点</span></h2>
+<p>ミニマックス法に α–β 枝刈りを加えたとき、最良の場合に調べる節点数がどの程度減るかを述べ、枝刈りの効果を高める工夫を一つ挙げよ。</p>
+
+<footer>IsctCompanion sample — not a real examination</footer>
+</body>
+</html>

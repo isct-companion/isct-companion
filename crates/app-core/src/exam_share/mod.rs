@@ -1,6 +1,11 @@
 //! Native client for the ScienceTokyoExam sharing service.
+// A demo build answers every action from its scene (`demo`), which leaves
+// this client unused there.
+#![cfg_attr(feature = "demo", allow(dead_code))]
 mod cache;
 mod client;
+#[cfg(feature = "demo")]
+pub(crate) mod demo;
 mod form;
 mod google;
 mod identity;
@@ -11,6 +16,8 @@ mod sets;
 mod upload;
 mod upload_file;
 pub use model::*;
+#[cfg(feature = "demo")]
+pub(crate) use remote::SubjectRecords;
 
 use crate::oauth::{code_exchange::OAuthClient, NativeBrowserAuth};
 use crate::{
@@ -725,7 +732,7 @@ impl ExamShare {
             );
         }
         let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        if current.expires <= chrono::Utc::now().timestamp() + 60 {
+        if current.expires <= crate::clock::now().timestamp() + 60 {
             self.renew(session).await?;
         }
         let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;

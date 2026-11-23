@@ -45,7 +45,7 @@ impl Buffer {
         self.cursor = self.cursor.saturating_add(1);
         self.entries.push_back(LogEntry {
             id: self.cursor,
-            at: chrono::Utc::now().to_rfc3339(),
+            at: crate::clock::now().to_rfc3339(),
             level: level.into(),
             target: target.chars().take(128).collect(),
             message: redact_text(message).chars().take(MESSAGE_LIMIT).collect(),
@@ -106,7 +106,7 @@ pub fn snapshot(after: Option<u64>) -> Result<LogSnapshot, DiagnosticsError> {
 pub fn export_text(about: &str) -> Result<String, DiagnosticsError> {
     buffer()
         .lock()
-        .map(|buffer| buffer.export(about, &chrono::Utc::now().to_rfc3339()))
+        .map(|buffer| buffer.export(about, &crate::clock::now().to_rfc3339()))
         .map_err(|_| DiagnosticsError::Unavailable)
 }
 

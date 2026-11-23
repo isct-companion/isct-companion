@@ -679,7 +679,7 @@ pub fn query(
             Ok(WorkspaceQueryResult::AssignmentDetail(assignment_detail(
                 workspace,
                 &assignment_id,
-                chrono::Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
             )))
         }
         WorkspaceQuery::DeadlineDisplay { at, now } => Ok(WorkspaceQueryResult::DeadlineDisplay(

@@ -790,6 +790,19 @@ impl SchoolBrowserEngine {
         self.0.listener.guard().take();
     }
 
+    // Every way to a school page creates its view here first.
+    #[cfg(feature = "demo")]
+    fn ensure_browser(
+        &self,
+        _site: SchoolSite,
+        _initial: Url,
+    ) -> Result<BrowserId, SchoolBrowserError> {
+        Err(SchoolBrowserError::Platform(
+            "The demo has no school web.".into(),
+        ))
+    }
+
+    #[cfg(not(feature = "demo"))]
     fn ensure_browser(
         &self,
         site: SchoolSite,

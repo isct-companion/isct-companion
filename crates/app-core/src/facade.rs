@@ -49,6 +49,7 @@ pub struct Core {
     sessions: SchoolSessions,
     /// The ScienceTokyoExam client once a shell opened it with its ports;
     /// maintenance cleans its file cache.
+    #[cfg(not(feature = "demo"))]
     exam_share: crate::deadlines::ExamShareSlot,
     school_browser: Mutex<Option<Arc<SchoolBrowserEngine>>>,
     events: Option<Arc<CoreEvents>>,
@@ -251,13 +252,22 @@ impl Core {
         let reminders = crate::schedule::ReminderService::new(store.clone());
         #[cfg(feature = "agent")]
         let agent_access = Arc::new(crate::deadlines::AgentAccess::new(store.clone()));
-        let sessions = SchoolSessions::new(crate::net::Http::new().ok(), auth.clone());
+        // The demo scene has no school network at all: every sign-in ends
+        // offline before it sends anything.
+        #[cfg(feature = "demo")]
+        let school_http = None;
+        #[cfg(not(feature = "demo"))]
+        let school_http = crate::net::Http::new().ok();
+        let sessions = SchoolSessions::new(school_http, auth.clone());
         sessions.set_events(
             events
                 .as_ref()
                 .map(|events| events.clone() as Arc<dyn EventSink>)
                 .unwrap_or_else(|| Arc::new(NoopEvents)),
         );
+        // Without sessions a course file not already on disk fails to load
+        // instead of fetching.
+        #[cfg(not(feature = "demo"))]
         runtime.downloads.attach_sessions(sessions.clone());
         let moodle = Arc::new(crate::net::moodle::MoodleClient::new(
             auth.clone(),
@@ -336,9 +346,11 @@ impl Core {
             store: store.clone(),
         }));
         sync.register(Arc::new(crate::deadlines::Cloud(runtime.clone())));
+        #[cfg(not(feature = "demo"))]
         let exam_share = crate::deadlines::ExamShareSlot::default();
         sync.register(Arc::new(crate::deadlines::Maintenance::new(
             store.clone(),
+            #[cfg(not(feature = "demo"))]
             exam_share.clone(),
             #[cfg(feature = "agent")]
             submissions.as_ref().as_ref().ok().cloned(),
@@ -374,6 +386,7 @@ impl Core {
             #[cfg(feature = "agent")]
             agent_access,
             sessions,
+            #[cfg(not(feature = "demo"))]
             exam_share,
             school_browser: Mutex::new(None),
             store,
@@ -390,6 +403,7 @@ impl Core {
 
     /// A shell fact or intent for the sync planner. Never blocks.
     pub fn sync_hint(&self, hint: Hint) {
+        #[cfg(not(feature = "demo"))]
         if let Hint::Network { network } = &hint {
             self.sessions.network(*network);
         }
@@ -438,6 +452,7 @@ impl Core {
     /// the build has an OAuth client, its sign-in port. Its files live in the
     /// data folder's `exam-share`. Once only; if it cannot open, past exams
     /// answer `unavailable` and the rest of the app runs on.
+    #[cfg(not(feature = "demo"))]
     pub fn open_exam_share(
         &self,
         vault: Arc<dyn crate::ports::SecretVault>,
@@ -462,7 +477,19 @@ impl Core {
         }
     }
 
+    /// One ScienceTokyoExam action; see `ExamAction`. The demo scene
+    /// answers from its own sittings without the service.
+    #[cfg(feature = "demo")]
+    pub async fn exam_share(
+        &self,
+        action: crate::exam_share::ExamAction,
+        _cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<crate::exam_share::ExamAnswer, crate::exam_share::ExamError> {
+        crate::exam_share::demo::act(action, &self.store)
+    }
+
     /// One ScienceTokyoExam action; see `ExamAction`.
+    #[cfg(not(feature = "demo"))]
     pub async fn exam_share(
         &self,
         action: crate::exam_share::ExamAction,
@@ -475,8 +502,19 @@ impl Core {
         service.act(action, cancel, &self.store).await
     }
 
+    /// The demo scene keeps no downloads: its sample exam is always at hand.
+    #[cfg(feature = "demo")]
+    pub async fn retain_open_exam(
+        &self,
+        _id: &str,
+        _path: &std::path::Path,
+    ) -> Result<bool, crate::exam_share::ExamError> {
+        Ok(false)
+    }
+
     /// Keep the already opened exam version for offline use, without contacting
     /// the service. Returns whether the download list changed.
+    #[cfg(not(feature = "demo"))]
     pub async fn retain_open_exam(
         &self,
         id: &str,
@@ -489,9 +527,20 @@ impl Core {
         service.retain_open_copy(id, path).await
     }
 
+    /// The demo scene's documents export under their own file names.
+    #[cfg(feature = "demo")]
+    pub async fn open_exam_export_name(
+        &self,
+        id: &str,
+        _path: &std::path::Path,
+    ) -> Result<String, crate::exam_share::ExamError> {
+        crate::exam_share::demo::export_name(id)
+    }
+
     /// The file name a copy of the opened exam version is exported under:
     /// the uploader's name, with the validated type's suffix when its own
     /// extension is not one that type allows.
+    #[cfg(not(feature = "demo"))]
     pub async fn open_exam_export_name(
         &self,
         id: &str,
@@ -505,6 +554,7 @@ impl Core {
     }
 
     /// Stop every ScienceTokyoExam action in flight, for shutdown.
+    #[cfg(not(feature = "demo"))]
     pub fn cancel_exam_share(&self) {
         if let Some(service) = self.exam_share.get() {
             service.cancel();

@@ -170,7 +170,7 @@ async fn export_name(base: &Path, opened_path: &Path) -> Result<String, ExamErro
 
 /// [`export_name`] of a document already in hand: every shell saves or
 /// shares the opened copy under it.
-fn document_export_name(document: &RemoteDocument) -> Result<String, ExamError> {
+pub(super) fn document_export_name(document: &RemoteDocument) -> Result<String, ExamError> {
     let allowed = extensions(&document.file_type)?;
     let name = crate::download_names::safe_name(&document.file_name, &document.file_type);
     let (_, extension) = crate::download_names::split_extension(&name);

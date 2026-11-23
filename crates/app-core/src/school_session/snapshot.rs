@@ -99,7 +99,7 @@ impl Inner {
         notice.as_ref()?;
         Some(SchoolMaintenance {
             notice,
-            until: DateTime::from_timestamp(until, 0).unwrap_or_else(Utc::now),
+            until: DateTime::from_timestamp(until, 0).unwrap_or_else(crate::clock::now),
         })
     }
 

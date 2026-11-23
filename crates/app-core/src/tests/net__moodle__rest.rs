@@ -313,7 +313,7 @@ async fn write_surface_survey() {
         client,
         relaunched: AtomicBool::new(true),
     };
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::clock::now().timestamp();
 
     // What the service grants.
     let info = transport
@@ -535,7 +535,7 @@ async fn write_surface_survey() {
         .collect();
 
     let summary = json!({
-        "observedAt": chrono::Utc::now().to_rfc3339(),
+        "observedAt": crate::clock::now().to_rfc3339(),
         "terms": terms,
         "siteInfo": {
             "release": info.get("release"),

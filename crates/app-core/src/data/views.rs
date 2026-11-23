@@ -194,7 +194,7 @@ impl DataStore {
             .view_reader
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let today = crate::schedule::japan_today(Utc::now());
+        let today = crate::schedule::japan_today(crate::clock::now());
         // Before the rows. A commit that landed but has not moved its tables'
         // versions yet stamps its rows as older than they are, which reads
         // them once more; the other way round would keep old rows for good.
@@ -318,7 +318,7 @@ impl DataStore {
             .view_reader
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let today = crate::schedule::japan_today(Utc::now());
+        let today = crate::schedule::japan_today(crate::clock::now());
         let every = every_field();
         let mut writer = self.connections.writer();
         let ((result, revision, shared), tables) = commit_then(
@@ -521,7 +521,7 @@ impl DataStore {
                 meeting["room"] = shown(meeting.get("roomNames"), &meeting["room"]).into();
             }
         }
-        let today_jst = crate::schedule::japan_today(Utc::now());
+        let today_jst = crate::schedule::japan_today(crate::clock::now());
         workspace["currentTerm"] = Value::String(
             current_term_for(&workspace, today_jst)
                 .ok_or_else(|| "current academic term is not configured".to_string())?,

@@ -379,6 +379,47 @@ impl SchoolAuthService {
         }
     }
 
+    /// The demo scene's accounts (`crate::demo`): both connected with made-up
+    /// credentials, validated and written through the same bundle a sign-in
+    /// writes. The vault and the status markers live in memory, so each
+    /// launch starts from the scene.
+    #[cfg(feature = "demo")]
+    pub fn demo() -> Result<Self, SchoolAuthError> {
+        let service = Self {
+            vault: Arc::new(crate::demo::MemoryVault::default()),
+            accounts: Mutex::new(Accounts::default()),
+            shown: Mutex::default(),
+            session_items: Mutex::default(),
+            // No file: the markers live in the vault, as long as it does.
+            status_path: None,
+        };
+        let mut accounts = HashMap::from([
+            (
+                SchoolAuthProfile::Science,
+                SchoolCredentials {
+                    username: "demo.student".into(),
+                    password: "demo".into(),
+                    otp_secret: "JBSWY3DPEHPK3PXP".into(),
+                    matrix: String::new(),
+                },
+            ),
+            (
+                SchoolAuthProfile::TokyoTech,
+                SchoolCredentials {
+                    username: "25B00000".into(),
+                    password: "demo".into(),
+                    otp_secret: String::new(),
+                    matrix: "A".repeat(70),
+                },
+            ),
+        ]);
+        for (profile, credentials) in &mut accounts {
+            credentials.validate(*profile)?;
+        }
+        service.write_accounts(&accounts)?;
+        Ok(service)
+    }
+
     pub fn with_status_cache(vault: impl SecretVault + 'static, path: std::path::PathBuf) -> Self {
         Self {
             vault: Arc::new(vault),

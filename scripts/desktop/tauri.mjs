@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,12 +9,20 @@ import { developmentVersion } from "../lib/build-version.mjs";
 import { campusVpnBundle } from "./bundle-vpn.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const command = process.argv.slice(2);
+// `--demo` is ours, not Tauri's: the website screenshot scene (Cargo feature
+// `demo`) as its own app with its own data and keychain, from `dev` or as a
+// debug bundle (`build --debug --no-sign`) that screen tools can address.
+const demo = process.argv.includes("--demo");
+const command = process.argv.slice(2).filter((arg) => arg !== "--demo");
 const cargoSeparator = command.indexOf("--");
 const flags =
   cargoSeparator === -1 ? command : command.slice(0, cargoSeparator);
 const dev = command[0] === "dev";
 const debug = flags.includes("--debug") || flags.includes("-d");
+if (demo && !dev && !(command[0] === "build" && debug && flags.includes("--no-sign"))) {
+  console.error("--demo runs only with `dev` or `build --debug --no-sign`.");
+  process.exit(1);
+}
 const packageVersion = JSON.parse(
   readFileSync(path.join(root, "package.json"), "utf8"),
 ).version;
@@ -32,9 +40,16 @@ const signing =
     ? macosBuildSigning({ dev, debug, packagesApp, noSign })
     : {};
 const isolated = dev || (debug && !signing.entitled);
-const host = isolated ? "app.isctcompanion.dev" : "app.isctcompanion";
+const host = demo
+  ? "app.isctcompanion.demo"
+  : isolated
+    ? "app.isctcompanion.dev"
+    : "app.isctcompanion";
 const isolatedApp = isolated
-  ? { identifier: host, productName: "IsctCompanion Dev" }
+  ? {
+      identifier: host,
+      productName: demo ? "IsctCompanion Demo" : "IsctCompanion Dev",
+    }
   : undefined;
 if (isolated)
   console.log(`Development app: ${host}, separate from the release app.`);
@@ -64,12 +79,17 @@ const windowsConfig = windowsSigningEndpoint
       },
     }
   : undefined;
-const vpnBundle = campusVpnBundle({
-  macOS: macConfig?.bundle.macOS,
-  packagesApp,
-  signing,
-});
-const tauriCommand = [...process.argv.slice(2)];
+// The demo app has no VPN tool, so its bundle neither carries nor rebuilds
+// the helper the release app installs.
+const vpnBundle = demo
+  ? undefined
+  : campusVpnBundle({
+      macOS: macConfig?.bundle.macOS,
+      packagesApp,
+      signing,
+    });
+const tauriCommand = [...command];
+if (demo) tauriCommand.splice(1, 0, "--features", "demo");
 if (macConfig || windowsConfig || version || vpnBundle || isolatedApp) {
   // Keep Tauri options before the separator for additional Cargo arguments.
   const separator = tauriCommand.indexOf("--");
@@ -125,6 +145,7 @@ const child = spawn(
       // signed with the entitlements; always set, so a stale value cannot leak.
       ISCT_APPLE_ENTITLED: signing.entitled ? "1" : "",
       ISCT_MACOS_DEV_SIGNING_IDENTITY: signing.developmentIdentity ?? "",
+      ISCT_MACOS_DEV_IDENTIFIER: host,
       TAURI_APP_PATH: path.join(root, "apps/desktop/src-tauri"),
       TAURI_FRONTEND_PATH: path.join(root, "apps/desktop"),
     },
@@ -137,4 +158,20 @@ child.on("error", (error) => {
 child.on("exit", (code, signal) => {
   if (signal) process.kill(process.pid, signal);
   else process.exitCode = code ?? 1;
+  // The demo bundle answers no URL scheme: src-tauri/Info.plist registers the
+  // release app's `isctcompanion`, and a release widget's link must never
+  // open the screenshot app. The bundle is unsigned, so its plist can change.
+  if (demo && bundleCommand && macOS && code === 0) {
+    const target = process.env.CARGO_TARGET_DIR ?? path.join(root, "target");
+    const plist = path.join(
+      target,
+      "debug/bundle/macos/IsctCompanion Demo.app/Contents/Info.plist",
+    );
+    const removed = spawnSync(
+      "/usr/libexec/PlistBuddy",
+      ["-c", "Delete :CFBundleURLTypes", plist],
+      { stdio: "inherit" },
+    );
+    if (removed.status !== 0) process.exitCode = 1;
+  }
 });

@@ -201,7 +201,7 @@ pub(crate) fn watch(app: tauri::AppHandle) {
             }
             let checking = service.clone();
             let Ok(VpnCheck { state, notice }) =
-                tauri::async_runtime::spawn_blocking(move || checking.watch(chrono::Utc::now()))
+                tauri::async_runtime::spawn_blocking(move || checking.watch(app_core::clock::now()))
                     .await
             else {
                 continue;
