@@ -10,7 +10,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>IsctCompanion</string>
+	<string>$(ISCT_DISPLAY_NAME)</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -47,10 +47,10 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>app.isctcompanion.inbox</string>
+			<string>$(ISCT_APP_ID).inbox</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>isctcompanion</string>
+				<string>$(ISCT_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>
@@ -61,7 +61,7 @@
 	<key>IsctGoogleClientID</key>
 	<string>$(ISCT_GOOGLE_IOS_CLIENT_ID)</string>
 	<key>IsctWidgetGroup</key>
-	<string>group.app.isctcompanion</string>
+	<string>$(ISCT_APP_GROUP)</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>

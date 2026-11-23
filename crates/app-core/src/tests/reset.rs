@@ -133,7 +133,7 @@ fn seed(fixture: &Fixture) {
                 outcome: Outcome::Complete,
                 message: None,
             },
-            chrono::Utc::now(),
+            crate::clock::now(),
         )
         .unwrap();
     }
@@ -216,7 +216,7 @@ fn commit_leased_at(core: &Core, generation: u64, key: &Key) -> bool {
                     outcome: Outcome::Complete,
                     message: None,
                 },
-                chrono::Utc::now(),
+                crate::clock::now(),
             )
         })
         .is_ok()
@@ -255,7 +255,7 @@ async fn school_cache_reset_keeps_user_data_and_leaves_every_key_missing() {
         let state = sync_state::get(&connection, &Key::new(dataset, key)).unwrap();
         let ttl = sync_state::ttl(dataset, sync_state::Term::Current);
         assert_eq!(
-            sync_state::due(state.as_ref(), ttl, chrono::Utc::now()),
+            sync_state::due(state.as_ref(), ttl, crate::clock::now()),
             Due::Missing,
             "{dataset:?}/{key}"
         );

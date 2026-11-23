@@ -435,7 +435,7 @@ fn insert_school_assignment(store: &DataStore) {
 fn seeing_a_recent_item_records_its_version_and_drops_entries_past_the_window() {
     let store = store("recent-seen");
     insert_school_assignment(&store);
-    let fresh = chrono::Utc::now().to_rfc3339();
+    let fresh = crate::clock::now().to_rfc3339();
     let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     upsert_row(
@@ -760,7 +760,7 @@ fn courses_merge_when_any_of_their_sources_is_written() {
     let ingest = || {
         store
             .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, Utc::now())
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, crate::clock::now())
                     .map_err(|error| DataError::from(error.to_string()))
             })
             .unwrap()
@@ -1091,7 +1091,7 @@ fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
                 transaction,
                 &Key::new(Dataset::KyomuPage, "grades"),
                 commit,
-                Utc::now(),
+                crate::clock::now(),
             )
         })
         .unwrap();

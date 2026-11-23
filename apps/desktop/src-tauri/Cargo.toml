@@ -12,6 +12,10 @@ name = "isct_companion_lib"
 # Only the desktop binary links this; the mobile apps use crates/app-ffi.
 crate-type = ["rlib"]
 
+[features]
+# The website screenshot scene (app-core's `demo`); `yarn desktop:demo` only.
+demo = ["app-core/demo"]
+
 [build-dependencies]
 serde_json = "1"
 tauri-build = { version = "2.7", features = [] }

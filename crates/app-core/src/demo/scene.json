@@ -1,0 +1,1572 @@
+{
+ "offerings": [
+  {
+   "id": "202690100",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "LAL.C202-07",
+   "title": {
+    "ja": "中国語初級２ C07",
+    "en": "Chinese: Basic Course 2 C07"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 1,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "W9-321",
+      "en": "W9-321"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": ""
+  },
+  {
+   "id": "202690101",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T272",
+   "title": {
+    "ja": "人工知能",
+    "en": "Artificial Intelligence"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 1,
+     "periods": [
+      3,
+      4
+     ],
+     "room": {
+      "ja": "M-178",
+      "en": "M-178"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690102",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "MCS.T212",
+   "title": {
+    "ja": "確率論基礎",
+    "en": "Fundamentals of Probability"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 1,
+     "periods": [
+      5,
+      6
+     ],
+     "room": {
+      "ja": "W8E-101",
+      "en": "W8E-101"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": ""
+  },
+  {
+   "id": "202690103",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "MCS.T214",
+   "title": {
+    "ja": "オートマトンと数理言語論",
+    "en": "Theory of Automata and Languages"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 2,
+     "periods": [
+      3,
+      4
+     ],
+     "room": {
+      "ja": "W8E-101",
+      "en": "W8E-101"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": ""
+  },
+  {
+   "id": "202690104",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T343",
+   "title": {
+    "ja": "データベース",
+    "en": "Databases"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 3,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "S2-203",
+      "en": "S2-203"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690105",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T244",
+   "title": {
+    "ja": "プログラミング創造演習",
+    "en": "Creative Programming"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "exercise"
+    ]
+   },
+   "credits": {
+    "lecture": 0,
+    "exercise": 2,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 4,
+     "periods": [
+      5,
+      8
+     ],
+     "room": {
+      "ja": "W8E-308",
+      "en": "W8E-308"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690106",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T253",
+   "title": {
+    "ja": "手続き型プログラミング発展",
+    "en": "Advanced Procedural Programming"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 5,
+     "periods": [
+      3,
+      4
+     ],
+     "room": {
+      "ja": "M-110",
+      "en": "M-110"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690201",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T254",
+   "title": {
+    "ja": "機械学習",
+    "en": "Machine Learning"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 2,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "W8E-307",
+      "en": "W8E-307"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690202",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T263",
+   "title": {
+    "ja": "関数型プログラミング基礎",
+    "en": "Fundamentals of Functional Programming"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 1,
+    "exercise": 1,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 2,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "W8E-101",
+      "en": "W8E-101"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690203",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T271",
+   "title": {
+    "ja": "データ構造とアルゴリズム",
+    "en": "Data Structures and Algorithms"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 2,
+    "exercise": 0,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 2,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "M-178",
+      "en": "M-178"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  },
+  {
+   "id": "202690204",
+   "year": 2026,
+   "quarters": [
+    "2Q"
+   ],
+   "code": "CSC.T262",
+   "title": {
+    "ja": "アセンブリ言語",
+    "en": "Assembly Language"
+   },
+   "instructors": [],
+   "instructionLanguage": "ja",
+   "format": {
+    "kinds": [
+     "lecture"
+    ]
+   },
+   "credits": {
+    "lecture": 1,
+    "exercise": 1,
+    "lab": 0
+   },
+   "schedule": [
+    {
+     "kind": "weekly",
+     "day": 2,
+     "periods": [
+      1,
+      2
+     ],
+     "room": {
+      "ja": "S2-204",
+      "en": "S2-204"
+     }
+    }
+   ],
+   "intensive": false,
+   "syllabusUrl": "",
+   "unitCode": "342300"
+  }
+ ],
+ "enrolment": {
+  "language": "ja",
+  "courses": [
+   {
+    "id": 100,
+    "fullname": "中国語初級２ C07 / Chinese: Basic Course 2 C07",
+    "shortname": "LAL.C202-07 [2026]",
+    "idnumber": "202690100",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=100",
+    "hidden": false
+   },
+   {
+    "id": 101,
+    "fullname": "人工知能 / Artificial Intelligence",
+    "shortname": "CSC.T272 [2026]",
+    "idnumber": "202690101",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=101",
+    "hidden": false
+   },
+   {
+    "id": 102,
+    "fullname": "確率論基礎 / Fundamentals of Probability",
+    "shortname": "MCS.T212 [2026]",
+    "idnumber": "202690102",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=102",
+    "hidden": false
+   },
+   {
+    "id": 103,
+    "fullname": "オートマトンと数理言語論 / Theory of Automata and Languages",
+    "shortname": "MCS.T214 [2026]",
+    "idnumber": "202690103",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=103",
+    "hidden": false
+   },
+   {
+    "id": 104,
+    "fullname": "データベース / Databases",
+    "shortname": "CSC.T343 [2026]",
+    "idnumber": "202690104",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=104",
+    "hidden": false
+   },
+   {
+    "id": 105,
+    "fullname": "プログラミング創造演習 / Creative Programming",
+    "shortname": "CSC.T244 [2026]",
+    "idnumber": "202690105",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=105",
+    "hidden": false
+   },
+   {
+    "id": 106,
+    "fullname": "手続き型プログラミング発展 / Advanced Procedural Programming",
+    "shortname": "CSC.T253 [2026]",
+    "idnumber": "202690106",
+    "coursecategory": 2,
+    "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=106",
+    "hidden": false
+   }
+  ],
+  "timetables": [
+   {
+    "term": "2026-2Q",
+    "meetings": {
+     "100": [
+      {
+       "day": 1,
+       "periods": [
+        1,
+        2
+       ]
+      }
+     ],
+     "101": [
+      {
+       "day": 1,
+       "periods": [
+        3,
+        4
+       ]
+      }
+     ],
+     "102": [
+      {
+       "day": 1,
+       "periods": [
+        5,
+        6
+       ]
+      }
+     ],
+     "103": [
+      {
+       "day": 2,
+       "periods": [
+        3,
+        4
+       ]
+      }
+     ],
+     "104": [
+      {
+       "day": 3,
+       "periods": [
+        1,
+        2
+       ]
+      }
+     ],
+     "105": [
+      {
+       "day": 4,
+       "periods": [
+        5,
+        8
+       ]
+      }
+     ],
+     "106": [
+      {
+       "day": 5,
+       "periods": [
+        3,
+        4
+       ]
+      }
+     ]
+    },
+    "unscheduled": []
+   }
+  ]
+ },
+ "contents": [
+  {
+   "courseId": 100,
+   "sections": [
+    {
+     "id": 10008,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10009,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10010,
+     "number": 10,
+     "title": "第 10 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3108,
+     "module": "resource",
+     "name": "第 8 回 会話練習 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3108",
+     "sectionid": 10008,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3108/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 204,
+     "module": "assign",
+     "name": "作文：私の週末 / Writing: My weekend",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=204",
+     "sectionid": 10010,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  },
+  {
+   "courseId": 101,
+   "sections": [
+    {
+     "id": 10108,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10109,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10110,
+     "number": 10,
+     "title": "第 10 回",
+     "bodyHtml": "<p>問題を状態空間として定式化する。</p>"
+    },
+    {
+     "id": 10111,
+     "number": 11,
+     "title": "第 11 回",
+     "bodyHtml": "<p>探索アルゴリズム：幅優先探索と深さ優先探索を比較する。</p>"
+    }
+   ],
+   "modules": [
+    {
+     "id": 3008,
+     "module": "resource",
+     "name": "第 8 回 知識表現 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3008",
+     "sectionid": 10108,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3008/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 3009,
+     "module": "resource",
+     "name": "第 9 回 状態空間 / Lecture 9",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3009",
+     "sectionid": 10109,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3009/mod_resource/content/1/lecture-9.pdf"
+    },
+    {
+     "id": 3010,
+     "module": "resource",
+     "name": "第 10 回 問題の定式化 / Lecture 10: Problem formulation",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3010",
+     "sectionid": 10110,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3010/mod_resource/content/1/lecture-10.pdf"
+    },
+    {
+     "id": 200,
+     "module": "assign",
+     "name": "第 10 回 演習課題：探索アルゴリズム / Exercise 10: Search algorithms",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200",
+     "sectionid": 10110,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  },
+  {
+   "courseId": 102,
+   "sections": [
+    {
+     "id": 10208,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10209,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3208,
+     "module": "resource",
+     "name": "第 8 回 条件付き確率 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3208",
+     "sectionid": 10208,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3208/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 201,
+     "module": "quiz",
+     "name": "小テスト 9 / Quiz 9",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/quiz/view.php?id=201",
+     "sectionid": 10209,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  },
+  {
+   "courseId": 103,
+   "sections": [
+    {
+     "id": 10307,
+     "number": 7,
+     "title": "第 7 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10308,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3307,
+     "module": "resource",
+     "name": "第 7 回 正規表現 / Lecture 7",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3307",
+     "sectionid": 10307,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3307/mod_resource/content/1/lecture-7.pdf"
+    },
+    {
+     "id": 203,
+     "module": "assign",
+     "name": "演習 8 / Exercise 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=203",
+     "sectionid": 10308,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  },
+  {
+   "courseId": 104,
+   "sections": [
+    {
+     "id": 10408,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10409,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3408,
+     "module": "resource",
+     "name": "第 8 回 関数従属性 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3408",
+     "sectionid": 10408,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3408/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 202,
+     "module": "assign",
+     "name": "レポート 2：正規化 / Report 2: Normalization",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=202",
+     "sectionid": 10409,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  },
+  {
+   "courseId": 105,
+   "sections": [
+    {
+     "id": 10508,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10509,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3508,
+     "module": "resource",
+     "name": "第 8 回 設計レビュー / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3508",
+     "sectionid": 10508,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3508/mod_resource/content/1/lecture-8.pdf"
+    }
+   ]
+  },
+  {
+   "courseId": 106,
+   "sections": [
+    {
+     "id": 10608,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10609,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3608,
+     "module": "resource",
+     "name": "第 8 回 ポインタ / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3608",
+     "sectionid": 10608,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3608/mod_resource/content/1/lecture-8.pdf"
+    }
+   ]
+  }
+ ],
+ "deadlines": {
+  "actionEvents": [
+   {
+    "modulename": "assign",
+    "instance": 200,
+    "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200",
+    "course": {
+     "id": 101
+    },
+    "activityname": "第 10 回 演習課題：探索アルゴリズム / Exercise 10: Search algorithms",
+    "timesort": 1784818740
+   },
+   {
+    "modulename": "quiz",
+    "instance": 201,
+    "url": "https://lms.s.isct.ac.jp/2025/mod/quiz/view.php?id=201",
+    "course": {
+     "id": 102
+    },
+    "activityname": "小テスト 9 / Quiz 9",
+    "timesort": 1784862000
+   },
+   {
+    "modulename": "assign",
+    "instance": 202,
+    "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=202",
+    "course": {
+     "id": 104
+    },
+    "activityname": "レポート 2：正規化 / Report 2: Normalization",
+    "timesort": 1785077940
+   },
+   {
+    "modulename": "assign",
+    "instance": 203,
+    "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=203",
+    "course": {
+     "id": 103
+    },
+    "activityname": "演習 8 / Exercise 8",
+    "timesort": 1785203100
+   }
+  ],
+  "datedEvents": [
+   {
+    "eventtype": "due",
+    "instance": 200,
+    "timesort": 1784818740
+   },
+   {
+    "eventtype": "due",
+    "instance": 201,
+    "timesort": 1784862000
+   },
+   {
+    "eventtype": "due",
+    "instance": 202,
+    "timesort": 1785077940
+   },
+   {
+    "eventtype": "due",
+    "instance": 203,
+    "timesort": 1785203100
+   },
+   {
+    "eventtype": "due",
+    "instance": 204,
+    "timesort": 1784732340
+   }
+  ]
+ },
+ "assign": [
+  {
+   "courseId": 100,
+   "states": {
+    "204": {
+     "submission": "submitted",
+     "grade": null,
+     "accepts_submission": true
+    }
+   }
+  }
+ ],
+ "intents": [
+  {
+   "kind": "selectTerm",
+   "termId": "2026-2Q"
+  },
+  {
+   "kind": "setAdmissionYear",
+   "admissionYear": 2025
+  },
+  {
+   "kind": "saveEvent",
+   "termId": "2026-2Q",
+   "existingId": "demo-club",
+   "draft": {
+    "title": "サークル",
+    "room": "",
+    "days": [
+     4
+    ],
+    "startTime": "18:30",
+    "endTime": "19:30"
+   }
+  },
+  {
+   "kind": "saveEvent",
+   "termId": "2026-2Q",
+   "existingId": "demo-lab-visit",
+   "draft": {
+    "title": "研究室見学",
+    "room": "",
+    "days": [
+     5
+    ],
+    "startTime": "16:00",
+    "endTime": "17:00"
+   }
+  }
+ ],
+ "departmentId": "cs",
+ "colors": {
+  "100": "#806a9d",
+  "101": "#b0713f",
+  "102": "#4f8a8b",
+  "103": "#355ba7",
+  "104": "#a34e5d",
+  "105": "#668879",
+  "106": "#5c7d93"
+ },
+ "fresh": [
+  {
+   "courseId": 101,
+   "sections": [
+    {
+     "id": 10108,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10109,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10110,
+     "number": 10,
+     "title": "第 10 回",
+     "bodyHtml": "<p>問題を状態空間として定式化する。</p>"
+    },
+    {
+     "id": 10111,
+     "number": 11,
+     "title": "第 11 回",
+     "bodyHtml": "<p>探索アルゴリズム：幅優先探索と深さ優先探索を比較する。</p>"
+    }
+   ],
+   "modules": [
+    {
+     "id": 3008,
+     "module": "resource",
+     "name": "第 8 回 知識表現 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3008",
+     "sectionid": 10108,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3008/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 3009,
+     "module": "resource",
+     "name": "第 9 回 状態空間 / Lecture 9",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3009",
+     "sectionid": 10109,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3009/mod_resource/content/1/lecture-9.pdf"
+    },
+    {
+     "id": 3010,
+     "module": "resource",
+     "name": "第 10 回 問題の定式化 / Lecture 10: Problem formulation",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3010",
+     "sectionid": 10110,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3010/mod_resource/content/1/lecture-10.pdf"
+    },
+    {
+     "id": 200,
+     "module": "assign",
+     "name": "第 10 回 演習課題：探索アルゴリズム / Exercise 10: Search algorithms",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=200",
+     "sectionid": 10110,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    },
+    {
+     "id": 3011,
+     "module": "resource",
+     "name": "第 11 回 探索アルゴリズム / Lecture 11: Search algorithms",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3011",
+     "sectionid": 10111,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3010/mod_resource/content/1/search-algorithms.pdf"
+    }
+   ]
+  },
+  {
+   "courseId": 104,
+   "sections": [
+    {
+     "id": 10408,
+     "number": 8,
+     "title": "第 8 回",
+     "bodyHtml": ""
+    },
+    {
+     "id": 10409,
+     "number": 9,
+     "title": "第 9 回",
+     "bodyHtml": ""
+    }
+   ],
+   "modules": [
+    {
+     "id": 3408,
+     "module": "resource",
+     "name": "第 8 回 関数従属性 / Lecture 8",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=3408",
+     "sectionid": 10408,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600,
+     "resourceUrl": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3408/mod_resource/content/1/lecture-8.pdf"
+    },
+    {
+     "id": 202,
+     "module": "assign",
+     "name": "レポート 2：正規化 / Report 2: Normalization",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=202",
+     "sectionid": 10409,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    },
+    {
+     "id": 3409,
+     "module": "forum",
+     "name": "レポート 2 の提出方法について / How to submit Report 2",
+     "url": "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=3409",
+     "sectionid": 10409,
+     "visible": true,
+     "uservisible": true,
+     "modified": 1783641600
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "lmsCourse": 101,
+   "url": "https://lms.s.isct.ac.jp/2025/pluginfile.php/3010/mod_resource/content/1/search-algorithms.pdf"
+  }
+ ],
+ "notes": [
+  {
+   "lmsCourse": 101,
+   "section": 10111,
+   "text": "# 探索のメモ\n\n- 幅優先：最短の手数が保証される\n- 深さ優先：メモリが少なくて済む\n- 次回までに A* のヒューリスティックを復習"
+  }
+ ],
+ "pastExams": [
+  {
+   "subject": {
+    "code": "CSC.T272",
+    "name": "人工知能"
+   },
+   "rows": [],
+   "exams": [
+    {
+     "id": "demo-CSC.T272-2025-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2025-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2025-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T272-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "midterm",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2024-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T272-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T272-2024-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T272",
+       "name": "人工知能"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T272-2024-final-answer.pdf",
+     "fileType": "application/pdf"
+    }
+   ]
+  },
+  {
+   "subject": {
+    "code": "MCS.T212",
+    "name": "確率論基礎"
+   },
+   "rows": [],
+   "exams": [
+    {
+     "id": "demo-MCS.T212-2025-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2025-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2025-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T212-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "midterm",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2024-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T212-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T212-2024-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T212",
+       "name": "確率論基礎"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T212-2024-final-answer.pdf",
+     "fileType": "application/pdf"
+    }
+   ]
+  },
+  {
+   "subject": {
+    "code": "MCS.T214",
+    "name": "オートマトンと数理言語論"
+   },
+   "rows": [],
+   "exams": [
+    {
+     "id": "demo-MCS.T214-2025-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2025-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2025-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T214-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "midterm",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2024-final-question",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "MCS.T214-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-MCS.T214-2024-final-answer",
+     "subjects": [
+      {
+       "code": "MCS.T214",
+       "name": "オートマトンと数理言語論"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "MCS.T214-2024-final-answer.pdf",
+     "fileType": "application/pdf"
+    }
+   ]
+  },
+  {
+   "subject": {
+    "code": "CSC.T343",
+    "name": "データベース"
+   },
+   "rows": [],
+   "exams": [
+    {
+     "id": "demo-CSC.T343-2025-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2025-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2025-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T343-2025-final-answer.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2025-midterm-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2025,
+     "occasion": "midterm",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2025-midterm-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2024-final-question",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "question",
+     "note": null,
+     "fileName": "CSC.T343-2024-final-question.pdf",
+     "fileType": "application/pdf"
+    },
+    {
+     "id": "demo-CSC.T343-2024-final-answer",
+     "subjects": [
+      {
+       "code": "CSC.T343",
+       "name": "データベース"
+      }
+     ],
+     "teachers": [],
+     "academicYear": 2024,
+     "occasion": "final",
+     "occasionNumber": 1,
+     "variant": "",
+     "role": "answer",
+     "note": null,
+     "fileName": "CSC.T343-2024-final-answer.pdf",
+     "fileType": "application/pdf"
+    }
+   ]
+  }
+ ]
+}

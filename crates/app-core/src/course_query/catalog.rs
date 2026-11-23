@@ -1,8 +1,7 @@
 use super::IndexedCourse;
-use crate::{
-    locale::{ContentLanguage, Localized},
-    schedule::text_or_empty as text,
-};
+use crate::locale::{ContentLanguage, Localized};
+#[cfg(not(feature = "demo"))]
+use crate::schedule::text_or_empty as text;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(feature = "ts")]
@@ -101,9 +100,15 @@ impl FinderCatalog {
         let courses = offerings
             .into_iter()
             .filter_map(normalize_offering)
-            .map(|mut course| {
-                let url = crate::catalog::syllabus_url(text(&course, "id"), language.code());
-                course["syllabusUrl"] = url.into();
+            .map(|course| {
+                // The demo scene's offerings have no syllabus page.
+                #[cfg(not(feature = "demo"))]
+                let course = {
+                    let mut course = course;
+                    let url = crate::catalog::syllabus_url(text(&course, "id"), language.code());
+                    course["syllabusUrl"] = url.into();
+                    course
+                };
                 IndexedCourse::new(course, language)
             })
             .collect();

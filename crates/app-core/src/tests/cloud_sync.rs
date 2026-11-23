@@ -44,7 +44,7 @@ fn manual_is_quiet_auto_queues_each_save_and_pull_does_not_echo() {
     journal.observe(document(4), false).unwrap();
     assert_eq!(journal.jobs.len(), 2);
     assert_eq!(journal.state.local_version, version(&document(4)).unwrap());
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     journal.state.providers[0].last_synced_at =
         Some((now - chrono::Duration::seconds(3599)).to_rfc3339());
     assert!(!journal.upload_due(CloudProvider::GoogleDrive, now));
@@ -533,7 +533,7 @@ impl Fixture {
     /// upload back by `hours`, as if the app had stayed open that long.
     fn age(&self, check_hours: u64, upload_hours: i64) {
         self.sync.0.remote_check.lock().unwrap().last =
-            Some(chrono::Utc::now() - chrono::Duration::hours(check_hours as i64));
+            Some(crate::clock::now() - chrono::Duration::hours(check_hours as i64));
         self.sync
             .0
             .journal
@@ -541,7 +541,7 @@ impl Fixture {
                 for provider in journal.state.providers.iter().map(|row| row.provider) {
                     journal.uploaded_at.insert(
                         provider,
-                        (chrono::Utc::now() - chrono::Duration::hours(upload_hours)).to_rfc3339(),
+                        (crate::clock::now() - chrono::Duration::hours(upload_hours)).to_rfc3339(),
                     );
                 }
                 Ok(())
@@ -640,7 +640,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .change(|journal| {
             journal.uploaded_at.insert(
                 CloudProvider::GoogleDrive,
-                (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+                (crate::clock::now() - chrono::Duration::hours(2)).to_rfc3339(),
             );
             Ok(())
         })
@@ -684,7 +684,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .change(|journal| {
             journal.uploaded_at.insert(
                 CloudProvider::GoogleDrive,
-                (chrono::Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+                (crate::clock::now() - chrono::Duration::hours(2)).to_rfc3339(),
             );
             Ok(())
         })
@@ -703,7 +703,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
         .change(|journal| {
             journal
                 .uploaded_at
-                .insert(CloudProvider::GoogleDrive, chrono::Utc::now().to_rfc3339());
+                .insert(CloudProvider::GoogleDrive, crate::clock::now().to_rfc3339());
             Ok(())
         })
         .unwrap();
@@ -1162,7 +1162,7 @@ async fn a_device_with_both_providers_relays_on_its_remote_checks_without_a_loca
         .change(|journal| {
             journal.uploaded_at.insert(
                 Drive,
-                (chrono::Utc::now() - chrono::Duration::minutes(10)).to_rfc3339(),
+                (crate::clock::now() - chrono::Duration::minutes(10)).to_rfc3339(),
             );
             Ok(())
         })

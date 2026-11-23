@@ -159,7 +159,7 @@ async fn deadline_timer(core: Arc<app_core::Core>, tasks: RuntimeTasks) {
     let mut reported = None;
     loop {
         let directive = directives.borrow_and_update().clone();
-        let now = chrono::Utc::now();
+        let now = app_core::clock::now();
         let wait = match directive.at {
             Some(_) if reported == Some(directive.revision) => WALL_CLOCK_CHECK,
             Some(at) => (at - now)
@@ -176,7 +176,7 @@ async fn deadline_timer(core: Arc<app_core::Core>, tasks: RuntimeTasks) {
                 }
             }
             _ = tokio::time::sleep(wait) => {
-                if directive.at.is_some_and(|at| at <= chrono::Utc::now())
+                if directive.at.is_some_and(|at| at <= app_core::clock::now())
                     && reported != Some(directive.revision)
                 {
                     reported = Some(directive.revision);

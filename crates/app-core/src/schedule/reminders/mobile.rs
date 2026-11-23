@@ -115,7 +115,7 @@ impl ReminderService {
 
     pub(crate) fn mobile_changed(&self) -> bool {
         if self.mobile_port().is_some() {
-            self.plan_next(Utc::now());
+            self.plan_next(crate::clock::now());
             return true;
         }
         false
@@ -132,10 +132,10 @@ impl ReminderService {
                 let _permit = service.0.pass.acquire().await.map_err(|_| stopped())?;
                 // Replace the expired deadline before awaiting the OS. A workspace
                 // change during this pass can bring the next one forward.
-                service.plan_next(Utc::now() + Duration::hours(LOOKAHEAD_HOURS));
+                service.plan_next(crate::clock::now() + Duration::hours(LOOKAHEAD_HOURS));
                 let result = service.apply_mobile_pass(port).await;
                 if !matches!(result, Ok(false)) {
-                    service.bring_next_forward(Utc::now() + Duration::minutes(1));
+                    service.bring_next_forward(crate::clock::now() + Duration::minutes(1));
                 }
                 result.map(|_| ())
             })
@@ -163,9 +163,9 @@ impl ReminderService {
     ) -> Result<(Confirmation, Option<DateTime<Utc>>), ReminderError> {
         let facts = port.facts().await?;
         let service = self.clone();
-        let plan = blocking(move || service.reconcile(Utc::now().fixed_offset(), facts)).await?;
+        let plan = blocking(move || service.reconcile(crate::clock::now().fixed_offset(), facts)).await?;
         let receipt = port.apply(plan.delivery.clone()).await?;
-        let receipt_at = Utc::now();
+        let receipt_at = crate::clock::now();
         let refill_at = plan.refill_at;
         let service = self.clone();
         let confirmation = blocking(move || service.confirm(&plan, receipt, receipt_at)).await?;

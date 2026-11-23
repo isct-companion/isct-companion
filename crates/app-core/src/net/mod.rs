@@ -31,7 +31,12 @@ pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_
 /// without a process crypto provider reqwest panics when the client is built.
 pub fn client_builder() -> reqwest::ClientBuilder {
     tls::install_provider();
-    reqwest::Client::builder()
+    let builder = reqwest::Client::builder();
+    // The demo scene's one network gate: every Core and shell client
+    // reaches only public Isct-Data (`crate::demo::network_gate`).
+    #[cfg(feature = "demo")]
+    let builder = crate::demo::network_gate(builder);
+    builder
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

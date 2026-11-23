@@ -174,7 +174,7 @@ impl ReminderService {
                 .lock()
                 .ok()
                 .and_then(|next| *next)
-                .unwrap_or_else(Utc::now),
+                .unwrap_or_else(crate::clock::now),
         )
     }
 
@@ -307,7 +307,7 @@ fn changed(inner: &ReminderInner) {
     } else {
         delay
     };
-    let soon = Utc::now() + delay;
+    let soon = crate::clock::now() + delay;
     if let Ok(mut next) = inner.next.lock() {
         *next = Some(next.map_or(soon, |next| next.min(soon)));
     }

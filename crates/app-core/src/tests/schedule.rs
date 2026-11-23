@@ -3222,7 +3222,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert!(assignment_detail(&data, "gone", chrono::Utc::now().fixed_offset()).is_none());
+    assert!(assignment_detail(&data, "gone", crate::clock::now().fixed_offset()).is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.
     let mut named = data.clone();
@@ -3232,7 +3232,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
         r#"<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>"#,
         r#"<a href="/pluginfile.php/relative.zip">relative</a>"#,
     ));
-    let names: Vec<_> = assignment_detail(&named, "a", chrono::Utc::now().fixed_offset())
+    let names: Vec<_> = assignment_detail(&named, "a", crate::clock::now().fixed_offset())
         .unwrap()
         .attachments
         .into_iter()
@@ -3242,7 +3242,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     // Without a module row the page still shows the assignment's own fields.
     let mut bare = data.clone();
     bare["materials"] = json!([]);
-    let view = assignment_detail(&bare, "a", chrono::Utc::now().fixed_offset()).unwrap();
+    let view = assignment_detail(&bare, "a", crate::clock::now().fixed_offset()).unwrap();
     assert!(view.body_html.is_empty() && view.attachments.is_empty());
     assert_eq!(view.title, "Report");
 

@@ -293,14 +293,14 @@ pub enum SchoolFile {
 }
 
 /// Where this platform's releases come from, fixed at build time.
-#[cfg(target_os = "android")]
+#[cfg(all(not(feature = "demo"), target_os = "android"))]
 async fn fetch_release(
     running: &str,
 ) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
     app_core::app_updates::fetch_android(running).await
 }
 
-#[cfg(target_os = "ios")]
+#[cfg(all(not(feature = "demo"), target_os = "ios"))]
 async fn fetch_release(
     running: &str,
 ) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
@@ -308,7 +308,10 @@ async fn fetch_release(
 }
 
 /// Host builds (tests, binding generation) have no store to read.
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
+#[cfg(all(
+    not(feature = "demo"),
+    not(any(target_os = "android", target_os = "ios"))
+))]
 async fn fetch_release(
     _running: &str,
 ) -> Result<Option<app_core::app_updates::MobileRelease>, app_core::app_updates::AppUpdateError> {
@@ -316,6 +319,12 @@ async fn fetch_release(
         "This build has no update source.".into(),
     ))
 }
+
+const APP_UPDATE_NOT_CHECKED: OperationResult = OperationResult::AppUpdate {
+    checked: false,
+    release: None,
+    prompt: false,
+};
 
 /// A newer release for this device: its version and where it comes from (the
 /// APK on Android, the App Store page on iOS and iPadOS).
@@ -340,19 +349,22 @@ impl Session {
         last_checked: Option<String>,
         manual: bool,
     ) -> Result<Arc<Operation>, SdkError> {
+        // The demo scene never offers an update.
+        #[cfg(feature = "demo")]
+        {
+            let _ = (running, last_checked, manual);
+            self.start(false, |_, _| async { Ok(APP_UPDATE_NOT_CHECKED) })
+        }
+        #[cfg(not(feature = "demo"))]
         self.start(false, move |inner, _| async move {
             let workspace = inner.core.store.load_fields(&[])?;
             if !app_core::app_updates::check_now(
                 &workspace,
                 last_checked.as_deref(),
-                chrono::Utc::now(),
+                app_core::clock::now(),
                 manual,
             ) {
-                return Ok(OperationResult::AppUpdate {
-                    checked: false,
-                    release: None,
-                    prompt: false,
-                });
+                return Ok(APP_UPDATE_NOT_CHECKED);
             }
             let found = fetch_release(&running)
                 .await

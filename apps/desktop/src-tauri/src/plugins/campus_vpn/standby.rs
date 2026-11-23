@@ -132,7 +132,7 @@ fn hold(app: &tauri::AppHandle, service: &Arc<VpnService>) -> Result<(), String>
 /// Something used the campus network with no tunnel up: Core decides
 /// whether to sign in, and how the outcome counts.
 async fn demand(app: tauri::AppHandle, service: Arc<VpnService>) {
-    if !service.demanded(chrono::Utc::now()) {
+    if !service.demanded(app_core::clock::now()) {
         return;
     }
     // A press or a reconnect in progress is bringing the tunnel up already.
@@ -157,6 +157,6 @@ async fn demand(app: tauri::AppHandle, service: Arc<VpnService>) {
         }
         Err(error) => service.failed(VpnError::Login(error)),
     };
-    let notice = service.demand_finished(&outcome, chrono::Utc::now());
+    let notice = service.demand_finished(&outcome, app_core::clock::now());
     helper::tell(&app, &service, outcome, notice);
 }

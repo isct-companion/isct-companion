@@ -143,7 +143,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     })).unwrap();
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, crate::clock::now())
         })
         .unwrap();
     let service = crate::workspace::WorkspaceService::new(store.clone());
@@ -207,7 +207,7 @@ fn lms_owns_the_calendar_while_official_records_and_personal_edits_survive() {
     }];
     store
         .write(None, |tx| {
-            crate::lms_ingest::apply_lms_enrolment(tx, &payload, chrono::Utc::now())
+            crate::lms_ingest::apply_lms_enrolment(tx, &payload, crate::clock::now())
         })
         .unwrap();
     assert!(
@@ -267,7 +267,7 @@ fn lms_quarter_grids_keep_clocks_overlays_and_removal_tombstones_across_official
     let ingest = |enrolment: &adpt_isct::lms::LmsEnrolment| {
         store
             .write(None, |tx| {
-                crate::lms_ingest::apply_lms_enrolment(tx, enrolment, chrono::Utc::now())
+                crate::lms_ingest::apply_lms_enrolment(tx, enrolment, crate::clock::now())
             })
             .unwrap();
     };

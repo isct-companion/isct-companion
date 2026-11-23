@@ -11,9 +11,17 @@
     )
 )]
 uniffi::setup_scaffolding!();
+// The demo scene runs only in the demo SDK: Core's `demo` feature must come
+// through this crate's own, which the iOS demo build checks against its
+// configuration.
+const _: () = assert!(
+    app_core::DEMO == cfg!(feature = "demo"),
+    "app-core's `demo` feature must match app-ffi's"
+);
 #[cfg(target_os = "android")]
 mod android_tls;
 mod campus_print;
+mod clock;
 mod diagnostics;
 mod error;
 mod exam_share;
@@ -26,6 +34,7 @@ pub use campus_print::{
     campus_printer_capabilities, CampusPrintColor, CampusPrintJob, CampusPrintMedia,
     CampusPrintMessage, CampusPrintReport, CampusPrintSides, CampusPrinterCapabilities,
 };
+pub use clock::clock_offset_ms;
 pub use diagnostics::{export_application_logs, feedback_form_url};
 pub use error::SdkError;
 pub use json::JsonValue;

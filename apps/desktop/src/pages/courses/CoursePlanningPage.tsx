@@ -11,6 +11,7 @@ import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
 import { saveExportFile } from "../../platform/save-export";
+import { wallNow } from "../../platform/use-clock";
 import type { CourseEntry } from "../../features/lms";
 import { Courses } from "./CoursesPage";
 import { useState } from "react";
@@ -390,7 +391,7 @@ export function CoursePlanningPage({
                 kind: "quarterIcs",
                 term,
                 scope,
-                generatedAt: new Date().toISOString(),
+                generatedAt: new Date(wallNow()).toISOString(),
               }),
             notify.info,
           )

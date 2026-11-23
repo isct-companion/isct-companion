@@ -83,6 +83,7 @@ import { KeptPage } from "./KeptPage";
 import { traceRouter } from "./interaction-trace";
 import type { ClassGroupChoice, TermId, Workspace } from "../lib/model";
 import { tokyoDate } from "../lib/civil-date";
+import { wallNow } from "../platform/use-clock";
 import { useRecords } from "../platform/records";
 import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
@@ -384,7 +385,7 @@ export function WorkspaceApp() {
     // The question is a convenience; a failed read must not fail the pull.
     const choices = await scheduleQuery<ClassGroupChoice[]>({
       kind: "classGroups",
-      today: tokyoDate(new Date()),
+      today: tokyoDate(new Date(wallNow())),
     }).catch(() => []);
     setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
   };

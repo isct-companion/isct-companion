@@ -218,7 +218,7 @@ impl CloudSync {
             tasks: RuntimeTasks::default(),
             pass: Arc::new(tokio::sync::Semaphore::new(1)),
             services: Mutex::new(None),
-            capture_at: Mutex::new(Some(chrono::Utc::now())),
+            capture_at: Mutex::new(Some(crate::clock::now())),
             interrupted: std::sync::atomic::AtomicBool::new(false),
             remote_check: Mutex::new(RemoteCheck::default()),
         })))
@@ -251,7 +251,7 @@ impl CloudSync {
             return None;
         }
         self.services()?;
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         if let Some(at) = self.0.capture_at.lock().ok().and_then(|at| *at) {
             return Some(at);
         }
@@ -298,7 +298,7 @@ impl CloudSync {
                 if let Err(error) = service.resume_inner(&services).await {
                     crate::diagnostics::report("cloud-sync", &error);
                 }
-                let now = chrono::Utc::now();
+                let now = crate::clock::now();
                 let due = service
                     .0
                     .capture_at
@@ -335,7 +335,7 @@ impl CloudSync {
     /// Local content changed: a pass a few seconds on captures it, so a
     /// burst of commits makes one capture.
     pub fn request_capture(&self) {
-        let soon = chrono::Utc::now() + CAPTURE_DELAY;
+        let soon = crate::clock::now() + CAPTURE_DELAY;
         if let Ok(mut at) = self.0.capture_at.lock() {
             *at = Some(at.map_or(soon, |at| at.min(soon)));
         }
@@ -671,7 +671,7 @@ impl CloudSync {
             .remote_check
             .lock()
             .map_err(|_| CloudSyncError::Storage("Sync clock unavailable".into()))?;
-        let now = chrono::Utc::now();
+        let now = crate::clock::now();
         let due = check.last.is_none_or(|last| {
             let elapsed = now.signed_duration_since(last);
             elapsed >= REMOTE_CHECK_INTERVAL
@@ -688,7 +688,7 @@ impl CloudSync {
         self.finish_apply(services).await?;
         self.0.journal.change(Journal::coalesce_uploads)?;
         let jobs = self.0.journal.read(|journal| journal.jobs.clone())?;
-        let now = chrono::Utc::now().timestamp();
+        let now = crate::clock::now().timestamp();
         let mut cooling = jobs
             .iter()
             .flat_map(|job| &job.task.deliveries)
@@ -708,7 +708,7 @@ impl CloudSync {
             {
                 return Err(CloudSyncError::Stopped);
             }
-            let now = chrono::Utc::now().timestamp();
+            let now = crate::clock::now().timestamp();
             let mut due = Vec::new();
             for delivery in &job.task.deliveries {
                 if self.delivery_due(&job, delivery, &cooling, now)? {
@@ -869,7 +869,7 @@ impl CloudSync {
                 || job.manual
                 || delivery.attempts > 0
                 || (provider.synced_version.as_ref() != Some(&job.task.version)
-                    && journal.upload_due(delivery.provider, chrono::Utc::now()))
+                    && journal.upload_due(delivery.provider, crate::clock::now()))
         })
     }
 
@@ -910,7 +910,7 @@ impl CloudSync {
                     delivery.error = Some(error.to_string());
                     let exponent = delivery.attempts.clamp(1, 4) - 1;
                     delivery.retry_at =
-                        chrono::Utc::now().timestamp() + (30_i64 * 2_i64.pow(exponent)).min(300);
+                        crate::clock::now().timestamp() + (30_i64 * 2_i64.pow(exponent)).min(300);
                 }
             }
             let provider_state = journal
@@ -922,7 +922,7 @@ impl CloudSync {
             match result {
                 Ok(None) => {}
                 Ok(Some((document, versions))) => {
-                    let now = chrono::Utc::now().to_rfc3339();
+                    let now = crate::clock::now().to_rfc3339();
                     if direction == Direction::Upload {
                         journal.uploaded_at.insert(provider, now.clone());
                     }

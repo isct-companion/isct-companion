@@ -62,7 +62,9 @@ fn apple_keychain_sync(account: &str) -> bool {
     cfg!(icloud) && vault_item(account).is_ok_and(|item| item.synchronized)
 }
 
-/// The school credentials' status metadata, in the data folder.
+/// The school credentials' status metadata, in the data folder. The demo
+/// keeps its status in memory (`SchoolAuthService::demo`).
+#[cfg(not(feature = "demo"))]
 pub const SCHOOL_STATUS_FILE: &str = "school-credential-status.json";
 
 impl SecretVault for OsSecretVault {

@@ -66,7 +66,7 @@ impl Duty for Reminders {
             let Some(sink) = self.0.sink() else {
                 return;
             };
-            if let Err(error) = self.0.deliver_due(sink, Utc::now().fixed_offset()).await {
+            if let Err(error) = self.0.deliver_due(sink, crate::clock::now().fixed_offset()).await {
                 crate::diagnostics::report("reminders", &error);
             }
         })
@@ -133,6 +133,7 @@ impl Duty for Cloud {
 }
 
 /// Where Core keeps the ScienceTokyoExam client once a shell opens it.
+#[cfg(not(feature = "demo"))]
 pub(crate) type ExamShareSlot = Arc<std::sync::OnceLock<Arc<crate::exam_share::ExamShare>>>;
 
 /// Low-frequency maintenance, the only place stored things are collected:
@@ -144,6 +145,7 @@ pub(crate) type ExamShareSlot = Arc<std::sync::OnceLock<Arc<crate::exam_share::E
 /// restarts in `store-index.db`.
 pub(crate) struct Maintenance {
     store: DataStore,
+    #[cfg(not(feature = "demo"))]
     exam_share: ExamShareSlot,
     #[cfg(feature = "agent")]
     submissions: Option<crate::submissions::SubmissionService>,
@@ -153,10 +155,10 @@ pub(crate) struct Maintenance {
 impl Maintenance {
     pub(crate) fn new(
         store: DataStore,
-        exam_share: ExamShareSlot,
+        #[cfg(not(feature = "demo"))] exam_share: ExamShareSlot,
         #[cfg(feature = "agent")] submissions: Option<crate::submissions::SubmissionService>,
     ) -> Self {
-        let earliest = Utc::now() + MAINTENANCE_START;
+        let earliest = crate::clock::now() + MAINTENANCE_START;
         let next = store
             .root()
             .maintenance_due(MAINTENANCE_KEY)
@@ -166,6 +168,7 @@ impl Maintenance {
             .map_or(earliest, |at| at.max(earliest));
         Self {
             store,
+            #[cfg(not(feature = "demo"))]
             exam_share,
             #[cfg(feature = "agent")]
             submissions,
@@ -174,6 +177,7 @@ impl Maintenance {
     }
 
     pub(crate) fn pass(&self, now: DateTime<Utc>) -> Result<(), String> {
+        #[cfg(not(feature = "demo"))]
         let exams = self.exam_share.get().map_or(Ok(()), |cache| {
             cache
                 .clean_cached_materials(now.into())
@@ -200,11 +204,14 @@ impl Maintenance {
         };
         #[cfg(not(feature = "agent"))]
         let ledger: Result<(), String> = Ok(());
-        gc.map(|_| ())
+        let result = gc
+            .map(|_| ())
             .and(retired.map(|_| ()))
             .and(snapshot.map(|_| ()))
-            .and(ledger)
-            .and(exams)
+            .and(ledger);
+        #[cfg(not(feature = "demo"))]
+        let result = result.and(exams);
+        result
     }
 }
 
@@ -222,7 +229,7 @@ impl Duty for Maintenance {
         Box::pin(async move {
             let duty = self.clone();
             let ran = tokio::task::spawn_blocking(move || {
-                let now = Utc::now();
+                let now = crate::clock::now();
                 let passed = duty.pass(now);
                 let next = match &passed {
                     Ok(()) => now + MAINTENANCE_EVERY,
@@ -298,7 +305,7 @@ impl AgentAccess {
     /// The setting may have changed: reconcile now.
     pub(crate) fn changed(&self) {
         if let Ok(mut next) = self.next.lock() {
-            *next = Some(Utc::now());
+            *next = Some(crate::clock::now());
         }
     }
 
@@ -348,7 +355,7 @@ impl Duty for AgentAccess {
                         log::error!("[mcp] server unavailable: {error}");
                     }
                     if let Ok(mut next) = self.next.lock() {
-                        let retry = Utc::now() + Duration::from_std(wait).unwrap_or_default();
+                        let retry = crate::clock::now() + Duration::from_std(wait).unwrap_or_default();
                         *next = Some(next.map_or(retry, |next| next.min(retry)));
                     }
                 }

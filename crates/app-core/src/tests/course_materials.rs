@@ -32,7 +32,7 @@ pub(crate) fn enrolled(store: &DataStore) -> (String, CourseKey) {
         .write(
             Some(crate::data::WorkspaceChangeSource::SchoolPull),
             |transaction| {
-                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, chrono::Utc::now())
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, crate::clock::now())
                     .map_err(|error| crate::data::DataError::from(error.to_string()))
             },
         )

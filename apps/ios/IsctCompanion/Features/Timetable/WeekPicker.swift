@@ -63,7 +63,7 @@ struct WeekPicker: View {
                     Button(t("timetable.nextYear"), systemImage: "chevron.right") { Task { await step(1) } }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(t("timetable.backToToday")) { pick(TimetableScreen.monday(of: Date())) }
+                    Button(t("timetable.backToToday")) { pick(TimetableScreen.monday(of: AppClock.now)) }
                 }
             }
         }

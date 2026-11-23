@@ -56,7 +56,7 @@ struct StudyProfileScreen: View {
         .navigationTitle(t("settings.main.studyProfile"))
         .navigationBarTitleDisplayMode(.inline)
         .task { departments = await model.departments() }
-        .task { currentYear = await model.academicYear(of: Date()) }
+        .task { currentYear = await model.academicYear(of: AppClock.now) }
         .task(id: model.contentRevision) { await load() }
     }
 
@@ -81,7 +81,7 @@ struct StudyProfileScreen: View {
 
     /// The desktop's choices: the ten years up to next year, plus a stored one.
     private var years: [Int32] {
-        let now = currentYear ?? Int32(Calendar.tokyo.component(.year, from: Date()))
+        let now = currentYear ?? Int32(Calendar.tokyo.component(.year, from: AppClock.now))
         var list = (0..<10).map { now + 1 - Int32($0) }
         if let year, !list.contains(year) { list.append(year) }
         return list.sorted(by: >)

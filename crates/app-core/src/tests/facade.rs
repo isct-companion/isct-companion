@@ -168,7 +168,7 @@ async fn the_wake_directive_names_the_next_deadline_of_the_attached_duties() {
     let directive = tokio::time::timeout(
         Duration::from_secs(5),
         directives.wait_for(|directive| {
-            directive.at.is_some_and(|at| at > chrono::Utc::now())
+            directive.at.is_some_and(|at| at > crate::clock::now())
                 && directive
                     .background
                     .iter()
@@ -179,7 +179,7 @@ async fn the_wake_directive_names_the_next_deadline_of_the_attached_duties() {
     .unwrap()
     .unwrap()
     .clone();
-    assert!(directive.at.unwrap() <= chrono::Utc::now() + chrono::Duration::minutes(2));
+    assert!(directive.at.unwrap() <= crate::clock::now() + chrono::Duration::minutes(2));
     core.deadline_reached(directive.revision);
     core.deadline_reached(0);
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -537,7 +537,7 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
     // search form's new choices count as a change of their year.
     land(2026, &[offering("202600002", 2026, "CSC.T201")]);
     store
-        .record_kyomu_search_options(2026, &json!([]), chrono::Utc::now())
+        .record_kyomu_search_options(2026, &json!([]), crate::clock::now())
         .unwrap();
     land(2025, &[offering("202500001", 2025, "CSC.T101")]);
     let held = catalog_events(0).len();
@@ -562,7 +562,7 @@ fn finder_queries_follow_catalog_and_workspace_commits() {
     // the window has passed.
     std::thread::sleep(Duration::from_millis(300));
     store
-        .record_kyomu_search_options(2026, &json!([]), chrono::Utc::now())
+        .record_kyomu_search_options(2026, &json!([]), crate::clock::now())
         .unwrap();
     land(2026, &[offering("202600002", 2026, "CSC.T201")]);
     assert_eq!(catalog_events(0).len(), 3);
@@ -724,13 +724,13 @@ async fn local_changes_bring_the_next_cloud_capture_forward() {
         transport: Arc::new(NoopCloud),
         events: Arc::new(NoopEvents),
     });
-    assert!(cloud.next_due().is_some_and(|at| at <= chrono::Utc::now()));
+    assert!(cloud.next_due().is_some_and(|at| at <= crate::clock::now()));
     cloud.run_due().await.unwrap();
     assert_eq!(cloud.next_due(), None, "captured; idle until a change");
 
     admission_year(&core, core.workspace.read_back().unwrap().revision, 2026).unwrap();
     let due = cloud.next_due().unwrap();
-    assert!(due > chrono::Utc::now() && due <= chrono::Utc::now() + chrono::Duration::seconds(5));
+    assert!(due > crate::clock::now() && due <= crate::clock::now() + chrono::Duration::seconds(5));
 
     core.shutdown().await;
     let _ = std::fs::remove_dir_all(root);
@@ -773,7 +773,7 @@ fn seeded_store(name: &str) -> DataStore {
     .unwrap();
     store
         .write(Some(WorkspaceChangeSource::SchoolPull), |tx| {
-            let now = chrono::Utc::now();
+            let now = crate::clock::now();
             crate::lms_ingest::apply_lms_enrolment(tx, &enrolment, now)?;
             crate::lms_ingest::apply_lms_course(tx, &outline, now)?;
             crate::lms_ingest::apply_lms_deadlines(tx, &deadlines, now)?;

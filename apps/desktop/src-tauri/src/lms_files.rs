@@ -44,6 +44,14 @@ pub(crate) fn root(app: &AppHandle) -> Result<(PathBuf, bool), CommandError> {
         Err(error) => Err(format!("Course storage settings are unreadable: {error}").into()),
     }
 }
+/// The demo scene's course files stay inside its own data folder, out of
+/// Documents, and go when that folder does.
+#[cfg(feature = "demo")]
+fn default_root(app: &AppHandle) -> Result<PathBuf, CommandError> {
+    Ok(app.path().app_data_dir().map_err(shell)?.join("Courses"))
+}
+
+#[cfg(not(feature = "demo"))]
 fn default_root(app: &AppHandle) -> Result<PathBuf, CommandError> {
     let base = app
         .path()

@@ -10,7 +10,6 @@ use crate::plan::{net_end, session_end, KeyEnd, Lease};
 use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
-use chrono::Utc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CatalogError {
@@ -22,11 +21,13 @@ pub enum CatalogError {
     InvalidInput(String),
 }
 
+#[cfg(not(feature = "demo"))]
 use adpt_isct::urls::SYLLABUS_ORIGIN;
 pub use adpt_isct::urls::{syllabus_url, KYOMU_SEARCH_PATH};
 
 /// The offering a シラバス link names, by its `jwc` query value or its last
-/// path segment; `None` for any other link.
+/// path segment. Offering IDs contain nine digits.
+#[cfg(not(feature = "demo"))]
 pub(crate) fn syllabus_offering(url: &str) -> Option<String> {
     let url = url::Url::parse(url)
         .ok()
@@ -35,12 +36,7 @@ pub(crate) fn syllabus_offering(url: &str) -> Option<String> {
         .find(|(key, _)| key == "jwc")
         .map(|(_, value)| value.into_owned())
         .or_else(|| url.path_segments()?.next_back().map(str::to_string))
-        .filter(|id| valid_offering(id))
-}
-
-/// Offering ids are nine digits, the first four the academic year.
-pub(crate) fn valid_offering(id: &str) -> bool {
-    id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit())
+        .filter(|id| id.len() == 9 && id.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Stored offerings for one year.
@@ -242,7 +238,7 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
         source.clone(),
     );
     let applied = tokio::task::spawn_blocking(move || {
-        let now = Utc::now();
+        let now = crate::clock::now();
         let committed = writer.catalog_write(year, |transaction| {
             let changed = match &rows {
                 Some(rows) if english => {

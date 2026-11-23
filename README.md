@@ -17,7 +17,7 @@ Free · Open source · No ads · No account
 **English** · [日本語](README.ja.md)
 
 <p>
-  <img src="docs/screenshots/desktop-today.en.png" alt="Today on the desktop: today's classes and rooms and open assignments next to the weekly calendar" width="74%">
+  <img src="docs/screenshots/desktop-today.en.png" alt="Today on the desktop: upcoming exams and today's classes with their rooms next to the weekly calendar" width="74%">
   <img src="docs/screenshots/phone-today.en.png" alt="Today on iPhone: a countdown to the current class, the next room and this week's assignments" width="23%">
 </p>
 

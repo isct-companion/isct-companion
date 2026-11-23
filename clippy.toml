@@ -1,0 +1,7 @@
+# Core and the shells read the time through one clock, `app_core::clock::now`,
+# which a demo build runs from its scene's moment. Reading the system clock
+# beside it splits the two: a demo refresh once saw the data it had just
+# stored as months old and fetched again without end.
+disallowed-methods = [
+  { path = "chrono::offset::Utc::now", reason = "read the time through app_core::clock::now (crate::clock::now in app-core)" },
+]

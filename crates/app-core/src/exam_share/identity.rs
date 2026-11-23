@@ -49,7 +49,7 @@ impl SessionToken {
         if claims.sub != saved.uid
             || claims.aud != FIREBASE_PROJECT
             || claims.iss != format!("https://securetoken.google.com/{FIREBASE_PROJECT}")
-            || claims.exp <= chrono::Utc::now().timestamp()
+            || claims.exp <= crate::clock::now().timestamp()
         {
             return Err(ExamError::Response);
         }

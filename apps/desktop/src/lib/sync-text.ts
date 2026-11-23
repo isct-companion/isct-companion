@@ -15,6 +15,7 @@ import type {
 } from "../generated/persistence";
 import type { ProgressLine } from "../platform/sync";
 import { formatJst } from "./civil-date";
+import { wallNow } from "../platform/use-clock";
 import { lookup, relativeTimeAgo, t, type MessageKey } from "../i18n";
 
 /** One name per `sync_state::Dataset`. */
@@ -62,7 +63,7 @@ export const runText = (run: RunView) => {
 
 const clock = (at: string, locale: string) =>
   formatJst(at, locale, {
-    ...(Math.abs(Date.parse(at) - Date.now()) > 12 * 3_600_000
+    ...(Math.abs(Date.parse(at) - wallNow()) > 12 * 3_600_000
       ? { month: "numeric", day: "numeric" }
       : {}),
     hour: "2-digit",

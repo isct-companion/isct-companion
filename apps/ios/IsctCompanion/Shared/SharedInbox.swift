@@ -37,8 +37,11 @@ enum SharedInbox {
         let choice: Choice?
     }
 
+    /// The App Group of the app and its extensions, which each bundle's
+    /// Info.plist names (`ISCT_APP_GROUP`).
     private static var container: URL? {
-        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.app.isctcompanion")
+        guard let group = Bundle.main.object(forInfoDictionaryKey: "IsctWidgetGroup") as? String else { return nil }
+        return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
     }
 
     private static var transfers: URL? { container?.appendingPathComponent("HandIn", isDirectory: true) }

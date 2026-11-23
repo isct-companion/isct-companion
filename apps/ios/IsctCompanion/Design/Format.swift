@@ -59,7 +59,7 @@ enum Format {
     }
 
     /// `今日 23:59`, `Tomorrow 23:59`, `10/18(日) 23:59`
-    static func due(_ raw: String?, now: Date = Date()) -> String {
+    static func due(_ raw: String?, now: Date = AppClock.now) -> String {
         guard let due = date(raw) else { return t("common.noDeadline") }
         let calendar = Calendar.tokyo
         let time = self.time(due)
@@ -163,7 +163,7 @@ struct AssignmentDeadlineTag: View {
                 guard !submitted, visible, scene == .active, var current = deadline else { return }
                 while let next = Format.date(current.nextChangeAt) {
                     do {
-                        try await Task.sleep(for: .seconds(max(0.001, next.timeIntervalSinceNow)))
+                        try await Task.sleep(for: .seconds(max(0.001, AppClock.until(next))))
                     } catch { return }
                     guard let updated = await model.deadlineDisplay(at: current.at), !Task.isCancelled else { return }
                     display = updated

@@ -96,7 +96,7 @@ impl Journal {
                     id: uuid::Uuid::now_v7().to_string(),
                     direction,
                     version,
-                    created_at: chrono::Utc::now().to_rfc3339(),
+                    created_at: crate::clock::now().to_rfc3339(),
                     deliveries,
                 },
             });

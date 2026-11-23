@@ -55,7 +55,7 @@ struct Inner {
 pub struct Http(Arc<Inner>);
 
 fn now_unix() -> i64 {
-    chrono::Utc::now().timestamp()
+    crate::clock::now().timestamp()
 }
 
 impl Http {

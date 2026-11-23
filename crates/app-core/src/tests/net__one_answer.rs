@@ -24,6 +24,6 @@ impl crate::school_session::Transport for OneAnswer {
     }
     fn report_maintenance(&self, _host: Host) {}
     fn paused_until(&self, _host: Host) -> Option<i64> {
-        Some(chrono::Utc::now().timestamp() + 300)
+        Some(crate::clock::now().timestamp() + 300)
     }
 }
