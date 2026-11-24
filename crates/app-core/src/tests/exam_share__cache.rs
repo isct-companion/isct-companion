@@ -18,9 +18,11 @@ async fn put_copy(
     fs::create_dir_all(&folder).unwrap();
     let cached = Cached {
         document: serde_json::from_value(serde_json::json!({
-            "id": id, "subjects": [], "teachers": [], "academicYear": null,
-            "occasion": null, "occasionNumber": 0, "variant": "", "role": null,
+            "id": id, "subjects": [], "teachers": [], "allTeachers": false,
+            "academicYear": null, "occasion": null, "occasionText": "",
+            "occasionNumber": 0, "variant": "", "role": null, "roleText": "",
             "note": null, "fileName": file_name, "fileType": "text/plain",
+            "pairKey": null,
         }))
         .unwrap(),
         updated_at: 0,
@@ -78,7 +80,7 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     file.set_modified(now - Duration::from_secs(25 * 3_600))
         .unwrap();
     drop(file);
-    let upload = root.0.join("account.upload.json");
+    let upload = root.0.join("account.pending-upload.json");
     fs::write(&upload, b"pending publication").unwrap();
 
     assert!(cache_file(stale.parent().unwrap()).await.unwrap().is_none());

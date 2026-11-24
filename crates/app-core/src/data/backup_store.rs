@@ -101,7 +101,7 @@ impl DataStore {
                     upsert_row(transaction, table, &stored, true)?;
                 }
                 if *table == "schedule_overrides" {
-                    schedule_overrides::restore_effective(transaction, restored, &stamp)?;
+                    schedule_overrides::restore_effective(transaction, restored, stamp)?;
                 }
             }
             // A setting the old copy lacks keeps its current value: settings

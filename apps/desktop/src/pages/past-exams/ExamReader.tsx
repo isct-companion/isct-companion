@@ -13,13 +13,12 @@ import { ErrorBanner, Tag } from "../../components/ui";
 import { FileView } from "../../components/files/FileView";
 import { ReaderPane, ReaderTools } from "../../components/files/ReaderPane";
 import type {
-  ExamAction,
-  ExamAnswer,
   ExamChoices,
   ExamLocalDocument,
 } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { ReportDialog } from "./ExamDialogs";
+import { loadChoices, type Call } from "./ExamList";
 
 /** The opened document in the shared LMS reader frame, with its own tools.
  * Every type Core accepts shows here; the system application is one of
@@ -27,7 +26,6 @@ import { ReportDialog } from "./ExamDialogs";
 export function ExamReader({
   file,
   title,
-  choices,
   call,
   setFile,
   onLibraryChanged,
@@ -35,13 +33,13 @@ export function ExamReader({
 }: {
   file: ExamLocalDocument;
   title: string;
-  choices?: ExamChoices;
-  call: (action: ExamAction) => Promise<ExamAnswer | undefined>;
+  call: Call;
   setFile: (update: (current: ExamLocalDocument) => ExamLocalDocument) => void;
   onLibraryChanged: () => void;
   close: () => void;
 }) {
-  const [reporting, setReporting] = useState(false);
+  /** The report form's choices while it is open. */
+  const [reporting, setReporting] = useState<ExamChoices>();
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const { document } = file;
@@ -142,8 +140,8 @@ export function ExamReader({
         {tool(
           t("examShare.report"),
           <Flag size={15} strokeWidth={1.75} aria-hidden />,
-          () => setReporting(true),
-          { disabled: file.offline || !choices },
+          () => void loadChoices(call).then(setReporting),
+          { disabled: file.offline },
         )}
       </div>
     </div>
@@ -172,16 +170,15 @@ export function ExamReader({
           }
         />
       </div>
-      {choices && (
+      {reporting && (
         <ReportDialog
-          opened={reporting}
-          choices={choices}
-          close={() => setReporting(false)}
+          choices={reporting}
+          close={() => setReporting(undefined)}
           submit={async (reason, detail) => {
             if (
               await call({ kind: "report", id: document.id, reason, detail })
             ) {
-              setReporting(false);
+              setReporting(undefined);
               notify.info(t("examShare.reported"));
             }
           }}

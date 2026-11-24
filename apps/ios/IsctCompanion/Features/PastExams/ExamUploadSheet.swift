@@ -57,16 +57,18 @@ struct ExamUploadSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let entry: ExamUploadEntry
-    let choices: ExamChoices
+    /// The form's choices; a recovery shows no form and needs none.
+    let choices: ExamChoices?
     /// An upload or recovery finished.
     let onFinished: (ExamUploadOutcome) async -> Void
 
-    private struct UploadInput: Equatable {
+    private struct UploadInput {
         let draft: ExamUploadDraft
         let files: [ExamUploadFile]
     }
 
-    @State private var checkedInput: UploadInput?
+    /// The staged files `readiness` answers for.
+    @State private var checkedFiles: [ExamUploadFile]?
     @State private var readiness: ExamUploadReadiness?
     @State private var form: ExamUploadForm?
     @State private var newTeachers: [TeacherEntry] = []
@@ -90,7 +92,7 @@ struct ExamUploadSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if !running, upload?.phase != .pending, checkedInput == uploadInput,
+                if !running, upload?.phase != .pending, checkedFiles == uploadFiles,
                    let reason = readiness?.reasonKey {
                     Section { Text(t(reason)).foregroundStyle(Theme.danger) }
                 }
@@ -113,14 +115,14 @@ struct ExamUploadSheet: View {
                         Text(t("examShare.upload.pending"))
                     }
                 }
-                if let form = Binding($form) {
+                if let form = Binding($form), let choices {
                     Group {
                         fileFields
-                        classificationFields(form.draft)
-                        subjectFields(form.wrappedValue)
-                        teacherFields(form)
-                        sourceFields(form.draft)
-                        noteField(form.draft)
+                        classificationFields(form.draft, choices)
+                        subjectFields(form.wrappedValue, choices)
+                        teacherFields(form, choices)
+                        sourceFields(form.draft, choices)
+                        noteField(form.draft, choices)
                     }
                     .disabled(formDisabled)
                 }
@@ -177,12 +179,13 @@ struct ExamUploadSheet: View {
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $choosingSubject) {
-                ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? [])) { subject in
+                ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? []), limit: choices?.limits.searchQuery) { subject in
                     try await edit(.addSubject(code: subject.code))
                 }
             }
             .task { await load() }
-            .task(id: uploadInput) { await checkReadiness() }
+            // Once the form is there, and again each time the files change.
+            .task(id: form == nil ? nil : uploadFiles) { await checkReadiness() }
         }
     }
 
@@ -190,25 +193,32 @@ struct ExamUploadSheet: View {
         running || staging || cancelling || editing || upload?.phase == .pending
     }
 
+    private var uploadFiles: [ExamUploadFile] {
+        files.map { ExamUploadFile(path: $0.url.path, name: $0.name) }
+    }
+
     private var uploadInput: UploadInput? {
         guard var draft = form?.draft else { return nil }
         draft.newTeachers = newTeachers.map {
             ExamNewTeacher(familyName: $0.familyName, givenName: $0.givenName)
         }
-        return UploadInput(draft: draft, files: files.map { ExamUploadFile(path: $0.url.path, name: $0.name) })
+        return UploadInput(draft: draft, files: uploadFiles)
     }
 
     private var canSubmit: Bool {
-        !formDisabled && checkedInput == uploadInput && readiness != nil && readiness?.reasonKey == nil
+        !formDisabled && checkedFiles == uploadFiles && readiness != nil && readiness?.reasonKey == nil
     }
 
+    /// Whether the staged files can go; the service checks the rest of the
+    /// form when it is sent.
     private func checkReadiness() async {
-        guard let input = uploadInput else { return }
+        guard form != nil else { return }
+        let files = uploadFiles
         let retained = selections
         defer { withExtendedLifetime(retained) {} }
-        guard case let .uploadReadiness(result)? = try? await model.examShare(.uploadReadiness(files: input.files, draft: input.draft)),
+        guard case let .uploadReadiness(result)? = try? await model.examShare(.uploadReadiness(files: files)),
               !Task.isCancelled else { return }
-        checkedInput = input
+        checkedFiles = files
         readiness = result
     }
 
@@ -271,8 +281,10 @@ struct ExamUploadSheet: View {
         files.swapAt(index, index + offset)
     }
 
-    private func classificationFields(_ draft: Binding<ExamUploadDraft>) -> some View {
-        let occasions = choices.roles.first { $0.role == draft.wrappedValue.role }?.occasions ?? []
+    private func classificationFields(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
+        let value = draft.wrappedValue
+        let occasions = choices.roles.first { $0.role == value.role }?.occasions ?? []
+        let textLimit = choices.limits.metadataText
         return Section {
             Picker(t("examShare.upload.role"), selection: Binding(
                 get: { draft.wrappedValue.role },
@@ -280,26 +292,43 @@ struct ExamUploadSheet: View {
             )) {
                 ForEach(choices.roles, id: \.role) { Text($0.role.label).tag($0.role) }
             }
+            if value.role == .other {
+                TextField(t("examShare.upload.roleText"), text: draft.roleText)
+                    .examMaxLength(textLimit, draft.roleText)
+            }
             Picker(t("examShare.year"), selection: draft.academicYear) {
                 ForEach(examYears(choices.limits), id: \.self) { Text(verbatim: String($0)).tag(Optional($0)) }
                 Text(t("examShare.unknownYear")).tag(nil as UInt32?)
             }
-            // A role with one occasion (notes, other) has nothing to choose.
+            // A role with one occasion (notes, other) has nothing to choose:
+            // Core sets it.
             if occasions.count != 1 {
                 Picker(t("examShare.occasion"), selection: draft.occasion) {
-                    ForEach(occasions, id: \.self) { Text($0.label).tag($0) }
+                    // Nothing is picked until the person picks, as on the website.
+                    if value.occasion == nil {
+                        Text(t("examShare.upload.pickOccasion")).tag(nil as ExamOccasion?)
+                    }
+                    ForEach(occasions, id: \.self) { Text($0.label).tag(Optional($0)) }
                 }
             }
-            if choices.numbered.contains(draft.wrappedValue.occasion) {
-                Stepper(value: draft.occasionNumber, in: 0...choices.limits.occasionNumber) {
-                    LabeledContent(t("examShare.upload.occasionNumber"), value: "\(draft.wrappedValue.occasionNumber)")
+            if value.occasion == .other {
+                TextField(t("examShare.upload.occasionText"), text: draft.occasionText)
+                    .examMaxLength(textLimit, draft.occasionText)
+            }
+            // Shown only when the service says how high the number goes.
+            if let occasion = value.occasion, choices.numbered.contains(occasion),
+               let numberMax = choices.limits.occasionNumberMax {
+                Stepper(value: draft.occasionNumber, in: 0...numberMax) {
+                    LabeledContent(t("examShare.upload.occasionNumber"),
+                                   value: value.occasionNumber == 0 ? t("examShare.upload.noNumber") : "\(value.occasionNumber)")
                 }
             }
             TextField(t("examShare.upload.variant"), text: draft.variant)
+                .examMaxLength(textLimit, draft.variant)
         }
     }
 
-    private func subjectFields(_ form: ExamUploadForm) -> some View {
+    private func subjectFields(_ form: ExamUploadForm, _ choices: ExamChoices) -> some View {
         Section(t("examShare.upload.subjects")) {
             ForEach(form.subjects, id: \.subject.code) { entry in
                 let code = entry.subject.code
@@ -313,16 +342,29 @@ struct ExamUploadSheet: View {
                     }
                 }
             }
-            if form.subjects.count < Int(choices.limits.subjects) {
+            if choices.limits.subjects.map({ form.subjects.count < Int($0) }) ?? true {
                 Button(t("examShare.upload.addSubject"), systemImage: "plus") { choosingSubject = true }
             }
         }
     }
 
-    private func teacherFields(_ form: Binding<ExamUploadForm>) -> some View {
+    private func teacherFields(_ form: Binding<ExamUploadForm>, _ choices: ExamChoices) -> some View {
         let teacherIds = form.draft.teacherIds
-        let limit = Int(choices.limits.teachers)
+        let limits = choices.limits
+        let allTeachers = form.wrappedValue.draft.allTeachers
         return Section(t("examShare.teacher")) {
+            // Common to every teacher names none, so the picks and the new
+            // names go when it is turned on.
+            Toggle(t("examShare.allTeachers"), isOn: Binding(
+                get: { form.wrappedValue.draft.allTeachers },
+                set: { on in
+                    form.wrappedValue.draft.allTeachers = on
+                    if on {
+                        form.wrappedValue.draft.teacherIds = []
+                        newTeachers = []
+                    }
+                }
+            ))
             ForEach(form.wrappedValue.teachers, id: \.id) { teacher in
                 let selected = teacherIds.wrappedValue.contains(teacher.id)
                 Button {
@@ -338,26 +380,27 @@ struct ExamUploadSheet: View {
                         if selected { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
                     }
                 }
-                .disabled(!selected && teacherIds.wrappedValue.count >= limit)
+                .disabled(allTeachers || !selected && limits.teachers.map { teacherIds.wrappedValue.count >= Int($0) } == true)
             }
             ForEach($newTeachers) { $teacher in
                 HStack {
                     TextField(t("examShare.upload.familyName"), text: $teacher.familyName)
+                        .examMaxLength(limits.metadataText, $teacher.familyName)
                     TextField(t("examShare.upload.givenName"), text: $teacher.givenName)
+                        .examMaxLength(limits.metadataText, $teacher.givenName)
                     fileButton(t("common.remove"), icon: "minus.circle") {
                         let id = teacher.id
                         newTeachers.removeAll { $0.id == id }
                     }
                 }
             }
-            if newTeachers.count < limit {
-                Button(t("examShare.upload.newTeacher"), systemImage: "plus") { newTeachers.append(TeacherEntry()) }
-            }
+            Button(t("examShare.upload.newTeacher"), systemImage: "plus") { newTeachers.append(TeacherEntry()) }
+                .disabled(allTeachers || limits.newTeachers.map { newTeachers.count >= Int($0) } == true)
         }
     }
 
     @ViewBuilder
-    private func sourceFields(_ draft: Binding<ExamUploadDraft>) -> some View {
+    private func sourceFields(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
         let sources = choices.roles.first { $0.role == draft.wrappedValue.role }?.answerSources ?? []
         Section {
             Picker(t("examShare.upload.provenance"), selection: draft.provenance) {
@@ -371,9 +414,10 @@ struct ExamUploadSheet: View {
         }
     }
 
-    private func noteField(_ draft: Binding<ExamUploadDraft>) -> some View {
+    private func noteField(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
         Section {
             TextField(t("examShare.upload.note"), text: draft.note, axis: .vertical)
+                .examMaxLength(choices.limits.note, draft.note)
         } footer: {
             Text(t("examShare.uploadPublic"))
         }
@@ -545,6 +589,8 @@ private struct ExamUploadSubjectPicker: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let selected: Set<String>
+    /// The service's search length, as a hint.
+    let limit: UInt32?
     let pick: (ExamSubject) async throws -> Void
     @State private var query = ""
     @State private var results: [ExamSubject]?
@@ -574,6 +620,7 @@ private struct ExamUploadSubjectPicker: View {
             .themedRows()
             .themedList()
             .searchable(text: $query, prompt: t("examShare.search"))
+            .examMaxLength(limit, $query)
             .onSubmit(of: .search) {
                 Task { await search() }
             }

@@ -40,11 +40,18 @@ import app.isctcompanion.design.t
 /** Year and number chips shown before the rest fold into a menu. */
 private const val YEARS_SHOWN = 8
 
-/** Recent years as chips, older ones (down to Core's earliest) in the menu. */
+/** Recent years as chips, older ones (down to the service's earliest) in the
+ * menu; none when the service names no range. */
 internal fun years(choices: ExamChoices): Pair<List<UInt>, List<UInt>> {
-    val all = (choices.limits.latestYear.toInt() downTo choices.limits.earliestYear.toInt()).map { it.toUInt() }
+    val earliest = choices.limits.earliestYear
+    val latest = choices.limits.latestYear
+    val all = if (earliest == null || latest == null) emptyList() else (earliest..latest).reversed().toList()
     return all.take(YEARS_SHOWN) to all.drop(YEARS_SHOWN)
 }
+
+/** A field's text cut to the service's length hint, when it gives one
+ * (lengths count UTF-16 units, as Kotlin strings do). */
+internal fun String.limit(max: UInt?): String = if (max == null) this else take(max.toInt())
 
 @Composable
 internal fun ChoiceLabel(label: String) {
@@ -52,7 +59,7 @@ internal fun ChoiceLabel(label: String) {
 }
 
 /** A labelled single choice as wrapping chips; [more] folds the rest into
- * one chip's menu. */
+ * one chip's menu, and [hint] asks for a pick while none is made. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun <T> Choices(
@@ -61,10 +68,14 @@ internal fun <T> Choices(
     selected: T,
     enabled: Boolean = true,
     more: List<Pair<T, String>> = emptyList(),
+    hint: String? = null,
     pick: (T) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
         label?.let { ChoiceLabel(it) }
+        if (hint != null && (options + more).none { it.first == selected }) {
+            Text(hint, color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
             options.forEach { (value, text) ->
                 FilterChip(selected = selected == value, enabled = enabled, onClick = { pick(value) }, label = { Text(text) })
@@ -137,7 +148,7 @@ internal fun RequestDialog(
                     role,
                 ) { role = it }
                 OutlinedTextField(
-                    description, { description = it.take(choices.limits.requestDescription.toInt()) },
+                    description, { description = it.limit(choices.limits.requestDescription) },
                     label = { Text(t("examShare.description")) }, minLines = 3, modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let { Text(it, color = Theme.colors.danger) }
@@ -155,13 +166,13 @@ internal fun RequestDialog(
 @Composable
 internal fun ReportDialog(
     reasons: List<ExamReportReason>,
-    detailLimit: Int,
+    detailLimit: UInt?,
     busy: Boolean,
     error: String?,
     dismiss: () -> Unit,
     submit: (ExamReportReason, String) -> Unit,
 ) {
-    var reason by remember { mutableStateOf(reasons.first()) }
+    var reason by remember { mutableStateOf(reasons.firstOrNull()) }
     var detail by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = dismiss,
@@ -170,14 +181,14 @@ internal fun ReportDialog(
             Column(verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
                 Choices(null, reasons.map { it to t("examShare.reason.${it.wire}") }, reason) { reason = it }
                 OutlinedTextField(
-                    detail, { detail = it.take(detailLimit) },
+                    detail, { detail = it.limit(detailLimit) },
                     label = { Text(t("examShare.description")) }, minLines = 3, modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let { Text(it, color = Theme.colors.danger) }
             }
         },
         confirmButton = {
-            TextButton(enabled = !busy, onClick = { submit(reason, detail.trim()) }) {
+            TextButton(enabled = !busy && reason != null, onClick = { reason?.let { submit(it, detail.trim()) } }) {
                 Text(t("examShare.report"), color = Theme.colors.danger)
             }
         },

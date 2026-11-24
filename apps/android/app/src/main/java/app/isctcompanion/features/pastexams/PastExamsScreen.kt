@@ -13,12 +13,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
-import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -50,7 +52,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -70,7 +71,9 @@ import app.isctcompanion.core.ExamOccasion
 import app.isctcompanion.core.ExamRequest
 import app.isctcompanion.core.ExamRequestCursor
 import app.isctcompanion.core.ExamRequestPage
+import app.isctcompanion.core.ExamSitePages
 import app.isctcompanion.core.ExamSubject
+import app.isctcompanion.core.ExamTeacher
 import app.isctcompanion.core.ExamUploadPhase
 import app.isctcompanion.core.SdkException
 import app.isctcompanion.design.Card
@@ -78,22 +81,26 @@ import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Tag
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.lookup
 import app.isctcompanion.design.t
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private enum class Tab(val key: String, val path: String) {
-    Browse("examShare.browse", "/search"),
-    Requests("examShare.requests", "/request"),
-    Library("examShare.library", "/library"),
+private enum class Tab(val key: String) {
+    Browse("examShare.browse"),
+    Requests("examShare.requests"),
+    Library("examShare.library"),
 }
 
-/** The service's own pages Core does not answer a link for (terms, privacy,
- * search), and where a tab leads before Core has named its page. */
-internal const val EXAM_SITE = "https://sciencetokyoexam.com"
-
-internal data class Confirmation(val key: String, val action: ExamAction)
+/** A destructive step to confirm: [key] titles it, [body] explains it and
+ * [confirmKey] names its button. */
+internal data class Confirmation(
+    val key: String,
+    val action: ExamAction,
+    val body: String? = null,
+    val confirmKey: String = "common.ok",
+)
 
 /** The API word an enum value stands for (`WRONG_ANSWER` → `wrongAnswer`),
  * which names its label; the API calls `NOT_APPLICABLE` `none`. */
@@ -108,16 +115,12 @@ internal val Enum<*>.wire: String
 internal object ExamViews {
     /** Requests listed on a board, read by the request page. */
     val requests = mutableMapOf<String, ExamRequest>()
-    /** The board's and the library's pages on the site, as Core last named them. */
-    var requestBoardUrl: String? = null
-    var libraryUrl: String? = null
     /** The last thing done (posted, reported, uploaded), shown briefly on
      * whichever page is in front. */
     var notice by mutableStateOf<String?>(null)
 
     fun board(page: ExamRequestPage) {
         page.items.forEach { requests[it.id] = it }
-        requestBoardUrl = page.webUrl
     }
 }
 
@@ -156,13 +159,18 @@ internal fun rememberExamCalls(): ExamCalls {
     return remember(model) { ExamCalls(model) }
 }
 
-/** Core's form choices and limits, read once per page. */
+/** Core's form choices and limits, asked for each time a form opens (Core
+ * caches them for a few minutes); null when the service could not give
+ * them, the failure shown on the page, so the next open asks again. */
+internal suspend fun ExamCalls.choices(): ExamChoices? = (call(ExamAction.Choices) as? ExamAnswer.Choices)?.v1
+
+/** The website's pages, read once per page without the network. */
 @Composable
-internal fun rememberExamChoices(calls: ExamCalls): State<ExamChoices?> {
+internal fun rememberExamSite(calls: ExamCalls): State<ExamSitePages?> {
     val model = LocalModel.current
-    return produceState<ExamChoices?>(null) {
+    return produceState<ExamSitePages?>(null) {
         value = try {
-            (model.examShare(ExamAction.Choices) as ExamAnswer.Choices).v1
+            (model.examShare(ExamAction.Site) as? ExamAnswer.Site)?.v1
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -211,8 +219,12 @@ internal fun ConfirmDialog(confirmation: Confirmation, dismiss: () -> Unit, conf
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(t(confirmation.key)) },
+        // A long explanation scrolls on a small screen or with large text.
+        text = confirmation.body?.let { body -> { Text(t(body), Modifier.verticalScroll(rememberScrollState())) } },
         confirmButton = {
-            TextButton(onClick = { dismiss(); confirm(confirmation.action) }) { Text(t("common.ok"), color = Theme.colors.danger) }
+            TextButton(onClick = { dismiss(); confirm(confirmation.action) }) {
+                Text(t(confirmation.confirmKey), color = Theme.colors.danger)
+            }
         },
         dismissButton = { TextButton(onClick = dismiss) { Text(t("common.cancel")) } },
     )
@@ -228,18 +240,15 @@ internal fun ConfirmDialog(confirmation: Confirmation, dismiss: () -> Unit, conf
 fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
-    val uri = LocalUriHandler.current
     val links = rememberExamLinks()
     val scope = rememberCoroutineScope()
     val calls = rememberExamCalls()
-    val choices by rememberExamChoices(calls)
+    val site by rememberExamSite(calls)
     val account = model.examAccount
     var tab by rememberSaveable { mutableStateOf(Tab.Browse) }
 
     /** Reads the account, or changes it with [action]; the lists reload themselves. */
-    suspend fun reload(action: ExamAction = ExamAction.Account) {
-        calls.call(action)
-    }
+    suspend fun reload(action: ExamAction = ExamAction.Account): ExamAnswer? = calls.call(action)
 
     // Returning to the page (from a pushed one, or to the app) reads the account again.
     LifecycleResumeEffect(Unit) {
@@ -254,12 +263,16 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                 if (onBack != null) BackButton(onBack)
             },
             actions = {
-                ExamLinkButton(links) {
-                    when (tab) {
-                        Tab.Browse -> null
-                        Tab.Requests -> ExamViews.requestBoardUrl
-                        Tab.Library -> ExamViews.libraryUrl
-                    } ?: (EXAM_SITE + tab.path)
+                // The tab's page; before connecting the tabs are hidden, so the search.
+                site?.let { pages ->
+                    ExamLinkButton(links) {
+                        if (account?.status != ExamAccountStatus.CONNECTED) pages.search
+                        else when (tab) {
+                            Tab.Browse -> pages.search
+                            Tab.Requests -> pages.requests
+                            Tab.Library -> pages.library
+                        }
+                    }
                 }
             },
         ) {
@@ -295,13 +308,13 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                         }
                     }
                     when (tab) {
-                        Tab.Browse -> BrowseList(calls, choices)
+                        Tab.Browse -> BrowseList(calls)
                         Tab.Requests -> RequestList(calls)
                         Tab.Library -> LibraryList(calls) { reload(it) }
                     }
                 }
                 null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
-                else -> AccountGate(calls) { reload(it) }
+                else -> AccountGate(calls, site) { reload(it) }
             }
         }
     }
@@ -309,26 +322,42 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
 
 /** Before a usable session: sign in, the terms, or why not. */
 @Composable
-internal fun AccountGate(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) {
+internal fun AccountGate(calls: ExamCalls, site: ExamSitePages?, reload: suspend (ExamAction) -> Unit) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
-    val uri = LocalUriHandler.current
+    val links = rememberExamLinks()
+    val status = model.examAccount?.status
+    // The consent button running: it alone spins, and neither takes a tap.
+    var consenting by remember { mutableStateOf<ExamAction?>(null) }
+    fun consent(action: ExamAction) {
+        consenting = action
+        scope.launch {
+            try {
+                reload(action)
+            } finally {
+                consenting = null
+            }
+        }
+    }
+    val idle = consenting == null && !calls.busy
     Column(
         Modifier.fillMaxSize().padding(Theme.space11),
         verticalArrangement = Arrangement.spacedBy(Theme.space6, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(t("examShare.title"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        when (model.examAccount?.status) {
+        when (status) {
             ExamAccountStatus.NEEDS_CONSENT -> {
                 Text(t("error.exam-share-consent"), color = Theme.colors.muted)
-                Button(enabled = !calls.busy, onClick = { scope.launch { reload(ExamAction.AcceptTerms) } }) {
-                    Text(t("examShare.accept"))
+                Button(enabled = idle, onClick = { consent(ExamAction.AcceptTerms) }) {
+                    ConsentLabel(consenting == ExamAction.AcceptTerms, t("examShare.accept"))
                 }
-                // Terms and privacy are the service's own pages, which Core does not model.
-                Row {
-                    TextButton(onClick = { uri.openUri("$EXAM_SITE/terms") }) { Text(t("examShare.terms")) }
-                    TextButton(onClick = { uri.openUri("$EXAM_SITE/privacy") }) { Text(t("examShare.privacy")) }
+                TextButton(enabled = idle, onClick = { consent(ExamAction.Decline) }) {
+                    ConsentLabel(consenting == ExamAction.Decline, t("examShare.decline"))
+                }
+                if (site != null) Row {
+                    TextButton(onClick = { links.open(site.terms) }) { Text(t("examShare.terms")) }
+                    TextButton(onClick = { links.open(site.privacy) }) { Text(t("examShare.privacy")) }
                 }
             }
             ExamAccountStatus.UNSUPPORTED -> Text(t("error.exam-share-unsupported"), color = Theme.colors.muted)
@@ -353,6 +382,11 @@ internal fun AccountGate(calls: ExamCalls, reload: suspend (ExamAction) -> Unit)
         }
         ExamCredit()
     }
+}
+
+@Composable
+private fun ConsentLabel(running: Boolean, label: String) {
+    if (running) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Text(label)
 }
 
 /** English only by design: it names the service and its operator. */
@@ -418,28 +452,51 @@ internal fun StatusTag(status: String) {
     Tag(t("examShare.requestStatus.$status"), color = ink, soft = soft)
 }
 
-/** "2024 期末 2", the desktop's sitting label. */
-internal fun sittingLabel(year: UInt?, occasion: String?, number: UInt, variant: String): String = listOfNotNull(
-    year?.toString(),
-    occasion?.let { val label = t("examShare.occasion.$it"); if (number > 1u) "$label $number" else label },
-    variant.ifBlank { null },
-).joinToString(" ")
+/** How every past-exams page names a document's occasion, role and teachers. */
+internal object ExamLabels {
+    /** An `other` occasion's own name, else the code's label (a code this
+     * build has no words for reads as other); none without an occasion. */
+    fun occasion(code: String?, text: String = ""): String? =
+        text.ifBlank { null } ?: code?.let { lookup("examShare.occasion.$it") ?: t("examShare.occasion.other") }
+
+    /** An `other` role's own name, else the code's label, as [occasion]. */
+    fun role(code: String?, text: String = ""): String? =
+        text.ifBlank { null } ?: code?.let { lookup("examShare.role.$it") ?: t("examShare.role.other") }
+
+    fun teachers(teachers: List<ExamTeacher>, allTeachers: Boolean): String = when {
+        allTeachers -> t("examShare.allTeachers")
+        teachers.isEmpty() -> t("examShare.unknownTeacher")
+        else -> teachers.joinToString(" / ") { it.name }
+    }
+
+    /** "2024 期末 2", the desktop's sitting label; [occasion] is its name. */
+    fun sitting(year: UInt?, occasion: String?, number: UInt, variant: String): String = listOfNotNull(
+        year?.toString(),
+        occasion?.let { if (number > 0u) "$it $number" else it },
+        variant.ifBlank { null },
+    ).joinToString(" ")
+
+    fun sitting(document: ExamDocument): String = sitting(
+        document.academicYear, occasion(document.occasion, document.occasionText), document.occasionNumber, document.variant,
+    )
+
+}
 
 internal fun documentTitle(document: ExamDocument): String = listOfNotNull(
     document.subjects.joinToString(" / ") { it.name }.ifBlank { null },
-    sittingLabel(document.academicYear, document.occasion, document.occasionNumber, document.variant).ifBlank { null },
-    document.role?.let { t("examShare.role.$it") },
+    ExamLabels.sitting(document).ifBlank { null },
+    ExamLabels.role(document.role, document.roleText),
 ).joinToString(" · ").ifEmpty { document.fileName }
 
 internal fun requestFacts(item: ExamRequest): String = listOfNotNull(
     item.academicYear?.toString(),
-    item.occasion?.let { t("examShare.occasion.$it") },
-    item.wantedRole?.let { t("examShare.role.$it") },
+    ExamLabels.occasion(item.occasion?.wire),
+    ExamLabels.role(item.wantedRole?.wire),
 ).joinToString(" · ")
 
 /** This quarter's courses, or what a search finds; each opens its course. */
 @Composable
-private fun BrowseList(calls: ExamCalls, choices: ExamChoices?) {
+private fun BrowseList(calls: ExamCalls) {
     val navigator = LocalNavigator.current
     var query by rememberSaveable { mutableStateOf("") }
     var hits by remember { mutableStateOf<Pair<String, List<ExamSubject>>?>(null) }
@@ -453,7 +510,7 @@ private fun BrowseList(calls: ExamCalls, choices: ExamChoices?) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(Theme.gutter), verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         item {
             OutlinedTextField(
-                query, { query = it.take(choices?.limits?.query?.toInt() ?: 100) },
+                query, { query = it },
                 placeholder = { Text(t("examShare.search")) },
                 leadingIcon = { Icon(Icons.Rounded.Search, null) },
                 trailingIcon = {
@@ -532,19 +589,20 @@ private fun RequestList(calls: ExamCalls) {
     }
 }
 
+/** The phases in which an upload is under way. */
+private val uploadRunning = setOf(
+    ExamUploadPhase.PREPARING, ExamUploadPhase.TRANSFERRING, ExamUploadPhase.REGISTERING, ExamUploadPhase.CLEANING,
+)
+
 /** Saved, downloaded and shared documents; the account at the foot. */
 @Composable
-private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) {
+private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAnswer?) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     var library by remember { mutableStateOf<ExamLibrary?>(null) }
     var confirm by remember { mutableStateOf<Confirmation?>(null) }
-    fun show(content: ExamLibrary) {
-        library = content
-        ExamViews.libraryUrl = content.webUrl
-    }
-    suspend fun load() { (calls.call(ExamAction.Library) as? ExamAnswer.Library)?.v1?.let(::show) }
+    suspend fun load() { (calls.call(ExamAction.Library) as? ExamAnswer.Library)?.v1?.let { library = it } }
     LifecycleResumeEffect(Unit) {
         val refresh = scope.launch { load() }
         onPauseOrDispose { refresh.cancel() }
@@ -567,8 +625,9 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
                     ExamRow(
                         document.subjects.joinToString(" / ") { it.name }.ifBlank { document.fileName },
                         listOfNotNull(
-                            sittingLabel(document.academicYear, document.occasion, document.occasionNumber, document.variant).ifBlank { null },
-                            document.role?.let { t("examShare.role.$it") },
+                            ExamLabels.sitting(document).ifBlank { null },
+                            ExamLabels.role(document.role, document.roleText),
+                            ExamLabels.teachers(document.teachers, document.allTeachers),
                         ).joinToString(" · "),
                         onClick = { navigator.openExamDocument(document.id) },
                         trailing = removal?.let { key ->
@@ -595,6 +654,17 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
                     onClick = { confirm = Confirmation("examShare.disconnectHint", ExamAction.Disconnect) },
                     modifier = Modifier.padding(horizontal = Theme.space2),
                 ) { Text(t("examShare.disconnect"), color = Theme.colors.danger) }
+                // Not while an upload runs: it would lose the account mid-transfer.
+                TextButton(
+                    enabled = !calls.busy && model.examAccount?.upload?.phase?.let { it in uploadRunning } != true,
+                    onClick = {
+                        confirm = Confirmation(
+                            "examShare.deleteAccountTitle", ExamAction.DeleteAccount,
+                            body = "examShare.deleteAccountBody", confirmKey = "examShare.deleteAccount",
+                        )
+                    },
+                    modifier = Modifier.padding(horizontal = Theme.space2),
+                ) { Text(t("examShare.deleteAccount"), color = Theme.colors.danger) }
             }
             ExamCredit()
         }
@@ -602,9 +672,12 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> Unit) 
     confirm?.let {
         ConfirmDialog(it, { confirm = null }) { action ->
             scope.launch {
+                // Leaving the account reloads the page into its signed-out state.
                 if (action == ExamAction.Disconnect) reload(action)
-                else when (val answer = calls.call(action)) {
-                    is ExamAnswer.Library -> show(answer.v1)
+                else if (action == ExamAction.DeleteAccount) {
+                    if (reload(action) != null) ExamViews.notice = t("examShare.accountDeleted")
+                } else when (val answer = calls.call(action)) {
+                    is ExamAnswer.Library -> { library = answer.v1 }
                     null -> Unit
                     else -> load()
                 }

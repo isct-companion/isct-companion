@@ -6,7 +6,7 @@
 use super::cache::document_export_name;
 use super::model::*;
 use super::remote::{content_language, RemoteDocument, RemoteSubject, SubjectRecords};
-use super::{course_subject, form, ExamError};
+use super::{course_subject, ExamError};
 use crate::data::DataStore;
 
 const WEB_URL: &str = "https://example.invalid/past-exams";
@@ -49,7 +49,13 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
                 cancellable: false,
             },
         }),
-        ExamAction::Choices => ExamAnswer::Choices(form::choices()),
+        ExamAction::Site => ExamAnswer::Site(ExamSitePages {
+            search: WEB_URL.into(),
+            requests: WEB_URL.into(),
+            library: WEB_URL.into(),
+            terms: WEB_URL.into(),
+            privacy: WEB_URL.into(),
+        }),
         ExamAction::CourseSubject { course_id } => {
             let (codes, class_id) = course_subject(store, &course_id)?;
             let code = codes
@@ -101,13 +107,12 @@ pub(crate) fn act(action: ExamAction, store: &DataStore) -> Result<ExamAnswer, E
             saved: Vec::new(),
             downloaded: Vec::new(),
             submitted: Vec::new(),
-            web_url: WEB_URL.into(),
         }),
         ExamAction::Requests { .. } => ExamAnswer::Requests(ExamRequestPage {
             items: Vec::new(),
             cursor: None,
-            web_url: WEB_URL.into(),
         }),
+        // The forms (and their choices) need the service.
         _ => return Err(ExamError::Unavailable),
     })
 }

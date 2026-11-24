@@ -1188,14 +1188,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T272-2025-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T272|2025|final|0||"
     },
     {
      "id": "demo-CSC.T272-2025-final-answer",
@@ -1206,14 +1210,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T272-2025-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T272|2025|final|0||"
     },
     {
      "id": "demo-CSC.T272-2025-midterm-question",
@@ -1224,14 +1232,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "midterm",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T272-2025-midterm-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T272|2025|midterm|0||"
     },
     {
      "id": "demo-CSC.T272-2024-final-question",
@@ -1242,14 +1254,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T272-2024-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T272|2024|final|0||"
     },
     {
      "id": "demo-CSC.T272-2024-final-answer",
@@ -1260,14 +1276,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T272-2024-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T272|2024|final|0||"
     }
    ]
   },
@@ -1287,14 +1307,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T212-2025-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T212|2025|final|0||"
     },
     {
      "id": "demo-MCS.T212-2025-final-answer",
@@ -1305,14 +1329,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T212-2025-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T212|2025|final|0||"
     },
     {
      "id": "demo-MCS.T212-2025-midterm-question",
@@ -1323,14 +1351,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "midterm",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T212-2025-midterm-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T212|2025|midterm|0||"
     },
     {
      "id": "demo-MCS.T212-2024-final-question",
@@ -1341,14 +1373,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T212-2024-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T212|2024|final|0||"
     },
     {
      "id": "demo-MCS.T212-2024-final-answer",
@@ -1359,14 +1395,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T212-2024-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T212|2024|final|0||"
     }
    ]
   },
@@ -1386,14 +1426,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T214-2025-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T214|2025|final|0||"
     },
     {
      "id": "demo-MCS.T214-2025-final-answer",
@@ -1404,14 +1448,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T214-2025-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T214|2025|final|0||"
     },
     {
      "id": "demo-MCS.T214-2025-midterm-question",
@@ -1422,14 +1470,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "midterm",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T214-2025-midterm-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T214|2025|midterm|0||"
     },
     {
      "id": "demo-MCS.T214-2024-final-question",
@@ -1440,14 +1492,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T214-2024-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T214|2024|final|0||"
     },
     {
      "id": "demo-MCS.T214-2024-final-answer",
@@ -1458,14 +1514,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "MCS.T214-2024-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "MCS.T214|2024|final|0||"
     }
    ]
   },
@@ -1485,14 +1545,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T343-2025-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T343|2025|final|0||"
     },
     {
      "id": "demo-CSC.T343-2025-final-answer",
@@ -1503,14 +1567,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T343-2025-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T343|2025|final|0||"
     },
     {
      "id": "demo-CSC.T343-2025-midterm-question",
@@ -1521,14 +1589,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2025,
      "occasion": "midterm",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T343-2025-midterm-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T343|2025|midterm|0||"
     },
     {
      "id": "demo-CSC.T343-2024-final-question",
@@ -1539,14 +1611,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "question",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T343-2024-final-question.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T343|2024|final|0||"
     },
     {
      "id": "demo-CSC.T343-2024-final-answer",
@@ -1557,14 +1633,18 @@
       }
      ],
      "teachers": [],
+     "allTeachers": false,
      "academicYear": 2024,
      "occasion": "final",
-     "occasionNumber": 1,
+     "occasionText": "",
+     "occasionNumber": 0,
      "variant": "",
      "role": "answer",
+     "roleText": "",
      "note": null,
      "fileName": "CSC.T343-2024-final-answer.pdf",
-     "fileType": "application/pdf"
+     "fileType": "application/pdf",
+     "pairKey": "CSC.T343|2024|final|0||"
     }
    ]
   }

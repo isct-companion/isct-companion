@@ -10,7 +10,6 @@ struct ExamRequestScreen: View {
     let route: ExamRequestRoute
     @State private var page = ExamPage()
     @State private var item: ExamRequest?
-    @State private var webUrl: String?
     @State private var uploadEntry: ExamUploadEntry?
 
     var body: some View {
@@ -38,8 +37,9 @@ struct ExamRequestScreen: View {
                     }
                 }
                 if !item.mine && item.status == "open" {
-                    Button(t("examShare.upload.answerRequest"), systemImage: "square.and.arrow.up") { uploadEntry = .request(item) }
-                        .disabled(page.choices == nil)
+                    Button(t("examShare.upload.answerRequest"), systemImage: "square.and.arrow.up") {
+                        Task { if await page.loadChoices(model) { uploadEntry = .request(item) } }
+                    }
                 }
                 if item.mine {
                     Button(t(item.status == "open" ? "examShare.closeRequest" : "examShare.reopenRequest")) {
@@ -51,7 +51,7 @@ struct ExamRequestScreen: View {
                         }
                     }
                 }
-                if let web = URL(string: webUrl ?? route.webUrl) {
+                if let web = page.site.flatMap({ URL(string: $0.requests) }) {
                     Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
                 }
             }
@@ -61,13 +61,11 @@ struct ExamRequestScreen: View {
         .disabled(page.busy)
         .navigationTitle(t("examShare.requests"))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await page.loadChoices(model) }
+        .task { await page.loadSite(model) }
         .sheet(item: $uploadEntry) { entry in
-            if let choices = page.choices {
-                ExamUploadSheet(entry: entry, choices: choices) { outcome in
-                    page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
-                }
+            ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
+                page.notice = outcome.notice
+                if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }
         .examPageFeedback(page)
@@ -77,7 +75,6 @@ struct ExamRequestScreen: View {
     private func setOpen(_ item: ExamRequest, _ open: Bool) async {
         guard case let .requests(board)? = await page.call(model, .setRequestOpen(id: item.id, open: open, mine: true))
         else { return }
-        webUrl = board.webUrl
         if let changed = board.items.first(where: { $0.id == item.id }) { self.item = changed }
     }
 }

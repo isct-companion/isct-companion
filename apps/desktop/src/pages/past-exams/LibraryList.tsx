@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Library, Trash2 } from "lucide-react";
 import {
   Button,
@@ -8,14 +8,15 @@ import {
   Tag,
 } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
-import { lookup, t } from "../../i18n";
+import { t } from "../../i18n";
 import type { ExamDocument, ExamLibrary } from "../../generated/persistence";
 import {
   Row,
   Workspace,
   documentOccasion,
+  roleName,
   subjectLabel,
-  teacherNames,
+  teacherLine,
   type ViewProps,
 } from "./ExamList";
 
@@ -25,7 +26,6 @@ export function LibraryList({
   opening,
   reading,
   pane,
-  setViewUrl,
   library,
   failed,
   refresh,
@@ -38,9 +38,6 @@ export function LibraryList({
   replace: (value: ExamLibrary) => void;
   closeReader: (id: string) => void;
 }) {
-  const shownUrl = library?.webUrl;
-  useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
-
   const remove = (kind: "removeDownload" | "deleteSubmission", id: string) => {
     const label = t(
       kind === "deleteSubmission"
@@ -157,7 +154,7 @@ function DocumentRow({
           {document.subjects.map(subjectLabel).join(" / ")}
           {document.role && (
             <Tag tone={document.role === "answer" ? "ok" : "neutral"}>
-              {lookup(`examShare.role.${document.role}`)}
+              {roleName(document.role, document.roleText)}
             </Tag>
           )}
         </>
@@ -166,7 +163,7 @@ function DocumentRow({
         [document.academicYear, documentOccasion(document)]
           .filter(Boolean)
           .join(" "),
-        teacherNames(document.teachers),
+        teacherLine(document),
         document.note,
       ]
         .filter(Boolean)

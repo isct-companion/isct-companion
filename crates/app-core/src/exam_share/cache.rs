@@ -10,6 +10,10 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
+/// A cached copy's record, beside its file. It took this name (1.4.0's was
+/// `metadata.json`) when the record changed, so 1.4.0's copies are never
+/// read: maintenance sweeps them like any stale file.
+pub(super) const MANIFEST: &str = "document.json";
 const DOWNLOAD_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);
 
@@ -201,7 +205,7 @@ pub(super) async fn cache_file(base: &Path) -> Result<Option<Cached>, ExamError>
 }
 
 fn read_cache(base: &Path, now: SystemTime) -> Result<Option<CacheEntry>, ExamError> {
-    let body = match fs::read(base.join("metadata.json")) {
+    let body = match fs::read(base.join(MANIFEST)) {
         Ok(body) => body,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(storage(error)),
@@ -229,7 +233,7 @@ fn read_cache(base: &Path, now: SystemTime) -> Result<Option<CacheEntry>, ExamEr
 
 pub(super) async fn save_metadata(base: &Path, cached: &Cached) -> Result<(), ExamError> {
     let data = serde_json::to_vec(cached).map_err(|_| ExamError::Storage)?;
-    write_atomically(&base.join("metadata.json"), &data).await
+    write_atomically(&base.join(MANIFEST), &data).await
 }
 
 /// Replace `path` with `data` whole: a crash leaves the old file or the new.
@@ -306,7 +310,7 @@ fn sweep(folder: &Path, now: SystemTime) -> Result<(), ExamError> {
         let path = entry.path();
         if retained
             .as_ref()
-            .is_some_and(|live| live == &path || entry.file_name() == "metadata.json")
+            .is_some_and(|live| live == &path || entry.file_name() == MANIFEST)
         {
             continue;
         }

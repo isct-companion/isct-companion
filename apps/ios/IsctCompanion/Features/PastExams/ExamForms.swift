@@ -1,10 +1,24 @@
 import IsctCore
 import SwiftUI
 
-/// The years Core accepts, newest first.
+/// The years the service names, newest first; none when it names no range.
 func examYears(_ limits: ExamLimits) -> [UInt32] {
-    guard limits.latestYear >= limits.earliestYear else { return [] }
-    return Array((limits.earliestYear...limits.latestYear).reversed())
+    guard let earliest = limits.earliestYear, let latest = limits.latestYear, latest >= earliest else { return [] }
+    return Array((earliest...latest).reversed())
+}
+
+extension View {
+    /// Keeps `text` to the service's length hint, in UTF-16 code units as it
+    /// counts them, as a web form's `maxlength` does; no hint, no limit. The
+    /// service checks the form itself.
+    func examMaxLength(_ limit: UInt32?, _ text: Binding<String>) -> some View {
+        onChange(of: text.wrappedValue) { _, value in
+            guard let limit, value.utf16.count > Int(limit) else { return }
+            var kept = value
+            while kept.utf16.count > Int(limit) { kept.removeLast() }
+            text.wrappedValue = kept
+        }
+    }
 }
 
 /// Asks for documents of one subject; every field but the subject is optional.
@@ -53,6 +67,7 @@ struct ExamRequestForm: View {
                 }
                 Section(t("examShare.description")) {
                     TextField(t("examShare.description"), text: $description, axis: .vertical).lineLimit(3...6)
+                        .examMaxLength(choices.limits.requestDescription, $description)
                 }
                 if let problem {
                     Section { Text(problem).foregroundStyle(Theme.danger) }
@@ -74,7 +89,6 @@ struct ExamRequestForm: View {
                                 description: description.trimmingCharacters(in: .whitespacesAndNewlines))
                             Task { await submit(draft) }
                         }
-                        .disabled(description.utf16.count > choices.limits.requestDescription)
                     }
                 }
             }
@@ -84,7 +98,7 @@ struct ExamRequestForm: View {
 
 struct ExamReportForm: View {
     let reasons: [ExamReportReason]
-    let maxDetail: UInt32
+    let maxDetail: UInt32?
     let busy: Bool
     let problem: String?
     let submit: (ExamReportReason, String) async -> Void
@@ -92,7 +106,7 @@ struct ExamReportForm: View {
     @State private var reason: ExamReportReason
     @State private var detail = ""
 
-    init(reasons: [ExamReportReason], maxDetail: UInt32, busy: Bool, problem: String?,
+    init(reasons: [ExamReportReason], maxDetail: UInt32?, busy: Bool, problem: String?,
          submit: @escaping (ExamReportReason, String) async -> Void) {
         self.reasons = reasons
         self.maxDetail = maxDetail
@@ -111,6 +125,7 @@ struct ExamReportForm: View {
                 .pickerStyle(.inline)
                 Section(t("examShare.description")) {
                     TextField(t("examShare.description"), text: $detail, axis: .vertical).lineLimit(3...6)
+                        .examMaxLength(maxDetail, $detail)
                 }
                 if let problem {
                     Section { Text(problem).foregroundStyle(Theme.danger) }
@@ -128,7 +143,6 @@ struct ExamReportForm: View {
                         Button(t("common.submit")) {
                             Task { await submit(reason, detail.trimmingCharacters(in: .whitespacesAndNewlines)) }
                         }
-                        .disabled(detail.utf16.count > maxDetail)
                     }
                 }
             }
@@ -154,16 +168,11 @@ extension ExamRole {
 extension ExamOccasion {
     var label: String {
         switch self {
-        case .unknown: t("examShare.occasion.unknown")
         case .final: t("examShare.occasion.final")
         case .midterm: t("examShare.occasion.midterm")
-        case .makeup: t("examShare.occasion.makeup")
         case .quiz: t("examShare.occasion.quiz")
-        case .check: t("examShare.occasion.check")
         case .report: t("examShare.occasion.report")
-        case .exercise: t("examShare.occasion.exercise")
-        case .textbook: t("examShare.occasion.textbook")
-        case .mock: t("examShare.occasion.mock")
+        case .other: t("examShare.occasion.other")
         case .notApplicable: t("examShare.occasion.none")
         }
     }
@@ -193,6 +202,7 @@ extension ExamReportReason {
         switch self {
         case .copyright: t("examShare.reason.copyright")
         case .inappropriate: t("examShare.reason.inappropriate")
+        case .wrongInfo: t("examShare.reason.wrongInfo")
         case .wrongAnswer: t("examShare.reason.wrongAnswer")
         case .brokenFile: t("examShare.reason.brokenFile")
         case .other: t("examShare.reason.other")

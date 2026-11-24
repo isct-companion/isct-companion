@@ -1,4 +1,4 @@
-use super::ExamError;
+use super::{ExamError, ExamSitePages};
 use crate::net::{client_builder, read_response_limited};
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -7,8 +7,6 @@ use tokio::{io::AsyncWriteExt, sync::Mutex, time::Instant};
 use url::Url;
 
 const MAX_JSON: usize = 16 * 1024 * 1024;
-/// The service's limit for one material, and so for a download too.
-pub(super) const FILE_LIMIT: usize = 25 * 1024 * 1024;
 /// The spacing between request starts the site asks of a client.
 const SITE_SPACING: Duration = Duration::from_millis(500);
 const API_KEY: &str = "AIzaSyBKTbvs7OBhZB__eISYaznVp_R-QMLMFEM";
@@ -29,6 +27,17 @@ pub(super) fn site_page(path: &str) -> String {
     format!("https://{}/{path}", Endpoint::Site.host())
 }
 
+/// The website's pages a shell links to whatever the account's state.
+pub(super) fn site_pages() -> ExamSitePages {
+    ExamSitePages {
+        search: site_page("search"),
+        requests: site_page("request"),
+        library: site_page("library"),
+        terms: site_page("terms"),
+        privacy: site_page("privacy"),
+    }
+}
+
 impl Endpoint {
     pub const fn host(self) -> &'static str {
         match self {
@@ -43,9 +52,6 @@ pub(super) struct Client {
     pub http: reqwest::Client,
     version: String,
     last_start: Mutex<Option<Instant>>,
-    /// Tests point every endpoint, and the file host, at a local server.
-    #[cfg(test)]
-    pub origin: Option<Url>,
 }
 
 impl Client {
@@ -58,16 +64,10 @@ impl Client {
                 .map_err(|_| ExamError::Unavailable)?,
             version,
             last_start: Mutex::new(None),
-            #[cfg(test)]
-            origin: None,
         })
     }
 
     fn base(&self, endpoint: Endpoint) -> Result<Url, ExamError> {
-        #[cfg(test)]
-        if let Some(origin) = &self.origin {
-            return Ok(origin.clone());
-        }
         Url::parse(&format!("https://{}/", endpoint.host())).map_err(|_| ExamError::Unavailable)
     }
 
@@ -88,17 +88,32 @@ impl Client {
             .header("X-Client", format!("isct-companion/{}", self.version)))
     }
 
+    /// Wait out the spacing the site asks between request starts.
+    async fn space(&self) {
+        let mut last = self.last_start.lock().await;
+        if let Some(last) = *last {
+            tokio::time::sleep_until(last + SITE_SPACING).await;
+        }
+        *last = Some(Instant::now());
+    }
+
+    /// Send a site request whose answer has no body Core reads: any 2xx,
+    /// 204 included, is success.
+    pub async fn fire(&self, request: RequestBuilder) -> Result<(), ExamError> {
+        self.space().await;
+        let response = request.send().await.map_err(network)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(ExamError::Rejected)
+        }
+    }
+
     pub async fn service<T: DeserializeOwned>(
         &self,
         request: RequestBuilder,
     ) -> Result<T, ExamError> {
-        {
-            let mut last = self.last_start.lock().await;
-            if let Some(last) = *last {
-                tokio::time::sleep_until(last + SITE_SPACING).await;
-            }
-            *last = Some(Instant::now());
-        }
+        self.space().await;
         let response = request.send().await.map_err(network)?;
         if response.headers().contains_key("X-Vercel-Mitigated") {
             return Err(ExamError::Unavailable);
@@ -113,7 +128,11 @@ impl Client {
             (StatusCode::UNAUTHORIZED, _) => Err(ExamError::Expired),
             (_, Some("auth.not_allowed")) => Err(ExamError::Denied),
             (_, Some("auth.not_registered")) => Err(ExamError::Consent),
+            (_, Some("auth.email_taken")) => Err(ExamError::EmailTaken),
             (_, Some("server.not_found")) => Err(ExamError::Unsupported),
+            (_, Some("upload.sharing_blocked" | "request.sharing_blocked")) => {
+                Err(ExamError::SharingBlocked)
+            }
             (_, Some("exam.report_duplicate")) => Err(ExamError::AlreadyReported),
             (_, Some("request.daily_limit")) => Err(ExamError::Quota),
             (_, Some("upload.already_registered")) => Err(ExamError::UploadRegistered),
@@ -121,6 +140,14 @@ impl Client {
             (_, Some("upload.quota_daily" | "upload.quota_total")) => Err(ExamError::UploadQuota),
             (_, Some("upload.rollback_in_use")) => Err(ExamError::UploadInUse),
             (_, Some("upload.too_large" | "upload.stored_too_large")) => Err(ExamError::UploadSize),
+            (_, Some("upload.subject_required")) => Err(ExamError::UploadSubject),
+            (_, Some("upload.teacher_invalid")) => Err(ExamError::UploadTeacher),
+            (_, Some("upload.year_invalid")) => Err(ExamError::UploadYear),
+            (_, Some("upload.occasion_invalid")) => Err(ExamError::UploadOccasion),
+            (_, Some("upload.occasion_number_invalid")) => Err(ExamError::UploadOccasionNumber),
+            (_, Some("upload.role_invalid")) => Err(ExamError::UploadRole),
+            (_, Some("upload.subject_or_teacher_not_found")) => Err(ExamError::UploadNotFound),
+            (_, Some("upload.note_too_long")) => Err(ExamError::UploadNoteLength),
             (
                 _,
                 Some(
@@ -131,6 +158,15 @@ impl Client {
                     | "upload.file_missing",
                 ),
             ) => Err(ExamError::UploadFile),
+            (
+                StatusCode::BAD_REQUEST,
+                Some(
+                    "common.input_invalid"
+                    | "exam.report_reason_required"
+                    | "course.invalid"
+                    | "course.class_invalid",
+                ),
+            ) => Err(ExamError::InvalidInput),
             (StatusCode::BAD_REQUEST, Some(code)) if code.starts_with("upload.") => {
                 Err(ExamError::InvalidInput)
             }
@@ -166,23 +202,25 @@ impl Client {
             Some(
                 "TOKEN_EXPIRED" | "USER_DISABLED" | "USER_NOT_FOUND" | "INVALID_REFRESH_TOKEN",
             ) => Err(ExamError::Expired),
-            _ if status.is_server_error() => Err(ExamError::Unavailable),
-            _ => Err(ExamError::Rejected),
+            _ if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS => {
+                Err(ExamError::Unavailable)
+            }
+            Some(message)
+                if message.starts_with("TOO_MANY_ATTEMPTS_TRY_LATER")
+                    || message.starts_with("QUOTA_EXCEEDED") =>
+            {
+                Err(ExamError::Unavailable)
+            }
+            // Google's sign-in refused it, not ScienceTokyoExam: never read
+            // as the service refusing what was sent (`refused_by_service`).
+            _ => Err(ExamError::Identity),
         }
     }
 
-    /// Whether `url` is the storage host the service signs file URLs for.
-    pub fn is_file_url(&self, url: &Url) -> bool {
-        #[cfg(test)]
-        if let Some(origin) = &self.origin {
-            return url.origin() == origin.origin();
-        }
-        is_file_url(url)
-    }
-
-    /// Stream a signed file URL into `path`, refusing more than the limit.
-    pub async fn fetch_file(&self, url: Url, path: &Path) -> Result<(), ExamError> {
-        if !self.is_file_url(&url) {
+    /// Stream a signed file URL into `path`, refusing more than `limit`
+    /// bytes, the service's own limit for one material.
+    pub async fn fetch_file(&self, url: Url, path: &Path, limit: u64) -> Result<(), ExamError> {
+        if !is_file_url(&url) {
             return Err(ExamError::Response);
         }
         let mut response = self.http.get(url).send().await.map_err(network)?;
@@ -192,10 +230,7 @@ impl Client {
         if !response.status().is_success() {
             return Err(ExamError::Unavailable);
         }
-        if response
-            .content_length()
-            .is_some_and(|len| len > FILE_LIMIT as u64)
-        {
+        if response.content_length().is_some_and(|len| len > limit) {
             return Err(ExamError::Response);
         }
         let mut stream = tokio::fs::File::create(path)
@@ -203,8 +238,8 @@ impl Client {
             .map_err(|_| ExamError::Storage)?;
         let mut written = 0;
         while let Some(chunk) = response.chunk().await.map_err(network)? {
-            written += chunk.len();
-            if written > FILE_LIMIT {
+            written += chunk.len() as u64;
+            if written > limit {
                 return Err(ExamError::Response);
             }
             stream
@@ -221,7 +256,8 @@ struct ServiceError {
     code: Option<String>,
 }
 
-fn is_file_url(url: &Url) -> bool {
+/// Whether `url` is the storage host the service signs file URLs for.
+pub(super) fn is_file_url(url: &Url) -> bool {
     url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()

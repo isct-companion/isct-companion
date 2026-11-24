@@ -46,14 +46,20 @@ pub(super) struct RemoteDocument {
     pub(super) id: String,
     subjects: Vec<RemoteSubject>,
     pub(super) teachers: Vec<ExamTeacher>,
+    all_teachers: bool,
     academic_year: Option<u32>,
     occasion: Option<String>,
+    occasion_text: String,
     occasion_number: u32,
     variant: String,
     role: Option<String>,
+    role_text: String,
     note: Option<String>,
     pub(super) file_name: String,
     pub(super) file_type: String,
+    /// The service's key for the documents shown together as one sitting;
+    /// none for one it pairs with nothing.
+    pair_key: Option<String>,
 }
 
 impl RemoteDocument {
@@ -66,11 +72,14 @@ impl RemoteDocument {
                 .map(|subject| subject.present(language))
                 .collect(),
             teachers: self.teachers,
+            all_teachers: self.all_teachers,
             academic_year: self.academic_year,
             occasion: self.occasion,
+            occasion_text: self.occasion_text,
             occasion_number: self.occasion_number,
             variant: self.variant,
             role: self.role,
+            role_text: self.role_text,
             note: self.note,
             file_name: self.file_name,
             file_type: self.file_type,
@@ -99,8 +108,8 @@ pub(crate) struct SubjectRecords {
 }
 
 impl SubjectRecords {
-    /// Materials naming a teacher of the course's own class come first. The
-    /// class and teachers are matched by their IDs.
+    /// The course's own class's sittings come first. The class and teachers
+    /// are matched by their IDs.
     pub(super) fn present(
         self,
         class_id: Option<u32>,
@@ -115,12 +124,15 @@ impl SubjectRecords {
             .flat_map(|row| &row.teachers)
             .map(|teacher| teacher.id.clone())
             .collect();
-        let mut exams = present_all(self.exams, language);
-        exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
+        let exams = self
+            .exams
+            .into_iter()
+            .map(|exam| (exam.pair_key.clone(), exam.present(language)))
+            .collect();
         ExamSubjectPage {
             subject: self.subject.present(language),
             rows: self.rows,
-            sets: sets::group(exams, &ours),
+            sets: sets::group(exams, class_id.map(|_| &ours)),
             class_id,
             web_url,
         }

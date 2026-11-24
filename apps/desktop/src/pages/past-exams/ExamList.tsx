@@ -14,29 +14,66 @@ import type {
   ExamDocument,
   ExamSet,
   ExamSubject,
+  ExamTeacher,
   ExamUploadStart,
 } from "../../generated/persistence";
 
 export type Call = (action: ExamAction) => Promise<ExamAnswer | undefined>;
 export type OpenUpload = (start: ExamUploadStart) => void;
+/** The choices a form offers, asked for each time one opens: Core reads
+ * them from the service and keeps them for five minutes. A failure reaches
+ * the toast like every call, and the next opening asks again. */
+export const loadChoices = async (call: Call) => {
+  const answer = await call({ kind: "choices" });
+  return answer?.kind === "choices" ? answer.value : undefined;
+};
 /** Core names subjects in the person's language. */
 export const subjectLabel = (subject: ExamSubject) => subject.name;
-/** A sitting's or document's occasion: "Quiz 3 B", else the file name. */
+/** An occasion's name: the one given for an `other` occasion, else the
+ * code's label; a code this build does not know reads as "other". */
+export const occasionName = (occasion: string | null, text = "") =>
+  text ||
+  (occasion === null
+    ? undefined
+    : (lookup(`examShare.occasion.${occasion}`) ??
+      t("examShare.occasion.other")));
+/** A role's name, as `occasionName` for occasions. */
+export const roleName = (role: string | null, text = "") =>
+  text ||
+  (role === null
+    ? undefined
+    : (lookup(`examShare.role.${role}`) ?? t("examShare.role.other")));
+/** Who a sitting or document is from: every teacher, the names, or none
+ * known. */
+export const teacherLine = (item: {
+  teachers: ExamTeacher[];
+  allTeachers: boolean;
+}) =>
+  item.allTeachers
+    ? t("examShare.allTeachers")
+    : item.teachers.map(({ name }) => name).join(" / ") ||
+      t("examShare.unknownTeacher");
+/** A sitting's or document's occasion: "Quiz 3 B", else the file name. A
+ * number only follows an occasion's name. */
 export const occasionLabel = (
-  item: Pick<ExamSet, "occasion" | "occasionNumber" | "variant">,
+  item: Pick<
+    ExamSet,
+    "occasion" | "occasionText" | "occasionNumber" | "variant"
+  >,
   fallback: string,
-) =>
-  [
-    item.occasion && lookup(`examShare.occasion.${item.occasion}`),
-    item.occasionNumber > 1 ? item.occasionNumber : null,
-    item.variant,
-  ]
-    .filter(Boolean)
-    .join(" ") || fallback;
+) => {
+  const name = occasionName(item.occasion, item.occasionText);
+  return (
+    [
+      name && item.occasionNumber > 0 ? `${name} ${item.occasionNumber}` : name,
+      item.variant,
+    ]
+      .filter(Boolean)
+      .join(" ") || fallback
+  );
+};
 export const documentOccasion = (document: ExamDocument) =>
   occasionLabel(document, document.fileName);
-export const teacherNames = (teachers: { name: string }[]) =>
-  teachers.map(({ name }) => name).join(" / ") || t("examShare.unknownTeacher");
 
 /** What every tab's view takes from the page. */
 export type ViewProps = {
@@ -46,7 +83,6 @@ export type ViewProps = {
   reading?: string;
   pane: ReactNode;
   generation: number;
-  setViewUrl: (url: string | undefined) => void;
 };
 
 /** Runs `reload` each time the page asks every view to read Core again,

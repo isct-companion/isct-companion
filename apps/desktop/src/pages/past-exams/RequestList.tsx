@@ -18,18 +18,17 @@ import type {
 import {
   Row,
   Workspace,
+  occasionName,
+  roleName,
   subjectLabel,
+  teacherLine,
   useReload,
   type OpenUpload,
   type ViewProps,
 } from "./ExamList";
 
 const requestFacts = (item: ExamRequest) =>
-  [
-    item.academicYear,
-    item.occasion && lookup(`examShare.occasion.${item.occasion}`),
-    item.wantedRole && lookup(`examShare.role.${item.wantedRole}`),
-  ]
+  [item.academicYear, occasionName(item.occasion), roleName(item.wantedRole)]
     .filter(Boolean)
     .join(" · ");
 
@@ -40,7 +39,6 @@ export function RequestList({
   reading,
   pane,
   generation,
-  setViewUrl,
   closeReader,
   openUpload,
 }: ViewProps & { closeReader: () => void; openUpload: OpenUpload }) {
@@ -75,8 +73,6 @@ export function RequestList({
   }, [mine, load]);
   useReload(generation, () => void load(mine));
   const items = page?.mine === mine ? page.items : undefined;
-  const shownUrl = page?.webUrl;
-  useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
   const chosen = items?.find((item) => item.id === selected);
 
   return (
@@ -238,7 +234,7 @@ function RequestDetail({
       {facts && <p className="examRequestFacts">{facts}</p>}
       {item.teachers.length > 0 && (
         <p className="examRequestFacts">
-          {item.teachers.map(({ name }) => name).join(" / ")}
+          {teacherLine({ teachers: item.teachers, allTeachers: false })}
         </p>
       )}
       {item.description && (

@@ -84,9 +84,15 @@ impl Drop for UploadRun<'_> {
     }
 }
 
+/// The upload to recover, beside the account's folder. It took this name
+/// when the draft changed after 1.4.0, so 1.4.0's is never read; deleting
+/// the account removes it (`OLD_JOURNAL`).
 fn journal(folder: &Path, uid: &str) -> PathBuf {
-    super::cache::account_folder(folder, uid).with_extension("upload.json")
+    super::cache::account_folder(folder, uid).with_extension("pending-upload.json")
 }
+
+/// The name 1.4.0 kept its upload journal under.
+pub(super) const OLD_JOURNAL: &str = "upload.json";
 
 /// Whether the session's account left an upload to recover.
 pub(super) fn pending_upload(folder: &Path, session: &Session) -> bool {
@@ -147,6 +153,16 @@ struct Pending {
     registration: Registration,
     phase: Phase,
     retry_after: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AuthorizationRequest<'a> {
+    #[serde(flatten)]
+    fields: &'a ExamUploadDraft,
+    file_name: &'a str,
+    content_type: &'a str,
+    size: u32,
 }
 
 #[derive(Deserialize)]
@@ -221,6 +237,7 @@ impl ExamShare {
     ) -> Result<ExamAnswer, ExamError> {
         let (_, path) = self.upload_account(session, cancel).await?;
         let Some(mut pending) = read_pending(&path).await? else {
+            self.upload.settled(false);
             return Ok(ExamAnswer::Done);
         };
         if crate::clock::now().timestamp() < pending.retry_after {
@@ -252,12 +269,16 @@ impl ExamShare {
         mut draft: ExamUploadDraft,
         cancel: &CancellationToken,
     ) -> Result<ExamAnswer, ExamError> {
-        validate(&mut draft)?;
+        let choices = interrupt(cancel, self.choices()).await?;
+        form::normalize(&mut draft, &choices);
+        // A service that names no limit checks the size itself.
+        let limit = choices.limits.max_upload_bytes.map_or(u64::MAX, u64::from);
         let preparation = cancel.clone();
-        let file =
-            tokio::task::spawn_blocking(move || super::upload_file::prepare(&files, &preparation))
-                .await
-                .map_err(|_| ExamError::UploadFile)??;
+        let file = tokio::task::spawn_blocking(move || {
+            super::upload_file::prepare(&files, limit, &preparation)
+        })
+        .await
+        .map_err(|_| ExamError::UploadFile)??;
         let duplicate: Duplicate = interrupt(
             cancel,
             self.call(
@@ -271,12 +292,24 @@ impl ExamShare {
             return Err(ExamError::UploadDuplicate);
         }
         let size = file.bytes.len() as u32;
-        let authorization: Authorization = interrupt(cancel, self.call(
-            session, self.service(Method::POST, &["exams", "uploads", "authorize"])?
-                .json(&json!({ "fileName": file.name, "contentType": file.content_type, "size": size })),
-        )).await?;
+        // The whole draft goes with the request, so the service can refuse
+        // it before the file is sent.
+        let authorization: Authorization = interrupt(
+            cancel,
+            self.call(
+                session,
+                self.service(Method::POST, &["exams", "uploads", "authorize"])?
+                    .json(&service_body(&AuthorizationRequest {
+                        fields: &draft,
+                        file_name: &file.name,
+                        content_type: file.content_type,
+                        size,
+                    })?),
+            ),
+        )
+        .await?;
         let url = url::Url::parse(&authorization.upload_url).map_err(|_| ExamError::Response)?;
-        if !self.api.is_file_url(&url)
+        if !client::is_file_url(&url)
             || authorization.content_type != file.content_type
             || !matches!(authorization.storage_path.split('/').collect::<Vec<_>>().as_slice(),
                 ["exams", owner, key] if *owner == uid && !matches!(*key, "" | "." | ".."))
@@ -375,7 +408,7 @@ impl ExamShare {
                 session,
                 self.service(Method::POST, &["exams"])?
                     .timeout(REGISTER_TIMEOUT)
-                    .json(&pending.registration),
+                    .json(&service_body(&pending.registration)?),
             ),
         )
         .await;
@@ -386,19 +419,15 @@ impl ExamShare {
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             Err(ExamError::UploadRegistered) => None,
-            Err(
-                error @ (ExamError::UploadDuplicate
-                | ExamError::UploadQuota
-                | ExamError::UploadFile
-                | ExamError::UploadSize
-                | ExamError::InvalidInput),
-            ) => {
+            // Refused: the file it left is removed.
+            Err(error) if error.refused_by_service() => {
                 pending.phase = Phase::Cleanup;
                 pending.retry_after = crate::clock::now().timestamp();
                 write_pending(path, pending).await?;
                 let _ = self.rollback_upload(session, path, pending, cancel).await;
                 return Err(error);
             }
+            // The answer may have been lost: recover it later.
             Err(
                 ExamError::Network
                 | ExamError::Timeout
@@ -409,6 +438,7 @@ impl ExamShare {
                 write_pending(path, pending).await?;
                 return Err(ExamError::UploadPending);
             }
+            // The session ended or the run stopped; recovery resumes it.
             Err(error) => return Err(error),
         };
         tokio::fs::remove_file(path)
@@ -449,6 +479,20 @@ impl ExamShare {
     }
 }
 
+/// `value` as the service reads it: an occasion not picked yet is left out,
+/// which the service refuses, rather than sent as null, which it still takes
+/// as 1.4.0's "unknown" occasion.
+pub(super) fn service_body(value: &impl Serialize) -> Result<Value, ExamError> {
+    let mut body = serde_json::to_value(value).map_err(|_| ExamError::Response)?;
+    if let Some(fields) = body.as_object_mut() {
+        if fields.get("occasion").is_some_and(Value::is_null) {
+            fields.remove("occasion");
+        }
+    }
+    Ok(body)
+}
+
+/// The upload to recover, if one is left.
 async fn read_pending(path: &Path) -> Result<Option<Pending>, ExamError> {
     match tokio::fs::read(path).await {
         Ok(data) => serde_json::from_slice(&data)
@@ -462,57 +506,4 @@ async fn read_pending(path: &Path) -> Result<Option<Pending>, ExamError> {
 async fn write_pending(path: &Path, pending: &Pending) -> Result<(), ExamError> {
     let data = serde_json::to_vec(pending).map_err(|_| ExamError::Storage)?;
     super::cache::write_atomically(path, &data).await
-}
-
-fn fits(value: &str, limit: usize) -> bool {
-    value.encode_utf16().count() <= limit
-}
-
-/// The API's limits for an upload, after the form rules (`form::normalize`).
-pub(super) fn validate(draft: &mut ExamUploadDraft) -> Result<(), ExamError> {
-    form::normalize(draft);
-    let limits = form::limits();
-    if draft
-        .new_teachers
-        .iter()
-        .any(|name| name.family_name.trim().is_empty())
-    {
-        return Err(ExamError::UploadTeacherName);
-    }
-    if draft.new_teachers.iter().any(|name| {
-        !fits(&name.family_name, limits.teacher_name as usize)
-            || !fits(&name.given_name, limits.teacher_name as usize)
-    }) {
-        return Err(ExamError::UploadTeacherLength);
-    }
-    if !fits(&draft.variant, limits.variant as usize) {
-        return Err(ExamError::UploadVariantLength);
-    }
-    if !fits(draft.note.trim(), limits.note as usize) {
-        return Err(ExamError::UploadNoteLength);
-    }
-    if draft.subject_codes.is_empty()
-        || draft.subject_codes.len() > limits.subjects as usize
-        || draft
-            .subject_codes
-            .iter()
-            .any(|code| code.is_empty() || !fits(code, 40))
-        || draft.teacher_ids.len() > limits.teachers as usize
-        || draft.new_teachers.len() > limits.teachers as usize
-        || draft
-            .teacher_ids
-            .iter()
-            .any(|id| id.is_empty() || !fits(id, 200))
-        || draft
-            .academic_year
-            .is_some_and(|year| !form::valid_year(year))
-        || draft.occasion_number > limits.occasion_number
-        || draft
-            .request_id
-            .as_ref()
-            .is_some_and(|id| id.is_empty() || !fits(id, 100))
-    {
-        return Err(ExamError::InvalidInput);
-    }
-    Ok(())
 }
