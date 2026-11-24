@@ -5870,6 +5870,9 @@ checks:
       in crates/adpt-printer/src/tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt
+      - apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift
+      - apps/ios/IsctCompanion/Features/Print/CampusPrint.swift
+      - apps/ios/IsctPrint/PrintViewController.swift
       - crates/app-ffi/src/campus_print.rs
       - crates/app-core/src/campus_printer/mod.rs
       - crates/adpt-printer/src/pages.rs
@@ -8582,31 +8585,6 @@ checks:
     why_manual: |
       Needs the real school link and Safari on a device; where the tap lands
       is a glance. The cleartext rule is Core's and tested there.
-    covers:
-      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
-    verified: null
-
-  - id: IOS-SCHOOL-PRINT
-    area: native
-    title: iOS school page's print button opens the print sheet
-    persona: undergraduate-senior
-    preconditions: |
-      An iPhone and an iPad build of this commit, signed in to 教務Web.
-    steps:
-      - action: |
-          On a 教務Web page with 「この画面を印刷」 (for example 成績), tap it,
-          look at the preview, then cancel.
-        reason: |
-          `window.print()` reaches only WebKit's private
-          `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without
-          it nothing happens. The host answers it with
-          UIPrintInteractionController, which must show the page.
-    observe: The print sheet (a popover from the page on iPad) and its preview.
-    expected: |
-      The system print options open with the page in the preview; Cancel
-      closes them and the page is unchanged.
-    why_manual: |
-      The print sheet is native UI on a real school page; it is a glance.
     covers:
       - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
     verified: null

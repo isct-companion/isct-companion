@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 172 checks must be re-run before the next release.**
+**5 of 171 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**167 checks have never been run or could not be run:**
+**166 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -174,7 +174,6 @@ an unverified area becomes an assumed-good one.
 - `IOS-SCHOOL-NO-RESUBMIT` — never verified
 - `IOS-SCHOOL-LOAD-FAILURE` — never verified
 - `IOS-SCHOOL-HTTP-EXTERNAL` — never verified
-- `IOS-SCHOOL-PRINT` — never verified
 - `SCHOOL-CREDENTIALS-VERIFIED-SYNC` — never verified
 - `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` — never verified
 - `SCHOOL-OTP-SUBMITTED-ONCE` — never verified
@@ -297,7 +296,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
-| `MOBILE-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/pages.rs<br>crates/adpt-printer/src/lpd.rs |
+| `MOBILE-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt<br>apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift<br>apps/ios/IsctCompanion/Features/Print/CampusPrint.swift<br>apps/ios/IsctPrint/PrintViewController.swift<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/pages.rs<br>crates/adpt-printer/src/lpd.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -351,7 +350,6 @@ an unverified area becomes an assumed-good one.
 | `IOS-SCHOOL-NO-RESUBMIT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
 | `IOS-SCHOOL-LOAD-FAILURE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift |
 | `IOS-SCHOOL-HTTP-EXTERNAL` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
-| `IOS-SCHOOL-PRINT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift |
 | `SCHOOL-CREDENTIALS-VERIFIED-SYNC` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/ports.rs<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-CREDENTIALS-KEYCHAIN-REFRESH` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs<br>crates/app-core/src/school_session/mod.rs<br>crates/app-core/src/school_session/presentation.rs<br>crates/app-core/src/school_session/store.rs |
 | `SCHOOL-OTP-SUBMITTED-ONCE` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/login.rs |
@@ -6756,6 +6754,9 @@ in crates/adpt-printer/src/tests.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt`
+- `apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift`
+- `apps/ios/IsctCompanion/Features/Print/CampusPrint.swift`
+- `apps/ios/IsctPrint/PrintViewController.swift`
 - `crates/app-ffi/src/campus_print.rs`
 - `crates/app-core/src/campus_printer/mod.rs`
 - `crates/adpt-printer/src/pages.rs`
@@ -9852,44 +9853,6 @@ The PDF opens in Safari; the school page stays where it was.
 
 Needs the real school link and Safari on a device; where the tap lands
 is a glance. The cleartext rule is Core's and tested there.
-
-**Covers**
-
-- `apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift`
-
-**Last recorded** never run
-
-### iOS school page's print button opens the print sheet (`IOS-SCHOOL-PRINT`)
-
-**Area** native · **Persona** 理工学系 3年生・履修計画期 · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-An iPhone and an iPad build of this commit, signed in to 教務Web.
-
-**Steps**
-
-1. On a 教務Web page with 「この画面を印刷」 (for example 成績), tap it,
-   look at the preview, then cancel.
-   - *Why:* `window.print()` reaches only WebKit's private
-     `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without
-     it nothing happens. The host answers it with
-     UIPrintInteractionController, which must show the page.
-
-**Where to look**
-
-The print sheet (a popover from the page on iPad) and its preview.
-
-**Expected**
-
-The system print options open with the page in the preview; Cancel
-closes them and the page is unchanged.
-
-**Why this is manual**
-
-The print sheet is native UI on a real school page; it is a glance.
 
 **Covers**
 

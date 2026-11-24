@@ -26,8 +26,9 @@ import WebKit
 ///   forward goes to Core when a page commits or finishes, when the list
 ///   changes in place, and when a popup is created. Core decides what Back
 ///   and Forward do, closing a popup at the start of its history included.
-/// - Page dialogs and `window.print()` appear only for a page on screen; a
-///   parked view gets Cancel and prints nothing.
+/// - Page dialogs appear only for a page on screen; a parked view gets
+///   Cancel. A page's `window.print()` does nothing: the phones do not
+///   print school pages.
 /// - Load failures, cancellations included, go to Core, which decides what
 ///   the web screen shows (`school-web-page`).
 final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
@@ -178,7 +179,7 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
             .first
     }
 
-    /// The controller to present a page's dialog or print panel from, when
+    /// The controller to present a page's dialog from, when
     /// the page is on screen: in a window, not parked, the app in front.
     @MainActor fileprivate func presenter(for webView: WKWebView) -> UIViewController? {
         guard UIApplication.shared.applicationState == .active, let window = webView.window,
@@ -473,23 +474,6 @@ final class SchoolBrowserHost: NSObject, NativeBrowser, @unchecked Sendable {
         // A view is not one a script opened, so only popups close this way.
         if page.parent != nil { closePopup(page.id) }
     }
-
-    /// `window.print()`: the system print panel for a page on screen.
-    @MainActor fileprivate func printPage(_ page: SchoolPage) {
-        guard let presenter = presenter(for: page.webView) else { return }
-        let controller = UIPrintInteractionController.shared
-        let info = UIPrintInfo.printInfo()
-        info.outputType = .general
-        info.jobName = page.webView.title ?? ""
-        controller.printInfo = info
-        controller.printFormatter = page.webView.viewPrintFormatter()
-        if presenter.traitCollection.userInterfaceIdiom == .pad {
-            let view = page.webView
-            controller.present(from: CGRect(x: view.bounds.midX, y: view.bounds.minY, width: 1, height: 1), in: view, animated: true)
-        } else {
-            controller.present(animated: true)
-        }
-    }
 }
 
 /// A page dialog's answer, given to WebKit exactly once: a string is OK (the
@@ -648,7 +632,7 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
         webView.reload()
     }
 
-    // MARK: Windows, dialogs, printing
+    // MARK: Windows and dialogs
 
     func webView(
         _ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -747,19 +731,6 @@ private final class SchoolPage: NSObject, WKNavigationDelegate, WKUIDelegate, WK
                     user: fields.first?.text ?? "", password: fields.last?.text ?? "", persistence: .forSession))
         })
         presenter.present(alert, animated: true)
-    }
-
-    /// `window.print()` reaches WebKit's private
-    /// `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without it
-    /// nothing happens. The page goes on at once and the panel follows, so
-    /// the print formatter never waits on a page held in `print()`.
-    @objc(_webView:printFrame:pdfFirstPageSize:completionHandler:)
-    func printFrame(_ webView: WKWebView, frame: AnyObject?, pdfFirstPageSize: CGSize, completionHandler: @escaping () -> Void) {
-        completionHandler()
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.host?.printPage(self)
-        }
     }
 
     // MARK: Downloads

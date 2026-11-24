@@ -44,7 +44,14 @@ enum SharedInbox {
         return FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
     }
 
-    private static var transfers: URL? { container?.appendingPathComponent("HandIn", isDirectory: true) }
+    /// Where a share waits: to be handed in, or to be printed on the campus
+    /// printer (the "Print via campus printer" action).
+    enum Box: String {
+        case handIn = "HandIn"
+        case print = "Print"
+    }
+
+    private static func folder(for box: Box) -> URL? { container?.appendingPathComponent(box.rawValue, isDirectory: true) }
 
     static func temporaryFolder() throws -> URL {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -65,8 +72,8 @@ enum SharedInbox {
     }
 
     /// Publish an entire selection so the app cannot consume a partial one.
-    static func publish(_ transfer: Transfer, choice: Choice?) throws {
-        guard let transfers else { throw CocoaError(.fileNoSuchFile) }
+    static func publish(_ transfer: Transfer, choice: Choice?, to box: Box = .handIn) throws {
+        guard let transfers = folder(for: box) else { throw CocoaError(.fileNoSuchFile) }
         let id = UUID().uuidString
         let staging = transfers.appendingPathComponent(".\(id)", isDirectory: true)
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
@@ -79,8 +86,8 @@ enum SharedInbox {
         try FileManager.default.moveItem(at: staging, to: transfers.appendingPathComponent(id, isDirectory: true))
     }
 
-    static func take() -> Transfer? {
-        guard let transfers, let folders = try? FileManager.default.contentsOfDirectory(
+    static func take(from box: Box = .handIn) -> Transfer? {
+        guard let transfers = folder(for: box), let folders = try? FileManager.default.contentsOfDirectory(
             at: transfers, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
         ) else { return nil }
         for folder in folders {

@@ -66,6 +66,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>認証アプリの QR コードやマトリクス表の読み取り、過去問の用紙のスキャン、キャンパスマップを補うための建物のフロアの撮影にカメラを使います。</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>学内プリンタに接続して印刷するために使います。</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>キャンパスマップに現在地を表示するために使います。</string>
 	<key>NSPhotoLibraryUsageDescription</key>

@@ -21,13 +21,14 @@ enum ExtensionInput {
         }
     }
 
-    /// Brings the app forward on its inbox. Extensions have no API for this
+    /// Brings the app forward on its inbox, or on another `page` it opens
+    /// from a link (`print`, the campus print screen). Extensions have no API for this
     /// (`UIApplication.open` is unavailable to them), so the URL goes to the
     /// application found up the responder chain through the Objective-C
     /// runtime. Should that ever stop working, the files still wait in the
     /// inbox for the next time the app opens.
-    static func openApp(from start: UIResponder) {
-        guard let url = URL(string: "isctcompanion://inbox") else { return }
+    static func openApp(from start: UIResponder, to page: String = "inbox") {
+        guard let url = URL(string: "isctcompanion://\(page)") else { return }
         let selector = NSSelectorFromString("openURL:options:completionHandler:")
         var responder: UIResponder? = start
         while let current = responder {

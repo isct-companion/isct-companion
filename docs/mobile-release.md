@@ -62,8 +62,8 @@ gh variable set IOS_TESTFLIGHT_ENABLED --body true
 
 Until then the job only checks that the app compiles for a device.
 
-The workflow uses manual signing for team `FB7AL944GK` and four bundle IDs,
-the app `app.isctcompanion` and its share, open and widget extensions, using these repository secrets:
+The workflow uses manual signing for team `FB7AL944GK` and five bundle IDs,
+the app `app.isctcompanion` and its share, open, print and widget extensions, using these repository secrets:
 
 | Secret | Content |
 |---|---|
@@ -71,19 +71,20 @@ the app `app.isctcompanion` and its share, open and widget extensions, using the
 | `IOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
 | `IOS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the app (`app.isctcompanion`) |
 | `IOS_SHARE_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the share extension (`app.isctcompanion.share`) |
-| `IOS_OPEN_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the "Open in" action extension (`app.isctcompanion.open`) |
+| `IOS_OPEN_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the "Hand in assignment" action extension (`app.isctcompanion.open`) |
+| `IOS_PRINT_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the "Print via campus printer" action extension (`app.isctcompanion.print`) |
 | `IOS_WIDGETS_MOBILE_PROVISION` | Base64 App Store distribution `.mobileprovision` for the widget extension (`app.isctcompanion.widgetkit`) |
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_ISSUER` | API issuer ID |
 | `APPLE_API_PRIVATE_KEY` | Raw `.p8` private key used to upload builds |
 
-All four profiles are made with the same Apple Distribution certificate, and
+All five profiles are made with the same Apple Distribution certificate, and
 their App IDs have the App Group `group.app.isctcompanion` (for shared files and widget snapshots). A profile made before its App ID had the
 group lacks the entitlement: regenerate it after ticking App Groups.
 
 The job fails before building if a secret is missing, a profile has expired,
 belongs to another app/team, is not an App Store profile or lacks the App
-Group, or the certificate does not match all four profiles.
+Group, or the certificate does not match all five profiles.
 It installs the supplied certificate and profile, then explicitly selects them
 for both archive and export. It does not create cloud-managed certificates or
 refresh profiles. Renew the existing secrets when their signing materials expire.

@@ -61,9 +61,11 @@ targets:
       - package: IsctCore
       - package: Pow
       # The share sheet's entries (slotledger `approach/share-entry-points`): the app-row
-      # sheet and the "Open in IsctCompanion" action.
+      # sheet, the "Hand in assignment" action and the "Print via campus
+      # printer" action.
       - target: IsctShare
       - target: IsctOpen
+      - target: IsctPrint
       - target: IsctWidgetsExtension
     info:
       path: IsctCompanion/Info.plist
@@ -112,6 +114,9 @@ targets:
         NSPhotoLibraryUsageDescription: QR コードやマトリクス表の写真を読み込むために使います。
         # The campus map's blue dot (CampusMapLocation); never in the background.
         NSLocationWhenInUseUsageDescription: キャンパスマップに現在地を表示するために使います。
+        # The campus printer is on the campus network (172.20.83.212): the
+        # print screen checks it and sends to it over LPD.
+        NSLocalNetworkUsageDescription: 学内プリンタに接続して印刷するために使います。
         # Google sign-in: the iOS client registered in
         # config/oauth-clients.yaml. Client IDs are public; a tooling test keeps
         # this in step with that file.
@@ -253,7 +258,7 @@ targets:
         # one): its inbox and widget data stay empty.
         Demo:
           CODE_SIGN_ENTITLEMENTS: ""
-  # Action extension: "Open in IsctCompanion" in the share sheet's actions.
+  # Action extension: "Hand in assignment" in the share sheet's actions.
   # Hands a selection to the app's assignment picker.
   IsctOpen:
     type: app-extension
@@ -267,7 +272,7 @@ targets:
     info:
       path: IsctOpen/Info.plist
       properties:
-        CFBundleDisplayName: Open in $(ISCT_DISPLAY_NAME)
+        CFBundleDisplayName: Hand in assignment
         IsctWidgetGroup: $(ISCT_APP_GROUP)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
@@ -295,5 +300,47 @@ targets:
       configs:
         # The demo app has no App Group (a Personal Team cannot provision
         # one): its inbox and widget data stay empty.
+        Demo:
+          CODE_SIGN_ENTITLEMENTS: ""
+  # Action extension: "Print via campus printer" in the share sheet's
+  # actions. Hands one PDF or picture to the app's own print screen, which
+  # Core sends to the campus printer.
+  IsctPrint:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: IsctPrint
+      - path: Privacy/Extensions/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: ExtensionShared
+      - path: IsctCompanion/Shared/SharedInbox.swift
+    info:
+      path: IsctPrint/Info.plist
+      properties:
+        CFBundleDisplayName: Print via campus printer
+        IsctWidgetGroup: $(ISCT_APP_GROUP)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.ui-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PrintViewController
+          NSExtensionAttributes:
+            NSExtensionActionWantsFullScreenPresentation: false
+            # One PDF or one picture: what the print screen prints.
+            NSExtensionActivationRule: 'SUBQUERY(extensionItems, $item, SUBQUERY($item.attachments, $attachment, ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf" || ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image").@count == 1).@count == 1'
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(ISCT_APP_ID).print
+        CODE_SIGN_ENTITLEMENTS: IsctPrint/IsctPrint.entitlements
+        PRODUCT_NAME: IsctPrint
+        MARKETING_VERSION: 1.0.0
+        CURRENT_PROJECT_VERSION: 1
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        APPLICATION_EXTENSION_API_ONLY: YES
+      configs:
+        # The demo app has no App Group (a Personal Team cannot provision
+        # one): nothing is handed over.
         Demo:
           CODE_SIGN_ENTITLEMENTS: ""
