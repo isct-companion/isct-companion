@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Library, Trash2 } from "lucide-react";
 import {
   Button,
@@ -25,7 +25,6 @@ export function LibraryList({
   opening,
   reading,
   pane,
-  setViewUrl,
   library,
   failed,
   refresh,
@@ -38,9 +37,6 @@ export function LibraryList({
   replace: (value: ExamLibrary) => void;
   closeReader: (id: string) => void;
 }) {
-  const shownUrl = library?.webUrl;
-  useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
-
   const remove = (kind: "removeDownload" | "deleteSubmission", id: string) => {
     const label = t(
       kind === "deleteSubmission"

@@ -107,10 +107,11 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
                             Text(t("common.delete"), color = Theme.colors.danger)
                         }
                     }
-                    TextButton(
-                        onClick = { links.open(ExamViews.requestBoardUrl ?: "$EXAM_SITE/request") },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text(t("examShare.openOnWeb")) }
+                    choices?.site?.let { site ->
+                        TextButton(onClick = { links.open(site.requests) }, modifier = Modifier.fillMaxWidth()) {
+                            Text(t("examShare.openOnWeb"))
+                        }
+                    }
                 }
                 missing -> Box(Modifier.fillMaxSize(), Alignment.Center) { Text(t("error.unavailable"), color = Theme.colors.muted) }
                 calls.busy -> Loading()

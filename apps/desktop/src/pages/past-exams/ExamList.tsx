@@ -46,7 +46,6 @@ export type ViewProps = {
   reading?: string;
   pane: ReactNode;
   generation: number;
-  setViewUrl: (url: string | undefined) => void;
 };
 
 /** Runs `reload` each time the page asks every view to read Core again,

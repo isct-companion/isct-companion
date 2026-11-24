@@ -118,8 +118,6 @@ pub struct ExamRequestCursor {
 pub struct ExamRequestPage {
     pub items: Vec<ExamRequest>,
     pub cursor: Option<ExamRequestCursor>,
-    /// The requests board on the ScienceTokyoExam website.
-    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -161,8 +159,6 @@ pub struct ExamLibrary {
     pub saved: Vec<ExamDocument>,
     pub downloaded: Vec<ExamDocument>,
     pub submitted: Vec<ExamDocument>,
-    /// The person's library on the ScienceTokyoExam website.
-    pub web_url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -306,6 +302,21 @@ pub struct ExamChoices {
     pub request_occasions: Vec<ExamOccasion>,
     pub report_reasons: Vec<ExamReportReason>,
     pub limits: ExamLimits,
+    pub site: ExamSitePages,
+}
+
+/// The ScienceTokyoExam website's pages, which a shell links to in every
+/// account state: before connecting, offline or on an old app version too.
+/// A view's own object (a subject, a document) has its own `web_url`.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ExamSitePages {
+    pub search: String,
+    pub requests: String,
+    pub library: String,
+    pub terms: String,
+    pub privacy: String,
 }
 
 /// The API's limits a form keeps to. Text lengths count UTF-16 code units.
@@ -443,6 +454,9 @@ pub enum ExamAction {
     Connect,
     CancelConnect,
     AcceptTerms,
+    /// Refuse the terms on the consent page: the account is left, and the
+    /// service told to forget an account that never registered.
+    Decline,
     Disconnect,
     Search {
         query: String,

@@ -490,6 +490,7 @@
   "exam.whenYouEditedValue": "修正時の公式：{{value}}",
   "exam.yourEditValue": "自分の修正：{{value}}",
   "examShare.accept": "同意して続ける",
+  "examShare.decline": "同意しない",
   "examShare.allClasses": "すべてのクラス",
   "examShare.allOccasions": "試験の回を指定しない",
   "examShare.allTeachers": "すべての教員",

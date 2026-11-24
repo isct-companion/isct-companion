@@ -4,19 +4,22 @@ import { ExternalLink } from "../../components/ExternalLink";
 import { desktopBridge } from "../../platform/native";
 import { notify } from "../../components/notifications/notify";
 import { t } from "../../i18n";
-import type { ExamAccount } from "../../generated/persistence";
+import type { ExamAccount, ExamSitePages } from "../../generated/persistence";
 
-/** Everything before a usable session: sign in, the terms, or why not. */
+export type GateAction = "connect" | "acceptTerms" | "decline";
+
+/** Everything before a usable session: sign in, the terms, or why not.
+ * `pending` is the action running; while it runs no other starts. */
 export function AccountGate({
   account,
+  site,
   pending,
-  connect,
-  accept,
+  run,
 }: {
   account?: ExamAccount;
-  pending: boolean;
-  connect: () => void;
-  accept: () => void;
+  site?: ExamSitePages;
+  pending?: GateAction;
+  run: (action: GateAction) => void;
 }) {
   if (!account) return <Skeleton count={4} />;
   if (account.status === "unsupported")
@@ -29,17 +32,31 @@ export function AccountGate({
         icon={FileText}
         action={
           <div className="examGateActions">
-            <span>
-              <ExternalLink href="https://sciencetokyoexam.com/terms">
-                {t("examShare.terms")}
-              </ExternalLink>
-              {" · "}
-              <ExternalLink href="https://sciencetokyoexam.com/privacy">
-                {t("examShare.privacy")}
-              </ExternalLink>
-            </span>
-            <Button loading={pending} onClick={accept}>
+            {site && (
+              <span>
+                <ExternalLink href={site.terms}>
+                  {t("examShare.terms")}
+                </ExternalLink>
+                {" · "}
+                <ExternalLink href={site.privacy}>
+                  {t("examShare.privacy")}
+                </ExternalLink>
+              </span>
+            )}
+            <Button
+              loading={pending === "acceptTerms"}
+              disabled={!!pending}
+              onClick={() => run("acceptTerms")}
+            >
               {t("examShare.accept")}
+            </Button>
+            <Button
+              variant="subtle"
+              loading={pending === "decline"}
+              disabled={!!pending}
+              onClick={() => run("decline")}
+            >
+              {t("examShare.decline")}
             </Button>
           </div>
         }
@@ -47,15 +64,17 @@ export function AccountGate({
         {t("examShare.consentHint")}
       </EmptyState>
     );
+  // Only signing in shows here: a refusal that just ended is not one.
+  const connecting = pending === "connect";
   return (
     <EmptyState
       icon={BookOpen}
       action={
         <div className="examGateActions">
-          <Button loading={pending} onClick={connect}>
+          <Button loading={connecting} onClick={() => run("connect")}>
             {t("examShare.connect")}
           </Button>
-          {pending && (
+          {connecting && (
             <Button
               variant="subtle"
               onClick={() =>
@@ -70,7 +89,7 @@ export function AccountGate({
         </div>
       }
     >
-      {t(pending ? "examShare.connectingHint" : "examShare.connectHint")}
+      {t(connecting ? "examShare.connectingHint" : "examShare.connectHint")}
     </EmptyState>
   );
 }

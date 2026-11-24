@@ -10,7 +10,6 @@ struct ExamRequestScreen: View {
     let route: ExamRequestRoute
     @State private var page = ExamPage()
     @State private var item: ExamRequest?
-    @State private var webUrl: String?
     @State private var uploadEntry: ExamUploadEntry?
 
     var body: some View {
@@ -51,7 +50,7 @@ struct ExamRequestScreen: View {
                         }
                     }
                 }
-                if let web = URL(string: webUrl ?? route.webUrl) {
+                if let web = page.choices.flatMap({ URL(string: $0.site.requests) }) {
                     Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
                 }
             }
@@ -77,7 +76,6 @@ struct ExamRequestScreen: View {
     private func setOpen(_ item: ExamRequest, _ open: Bool) async {
         guard case let .requests(board)? = await page.call(model, .setRequestOpen(id: item.id, open: open, mine: true))
         else { return }
-        webUrl = board.webUrl
         if let changed = board.items.first(where: { $0.id == item.id }) { self.item = changed }
     }
 }

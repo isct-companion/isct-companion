@@ -61,20 +61,9 @@ struct ExamDocumentRoute: Hashable {
 
 struct ExamRequestRoute: Hashable {
     let request: ExamRequest
-    /// The board's page on the site.
-    let webUrl: String
 
     static func == (a: Self, b: Self) -> Bool { a.request.id == b.request.id }
     func hash(into hasher: inout Hasher) { hasher.combine(request.id) }
-}
-
-/// The site's pages Core has no answer for: the search before anything is
-/// read, and the terms shown before consent.
-enum ExamSite {
-    static let base = "https://sciencetokyoexam.com"
-    static let search = URL(string: "\(base)/search")
-    static let terms = URL(string: "\(base)/terms")
-    static let privacy = URL(string: "\(base)/privacy")
 }
 
 /// The one Core call path each past-exams page owns: whether a call is
@@ -89,6 +78,8 @@ final class ExamPage {
     }
 
     private var running = 0
+    /// Signing in runs; only then does the sign-in gate show it.
+    private(set) var connecting = false
     var problem: String?
     var notice: String?
     var confirmation: Confirmation?
@@ -99,9 +90,14 @@ final class ExamPage {
     /// Runs one action; a failure shows its message. Calls may overlap (a
     /// search while a list loads), so `busy` counts them.
     func call(_ model: AppModel, _ action: ExamAction) async -> ExamAnswer? {
+        let connect = if case .connect = action { true } else { false }
         running += 1
+        if connect { connecting = true }
         problem = nil
-        defer { running -= 1 }
+        defer {
+            running -= 1
+            if connect { connecting = false }
+        }
         do { return try await model.examShare(action) }
         catch SdkError.Cancelled { return nil }
         catch is CancellationError { return nil }
@@ -214,12 +210,15 @@ struct PastExamsScreen: View {
         }
     }
 
-    /// The site's page for the tab on screen.
+    /// The site's page for the tab on screen; before connecting the tabs
+    /// are hidden, so the search.
     private var webUrl: URL? {
-        switch tab {
-        case .browse: ExamSite.search
-        case .requests: requestPages[mine].flatMap { URL(string: $0.webUrl) }
-        case .library: library.flatMap { URL(string: $0.webUrl) }
+        guard let site = page.choices?.site else { return nil }
+        guard account?.status == .connected else { return URL(string: site.search) }
+        return switch tab {
+        case .browse: URL(string: site.search)
+        case .requests: URL(string: site.requests)
+        case .library: URL(string: site.library)
         }
     }
 
@@ -231,14 +230,14 @@ struct PastExamsScreen: View {
             case nil where page.problem == nil:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             default:
-                ExamAccountGate(page: page, status: account?.status ?? .disconnected) { action in
+                ExamAccountGate(page: page, status: account?.status ?? .disconnected, site: page.choices?.site) { action in
                     await accountAction(action)
                 }
             }
         }
         .frame(maxHeight: .infinity)
         .background(Theme.bg)
-        .modifier(PastExamsTitle(root: courseId == nil, web: account?.status == .connected ? webUrl : nil))
+        .modifier(PastExamsTitle(root: courseId == nil, web: webUrl))
         .task(id: CoursesRead(revision: model.contentRevision, retry: coursesRetry)) {
             guard courseId == nil else { return }
             coursesFailed = false
@@ -361,7 +360,7 @@ struct PastExamsScreen: View {
             if let requests {
                 Section {
                     ForEach(requests.items, id: \.id) { item in
-                        NavigationLink(value: ExamRequestRoute(request: item, webUrl: requests.webUrl)) {
+                        NavigationLink(value: ExamRequestRoute(request: item)) {
                             ExamRequestRow(item: item)
                         }
                     }
@@ -490,7 +489,7 @@ struct PastExamsScreen: View {
         let mine = mine
         if case let .requests(value)? = await page.call(model, .requests(mine: mine, cursor: cursor)) {
             let previous = cursor == nil ? [] : requestPages[mine]?.items ?? []
-            requestPages[mine] = ExamRequestPage(items: previous + value.items, cursor: value.cursor, webUrl: value.webUrl)
+            requestPages[mine] = ExamRequestPage(items: previous + value.items, cursor: value.cursor)
         }
     }
 }
@@ -500,7 +499,12 @@ private struct ExamAccountGate: View {
     @Environment(AppModel.self) private var model
     let page: ExamPage
     let status: ExamAccountStatus
+    let site: ExamSitePages?
     let act: (ExamAction) async -> Void
+    /// The consent button running; it alone spins, and neither takes a tap.
+    @State private var consenting: Consent?
+
+    private enum Consent { case accept, decline }
 
     var body: some View {
         ContentUnavailableView {
@@ -510,23 +514,25 @@ private struct ExamAccountGate: View {
             case .needsConsent: Text(t("error.exam-share-consent"))
             case .unsupported: Text(t("error.exam-share-unsupported"))
             case .disconnected, .connected:
-                Text(page.busy ? t("common.signingIn") : t("examShare.connectHint"))
+                Text(page.connecting ? t("common.signingIn") : t("examShare.connectHint"))
             }
         } actions: {
             switch status {
             case .needsConsent:
-                Button(t("examShare.accept")) { Task { await act(.acceptTerms) } }
+                consentButton(.accept, t("examShare.accept"), .acceptTerms)
                     .buttonStyle(.borderedProminent)
-                    .disabled(page.busy)
-                HStack(spacing: Theme.space8) {
-                    if let terms = ExamSite.terms { Link(t("examShare.terms"), destination: terms) }
-                    if let privacy = ExamSite.privacy { Link(t("examShare.privacy"), destination: privacy) }
+                consentButton(.decline, t("examShare.decline"), .decline)
+                if let site {
+                    HStack(spacing: Theme.space8) {
+                        if let terms = URL(string: site.terms) { Link(t("examShare.terms"), destination: terms) }
+                        if let privacy = URL(string: site.privacy) { Link(t("examShare.privacy"), destination: privacy) }
+                    }
+                    .font(.subheadline)
                 }
-                .font(.subheadline)
             case .unsupported:
                 EmptyView()
             case .disconnected, .connected:
-                if page.busy {
+                if page.connecting {
                     // Sign-in waits on the person in the browser; they may leave it.
                     Button(t("common.cancel")) { Task { _ = try? await model.examShare(.cancelConnect) } }
                 } else {
@@ -536,6 +542,19 @@ private struct ExamAccountGate: View {
             }
             ExamCredit().frame(width: 220)
         }
+    }
+
+    private func consentButton(_ choice: Consent, _ title: String, _ action: ExamAction) -> some View {
+        Button {
+            consenting = choice
+            Task {
+                await act(action)
+                consenting = nil
+            }
+        } label: {
+            if consenting == choice { ProgressView() } else { Text(title) }
+        }
+        .disabled(consenting != nil || page.busy)
     }
 }
 
@@ -670,6 +689,14 @@ private struct PastExamsTitle: ViewModifier {
             content
                 .navigationTitle(t("examShare.title"))
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    if let web {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            ExamLinkButton(url: web) { Image(systemName: "safari") }
+                                .accessibilityLabel(t("examShare.openOnWeb"))
+                        }
+                    }
+                }
         }
     }
 }

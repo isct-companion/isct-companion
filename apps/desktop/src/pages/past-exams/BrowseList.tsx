@@ -85,6 +85,8 @@ export function BrowseList({
 }: ViewProps & {
   active: boolean;
   choices?: ExamChoices;
+  /** Names the expanded subject's page on the website. */
+  setViewUrl: (url: string | undefined) => void;
   takeCourse: () => string | undefined;
   openUpload: OpenUpload;
 }) {

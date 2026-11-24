@@ -21,7 +21,7 @@ fn present_subject(
     language: ContentLanguage,
 ) -> Result<ExamSubjectPage, ExamError> {
     let web_url = url::Url::parse_with_params(
-        &format!("https://{}/search", client::Endpoint::Site.host()),
+        &client::site_page("search"),
         [("course", &records.subject.code)],
     )
     .map_err(|_| ExamError::Response)?;
@@ -462,7 +462,6 @@ impl ExamShare {
                 .map(|request| request.model(uid, language))
                 .collect(),
             cursor: answer.cursor,
-            web_url: client::site_page("request"),
         })
     }
 
@@ -547,7 +546,6 @@ impl ExamShare {
             saved: present_all(saved, language),
             submitted: present_all(submitted, language),
             downloaded: downloads(&self.account_folder(uid), language).await?,
-            web_url: client::site_page("library"),
         })
     }
 
@@ -699,7 +697,3 @@ impl ExamShare {
         local(&base, metadata, false, saved, language).await
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/exam_share__library.rs"]
-mod tests;

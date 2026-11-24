@@ -1090,10 +1090,6 @@ export type ExamRequestCursor = { createdAt: number; id: string };
 export type ExamRequestPage = {
   items: Array<ExamRequest>;
   cursor: ExamRequestCursor | null;
-  /**
-   * The requests board on the ScienceTokyoExam website.
-   */
-  webUrl: string;
 };
 
 export type ExamRequestDraft = {
@@ -1132,10 +1128,6 @@ export type ExamLibrary = {
   saved: Array<ExamDocument>;
   downloaded: Array<ExamDocument>;
   submitted: Array<ExamDocument>;
-  /**
-   * The person's library on the ScienceTokyoExam website.
-   */
-  webUrl: string;
 };
 
 export type ExamAccountStatus =
@@ -1208,6 +1200,15 @@ export type ExamChoices = {
   requestOccasions: Array<ExamOccasion>;
   reportReasons: Array<ExamReportReason>;
   limits: ExamLimits;
+  site: ExamSitePages;
+};
+
+export type ExamSitePages = {
+  search: string;
+  requests: string;
+  library: string;
+  terms: string;
+  privacy: string;
 };
 
 export type ExamLimits = {
@@ -1293,6 +1294,7 @@ export type ExamAction =
   | { kind: "connect" }
   | { kind: "cancelConnect" }
   | { kind: "acceptTerms" }
+  | { kind: "decline" }
   | { kind: "disconnect" }
   | { kind: "search"; query: string }
   | {

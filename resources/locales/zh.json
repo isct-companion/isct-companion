@@ -490,6 +490,7 @@
   "exam.whenYouEditedValue": "修改时的官方：{{value}}",
   "exam.yourEditValue": "你的修改：{{value}}",
   "examShare.accept": "同意并继续",
+  "examShare.decline": "不同意",
   "examShare.allClasses": "全部班级",
   "examShare.allOccasions": "不限考试类型",
   "examShare.allTeachers": "全部教师",

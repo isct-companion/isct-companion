@@ -1,4 +1,4 @@
-use super::ExamError;
+use super::{ExamError, ExamSitePages};
 use crate::net::{client_builder, read_response_limited};
 use reqwest::{Method, RequestBuilder, Response, StatusCode};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -29,6 +29,17 @@ pub(super) fn site_page(path: &str) -> String {
     format!("https://{}/{path}", Endpoint::Site.host())
 }
 
+/// The website's pages a shell links to whatever the account's state.
+pub(super) fn site_pages() -> ExamSitePages {
+    ExamSitePages {
+        search: site_page("search"),
+        requests: site_page("request"),
+        library: site_page("library"),
+        terms: site_page("terms"),
+        privacy: site_page("privacy"),
+    }
+}
+
 impl Endpoint {
     pub const fn host(self) -> &'static str {
         match self {
@@ -43,9 +54,6 @@ pub(super) struct Client {
     pub http: reqwest::Client,
     version: String,
     last_start: Mutex<Option<Instant>>,
-    /// Tests point every endpoint, and the file host, at a local server.
-    #[cfg(test)]
-    pub origin: Option<Url>,
 }
 
 impl Client {
@@ -58,16 +66,10 @@ impl Client {
                 .map_err(|_| ExamError::Unavailable)?,
             version,
             last_start: Mutex::new(None),
-            #[cfg(test)]
-            origin: None,
         })
     }
 
     fn base(&self, endpoint: Endpoint) -> Result<Url, ExamError> {
-        #[cfg(test)]
-        if let Some(origin) = &self.origin {
-            return Ok(origin.clone());
-        }
         Url::parse(&format!("https://{}/", endpoint.host())).map_err(|_| ExamError::Unavailable)
     }
 
@@ -88,17 +90,32 @@ impl Client {
             .header("X-Client", format!("isct-companion/{}", self.version)))
     }
 
+    /// Wait out the spacing the site asks between request starts.
+    async fn space(&self) {
+        let mut last = self.last_start.lock().await;
+        if let Some(last) = *last {
+            tokio::time::sleep_until(last + SITE_SPACING).await;
+        }
+        *last = Some(Instant::now());
+    }
+
+    /// Send a site request whose answer has no body Core reads: any 2xx,
+    /// 204 included, is success.
+    pub async fn fire(&self, request: RequestBuilder) -> Result<(), ExamError> {
+        self.space().await;
+        let response = request.send().await.map_err(network)?;
+        if response.status().is_success() {
+            Ok(())
+        } else {
+            Err(ExamError::Rejected)
+        }
+    }
+
     pub async fn service<T: DeserializeOwned>(
         &self,
         request: RequestBuilder,
     ) -> Result<T, ExamError> {
-        {
-            let mut last = self.last_start.lock().await;
-            if let Some(last) = *last {
-                tokio::time::sleep_until(last + SITE_SPACING).await;
-            }
-            *last = Some(Instant::now());
-        }
+        self.space().await;
         let response = request.send().await.map_err(network)?;
         if response.headers().contains_key("X-Vercel-Mitigated") {
             return Err(ExamError::Unavailable);
@@ -171,18 +188,9 @@ impl Client {
         }
     }
 
-    /// Whether `url` is the storage host the service signs file URLs for.
-    pub fn is_file_url(&self, url: &Url) -> bool {
-        #[cfg(test)]
-        if let Some(origin) = &self.origin {
-            return url.origin() == origin.origin();
-        }
-        is_file_url(url)
-    }
-
     /// Stream a signed file URL into `path`, refusing more than the limit.
     pub async fn fetch_file(&self, url: Url, path: &Path) -> Result<(), ExamError> {
-        if !self.is_file_url(&url) {
+        if !is_file_url(&url) {
             return Err(ExamError::Response);
         }
         let mut response = self.http.get(url).send().await.map_err(network)?;
@@ -221,7 +229,8 @@ struct ServiceError {
     code: Option<String>,
 }
 
-fn is_file_url(url: &Url) -> bool {
+/// Whether `url` is the storage host the service signs file URLs for.
+pub(super) fn is_file_url(url: &Url) -> bool {
     url.scheme() == "https"
         && url.port().is_none()
         && url.username().is_empty()

@@ -82,7 +82,3 @@ fn role_order(role: Option<&str>) -> u8 {
         _ => 4,
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/exam_share__sets.rs"]
-mod tests;

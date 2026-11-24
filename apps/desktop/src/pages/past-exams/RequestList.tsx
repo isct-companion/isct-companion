@@ -40,7 +40,6 @@ export function RequestList({
   reading,
   pane,
   generation,
-  setViewUrl,
   closeReader,
   openUpload,
 }: ViewProps & { closeReader: () => void; openUpload: OpenUpload }) {
@@ -75,8 +74,6 @@ export function RequestList({
   }, [mine, load]);
   useReload(generation, () => void load(mine));
   const items = page?.mine === mine ? page.items : undefined;
-  const shownUrl = page?.webUrl;
-  useEffect(() => setViewUrl(shownUrl), [shownUrl, setViewUrl]);
   const chosen = items?.find((item) => item.id === selected);
 
   return (

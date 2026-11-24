@@ -120,12 +120,15 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                         DropdownMenuItem({ Text(t("examShare.newRequest")) }, enabled = choices != null, onClick = { menu = false; requesting = true })
                         DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, onClick = { menu = false; links.open(current.webUrl) })
                     }
+                } else choices?.site?.let { site ->
+                    // Loading, or before connecting: the search.
+                    ExamLinkButton(links) { site.search }
                 }
             },
         ) {
             when {
                 account == null -> Loading()
-                !connected -> AccountGate(calls) { reload(it) }
+                !connected -> AccountGate(calls, choices?.site) { reload(it) }
                 current != null -> {
                     // A class of one's own puts its teachers' sittings first.
                     val grouped = current.classId != null

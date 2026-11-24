@@ -14,6 +14,7 @@ pub(super) struct SavedSession {
     pub registered: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct SessionToken {
     pub saved: SavedSession,
     pub id_token: String,

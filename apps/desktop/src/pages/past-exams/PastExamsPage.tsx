@@ -21,6 +21,7 @@ import type {
   ExamChoices,
   ExamDocument,
   ExamLocalDocument,
+  ExamSitePages,
   ExamUploadForm,
   ExamUploadStart,
 } from "../../generated/persistence";
@@ -28,7 +29,7 @@ import { UploadDialog, UploadProgress, UploadRecovery } from "./ExamDialogs";
 import { ExamReader } from "./ExamReader";
 import { useExamLibrary } from "./useExamLibrary";
 import "./past-exams.css";
-import { AccountGate } from "./AccountGate";
+import { AccountGate, type GateAction } from "./AccountGate";
 import { BrowseList } from "./BrowseList";
 import { LibraryList } from "./LibraryList";
 import { RequestList } from "./RequestList";
@@ -42,6 +43,12 @@ import {
 
 const tabs = ["browse", "requests", "library"] as const;
 type Tab = (typeof tabs)[number];
+/** The website's page for each tab. */
+const tabPage = {
+  browse: "search",
+  requests: "requests",
+  library: "library",
+} as const satisfies Record<Tab, keyof ExamSitePages>;
 
 /** Runs one Core action. Failures go to the toast; a lost session reaches
  * the page as an `exam-account` event. Cancelled sign-ins are silent. */
@@ -86,14 +93,14 @@ export function PastExams({
   const [account, setAccount] = useState<ExamAccount>();
   const [choices, setChoices] = useState<ExamChoices>();
   const [tab, setTab] = useState<Tab>("browse");
-  const [pending, setPending] = useState(false);
+  const [pending, setPending] = useState<GateAction | "disconnect">();
   const [reader, setReader] = useState<ExamLocalDocument>();
   /** The document being opened; only its button spins. */
   const [opening, setOpening] = useState<string>();
   /** Bumped when every view should read Core again: back in the
    * foreground, or after an upload changed what the site lists. */
   const [generation, setGeneration] = useState(0);
-  /** Core's address for the view on screen, once it has loaded. */
+  /** Core's address for the subject on screen, once it has loaded. */
   const [viewUrl, setViewUrl] = useState<string>();
   const [upload, setUpload] = useState<ExamUploadForm>();
   const [uploadRunning, setUploadRunning] = useState(false);
@@ -118,6 +125,7 @@ export function PastExams({
       setAccount(next);
       if (next.status === "connected") return;
       courseOpened.current = false;
+      setViewUrl(undefined);
       openSeq.current += 1;
       setOpening(undefined);
       setReader(undefined);
@@ -127,10 +135,10 @@ export function PastExams({
     [closeUpload, replaceLibrary],
   );
   const accountAction = useCallback(
-    async (kind: "account" | "connect" | "disconnect" | "acceptTerms") => {
-      setPending(kind !== "account");
+    async (kind: "account" | GateAction | "disconnect") => {
+      setPending(kind === "account" ? undefined : kind);
       const answer = await call({ kind });
-      setPending(false);
+      setPending(undefined);
       if (answer?.kind === "account") applyAccount(answer.value);
       return answer?.kind === "account" ? answer.value : undefined;
     },
@@ -159,12 +167,14 @@ export function PastExams({
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [active, applyAccount]);
+  // Core answers these locally, the website's pages among them, which the
+  // page links to in every account state.
   useEffect(() => {
-    if (!active || !connected || choices) return;
+    if (!active || choices) return;
     void call({ kind: "choices" }).then((answer) => {
       if (answer?.kind === "choices") setChoices(answer.value);
     });
-  }, [active, connected, choices, call]);
+  }, [active, choices, call]);
 
   const open = useCallback(
     async (id: string) => {
@@ -281,7 +291,12 @@ export function PastExams({
         />
       )
     );
-  const webUrl = connected ? (reader?.webUrl ?? viewUrl) : undefined;
+  // The object on screen first, else the tab's page; before connecting the
+  // tabs are hidden, so the search.
+  const site = choices?.site;
+  const webUrl = connected
+    ? (reader?.webUrl ?? viewUrl ?? site?.[tabPage[tab]])
+    : site?.search;
   const takeCourse = useCallback(() => {
     if (!courseId || courseOpened.current) return undefined;
     courseOpened.current = true;
@@ -294,25 +309,22 @@ export function PastExams({
     reading: reader?.document.id,
     pane: readerPane,
     generation,
-    setViewUrl,
   };
 
-  const siteLinks = (
-    <>
-      <span className="examPartner">{t("examShare.partner")}</span>
-      {webUrl && (
-        <ExternalLink className="examSiteLink" href={webUrl}>
-          <Globe size={14} strokeWidth={1.75} aria-hidden />
-          {t("examShare.openOnWeb")}
-        </ExternalLink>
-      )}
-    </>
+  const partner = <span className="examPartner">{t("examShare.partner")}</span>;
+  const siteLink = webUrl && (
+    <ExternalLink className="examSiteLink" href={webUrl}>
+      <Globe size={14} strokeWidth={1.75} aria-hidden />
+      {t("examShare.openOnWeb")}
+    </ExternalLink>
   );
   const chrome = account && {
     head: (
       <>
         <TitleRow nav>
           <h1>{t("examShare.title")}</h1>
+          <span className="titleRowSpacer" />
+          {siteLink}
         </TitleRow>
         <SegmentedControl
           className="examTabs"
@@ -337,7 +349,7 @@ export function PastExams({
     ),
     foot: (
       <footer className="examFooter">
-        {siteLinks}
+        {partner}
         <Menu position="top-start">
           <Menu.Target>
             <Button variant="subtle" color="gray" className="examAccount">
@@ -370,22 +382,24 @@ export function PastExams({
         <TitleRow nav className="pastExamsTitle">
           <h1>{t("examShare.title")}</h1>
           <span className="titleRowSpacer" />
-          {siteLinks}
+          {partner}
+          {siteLink}
         </TitleRow>
       )}
       <ExamChrome.Provider value={connected ? chrome || null : null}>
         {!connected ? (
           <AccountGate
             account={account}
-            pending={pending}
-            connect={() => void accountAction("connect")}
-            accept={() => void accountAction("acceptTerms")}
+            site={site}
+            pending={pending === "disconnect" ? undefined : pending}
+            run={(action) => void accountAction(action)}
           />
         ) : tab === "browse" ? (
           <BrowseList
             {...shared}
             active={active}
             choices={choices}
+            setViewUrl={setViewUrl}
             takeCourse={takeCourse}
             openUpload={openUpload}
           />

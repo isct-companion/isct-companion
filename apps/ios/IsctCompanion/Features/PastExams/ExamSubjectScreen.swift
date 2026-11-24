@@ -71,6 +71,12 @@ struct ExamSubjectScreen: View {
                         Label(t("examShare.upload.title"), systemImage: "plus")
                     }
                 }
+            } else if let web = page.choices.flatMap({ URL(string: $0.site.search) }) {
+                // Loading, or choosing among a course's subjects: the search.
+                ToolbarItem(placement: .topBarTrailing) {
+                    ExamLinkButton(url: web) { Image(systemName: "safari") }
+                        .accessibilityLabel(t("examShare.openOnWeb"))
+                }
             }
         }
         .refreshable { await load() }

@@ -276,7 +276,7 @@ impl ExamShare {
                 .json(&json!({ "fileName": file.name, "contentType": file.content_type, "size": size })),
         )).await?;
         let url = url::Url::parse(&authorization.upload_url).map_err(|_| ExamError::Response)?;
-        if !self.api.is_file_url(&url)
+        if !client::is_file_url(&url)
             || authorization.content_type != file.content_type
             || !matches!(authorization.storage_path.split('/').collect::<Vec<_>>().as_slice(),
                 ["exams", owner, key] if *owner == uid && !matches!(*key, "" | "." | ".."))

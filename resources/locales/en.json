@@ -490,6 +490,7 @@
   "exam.whenYouEditedValue": "When you edited: {{value}}",
   "exam.yourEditValue": "Your edit: {{value}}",
   "examShare.accept": "Agree and continue",
+  "examShare.decline": "Don’t agree",
   "examShare.allClasses": "All classes",
   "examShare.allOccasions": "Any exam type",
   "examShare.allTeachers": "All teachers",

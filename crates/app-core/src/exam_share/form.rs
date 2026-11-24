@@ -56,6 +56,7 @@ pub(super) fn choices() -> ExamChoices {
             ExamReportReason::Other,
         ],
         limits: limits(),
+        site: super::client::site_pages(),
     }
 }
 
