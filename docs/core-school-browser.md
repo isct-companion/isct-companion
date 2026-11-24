@@ -337,13 +337,15 @@ Nothing is injected into a school page to show these.
 
 `alert`, `confirm` and `prompt` are shown natively for the view or popup the
 person is looking at, titled with the initiating frame's origin, and answered
-Cancel for a hidden view without any UI. `window.print()` opens the system
-print panel for the foreground view only (WebKit: the private
-`_webView:printFrame:pdfFirstPageSize:completionHandler:`). Android WebView
-has no hook for a page's `window.print()`, so the page's button does
-nothing there and the app's page menu prints the page on screen through
-`PrintManager`. A `beforeunload` question is shown the same way, and a
-hidden view always leaves.
+Cancel for a hidden view without any UI. A `beforeunload` question is shown
+the same way, and a hidden view always leaves.
+
+On the desktop `window.print()` opens the system print panel for the
+foreground view only (WebKit: the private
+`_webView:printFrame:pdfFirstPageSize:completionHandler:`). The phones do
+not print school pages: neither answers a page's `window.print()` (Android
+WebView has no hook for it; iOS leaves WebKit's private one unanswered), so
+the page's button does nothing there, and the page menus offer no print.
 
 A file input (`<input type=file>`) chooses files only for the page in front of
 the view on screen, in a main view and a popup alike; anything else chooses

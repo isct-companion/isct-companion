@@ -1,6 +1,6 @@
 import UIKit
 
-/// "Open in IsctCompanion" in the share sheet's actions: what was shared goes
+/// "Hand in assignment" in the share sheet's actions: what was shared goes
 /// to the app's hand-in picker. The person chooses a target in the app. Nothing is picked or submitted here; the
 /// share extension is the one with a sheet.
 final class OpenViewController: UIViewController {

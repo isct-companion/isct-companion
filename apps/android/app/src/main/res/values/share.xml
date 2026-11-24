@@ -1,0 +1,5 @@
+<resources>
+    <!-- The share sheet entries: printing, and handing in (MainActivity). -->
+    <string name="campus_print_share">Print via campus printer</string>
+    <string name="hand_in_share">Hand in assignment</string>
+</resources>

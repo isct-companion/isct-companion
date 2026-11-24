@@ -55,8 +55,9 @@
                 <data android:scheme="isctcompanion" android:host="signed-in" />
             </intent-filter>
             <!-- Files shared from another app wait in the inbox to be handed in
-                 (slotledger `approach/share-entry-points`). -->
-            <intent-filter>
+                 (slotledger `approach/share-entry-points`). The share sheet
+                 calls it "Hand in assignment", apart from printing. -->
+            <intent-filter android:label="@string/hand_in_share">
                 <action android:name="android.intent.action.SEND" />
                 <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -64,6 +65,24 @@
                 <data android:mimeType="image/*" />
                 <data android:mimeType="video/*" />
                 <data android:mimeType="text/*" />
+            </intent-filter>
+        </activity>
+        <!-- "Print to campus printer" in the share sheet: the app's own print
+             screen, the same on every phone whatever its system print dialog
+             lists (CampusPrintActivity.kt). Turning the phone keeps the screen
+             as it is rather than reading the shared file again. -->
+        <activity
+            android:name=".CampusPrintActivity"
+            android:exported="true"
+            android:label="@string/campus_print_share"
+            android:icon="@mipmap/ic_launcher"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="image/*" />
             </intent-filter>
         </activity>
         <receiver
@@ -95,19 +114,12 @@
             android:name=".core.SignInService"
             android:exported="false"
             android:foregroundServiceType="shortService" />
-        <!-- The campus printer in every app's print dialog. Only the system
-             may bind it; Android enables it on install. -->
+        <!-- Keeps the app awake while a print job is sent, so HyperOS does not
+             freeze it once the print screen is left (CampusPrintSending.kt). -->
         <service
-            android:name=".CampusPrintService"
-            android:exported="true"
-            android:permission="android.permission.BIND_PRINT_SERVICE">
-            <intent-filter>
-                <action android:name="android.printservice.PrintService" />
-            </intent-filter>
-            <meta-data
-                android:name="android.printservice"
-                android:resource="@xml/campus_print_service" />
-        </service>
+            android:name=".CampusPrintSending"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

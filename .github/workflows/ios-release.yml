@@ -35,12 +35,14 @@ jobs:
       UPLOAD: ${{ vars.IOS_TESTFLIGHT_ENABLED == 'true' }}
       TEAM_ID: FB7AL944GK
       # Each signed bundle and the App Store profile secret it is signed with:
-      # the app, its share extension and its "Open in" action extension. All
-      # four carry the App Group the extensions hand files through.
+      # the app, its share extension, its "Hand in assignment" and "Print via
+      # campus printer" action extensions and its widgets. All five carry the
+      # App Group the extensions hand files through.
       SIGNED_TARGETS: >-
         IsctCompanion:app.isctcompanion:IOS_MOBILE_PROVISION
         IsctShare:app.isctcompanion.share:IOS_SHARE_MOBILE_PROVISION
         IsctOpen:app.isctcompanion.open:IOS_OPEN_MOBILE_PROVISION
+        IsctPrint:app.isctcompanion.print:IOS_PRINT_MOBILE_PROVISION
         IsctWidgetsExtension:app.isctcompanion.widgetkit:IOS_WIDGETS_MOBILE_PROVISION
       APP_GROUP: group.app.isctcompanion
     steps:
@@ -76,11 +78,12 @@ jobs:
           IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
           IOS_SHARE_MOBILE_PROVISION: ${{ secrets.IOS_SHARE_MOBILE_PROVISION }}
           IOS_OPEN_MOBILE_PROVISION: ${{ secrets.IOS_OPEN_MOBILE_PROVISION }}
+          IOS_PRINT_MOBILE_PROVISION: ${{ secrets.IOS_PRINT_MOBILE_PROVISION }}
           IOS_WIDGETS_MOBILE_PROVISION: ${{ secrets.IOS_WIDGETS_MOBILE_PROVISION }}
         run: |
           set -euo pipefail
           umask 077
-          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION IOS_WIDGETS_MOBILE_PROVISION; do
+          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION IOS_SHARE_MOBILE_PROVISION IOS_OPEN_MOBILE_PROVISION IOS_PRINT_MOBILE_PROVISION IOS_WIDGETS_MOBILE_PROVISION; do
             test -n "${!name}" || { echo "Missing GitHub secret: $name"; exit 1; }
           done
           printf '%s' "$IOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
@@ -114,7 +117,7 @@ jobs:
               hashes = {hashlib.sha1(cert).hexdigest().upper() for cert in profile["DeveloperCertificates"]}
               certificates = hashes if certificates is None else certificates & hashes
               lines.append(f"PROFILE_UUID_{target.upper()}={profile['UUID']}")
-          # One certificate signs all four bundles.
+          # One certificate signs all five bundles.
           lines.append("PROFILE_CERTIFICATES=" + " ".join(sorted(certificates or [])))
           with open(os.environ["GITHUB_ENV"], "a") as output:
               print("\n".join(lines), file=output)
@@ -212,6 +215,7 @@ jobs:
               <key>app.isctcompanion</key><string>$PROFILE_UUID_ISCTCOMPANION</string>
               <key>app.isctcompanion.share</key><string>$PROFILE_UUID_ISCTSHARE</string>
               <key>app.isctcompanion.open</key><string>$PROFILE_UUID_ISCTOPEN</string>
+              <key>app.isctcompanion.print</key><string>$PROFILE_UUID_ISCTPRINT</string>
               <key>app.isctcompanion.widgetkit</key><string>$PROFILE_UUID_ISCTWIDGETSEXTENSION</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
@@ -225,7 +229,7 @@ jobs:
           python3 - <<'PY'
           import glob, os, plistlib, zipfile
           with zipfile.ZipFile(glob.glob(os.environ['RUNNER_TEMP'] + '/ipa/*.ipa')[0]) as ipa:
-              for bundle in ('', 'PlugIns/IsctShare.appex/', 'PlugIns/IsctOpen.appex/', 'PlugIns/IsctWidgetsExtension.appex/'):
+              for bundle in ('', 'PlugIns/IsctShare.appex/', 'PlugIns/IsctOpen.appex/', 'PlugIns/IsctPrint.appex/', 'PlugIns/IsctWidgetsExtension.appex/'):
                   path = 'Payload/IsctCompanion.app/' + bundle + 'PrivacyInfo.xcprivacy'
                   manifest = plistlib.loads(ipa.read(path))
                   if manifest.get('NSPrivacyTracking') is not False:
@@ -244,7 +248,7 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
           rm -f "$RUNNER_TEMP/distribution.p12" "$RUNNER_TEMP"/*.mobileprovision "$RUNNER_TEMP"/Isct*.plist
-          for uuid in "${PROFILE_UUID_ISCTCOMPANION:-}" "${PROFILE_UUID_ISCTSHARE:-}" "${PROFILE_UUID_ISCTOPEN:-}" "${PROFILE_UUID_ISCTWIDGETSEXTENSION:-}"; do
+          for uuid in "${PROFILE_UUID_ISCTCOMPANION:-}" "${PROFILE_UUID_ISCTSHARE:-}" "${PROFILE_UUID_ISCTOPEN:-}" "${PROFILE_UUID_ISCTPRINT:-}" "${PROFILE_UUID_ISCTWIDGETSEXTENSION:-}"; do
             [[ -n "$uuid" ]] || continue
             rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/$uuid.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$uuid.mobileprovision"
           done

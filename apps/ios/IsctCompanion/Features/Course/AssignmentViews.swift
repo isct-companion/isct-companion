@@ -243,10 +243,13 @@ final class MaterialOpening {
         defer { busy = false }
         switch await place.model.openMaterial(courseId: course, source: source) {
         // How a file shows is Core's (`file_preview`): Markdown on a page of
-        // its own, everything else in Quick Look, which previews what iOS can
+        // its own, a PDF or a picture on a page with the campus printer at
+        // hand, everything else in Quick Look, which previews what iOS can
         // and offers another app for the rest.
         case let .ready(file, _)? where file.viewer == .markdown:
             place.push(CourseMarkdownRoute(path: file.path, title: title))
+        case let .ready(file, _)? where file.viewer == .pdf || file.viewer == .image:
+            place.push(CourseDocumentRoute(path: file.path, title: title))
         case let .ready(file, _)?:
             preview = URL(fileURLWithPath: file.path)
         // A ZIP Core lists opens as a folder of its files.

@@ -14,6 +14,7 @@ struct TodayScreen: View {
     var columns = false
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
+    @Environment(\.push) private var push
     /// Core's upcoming exams for the next two weeks.
     private var exams: [ExamView] { model.upcomingExams }
 
@@ -104,6 +105,16 @@ struct TodayScreen: View {
                     .foregroundStyle(Theme.ink)
             }
             Spacer()
+            // How to print on the campus printer, and a file to print.
+            Button { push(PrintGuideRoute()) } label: {
+                Image(systemName: "printer")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(t("campusPrint.guide.title"))
             // The whole campus, to look a building or room up.
             RoomMapButton(room: nil) {
                 Image(systemName: "map")

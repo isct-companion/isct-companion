@@ -121,6 +121,7 @@ import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
 import app.isctcompanion.features.web.WebPageScreen
 import app.isctcompanion.features.web.WebTabScreen
+import app.isctcompanion.features.print.PrintGuideScreen
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 
@@ -261,6 +262,10 @@ class Navigator(private val controller: NavHostController) {
     /** One request of the board, `mine` naming which board it was listed on. */
     fun openExamRequest(id: String, mine: Boolean) =
         controller.navigate("past-exams/request/${Uri.encode(id)}?mine=$mine")
+
+    /** How to print on the campus printer, with a file picker that opens the
+     * print screen: 今日's print button. */
+    fun openPrintGuide() = controller.navigate("print-guide")
 
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
@@ -569,6 +574,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 }
                 destination("assignments") { AssignmentListScreen() }
                 destination("record") { RecordScreen() }
+                destination("print-guide") { PrintGuideScreen() }
                 destination("map?room={room}", listOf(navArgument("room") { type = NavType.StringType; defaultValue = "" })) {
                     CampusMapScreen(it.arguments?.getString("room")?.ifEmpty { null })
                 }

@@ -109,7 +109,10 @@ impl CoreRuntime {
     #[cfg_attr(
         not(any(
             feature = "agent",
-            all(feature = "campus-printer", any(windows, target_os = "android"))
+            all(
+                feature = "campus-printer",
+                any(windows, target_os = "android", target_os = "ios")
+            )
         )),
         allow(dead_code)
     )]

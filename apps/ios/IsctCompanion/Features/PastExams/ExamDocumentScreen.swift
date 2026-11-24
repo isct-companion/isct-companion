@@ -7,6 +7,7 @@ import SwiftUI
 struct ExamDocumentScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openCampusPrint) private var openCampusPrint
     let route: ExamDocumentRoute
     @State private var page = ExamPage()
     @State private var file: ExamLocalDocument?
@@ -51,6 +52,15 @@ struct ExamDocumentScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let file {
+                // A PDF or a picture goes to the campus printer from here,
+                // under the uploader's name like a shared copy.
+                if file.viewer == .pdf || file.viewer == .image {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(t("campusPrint.window.printToCampusPrinter"), systemImage: "printer") {
+                            openCampusPrint(URL(fileURLWithPath: file.path), file.exportName)
+                        }
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { actions(file) }
             }
         }

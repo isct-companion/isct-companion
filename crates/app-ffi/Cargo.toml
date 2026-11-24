@@ -37,11 +37,15 @@ url = "2.5"
 # Android TLS: rustls-platform-verifier needs the app Context through JNI
 # (android_tls.rs). Same versions as the verifier reqwest 0.13 pulls in.
 [target.'cfg(target_os = "android")'.dependencies]
-# The campus printer behind Android's print service (campus_print.rs). The
-# feature is on for this target only: iOS has no print service to send from.
+# The campus printer behind the app's own print screen (campus_print.rs).
 app-core = { path = "../app-core", features = ["campus-printer"] }
 jni = { version = "0.22", default-features = false }
 rustls-platform-verifier = "0.7"
+
+# The campus printer behind the app's own print screen and its share sheet
+# entry (campus_print.rs).
+[target.'cfg(target_os = "ios")'.dependencies]
+app-core = { path = "../app-core", features = ["campus-printer"] }
 
 [build-dependencies]
 syn = { version = "3", features = ["full", "visit-mut"] }

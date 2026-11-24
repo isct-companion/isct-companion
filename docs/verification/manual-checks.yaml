@@ -5809,66 +5809,84 @@ checks:
       - apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift
     verified: null
 
-  - id: ANDROID-CAMPUS-PRINT
+  - id: MOBILE-CAMPUS-PRINT
     area: native
-    title: Android's print dialog sends any app's print to the campus printer
+    title: Both phones print a shared or opened PDF or photo on the campus printer
     persona: masters-student
     preconditions: |
-      An arm64 Android phone with a build of this commit; two Tokyo Tech Portal
-      student accounts, initially with no account saved in the app;
-      ScienceTokyo Wi-Fi; a multi-page PDF and a photo; and access to the
-      print release or billing page.
+      An arm64 Android phone and an iPhone with builds of this commit; a
+      Tokyo Tech Portal student account, initially not saved in the apps;
+      ScienceTokyo Wi-Fi; a three-page PDF, a landscape photo and a Word
+      file; and access to the print release or billing page.
     steps:
-      - action: Print the PDF from Files or Drive, then read the system's print notification.
-        reason: |
-          No Tokyo Tech account is saved, so Core must send nothing and the
-          job must fail with the text that asks to save the account first.
       - action: |
-          Save the Tokyo Tech Portal account in the app, leave the app, and
-          print pages 2-3 of the PDF: two copies, two-sided, black and white.
-          Then print the photo from Photos in colour, and check the billing
-          page and the sheets.
+          On each phone, share the PDF from Files to "学内プリンタで印刷"
+          ("Print via campus printer"), and read the screen that opens.
         reason: |
-          The system renders each app's output to PDF with the page range
-          applied, and the service starts the session with no activity in
-          front. Only the real printer shows that an upload from a source
-          port above 1023 (an app cannot bind a lower one) is accepted, that
-          each job is billed to the student's ID and waits for release, that
-          one upload per copy gives exactly two copies, and that the PJL
-          duplex and colour settings are honoured.
+          No account is saved, so the screen must say to save the Tokyo Tech
+          account first and keep 印刷 off; the share sheet must also list
+          "課題を提出" for handing in, apart from printing, and must not
+          offer printing for the Word file.
       - action: |
-          Switch to mobile data (or ScienceTokyoX), print once more, read the
-          notification, rejoin ScienceTokyo Wi-Fi and tap its retry.
+          Save the account, share the PDF again, tap the second thumbnail,
+          then the third, set two copies, two-sided, black and white, and
+          print. Leave the screen while it sends.
         reason: |
-          Off the printer's network the job must fail naming
-          ScienceTokyo Wi-Fi, and the system's own retry must send it once
-          the network is back.
+          The first tap must choose only page 2, the second add page 3
+          ("2-3", 2 pages, 1 sheet x 2), the job must be billed to the
+          student, and only pages 2 and 3 must come out, twice; the send
+          must finish with the app in the background and a notification
+          must say how it ended.
       - action: |
-          Print the PDF with five copies and, at once, the photo; cancel the
-          photo from the print notification while the PDF is still sending.
-          Then print the PDF again and cancel it while it is sending.
+          Share the landscape photo, switch it between 縦 and 横, turn it
+          once, and print it in colour on A4.
         reason: |
-          Jobs run one after another, so the photo waits; cancelled before
-          its send starts, it must end cancelled with nothing at the printer.
-          A job already sending is not stopped part-way: it finishes, and
-          the release panel shows all five copies.
+          The page preview must follow the orientation and the turn, and the
+          sheet must match the preview, within the printer's margin.
+      - action: |
+          On 今日 tap the printer button beside the map button, read the
+          page, tap ファイルを選択 and pick the PDF; then try to pick the
+          Word file.
+        reason: |
+          The page must explain both ways to print and that only PDFs and
+          pictures print; the picker must offer only PDFs and pictures (the
+          Word file greyed out or not listed), and picking the PDF must open
+          the print screen on it.
+      - action: |
+          Open a past exam PDF and a course PDF in the app's readers and
+          use the print button in their toolbars.
+        reason: |
+          Each must open the same print screen on that file, under the
+          uploader's or the file's name.
+      - action: |
+          Switch to mobile data (or ScienceTokyoX), share the PDF again, then
+          rejoin ScienceTokyo Wi-Fi and tap 再確認.
+        reason: |
+          Off the printer's network the screen must name ScienceTokyo Wi-Fi
+          and keep 印刷 off; back on it, checking again must allow printing.
     observe: |
-      The system print dialog and its printer list, the print notifications,
-      the printer's release panel and the billing page.
+      The share sheets, the print screen, the notifications, the printer's
+      release panel and the billing page.
     expected: |
-      With a saved account, prints from a document app and from Photos are billed to the
-      student and print with the chosen copies, sides and colour; without an
-      account or off the campus Wi-Fi the job fails with the reason and can
-      be retried. A waiting job cancels cleanly; a sending one finishes.
+      A PDF or photo shared to "Print via campus printer", picked on 今日's
+      print page or opened from a reader prints from the app's own screen on both phones, billed to the
+      student, with the chosen pages, copies, sides, colour and, for a photo,
+      page layout; without an account or off the campus Wi-Fi the screen
+      says why and prints nothing.
     why_manual: |
-      Needs the system print spooler and real apps' print dialogs on a
-      device, the campus network and the printer's billing. The LPD and PJL
-      bytes are tested in crates/adpt-printer/src/tests.
+      Needs the share sheets of real devices, the campus network and the
+      printer's billing. Page selection and the LPD and PJL bytes are tested
+      in crates/adpt-printer/src/tests.
     covers:
-      - apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt
+      - apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/print/PrintGuideScreen.kt
+      - apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift
+      - apps/ios/IsctCompanion/Features/Print/CampusPrint.swift
+      - apps/ios/IsctCompanion/Features/Print/PrintGuideScreen.swift
+      - apps/ios/IsctPrint/PrintViewController.swift
       - crates/app-ffi/src/campus_print.rs
       - crates/app-core/src/campus_printer/mod.rs
-      - crates/adpt-printer/src/document.rs
+      - crates/adpt-printer/src/pages.rs
       - crates/adpt-printer/src/lpd.rs
     verified: null
 
@@ -8578,31 +8596,6 @@ checks:
     why_manual: |
       Needs the real school link and Safari on a device; where the tap lands
       is a glance. The cleartext rule is Core's and tested there.
-    covers:
-      - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
-    verified: null
-
-  - id: IOS-SCHOOL-PRINT
-    area: native
-    title: iOS school page's print button opens the print sheet
-    persona: undergraduate-senior
-    preconditions: |
-      An iPhone and an iPad build of this commit, signed in to 教務Web.
-    steps:
-      - action: |
-          On a 教務Web page with 「この画面を印刷」 (for example 成績), tap it,
-          look at the preview, then cancel.
-        reason: |
-          `window.print()` reaches only WebKit's private
-          `_webView:printFrame:pdfFirstPageSize:completionHandler:`; without
-          it nothing happens. The host answers it with
-          UIPrintInteractionController, which must show the page.
-    observe: The print sheet (a popover from the page on iPad) and its preview.
-    expected: |
-      The system print options open with the page in the preview; Cancel
-      closes them and the page is unchanged.
-    why_manual: |
-      The print sheet is native UI on a real school page; it is a glance.
     covers:
       - apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift
     verified: null

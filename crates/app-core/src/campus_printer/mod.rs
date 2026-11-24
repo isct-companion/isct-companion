@@ -1,4 +1,5 @@
-//! The campus printer (lpd://172.20.83.212/kyocera): the desktops and Android.
+//! The campus printer (lpd://172.20.83.212/kyocera): the desktops and the
+//! phones.
 //!
 //! The printer bills each job to the student ID in the LPD user field and
 //! authenticates nothing, so what Core guarantees is where the ID comes
@@ -11,9 +12,11 @@
 //!
 //! On macOS the shell writes the PPD and runs the system's `lpadmin`
 //! with the arguments Core supplies, behind the system's admin prompt.
-//! On Windows and Android every document reaches the printer through one call,
-//! `Core::campus_print`: Windows renders to PDF for the system queue
-//! (`ipp`) and Android renders to PDF for its print service. Core owns
+//! On Windows, Android and iOS every document reaches the printer through
+//! one call, `Core::campus_print`: Windows renders to PDF for the system
+//! queue (`ipp`), and both phones' print screen sends the PDF or picture
+//! page it was given, with the pages chosen (`Core::campus_print_pages`).
+//! Core owns
 //! what the printer offers (`CAPABILITIES`) and the words for how a print ended
 //! (`CampusPrintOutcome::message`).
 //!
@@ -31,7 +34,7 @@ use crate::school_session::WebStop;
 use crate::Core;
 use adpt_printer::StudentId;
 use serde::Serialize;
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -106,6 +109,37 @@ pub struct CampusPrinterStatus {
     pub reach: PrinterReach,
 }
 
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
+impl CampusPrinterStatus {
+    /// The student ID a print would bill now, when one would go through.
+    pub fn student_id(&self) -> Option<&str> {
+        match (&self.account, self.reach) {
+            (PrinterAccount::Ready { student_id }, PrinterReach::Reachable) => {
+                Some(student_id.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    /// Why a print would not go through now, worded as the print's own end
+    /// would be; `None` when it would. The account comes first: with no
+    /// student ID nothing is sent, wherever the phone is.
+    pub fn problem(&self) -> Option<CampusPrintMessage> {
+        match (&self.account, self.reach) {
+            (PrinterAccount::Ready { .. }, PrinterReach::Reachable) => None,
+            (PrinterAccount::Ready { .. }, PrinterReach::Unreachable) => {
+                Some(CampusPrintOutcome::Unreachable { printed: 0 }.message())
+            }
+            (account, _) => Some(
+                CampusPrintOutcome::Account {
+                    account: account.clone(),
+                }
+                .message(),
+            ),
+        }
+    }
+}
+
 /// One TCP connect to `address` within `within`.
 pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
     match tokio::time::timeout(within, tokio::net::TcpStream::connect(address)).await {
@@ -133,8 +167,8 @@ pub enum CupsRefusal {
     Login,
 }
 
-/// How a print from the Windows system queue or Android's print service ended.
-#[cfg(any(windows, target_os = "android"))]
+/// How a print from the Windows system queue or a phone's print screen ended.
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CampusPrintOutcome {
     /// LPD acknowledged every copy; physical printing is not reported.
@@ -147,6 +181,10 @@ pub enum CampusPrintOutcome {
     InvalidCopies,
     /// Larger than `CAPABILITIES.max_document_bytes`: nothing was sent.
     TooLarge,
+    /// Only some pages were chosen and they could not be taken out of the
+    /// document (PostScript, or a PDF whose pages cannot be read): nothing
+    /// was sent.
+    PagesNotSelectable,
     /// No connection for the next copy: it and the later ones were not
     /// sent. `printed` copies before it were accepted.
     Unreachable { printed: u32 },
@@ -163,14 +201,14 @@ pub enum CampusPrintOutcome {
 /// Words for the person: a key in the shared catalogs
 /// (`resources/locales`) and the values its `{{name}}` placeholders take.
 /// Every shell shows a print's end through this one mapping.
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampusPrintMessage {
     pub key: &'static str,
     pub args: BTreeMap<&'static str, u32>,
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 impl CampusPrintMessage {
     fn new(key: &'static str) -> Self {
         Self {
@@ -195,15 +233,15 @@ impl CampusPrintMessage {
     }
 }
 
-/// How a print ended, with its message for the print service.
-#[cfg(any(windows, target_os = "android"))]
+/// How a print ended, with its message for the shell.
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CampusPrintReport {
     pub printed: bool,
     pub message: CampusPrintMessage,
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 impl CampusPrintOutcome {
     pub fn printed(&self) -> bool {
         matches!(self, Self::Printed { .. })
@@ -222,6 +260,7 @@ impl CampusPrintOutcome {
                 }
             }),
             Self::NotPrintable => M::new("campusPrint.result.notAPdf"),
+            Self::PagesNotSelectable => M::new("campusPrint.result.pagesNotApplied"),
             Self::InvalidCopies => M::with(
                 "campusPrint.result.copiesRange",
                 "max",
@@ -258,21 +297,21 @@ impl CampusPrintOutcome {
     }
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub use adpt_printer::{
     document::PrintOptions,
     pjl::{ColorMode, Settings, Sides},
 };
 
 /// A sheet the printer takes.
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Media {
     A4,
     Letter,
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 impl Media {
     /// Its IPP `media` keyword (PWG 5101.1).
     pub fn keyword(self) -> &'static str {
@@ -290,8 +329,8 @@ impl Media {
     }
 }
 
-/// The capabilities shared by the Windows IPP queue and Android's print service.
-#[cfg(any(windows, target_os = "android"))]
+/// The capabilities shared by the Windows IPP queue and the phones' print screen.
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub struct Capabilities {
     /// The paper it takes; the first is the default.
     pub media: [Media; 2],
@@ -306,7 +345,7 @@ pub struct Capabilities {
     pub margin: i32,
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub const CAPABILITIES: Capabilities = Capabilities {
     media: [Media::A4, Media::Letter],
     defaults: Settings {
@@ -358,7 +397,7 @@ impl Core {
     /// Sends `document` to the printer, billed to the verified student ID,
     /// one upload per copy: the one way a document reaches the printer on
     /// Windows and Android. Sends run one at a time.
-    #[cfg(any(windows, target_os = "android"))]
+    #[cfg(any(windows, target_os = "android", target_os = "ios"))]
     pub async fn campus_print(
         &self,
         document: bytes::Bytes,
@@ -370,7 +409,44 @@ impl Core {
         outcome
     }
 
-    #[cfg(any(windows, target_os = "android"))]
+    /// Sends only `pages` (1-based) of `document`, as [`Core::campus_print`]
+    /// sends a whole one; no pages means every page. The phones' own print
+    /// screen chooses pages, which the printer cannot pick out of a PDF it
+    /// renders itself, so the document sent holds just those pages.
+    #[cfg(any(windows, target_os = "android", target_os = "ios"))]
+    pub async fn campus_print_pages(
+        &self,
+        document: bytes::Bytes,
+        title: String,
+        options: PrintOptions,
+        pages: Vec<u32>,
+    ) -> CampusPrintOutcome {
+        if pages.is_empty() {
+            return self.campus_print(document, title, options).await;
+        }
+        if document.len() > CAPABILITIES.max_document_bytes {
+            return CampusPrintOutcome::TooLarge;
+        }
+        match adpt_printer::pjl::Language::detect(&document) {
+            None => return CampusPrintOutcome::NotPrintable,
+            Some(adpt_printer::pjl::Language::PostScript) => {
+                return CampusPrintOutcome::PagesNotSelectable
+            }
+            Some(adpt_printer::pjl::Language::Pdf) => {}
+        }
+        let kept =
+            tokio::task::spawn_blocking(move || adpt_printer::pages::keep(&document, &pages)).await;
+        match kept {
+            Ok(Ok(kept)) => self.campus_print(kept.into(), title, options).await,
+            Ok(Err(error)) => {
+                log::info!("[campus-printer] pages not kept: {error}");
+                CampusPrintOutcome::PagesNotSelectable
+            }
+            Err(_) => CampusPrintOutcome::PagesNotSelectable,
+        }
+    }
+
+    #[cfg(any(windows, target_os = "android", target_os = "ios"))]
     async fn send_campus_print(
         &self,
         document: bytes::Bytes,
@@ -406,7 +482,7 @@ impl Core {
 }
 
 /// Sends once every earlier send holding `turn` has ended.
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 async fn send_in_turn(
     turn: std::sync::Arc<tokio::sync::Mutex<()>>,
     server: SocketAddr,
@@ -423,7 +499,7 @@ async fn send_in_turn(
     map_send_result(sent)
 }
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 fn map_send_result(
     sent: Result<Result<u32, adpt_printer::document::PrintError>, tokio::task::JoinError>,
 ) -> CampusPrintOutcome {

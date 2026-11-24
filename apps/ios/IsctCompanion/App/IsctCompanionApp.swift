@@ -205,6 +205,7 @@ struct RootView: View {
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
     @State private var campusMapRequest: CampusMapRequest?
+    @State private var printRequest: CampusPrintRequest?
     @State private var exportError: String?
     @State private var widgetURL: URL?
     @Environment(\.openURL) private var openURL
@@ -217,6 +218,17 @@ struct RootView: View {
             .fullScreenCover(item: $campusMapRequest, onDismiss: model.campusMapClose) { request in
                 CampusMapScreen(request: request)
             }
+            // The campus print screen, for a reader's print button and the
+            // share sheet's "Print via campus printer".
+            .environment(\.openCampusPrint) { url, name in openPrint(CampusPrintRequest(url: url, name: name)) }
+            .sheet(item: $printRequest) { request in
+                CampusPrintScreen(request: request)
+                    .onDisappear {
+                        // A send still running reads the file first.
+                        if case .sending = CampusPrintRun.shared.state { return }
+                        request.transfer?.discard()
+                    }
+            }
             // System controls follow the app's language.
             .environment(\.locale, Localizer.shared.locale)
             .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
@@ -225,6 +237,8 @@ struct RootView: View {
                     Task { await inbox.receiveOpenIn(url) }
                 } else if url.scheme == "isctcompanion", url.host == "inbox" {
                     inbox.refresh()
+                } else if url.scheme == "isctcompanion", url.host == "print" {
+                    takeSharedPrint()
                 } else if url.scheme == "isctcompanion", url.host == "widget" {
                     widgetURL = url
                 }
@@ -232,6 +246,18 @@ struct RootView: View {
             .quickLookPreview(Binding(get: { web.downloads.first }, set: { value in
                 if value == nil { web.dismissDownload() }
             }))
+    }
+
+    /// A print the share sheet's action handed over, if one waits and no
+    /// print screen is open.
+    private func takeSharedPrint() {
+        guard printRequest == nil, let shared = CampusPrintRequest.shared() else { return }
+        openPrint(shared)
+    }
+
+    private func openPrint(_ request: CampusPrintRequest) {
+        CampusPrintRun.shared.forget()
+        printRequest = request
     }
 
     @ViewBuilder
@@ -259,7 +285,10 @@ struct RootView: View {
         }
         .onChange(of: stacked, initial: true) { _, stacked in navigator.setWorkbench(!stacked) }
         .onChange(of: scenePhase, initial: true) { _, phase in
-            if phase == .active { inbox.refresh() }
+            if phase == .active {
+                inbox.refresh()
+                takeSharedPrint()
+            }
         }
         .task(id: widgetURL) {
             guard let url = widgetURL else { return }
@@ -467,9 +496,11 @@ extension View {
         }
         .navigationDestination(for: WebRouter.PushedPage.self) { WebPageScreen(page: $0) }
         .navigationDestination(for: CourseMarkdownRoute.self) { CourseMarkdownScreen(route: $0) }
+        .navigationDestination(for: CourseDocumentRoute.self) { CourseDocumentScreen(route: $0) }
         .navigationDestination(for: CourseArchiveRoute.self) { CourseArchiveScreen(route: $0) }
         .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
+        .navigationDestination(for: PrintGuideRoute.self) { _ in PrintGuideScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
         .navigationDestination(for: PastExamsRoute.self) { route in
             PastExamsScreen(courseId: route.courseId)

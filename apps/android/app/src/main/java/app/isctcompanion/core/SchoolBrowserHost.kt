@@ -10,8 +10,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
-import android.print.PrintAttributes
-import android.print.PrintManager
 import android.view.DragEvent
 import android.view.MotionEvent
 import android.view.View
@@ -151,16 +149,6 @@ class SchoolBrowserHost(private val context: Context) : NativeBrowser {
     /** Closes the popup in front of `site`'s view, as its close bar does. */
     fun closeFront(site: SchoolSite) {
         views[site]?.popups?.lastOrNull()?.let(::close)
-    }
-
-    /** Prints the page on screen through the system print panel. Pages that
-     * call `window.print()` reach nothing: WebView has no hook for it, and
-     * no script is injected to add one. */
-    fun print(site: SchoolSite, activity: Context) {
-        val webView = front(site) ?: return
-        val name = webView.title?.takeIf { it.isNotBlank() } ?: WebRouter.name(site)
-        activity.getSystemService(PrintManager::class.java)
-            ?.print(name, webView.createPrintDocumentAdapter(name), PrintAttributes.Builder().build())
     }
 
     /** The off-screen host that keeps views running while no screen shows them.

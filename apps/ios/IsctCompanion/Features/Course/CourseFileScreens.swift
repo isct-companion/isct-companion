@@ -28,6 +28,37 @@ struct CourseMarkdownScreen: View {
     }
 }
 
+/// A downloaded PDF or picture (`Viewer.pdf`, `Viewer.image`): Quick Look
+/// inside a page, so the toolbar can send it to the campus printer.
+struct CourseDocumentRoute: Hashable {
+    let path: String
+    let title: String
+}
+
+struct CourseDocumentScreen: View {
+    let route: CourseDocumentRoute
+    @Environment(\.openCampusPrint) private var openCampusPrint
+
+    var body: some View {
+        let file = URL(fileURLWithPath: route.path)
+        QuickLookView(url: file)
+            .ignoresSafeArea(edges: .bottom)
+            .background(Theme.bg)
+            .navigationTitle(route.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(t("campusPrint.window.printToCampusPrinter"), systemImage: "printer") {
+                        openCampusPrint(file, route.title.isEmpty ? file.lastPathComponent : route.title)
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: file) { Label(t("common.share"), systemImage: "square.and.arrow.up") }
+                }
+            }
+    }
+}
+
 /// A downloaded ZIP Core lists as its files (`Material.archive`), shown as a
 /// folder. Each file opens like any course item: Core extracts it on demand
 /// and keeps it as a downloaded file of its own.

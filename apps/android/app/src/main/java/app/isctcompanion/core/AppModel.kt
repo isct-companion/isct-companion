@@ -215,15 +215,27 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         }
     }
 
-    /** One job from the system's print dialog (`CampusPrintService`): Core
-     * verifies the student ID it is billed to, sends the PDF and words how
-     * it ended. The print service can start the process with no activity,
-     * so the session opens here if it has not. `null` when there is no
+    /** One job from the campus print screen (`CampusPrintActivity`): Core
+     * verifies the student ID it is billed to, keeps the chosen pages, sends
+     * the PDF and words how it ended. The session opens here if it has not
+     * (the screen opens from the share sheet). `null` when there is no
      * session to print with. */
     suspend fun campusPrint(document: ByteArray, job: CampusPrintJob): CampusPrintReport? {
         start()
         val session = session ?: return null
         return (withContext(Dispatchers.IO) { session.campusPrint(document, job) }.value() as? OperationResult.CampusPrint)?.report
+    }
+
+    /** Whether a print would go through now, for the app's own print screen
+     * (`CampusPrintActivity`) as it opens and when the person checks again:
+     * Core verifies the student ID and tries the printer. `null` when there
+     * is no session or the check itself failed. */
+    suspend fun campusPrinterState(): CampusPrinterState? {
+        start()
+        val session = session ?: return null
+        return runCatching {
+            (withContext(Dispatchers.IO) { session.campusPrinterState() }.value() as? OperationResult.CampusPrinterState)?.state
+        }.getOrNull()
     }
 
     /** One WorkManager opportunity out of front: Core reads what is due when

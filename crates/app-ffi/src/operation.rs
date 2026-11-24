@@ -82,6 +82,9 @@ pub enum OperationResult {
     CampusPrint {
         report: crate::CampusPrintReport,
     },
+    CampusPrinterState {
+        state: crate::CampusPrinterState,
+    },
     /// A map page's scene; `None` when the intent changed nothing drawn.
     #[cfg(feature = "campus-map")]
     CampusMapScene {

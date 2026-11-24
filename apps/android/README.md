@@ -51,7 +51,9 @@ UniFFI checks signatures when the library loads.
 | `core/KeystoreVault.kt` | `NativeVault`: secrets sealed with an Android Keystore AES-GCM key, kept on this device |
 | `core/NotificationScheduler.kt` | Reports permission and stored alarms, then applies Core's reminder plan through `AlarmManager` and `NotificationManager` |
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
-| `CampusPrintService.kt` | The campus printer as a system print service: every app's print dialog lists it, the system renders the PDF, Core verifies the student ID and sends it over LPD |
+| `CampusPrintActivity.kt` | The campus print screen, as on iOS: "Print via campus printer" in the share sheet and the readers' print button open it on a PDF or picture; the person picks pages, copies, sides and colour, and Core verifies the student ID, keeps the chosen pages and sends it over LPD |
+| `features/print` | 今日's print button: how to print, and a picker for a PDF or picture that opens the print screen |
+| `CampusPrintSending.kt` | A short foreground service that keeps the app awake while a print is sent, so HyperOS does not freeze it |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |
 | `features/*` | 今日 (class stack, exams and the quarter's assignments) · 時間割 (week picker, session marks, quarter .ics) · 授業 (wide windows) · ウェブ · 設定 (school accounts with the OTP authenticator setup, notifications, study profile, data updates, backup, ウェブ, reset), course and assignment pages |
 | `features/map` | The campus map: a MapLibre `MapView` over OpenFreeMap's base map (OpenStreetMap data; no key, no Google Play services) drawing Core's map page. Core owns the page (`campusMapOpen`, `campusMapSend`, `campusMapSearch`, `campusMapClose`), as on iOS: what is selected (one way in by stable id for taps, marks, search and course rooms), which building and floor the visible part of the map brings into focus, the card and its maps links (always Google Maps on Android, which has no Apple Maps; Core ignores the `mapsApp` setting there) and where the camera goes. `FloorMapView.kt` paints each scene by role in theme colours (one GeoJSON source and style layer per role, line widths in metres, MapLibre's own symbol collision), reports the part of the map the controls leave visible and tells its own framings from the person's moves; `CampusMapScreen.kt` holds the one bottom panel that search, its results and the place card share, the level picker and the position button. `CampusMapSearch.kt`, `CampusMapCard.kt` and `CampusMapLevelPicker.kt` draw the controls, and `CampusMapLocation.kt` handles position permission and lookup. Opened full screen from a course's rooms, 今日's next class, or 今日's map button to browse; the blue dot is asked for when the person taps the position button. `yarn sdk:android` builds the SDK with the `campus-map` feature |
@@ -65,12 +67,12 @@ UniFFI checks signatures when the library loads.
 - 今日's 課題 renders the quarter's one Core task timeline (`AssignmentBoard.today`),
   the same groups desktop shows; すべて opens the full record
   (`AssignmentBoard.record`) with submitted work and hidden rows to restore.
-- The campus printer is in every app's system print dialog
-  (`CampusPrintService.kt`), with nothing to set up: Android enables the
-  print service on install. A job is billed to the student ID of the saved
-  Tokyo Tech Portal account and needs ScienceTokyo Wi-Fi; a failure is the
-  system's print notification, with its retry. iOS has no print service an
-  app can provide.
+- The campus print screen is an activity of its own, reached from the share
+  sheet's "Print via campus printer" (iOS: an action extension) and the
+  readers' print button. It does not list the printer in the system's print
+  dialog: makers' dialogs differ (HyperOS lists only its built-in printers),
+  and iOS has no print service an app can provide, so both phones print
+  the same way.
 - The campus map draws with MapLibre over OpenFreeMap's base map rather than
   MapKit over Apple's; footprints sit under the base map's labels and the
   floor above them, as on iOS. MapLibre paints the marks into its one

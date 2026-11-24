@@ -6,6 +6,12 @@ rust-version = "1.90"
 description = "The campus Kyocera printer for IsctCompanion Core: student IDs, the CUPS queue for macOS, and LPD and PJL for Windows and Android"
 publish = false
 
+[dependencies]
+# Keeping only the chosen pages of a PDF before it is sent (`pages`). No
+# default features: they add a thread pool and the local time zone, which
+# page selection never uses.
+lopdf = { version = "0.47", default-features = false }
+
 # RFC 1179 clients send from a port below 1024; std cannot bind before
 # connecting. Android gives an app no such port, so only Windows binds one.
 [target.'cfg(windows)'.dependencies]

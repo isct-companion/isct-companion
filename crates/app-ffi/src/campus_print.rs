@@ -2,11 +2,12 @@
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
-//! Android's print service hands Core the PDF the system rendered; Core
-//! verifies whose student ID is billed, sends it to the campus printer and
-//! words how it ended. The binding is one surface for both phones (it is
-//! generated from the host's library), so the calls exist everywhere and
-//! only Android's library has the printer behind them.
+//! Both phones' print screen hands Core a PDF (a picture already laid out
+//! on its page) with the pages chosen; Core verifies whose student ID is
+//! billed, sends it to the campus printer and words how it ended. The binding is one surface
+//! for both phones (it is generated from the host's library), so the calls
+//! exist everywhere and only the phones' libraries have the printer behind
+//! them.
 
 use crate::{Operation, SdkError, Session};
 use std::{collections::HashMap, sync::Arc};
@@ -31,7 +32,7 @@ pub enum CampusPrintMedia {
 }
 
 /// What the campus printer offers: Core's one capability set, which the
-/// print service lists its printer with.
+/// print screen offers its choices from.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CampusPrinterCapabilities {
     /// The paper it takes; the first is the default.
@@ -45,14 +46,27 @@ pub struct CampusPrinterCapabilities {
     pub margin_mils: i32,
 }
 
-/// What the system's print dialog chose for one job; a setting it left out
-/// gets the printer's default.
+/// What the system's print dialog or the app's print screen chose for one
+/// job; a setting it left out gets the printer's default.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct CampusPrintJob {
     pub title: String,
     pub copies: u32,
     pub sides: Option<CampusPrintSides>,
     pub color: Option<CampusPrintColor>,
+    /// The pages to print, 1-based; empty prints every page. The system's
+    /// dialog renders only the chosen pages already and leaves it empty.
+    pub pages: Vec<u32>,
+}
+
+/// Whether a print would go through now, for the print screen to show
+/// before anything is sent: the student ID it bills, or why not.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct CampusPrinterState {
+    /// Set when a print would go through.
+    pub student_id: Option<String>,
+    /// Set when it would not, in the words its print would end with.
+    pub problem: Option<CampusPrintMessage>,
 }
 
 /// Words for the person: a catalog key and its placeholder values.
@@ -72,11 +86,11 @@ pub struct CampusPrintReport {
 
 #[uniffi::export]
 pub fn campus_printer_capabilities() -> Result<CampusPrinterCapabilities, SdkError> {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     {
-        Ok(android::capabilities())
+        Ok(phone::capabilities())
     }
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     {
         Err(crate::session::unavailable("Campus printer"))
     }
@@ -84,21 +98,38 @@ pub fn campus_printer_capabilities() -> Result<CampusPrinterCapabilities, SdkErr
 
 #[uniffi::export]
 impl Session {
+    /// Verifies the account and tries the printer, as the print screen
+    /// opens and when the person checks again.
+    pub fn campus_printer_state(&self) -> Result<Arc<Operation>, SdkError> {
+        #[cfg(any(target_os = "android", target_os = "ios"))]
+        {
+            self.start(false, move |inner, _| async move {
+                Ok(crate::OperationResult::CampusPrinterState {
+                    state: phone::state(&inner.core).await,
+                })
+            })
+        }
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
+        {
+            self.blocking(|_| Err(crate::session::unavailable("Campus printer")))
+        }
+    }
+
     /// Sends one job; it is not cancellable once called.
     pub fn campus_print(
         &self,
         document: Vec<u8>,
         job: CampusPrintJob,
     ) -> Result<Arc<Operation>, SdkError> {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             self.start(false, move |inner, _| async move {
                 Ok(crate::OperationResult::CampusPrint {
-                    report: android::print(&inner.core, document, job).await,
+                    report: phone::print(&inner.core, document, job).await,
                 })
             })
         }
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
             let _ = (document, job);
             self.blocking(|_| Err(crate::session::unavailable("Campus printer")))
@@ -106,11 +137,11 @@ impl Session {
     }
 }
 
-#[cfg(target_os = "android")]
-mod android {
+#[cfg(any(target_os = "android", target_os = "ios"))]
+mod phone {
     use super::{
         CampusPrintColor, CampusPrintJob, CampusPrintMedia, CampusPrintMessage, CampusPrintReport,
-        CampusPrintSides, CampusPrinterCapabilities,
+        CampusPrintSides, CampusPrinterCapabilities, CampusPrinterState,
     };
     use app_core::campus_printer::{ColorMode, Media, PrintOptions, Settings, Sides, CAPABILITIES};
 
@@ -169,20 +200,31 @@ mod android {
             },
         };
         let report = core
-            .campus_print(document.into(), job.title, options)
+            .campus_print_pages(document.into(), job.title, options, job.pages)
             .await
             .report();
         CampusPrintReport {
             printed: report.printed,
-            message: CampusPrintMessage {
-                key: report.message.key.into(),
-                args: report
-                    .message
-                    .args
-                    .into_iter()
-                    .map(|(name, value)| (name.into(), value))
-                    .collect(),
-            },
+            message: message(report.message),
+        }
+    }
+
+    pub(super) async fn state(core: &app_core::Core) -> CampusPrinterState {
+        let status = core.campus_printer_status().await;
+        CampusPrinterState {
+            student_id: status.student_id().map(str::to_owned),
+            problem: status.problem().map(message),
+        }
+    }
+
+    fn message(message: app_core::campus_printer::CampusPrintMessage) -> CampusPrintMessage {
+        CampusPrintMessage {
+            key: message.key.into(),
+            args: message
+                .args
+                .into_iter()
+                .map(|(name, value)| (name.into(), value))
+                .collect(),
         }
     }
 }
