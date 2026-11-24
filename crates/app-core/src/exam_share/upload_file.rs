@@ -9,8 +9,6 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-use super::client::FILE_LIMIT as LIMIT;
-
 pub(super) struct Prepared {
     pub name: String,
     pub content_type: &'static str,
@@ -18,22 +16,25 @@ pub(super) struct Prepared {
     pub bytes: Vec<u8>,
 }
 
+/// The file to send for `files`, at most `limit` bytes, the service's limit
+/// for one material.
 pub(super) fn prepare(
     files: &[ExamUploadFile],
+    limit: u64,
     cancel: &CancellationToken,
 ) -> Result<Prepared, ExamError> {
     let (name, content_type, bytes, hash) = match files {
         [] => return Err(ExamError::UploadNoFiles),
-        [file] => single(file, cancel)?,
+        [file] => single(file, limit, cancel)?,
         files => {
-            let bytes = image_pdf(files, cancel)?;
+            let bytes = image_pdf(files, limit, cancel)?;
             ("materials.pdf".into(), "application/pdf", bytes, None)
         }
     };
     if cancel.is_cancelled() {
         return Err(ExamError::Cancelled);
     }
-    check_size(bytes.len())?;
+    check_size(bytes.len() as u64, limit)?;
     let hash = hash.unwrap_or_else(|| data_encoding::HEXLOWER.encode(&Sha256::digest(&bytes)));
     Ok(Prepared {
         name,
@@ -43,19 +44,19 @@ pub(super) fn prepare(
     })
 }
 
-fn read(file: &ExamUploadFile) -> Result<Vec<u8>, ExamError> {
+fn read(file: &ExamUploadFile, limit: u64) -> Result<Vec<u8>, ExamError> {
     let mut data = Vec::new();
     File::open(&file.path)
-        .and_then(|file| file.take(LIMIT as u64 + 1).read_to_end(&mut data))
+        .and_then(|file| file.take(limit.saturating_add(1)).read_to_end(&mut data))
         .map_err(|_| ExamError::UploadFile)?;
-    check_size(data.len())?;
+    check_size(data.len() as u64, limit)?;
     Ok(data)
 }
 
-fn check_size(size: usize) -> Result<(), ExamError> {
+fn check_size(size: u64, limit: u64) -> Result<(), ExamError> {
     match size {
         0 => Err(ExamError::UploadFile),
-        size if size > LIMIT => Err(ExamError::UploadSize),
+        size if size > limit => Err(ExamError::UploadSize),
         _ => Ok(()),
     }
 }
@@ -82,7 +83,7 @@ fn text_extension(file: &ExamUploadFile) -> bool {
 
 /// Inspect a bounded prefix. Full decoding, text validation and output size
 /// checks still happen at transfer time.
-pub(super) fn validate_selection(files: &[ExamUploadFile]) -> Result<(), ExamError> {
+pub(super) fn validate_selection(files: &[ExamUploadFile], limit: u64) -> Result<(), ExamError> {
     if files.is_empty() {
         return Err(ExamError::UploadNoFiles);
     }
@@ -93,14 +94,14 @@ pub(super) fn validate_selection(files: &[ExamUploadFile]) -> Result<(), ExamErr
         }
         let size = metadata.len();
         let mut source = File::open(&file.path).map_err(|_| ExamError::UploadFile)?;
-        if size > LIMIT as u64 {
+        if size > limit {
             return Err(ExamError::UploadSize);
         }
         let mut prefix = vec![0; size.min(16) as usize];
         source
             .read_exact(&mut prefix)
             .map_err(|_| ExamError::UploadFile)?;
-        check_size(prefix.len())?;
+        check_size(prefix.len() as u64, limit)?;
         if files.len() > 1 {
             if photo_format(&prefix).is_none() {
                 return Err(ExamError::UploadMixed);
@@ -120,8 +121,12 @@ pub(super) fn validate_selection(files: &[ExamUploadFile]) -> Result<(), ExamErr
 
 type SingleFile = (String, &'static str, Vec<u8>, Option<String>);
 
-fn single(file: &ExamUploadFile, cancel: &CancellationToken) -> Result<SingleFile, ExamError> {
-    let data = read(file)?;
+fn single(
+    file: &ExamUploadFile,
+    limit: u64,
+    cancel: &CancellationToken,
+) -> Result<SingleFile, ExamError> {
+    let data = read(file, limit)?;
     let name = upload_name(file)?;
     if data.starts_with(b"%PDF-") {
         return Ok((name.into(), "application/pdf", data, None));
@@ -143,7 +148,7 @@ fn single(file: &ExamUploadFile, cancel: &CancellationToken) -> Result<SingleFil
     Ok((
         format!("{stem}.pdf"),
         "application/pdf",
-        image_pdf(std::slice::from_ref(file), cancel)?,
+        image_pdf(std::slice::from_ref(file), limit, cancel)?,
         Some(hash),
     ))
 }
@@ -185,7 +190,11 @@ fn jpeg(image: &DynamicImage) -> Result<Vec<u8>, ExamError> {
     Ok(data)
 }
 
-fn image_pdf(files: &[ExamUploadFile], cancel: &CancellationToken) -> Result<Vec<u8>, ExamError> {
+fn image_pdf(
+    files: &[ExamUploadFile],
+    limit: u64,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, ExamError> {
     let mut pdf = Pdf::new();
     let catalog = Ref::new(1);
     let tree = Ref::new(2);
@@ -197,7 +206,7 @@ fn image_pdf(files: &[ExamUploadFile], cancel: &CancellationToken) -> Result<Vec
         if cancel.is_cancelled() {
             return Err(ExamError::Cancelled);
         }
-        let data = read(file)?;
+        let data = read(file, limit)?;
         // Several files become one PDF of their pages, which only photos give.
         if photo_format(&data).is_none() {
             return Err(ExamError::UploadMixed);
@@ -219,8 +228,8 @@ fn image_pdf(files: &[ExamUploadFile], cancel: &CancellationToken) -> Result<Vec
                 )
                 .thumbnail(width, 2048);
             let encoded = jpeg(&image)?;
-            image_bytes += encoded.len();
-            check_size(image_bytes)?;
+            image_bytes += encoded.len() as u64;
+            check_size(image_bytes, limit)?;
             let page_id = next.bump();
             let image_id = next.bump();
             let stream_id = next.bump();

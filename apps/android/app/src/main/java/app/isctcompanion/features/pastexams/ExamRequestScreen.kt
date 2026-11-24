@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
+import app.isctcompanion.core.ExamChoices
 import app.isctcompanion.core.ExamRequest
 import app.isctcompanion.core.ExamUploadForm
 import app.isctcompanion.core.ExamUploadStart
@@ -45,10 +46,11 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
     val calls = rememberExamCalls()
-    val choices by rememberExamChoices(calls)
+    val site by rememberExamSite(calls)
     var request by remember(id) { mutableStateOf(ExamViews.requests[id]) }
     var missing by remember { mutableStateOf(false) }
-    var uploadForm by remember { mutableStateOf<ExamUploadForm?>(null) }
+    // The open upload form with the choices read as it opened.
+    var upload by remember { mutableStateOf<Pair<ExamUploadForm, ExamChoices>?>(null) }
     var deleting by remember { mutableStateOf(false) }
 
     /** Takes this request from a board Core answered, when it is listed. */
@@ -84,9 +86,11 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
                         }
                     }
                     if (!item.mine && item.status == "open") {
-                        Button(enabled = !calls.busy && choices != null, onClick = {
+                        Button(enabled = !calls.busy, onClick = {
                             scope.launch {
-                                uploadForm = (calls.call(ExamAction.UploadForm(ExamUploadStart.Request(item))) as? ExamAnswer.UploadForm)?.v1
+                                val choices = calls.choices() ?: return@launch
+                                val form = (calls.call(ExamAction.UploadForm(ExamUploadStart.Request(item))) as? ExamAnswer.UploadForm)?.v1
+                                upload = form?.let { it to choices }
                             }
                         }, modifier = Modifier.fillMaxWidth()) { Text(t("examShare.upload.answerRequest")) }
                     }
@@ -107,8 +111,8 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
                             Text(t("common.delete"), color = Theme.colors.danger)
                         }
                     }
-                    choices?.site?.let { site ->
-                        TextButton(onClick = { links.open(site.requests) }, modifier = Modifier.fillMaxWidth()) {
+                    site?.let { pages ->
+                        TextButton(onClick = { links.open(pages.requests) }, modifier = Modifier.fillMaxWidth()) {
                             Text(t("examShare.openOnWeb"))
                         }
                     }
@@ -121,11 +125,9 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
             }
         }
     }
-    val form = uploadForm
-    val formChoices = choices
-    if (form != null && formChoices != null) {
-        UploadSheet(form, formChoices, dismiss = { uploadForm = null }) {
-            uploadForm = null
+    upload?.let { (form, choices) ->
+        UploadSheet(form, choices, dismiss = { upload = null }) {
+            upload = null
             ExamViews.notice = t("examShare.upload.uploaded")
             navigator.back()
         }

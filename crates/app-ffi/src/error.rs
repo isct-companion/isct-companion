@@ -83,6 +83,8 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::ExamShareUnsupported
         | C::ExamShareNotFound
         | C::ExamShareRejected
+        | C::ExamShareSharingBlocked
+        | C::ExamShareEmailTaken
         | C::ExamShareAlreadyReported
         | C::ExamShareQuota
         | C::ExamShareUploadDuplicate
@@ -99,9 +101,13 @@ pub(crate) fn coded(error: &(impl Coded + ?Sized)) -> SdkError {
         | C::ExamUnavailable => SdkError::Unavailable { detail },
         C::InvalidInput
         | C::ExamShareUploadNoFiles
-        | C::ExamShareUploadTeacherName
-        | C::ExamShareUploadTeacherLength
-        | C::ExamShareUploadVariantLength
+        | C::ExamShareUploadSubject
+        | C::ExamShareUploadTeacher
+        | C::ExamShareUploadYear
+        | C::ExamShareUploadOccasion
+        | C::ExamShareUploadOccasionNumber
+        | C::ExamShareUploadRole
+        | C::ExamShareUploadNotFound
         | C::ExamShareUploadNoteLength
         | C::ExamShareUploadFile
         | C::ExamShareUploadMixed

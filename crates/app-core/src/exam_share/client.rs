@@ -7,8 +7,6 @@ use tokio::{io::AsyncWriteExt, sync::Mutex, time::Instant};
 use url::Url;
 
 const MAX_JSON: usize = 16 * 1024 * 1024;
-/// The service's limit for one material, and so for a download too.
-pub(super) const FILE_LIMIT: usize = 25 * 1024 * 1024;
 /// The spacing between request starts the site asks of a client.
 const SITE_SPACING: Duration = Duration::from_millis(500);
 const API_KEY: &str = "AIzaSyBKTbvs7OBhZB__eISYaznVp_R-QMLMFEM";
@@ -130,7 +128,11 @@ impl Client {
             (StatusCode::UNAUTHORIZED, _) => Err(ExamError::Expired),
             (_, Some("auth.not_allowed")) => Err(ExamError::Denied),
             (_, Some("auth.not_registered")) => Err(ExamError::Consent),
+            (_, Some("auth.email_taken")) => Err(ExamError::EmailTaken),
             (_, Some("server.not_found")) => Err(ExamError::Unsupported),
+            (_, Some("upload.sharing_blocked" | "request.sharing_blocked")) => {
+                Err(ExamError::SharingBlocked)
+            }
             (_, Some("exam.report_duplicate")) => Err(ExamError::AlreadyReported),
             (_, Some("request.daily_limit")) => Err(ExamError::Quota),
             (_, Some("upload.already_registered")) => Err(ExamError::UploadRegistered),
@@ -138,6 +140,14 @@ impl Client {
             (_, Some("upload.quota_daily" | "upload.quota_total")) => Err(ExamError::UploadQuota),
             (_, Some("upload.rollback_in_use")) => Err(ExamError::UploadInUse),
             (_, Some("upload.too_large" | "upload.stored_too_large")) => Err(ExamError::UploadSize),
+            (_, Some("upload.subject_required")) => Err(ExamError::UploadSubject),
+            (_, Some("upload.teacher_invalid")) => Err(ExamError::UploadTeacher),
+            (_, Some("upload.year_invalid")) => Err(ExamError::UploadYear),
+            (_, Some("upload.occasion_invalid")) => Err(ExamError::UploadOccasion),
+            (_, Some("upload.occasion_number_invalid")) => Err(ExamError::UploadOccasionNumber),
+            (_, Some("upload.role_invalid")) => Err(ExamError::UploadRole),
+            (_, Some("upload.subject_or_teacher_not_found")) => Err(ExamError::UploadNotFound),
+            (_, Some("upload.note_too_long")) => Err(ExamError::UploadNoteLength),
             (
                 _,
                 Some(
@@ -148,6 +158,15 @@ impl Client {
                     | "upload.file_missing",
                 ),
             ) => Err(ExamError::UploadFile),
+            (
+                StatusCode::BAD_REQUEST,
+                Some(
+                    "common.input_invalid"
+                    | "exam.report_reason_required"
+                    | "course.invalid"
+                    | "course.class_invalid",
+                ),
+            ) => Err(ExamError::InvalidInput),
             (StatusCode::BAD_REQUEST, Some(code)) if code.starts_with("upload.") => {
                 Err(ExamError::InvalidInput)
             }
@@ -188,8 +207,9 @@ impl Client {
         }
     }
 
-    /// Stream a signed file URL into `path`, refusing more than the limit.
-    pub async fn fetch_file(&self, url: Url, path: &Path) -> Result<(), ExamError> {
+    /// Stream a signed file URL into `path`, refusing more than `limit`
+    /// bytes, the service's own limit for one material.
+    pub async fn fetch_file(&self, url: Url, path: &Path, limit: u64) -> Result<(), ExamError> {
         if !is_file_url(&url) {
             return Err(ExamError::Response);
         }
@@ -200,10 +220,7 @@ impl Client {
         if !response.status().is_success() {
             return Err(ExamError::Unavailable);
         }
-        if response
-            .content_length()
-            .is_some_and(|len| len > FILE_LIMIT as u64)
-        {
+        if response.content_length().is_some_and(|len| len > limit) {
             return Err(ExamError::Response);
         }
         let mut stream = tokio::fs::File::create(path)
@@ -211,8 +228,8 @@ impl Client {
             .map_err(|_| ExamError::Storage)?;
         let mut written = 0;
         while let Some(chunk) = response.chunk().await.map_err(network)? {
-            written += chunk.len();
-            if written > FILE_LIMIT {
+            written += chunk.len() as u64;
+            if written > limit {
                 return Err(ExamError::Response);
             }
             stream

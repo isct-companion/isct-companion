@@ -77,8 +77,8 @@ impl RemoteRequest {
             subject: r.subject.present(language),
             teachers: r.teachers,
             academic_year: r.academic_year,
-            occasion: r.occasion,
-            wanted_role: r.wanted_role,
+            occasion: form::parse_code(r.occasion.as_deref()),
+            wanted_role: form::parse_code(r.wanted_role.as_deref()),
             description: r.description,
             status: r.status,
             answer_exam_id: r.answer_exam_id,
@@ -261,9 +261,6 @@ impl ExamShare {
         if query.is_empty() {
             return Ok(vec![]);
         }
-        if query.encode_utf16().count() > form::limits().query as usize {
-            return Err(ExamError::InvalidInput);
-        }
         let matches = self.search_subjects(session, query, "20").await?;
         Ok(matches
             .into_iter()
@@ -303,12 +300,10 @@ impl ExamShare {
             }
             ExamUploadStart::Request { .. } => return Err(ExamError::InvalidInput),
         };
+        let choices = self.choices().await?;
         let subject = self.upload_subject(session, &code, language).await?;
-        let role = form::role(
-            request
-                .as_ref()
-                .and_then(|item| item.wanted_role.as_deref()),
-        );
+        let first = choices.roles.first().ok_or(ExamError::Unsupported)?.role;
+        let provenance = *choices.provenances.first().ok_or(ExamError::Unsupported)?;
         let mut form = ExamUploadForm {
             draft: ExamUploadDraft {
                 subject_codes: vec![],
@@ -318,14 +313,18 @@ impl ExamShare {
                     .map(|teacher| teacher.id.clone())
                     .collect(),
                 new_teachers: vec![],
+                all_teachers: false,
                 academic_year: request.as_ref().and_then(|item| item.academic_year),
-                occasion: form::occasion(
-                    request.as_ref().and_then(|item| item.occasion.as_deref()),
-                ),
+                occasion: request.as_ref().and_then(|item| item.occasion),
+                occasion_text: String::new(),
                 occasion_number: 0,
                 variant: String::new(),
-                role,
-                provenance: ExamProvenance::Original,
+                role: request
+                    .as_ref()
+                    .and_then(|item| item.wanted_role)
+                    .unwrap_or(first),
+                role_text: String::new(),
+                provenance,
                 answer_source: None,
                 note: String::new(),
                 request_id: request.as_ref().map(|item| item.id.clone()),
@@ -334,7 +333,7 @@ impl ExamShare {
             teachers: vec![],
             request,
         };
-        form::settle(&mut form);
+        form::settle(&mut form, &choices);
         Ok(form)
     }
 
@@ -345,15 +344,18 @@ impl ExamShare {
         edit: ExamUploadEdit,
         language: ContentLanguage,
     ) -> Result<ExamUploadForm, ExamError> {
+        let choices = self.choices().await?;
         match edit {
             ExamUploadEdit::AddSubject { code } => {
                 let subject = self.upload_subject(session, &code, language).await?;
-                form::add_subject(&mut form, subject)?;
+                form::add_subject(&mut form, subject, &choices);
             }
-            ExamUploadEdit::RemoveSubject { code } => form::remove_subject(&mut form, &code)?,
+            ExamUploadEdit::RemoveSubject { code } => {
+                form::remove_subject(&mut form, &code, &choices)?
+            }
             ExamUploadEdit::Role { role } => {
                 form.draft.role = role;
-                form::normalize(&mut form.draft);
+                form::normalize(&mut form.draft, &choices);
             }
         }
         Ok(form)
@@ -421,9 +423,6 @@ impl ExamShare {
         detail: &str,
     ) -> Result<(), ExamError> {
         let detail = detail.trim();
-        if detail.encode_utf16().count() > form::limits().report_detail as usize {
-            return Err(ExamError::InvalidInput);
-        }
         let _: Value = self
             .call(
                 session,
@@ -470,13 +469,6 @@ impl ExamShare {
         session: &mut Session,
         draft: ExamRequestDraft,
     ) -> Result<(), ExamError> {
-        if draft.description.encode_utf16().count() > form::limits().request_description as usize
-            || draft
-                .academic_year
-                .is_some_and(|year| !form::valid_year(year))
-        {
-            return Err(ExamError::InvalidInput);
-        }
         let _: Value = self
             .call(
                 session,
@@ -652,11 +644,13 @@ impl ExamShare {
                 .await
                 .map_err(|_| ExamError::Storage)?;
             let mut keep = TempFile(path.clone());
+            let limit = self.upload_limit().await?;
             match self
                 .api
                 .fetch_file(
                     url::Url::parse(&url.url).map_err(|_| ExamError::Response)?,
                     &path,
+                    limit,
                 )
                 .await
             {

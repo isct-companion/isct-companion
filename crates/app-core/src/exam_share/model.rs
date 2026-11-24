@@ -39,18 +39,28 @@ pub struct ExamClass {
 pub struct ExamDocument {
     pub id: String,
     pub subjects: Vec<ExamSubject>,
+    /// No teachers and `all_teachers` false is "teacher unknown".
     pub teachers: Vec<ExamTeacher>,
+    /// The material is common to every teacher of the subject.
+    pub all_teachers: bool,
     pub academic_year: Option<u32>,
+    /// The API's occasion code; a code this build does not know is shown as
+    /// "other".
     pub occasion: Option<String>,
+    /// The name of an `other` occasion; empty otherwise.
+    pub occasion_text: String,
+    /// Shown when above 0.
     pub occasion_number: u32,
     pub variant: String,
     pub role: Option<String>,
+    /// The name of an `other` role; empty otherwise.
+    pub role_text: String,
     pub note: Option<String>,
     pub file_name: String,
     pub file_type: String,
-    /// In a sitting (`ExamSet`) with several documents of this one role, its
-    /// place among them from 1, so they can be told apart ("Question 2");
-    /// otherwise none.
+    /// In a sitting (`ExamSet`) with several documents of this one role and
+    /// role name, its place among them from 1, so they can be told apart
+    /// ("Question 2"); otherwise none.
     pub number: Option<u32>,
 }
 
@@ -66,23 +76,29 @@ pub struct ExamSubjectPage {
     /// This subject on the ScienceTokyoExam website.
     pub web_url: String,
     /// The subject's documents by sitting: the class's own first, then newest
-    /// first and in the forms' occasion order. A question and its answer are
-    /// one row on every shell.
+    /// first and in occasion order. A question and its answer are one row on
+    /// every shell.
     pub sets: Vec<ExamSet>,
 }
 
-/// The documents of one sitting: one year, occasion, round, variant and set
-/// of teachers. Documents run question, both, answer, notes, other.
+/// The documents of one sitting, as the service pairs them (its `pairKey`):
+/// one year, occasion, round, variant and set of teachers. A document the
+/// service pairs with none is a sitting of its own. Documents run question,
+/// both, answer, notes, other.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExamSet {
     pub academic_year: Option<u32>,
     pub occasion: Option<String>,
+    pub occasion_text: String,
     pub occasion_number: u32,
     pub variant: String,
     pub teachers: Vec<ExamTeacher>,
-    /// A teacher of the course's own class is among `teachers`.
+    pub all_teachers: bool,
+    /// The sitting belongs to the course's own class, as the service decides
+    /// it: only on a page with a class, for a class with no teachers listed,
+    /// a material common to all teachers, or one naming a class teacher.
     pub mine: bool,
     pub documents: Vec<ExamDocument>,
 }
@@ -95,8 +111,9 @@ pub struct ExamRequest {
     pub subject: ExamSubject,
     pub teachers: Vec<ExamTeacher>,
     pub academic_year: Option<u32>,
-    pub occasion: Option<String>,
-    pub wanted_role: Option<String>,
+    /// None when the request names none, or one this build does not know.
+    pub occasion: Option<ExamOccasion>,
+    pub wanted_role: Option<ExamRole>,
     pub description: String,
     pub status: String,
     pub answer_exam_id: Option<String>,
@@ -189,6 +206,7 @@ pub struct ExamAccount {
 pub enum ExamReportReason {
     Copyright,
     Inappropriate,
+    WrongInfo,
     WrongAnswer,
     BrokenFile,
     Other,
@@ -217,11 +235,18 @@ pub struct ExamUploadDraft {
     pub subject_codes: Vec<String>,
     pub teacher_ids: Vec<String>,
     pub new_teachers: Vec<ExamNewTeacher>,
+    /// Common to every teacher; then it names none.
+    pub all_teachers: bool,
     pub academic_year: Option<u32>,
-    pub occasion: ExamOccasion,
+    /// None until the person picks one, as on the website.
+    pub occasion: Option<ExamOccasion>,
+    /// The name of an `other` occasion.
+    pub occasion_text: String,
     pub occasion_number: u32,
     pub variant: String,
     pub role: ExamRole,
+    /// The name of an `other` role.
+    pub role_text: String,
     pub provenance: ExamProvenance,
     pub answer_source: Option<ExamAnswerSource>,
     pub note: String,
@@ -240,22 +265,17 @@ pub enum ExamRole {
     Other,
 }
 
-/// When a material was used. Notes and other materials have none
-/// (`NotApplicable`, the API's `none`).
+/// When a material was used. An `Other` occasion carries a name; notes and
+/// other materials have none (`NotApplicable`, the API's `none`).
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ExamOccasion {
-    Unknown,
     Final,
     Midterm,
-    Makeup,
     Quiz,
-    Check,
     Report,
-    Exercise,
-    Textbook,
-    Mock,
+    Other,
     #[serde(rename = "none")]
     NotApplicable,
 }
@@ -277,19 +297,22 @@ pub enum ExamAnswerSource {
     Student,
 }
 
-/// One upload role and what it allows, the default first.
+/// One upload role and what it allows, in the service's order.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ExamRoleChoice {
     pub role: ExamRole,
+    /// A single entry is set without asking (`none` for notes).
     pub occasions: Vec<ExamOccasion>,
     /// Empty when the role has no answer.
     pub answer_sources: Vec<ExamAnswerSource>,
 }
 
-/// The values each past-exams form offers, in display order, the default
-/// first. Forms take their pickers from here, never from a list of their own.
+/// The values each past-exams form offers, in the service's order, from its
+/// `client-config`. Forms take their pickers from here, never from a list of
+/// their own. Codes this build has no words for are left out; every list a
+/// form needs has at least one entry.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -302,12 +325,12 @@ pub struct ExamChoices {
     pub request_occasions: Vec<ExamOccasion>,
     pub report_reasons: Vec<ExamReportReason>,
     pub limits: ExamLimits,
-    pub site: ExamSitePages,
 }
 
 /// The ScienceTokyoExam website's pages, which a shell links to in every
-/// account state: before connecting, offline or on an old app version too.
-/// A view's own object (a subject, a document) has its own `web_url`.
+/// account state: before connecting, offline or on an old app version too
+/// (`ExamAction::Site`). A view's own object (a subject, a document) has its
+/// own `web_url`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -319,26 +342,32 @@ pub struct ExamSitePages {
     pub privacy: String,
 }
 
-/// The API's limits a form keeps to. Text lengths count UTF-16 code units.
-#[derive(Clone, Debug, Deserialize, Serialize)]
+/// The service's limits, for the forms' hints only (a field's maximum
+/// length, a disabled "add teacher", the years a picker offers): the service
+/// checks every form. Text lengths count UTF-16 code units. A limit the
+/// service stops sending is absent, and its hint with it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct ExamLimits {
     /// Subjects one upload may list.
-    pub subjects: u32,
-    /// Listed teachers one upload may name, and as many new ones.
-    pub teachers: u32,
-    pub occasion_number: u32,
-    pub variant: u32,
-    pub note: u32,
-    pub request_description: u32,
-    pub report_detail: u32,
-    pub query: u32,
-    /// A new teacher's family and given name, each.
-    pub teacher_name: u32,
-    /// The academic years an upload or a request may name.
-    pub earliest_year: u32,
-    pub latest_year: u32,
+    pub subjects: Option<u32>,
+    /// Listed teachers one upload may name.
+    pub teachers: Option<u32>,
+    /// Teachers one upload may add to the list.
+    pub new_teachers: Option<u32>,
+    /// A variant, an occasion or role name, a new teacher's family or given
+    /// name.
+    pub metadata_text: Option<u32>,
+    pub note: Option<u32>,
+    pub report_detail: Option<u32>,
+    pub occasion_number_max: Option<u32>,
+    pub request_description: Option<u32>,
+    pub search_query: Option<u32>,
+    pub max_upload_bytes: Option<u32>,
+    /// The academic years an upload may name.
+    pub earliest_year: Option<u32>,
+    pub latest_year: Option<u32>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -425,14 +454,32 @@ pub struct ExamUploadStatus {
 }
 
 impl ExamReportReason {
+    const ALL: [Self; 6] = [
+        Self::Copyright,
+        Self::Inappropriate,
+        Self::WrongInfo,
+        Self::WrongAnswer,
+        Self::BrokenFile,
+        Self::Other,
+    ];
+
+    /// The API's snake_case code, which differs from the camelCase name
+    /// shells use.
     pub(super) fn api_code(&self) -> &'static str {
         match self {
             Self::Copyright => "copyright",
             Self::Inappropriate => "inappropriate",
+            Self::WrongInfo => "wrong_info",
             Self::WrongAnswer => "wrong_answer",
             Self::BrokenFile => "broken_file",
             Self::Other => "other",
         }
+    }
+
+    pub(super) fn from_api_code(code: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|reason| reason.api_code() == code)
     }
 }
 
@@ -449,7 +496,10 @@ impl ExamReportReason {
 pub enum ExamAction {
     /// The account, resumed from its stored session when needed.
     Account,
-    /// The choices the forms offer; answered without the network.
+    /// The website's pages; answered without the network or an account.
+    Site,
+    /// The choices the forms offer, from the service (cached for five
+    /// minutes). A form asks when it opens.
     Choices,
     Connect,
     CancelConnect,
@@ -458,6 +508,8 @@ pub enum ExamAction {
     /// service told to forget an account that never registered.
     Decline,
     Disconnect,
+    /// Delete the account on the service, then sign out and forget it here.
+    DeleteAccount,
     Search {
         query: String,
     },
@@ -516,9 +568,9 @@ pub enum ExamAction {
         form: ExamUploadForm,
         edit: ExamUploadEdit,
     },
+    /// Whether the staged files can be sent; the service checks the draft.
     UploadReadiness {
         files: Vec<ExamUploadFile>,
-        draft: ExamUploadDraft,
     },
     Upload {
         files: Vec<ExamUploadFile>,
@@ -539,6 +591,7 @@ pub enum ExamAnswer {
     Library(ExamLibrary),
     Saved(bool),
     Requests(ExamRequestPage),
+    Site(ExamSitePages),
     Choices(ExamChoices),
     UploadForm(ExamUploadForm),
     UploadReadiness(ExamUploadReadiness),

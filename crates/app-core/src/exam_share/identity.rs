@@ -19,7 +19,6 @@ pub(super) struct SessionToken {
     pub saved: SavedSession,
     pub id_token: String,
     pub expires: i64,
-    pub allowed: bool,
 }
 
 #[derive(Deserialize)]
@@ -30,8 +29,6 @@ struct FirebaseClaims {
     exp: i64,
     #[serde(default)]
     admin: bool,
-    #[serde(default)]
-    allowed: bool,
 }
 
 impl SessionToken {
@@ -58,7 +55,6 @@ impl SessionToken {
             saved,
             id_token,
             expires: claims.exp,
-            allowed: claims.allowed,
         })
     }
 }

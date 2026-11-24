@@ -67,8 +67,8 @@ struct ExamRequestRoute: Hashable {
 }
 
 /// The one Core call path each past-exams page owns: whether a call is
-/// running, its failure or notice, a pending confirmation and the forms'
-/// choices.
+/// running, its failure or notice, a pending confirmation, the website's
+/// pages and the forms' choices.
 @MainActor
 @Observable
 final class ExamPage {
@@ -83,6 +83,7 @@ final class ExamPage {
     var problem: String?
     var notice: String?
     var confirmation: Confirmation?
+    private(set) var site: ExamSitePages?
     private(set) var choices: ExamChoices?
 
     var busy: Bool { running > 0 }
@@ -107,10 +108,19 @@ final class ExamPage {
         }
     }
 
-    /// The forms' choices, answered without the network.
-    func loadChoices(_ model: AppModel) async {
-        guard choices == nil, case let .choices(value)? = try? await model.examShare(.choices) else { return }
+    /// The website's pages, answered without the network or an account.
+    func loadSite(_ model: AppModel) async {
+        guard site == nil, case let .site(value)? = try? await model.examShare(.site) else { return }
+        site = value
+    }
+
+    /// The forms' choices, read as a form opens (Core caches them for a few
+    /// minutes); false when they did not arrive, the failure shown at the
+    /// form's entry, and the next opening asks again.
+    func loadChoices(_ model: AppModel) async -> Bool {
+        guard case let .choices(value)? = await call(model, .choices) else { return false }
         choices = value
+        return true
     }
 
     func confirm(_ key: String, work: @escaping () async -> Void) {
@@ -181,6 +191,7 @@ struct PastExamsScreen: View {
     @State private var coursesFailed = false
     @State private var coursesRetry = 0
     @State private var uploadEntry: ExamUploadEntry?
+    @State private var deletingAccount = false
 
     init(courseId: String? = nil) { self.courseId = courseId }
 
@@ -213,7 +224,7 @@ struct PastExamsScreen: View {
     /// The site's page for the tab on screen; before connecting the tabs
     /// are hidden, so the search.
     private var webUrl: URL? {
-        guard let site = page.choices?.site else { return nil }
+        guard let site = page.site else { return nil }
         guard account?.status == .connected else { return URL(string: site.search) }
         return switch tab {
         case .browse: URL(string: site.search)
@@ -230,7 +241,7 @@ struct PastExamsScreen: View {
             case nil where page.problem == nil:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             default:
-                ExamAccountGate(page: page, status: account?.status ?? .disconnected, site: page.choices?.site) { action in
+                ExamAccountGate(page: page, status: account?.status ?? .disconnected, site: page.site) { action in
                     await accountAction(action)
                 }
             }
@@ -246,7 +257,7 @@ struct PastExamsScreen: View {
             courses = answer
             coursesFailed = answer == nil
         }
-        .task { await page.loadChoices(model) }
+        .task { await page.loadSite(model) }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
             await refresh()
@@ -386,7 +397,9 @@ struct PastExamsScreen: View {
         List {
             if account?.upload.phase == .pending {
                 Section {
-                    Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") { uploadEntry = .recovery }
+                    Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") {
+                        Task { if await page.loadChoices(model) { uploadEntry = .recovery } }
+                    }
                 } footer: {
                     Text(t("examShare.upload.pending"))
                 }
@@ -413,6 +426,8 @@ struct PastExamsScreen: View {
                 Button(t("examShare.disconnect"), role: .destructive) {
                     page.confirm("examShare.disconnectHint") { await accountAction(.disconnect) }
                 }
+                Button(t("examShare.deleteAccount"), role: .destructive) { deletingAccount = true }
+                    .disabled(uploadRunning)
             } footer: {
                 ExamCredit()
             }
@@ -422,6 +437,25 @@ struct PastExamsScreen: View {
         .pageListMargins()
         .overlay { if library == nil && page.busy { ProgressView() } }
         .refreshable { await refresh() }
+        .alert(t("examShare.deleteAccountTitle"), isPresented: $deletingAccount) {
+            Button(t("examShare.deleteAccount"), role: .destructive) {
+                Task {
+                    guard await page.call(model, .deleteAccount) != nil else { return }
+                    page.notice = t("examShare.accountDeleted")
+                }
+            }
+            Button(t("common.cancel"), role: .cancel) {}
+        } message: {
+            Text(t("examShare.deleteAccountBody"))
+        }
+    }
+
+    /// An upload Core is sending; the account stays until it ends.
+    private var uploadRunning: Bool {
+        switch account?.upload.phase {
+        case .preparing?, .transferring?, .registering?, .cleaning?: true
+        default: false
+        }
     }
 
     @ViewBuilder
@@ -431,9 +465,9 @@ struct PastExamsScreen: View {
                 ForEach(items, id: \.id) { item in
                     NavigationLink(value: ExamDocumentRoute(id: item.id, removal: removal)) {
                         ExamListRow(title: item.subjects.map(\.name).joined(separator: " / "), meta: [
-                            examSitting(year: item.academicYear, occasion: item.occasion,
+                            examSitting(year: item.academicYear, occasion: item.occasion, occasionText: item.occasionText,
                                         number: item.occasionNumber, variant: item.variant),
-                            item.role.map { t("examShare.role.\($0)") },
+                            ExamLabels.role(item.role, text: item.roleText),
                         ])
                     }
                     .swipeActions {
@@ -634,21 +668,48 @@ struct ExamCredit: View {
     }
 }
 
+/// How a document, a sitting or a request names its occasion, role and
+/// teachers, on every past-exams page.
+enum ExamLabels {
+    /// An `other` occasion's own name, else the label for the API's code (a
+    /// code this build does not know reads as other); none without one.
+    static func occasion(_ code: String?, text: String) -> String? {
+        if !text.isEmpty { return text }
+        return code.map { (occasions[$0] ?? .other).label }
+    }
+
+    /// An `other` role's own name, else the label for the API's code (a code
+    /// this build does not know reads as other); none without one.
+    static func role(_ code: String?, text: String) -> String? {
+        if !text.isEmpty { return text }
+        return code.map { (roles[$0] ?? .other).label }
+    }
+
+    /// "Common to all teachers", the names, or "Teacher unknown".
+    static func teachers(_ teachers: [ExamTeacher], all: Bool) -> String {
+        if all { return t("examShare.allTeachers") }
+        return teachers.isEmpty ? t("examShare.unknownTeacher") : teachers.map(\.name).joined(separator: " / ")
+    }
+
+    // The API's codes, as Core passes a document's or a sitting's through.
+    private static let occasions: [String: ExamOccasion] = [
+        "final": .final, "midterm": .midterm, "quiz": .quiz, "report": .report, "other": .other, "none": .notApplicable,
+    ]
+    private static let roles: [String: ExamRole] = [
+        "question": .question, "answer": .answer, "both": .both, "notes": .notes, "other": .other,
+    ]
+}
+
 /// "2024 · Final · Answers", a request's facts in one line.
 func examRequestFacts(_ item: ExamRequest) -> String {
-    [
-        item.academicYear.map(String.init),
-        item.occasion.map { t("examShare.occasion.\($0)") },
-        item.wantedRole.map { t("examShare.role.\($0)") },
-    ]
-    .compactMap { $0 }.joined(separator: " · ")
+    [item.academicYear.map(String.init), item.occasion?.label, item.wantedRole?.label]
+        .compactMap { $0 }.joined(separator: " · ")
 }
 
 /// "2024 Final 2 B", a sitting's label.
-func examSitting(year: UInt32?, occasion: String?, number: UInt32, variant: String) -> String {
-    let occasion = occasion.map { value in
-        let label = t("examShare.occasion.\(value)")
-        return number > 1 ? "\(label) \(number)" : label
+func examSitting(year: UInt32?, occasion: String?, occasionText: String, number: UInt32, variant: String) -> String {
+    let occasion = ExamLabels.occasion(occasion, text: occasionText).map { label in
+        number > 0 ? "\(label) \(number)" : label
     }
     return [year.map(String.init), occasion, variant]
         .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
@@ -658,8 +719,9 @@ func examSitting(year: UInt32?, occasion: String?, number: UInt32, variant: Stri
 func examName(_ exam: ExamDocument) -> String {
     let fields = [
         exam.subjects.map(\.name).joined(separator: " / "),
-        examSitting(year: exam.academicYear, occasion: exam.occasion, number: exam.occasionNumber, variant: exam.variant),
-        exam.role.map { t("examShare.role.\($0)") },
+        examSitting(year: exam.academicYear, occasion: exam.occasion, occasionText: exam.occasionText,
+                    number: exam.occasionNumber, variant: exam.variant),
+        ExamLabels.role(exam.role, text: exam.roleText),
     ].compactMap { $0 }.filter { !$0.isEmpty }
     return fields.isEmpty ? exam.fileName : fields.joined(separator: " · ")
 }

@@ -2,8 +2,10 @@
 // A demo build answers every action from its scene (`demo`), which leaves
 // this client unused there.
 #![cfg_attr(feature = "demo", allow(dead_code))]
+mod account;
 mod cache;
 mod client;
+mod config;
 #[cfg(feature = "demo")]
 pub(crate) mod demo;
 mod form;
@@ -40,8 +42,6 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 const ACCOUNT: &str = "sciencetokyoexam";
-// Match client-config's public Cache-Control max-age.
-const VERSION_MAX_AGE: Duration = Duration::from_secs(300);
 const VERSION_RETRY: Duration = Duration::from_secs(60);
 /// `discard` is a courtesy to the service; signing out never waits long on it.
 const DISCARD_TIMEOUT: Duration = Duration::from_secs(5);
@@ -68,12 +68,16 @@ pub enum ExamError {
     Consent,
     #[error("The ScienceTokyoExam account has administrator privileges")]
     Administrator,
+    #[error("The email address belongs to another ScienceTokyoExam account")]
+    EmailTaken,
     #[error("The ScienceTokyoExam item is missing")]
     NotFound,
     #[error("The ScienceTokyoExam subject is missing")]
     SubjectNotFound,
     #[error("ScienceTokyoExam rejected the action")]
     Rejected,
+    #[error("The teacher asked ScienceTokyoExam not to share this course's materials")]
+    SharingBlocked,
     #[error("The Google identity could not be verified")]
     Identity,
     #[error("ScienceTokyoExam local storage could not be accessed")]
@@ -88,12 +92,20 @@ pub enum ExamError {
     InvalidInput,
     #[error("Choose at least one file to upload")]
     UploadNoFiles,
-    #[error("Enter a family name for every unlisted teacher")]
-    UploadTeacherName,
-    #[error("An unlisted teacher name exceeds the length limit")]
-    UploadTeacherLength,
-    #[error("The exam variant exceeds the length limit")]
-    UploadVariantLength,
+    #[error("The upload names no subject")]
+    UploadSubject,
+    #[error("The upload's teachers were refused")]
+    UploadTeacher,
+    #[error("The upload's academic year was refused")]
+    UploadYear,
+    #[error("The upload's occasion was refused")]
+    UploadOccasion,
+    #[error("The upload's occasion number was refused")]
+    UploadOccasionNumber,
+    #[error("The upload's role was refused")]
+    UploadRole,
+    #[error("A subject or teacher of the upload no longer exists")]
+    UploadNotFound,
     #[error("The upload note exceeds the length limit")]
     UploadNoteLength,
     #[error("The selected upload files could not be prepared")]
@@ -114,12 +126,12 @@ pub enum ExamError {
     UploadRegistered,
 }
 
-/// Check the current draft and staged file selection without preparing a PDF
-/// or contacting the upload service. Sending validates them again.
-pub fn upload_readiness(draft: &ExamUploadDraft, files: &[ExamUploadFile]) -> ExamUploadReadiness {
+/// Check the staged file selection against `limit`, the service's size for
+/// one material, without preparing a PDF or contacting the upload service.
+/// The service checks the draft when it is sent.
+fn upload_readiness(files: &[ExamUploadFile], limit: u64) -> ExamUploadReadiness {
     use crate::error_code::Coded;
-    let reason_key = upload::validate(&mut draft.clone())
-        .and_then(|()| upload_file::validate_selection(files))
+    let reason_key = upload_file::validate_selection(files, limit)
         .err()
         .map(|error| format!("error.{}", error.code().name()));
     ExamUploadReadiness { reason_key }
@@ -128,6 +140,53 @@ pub fn upload_readiness(draft: &ExamUploadDraft, files: &[ExamUploadFile]) -> Ex
 impl ExamError {
     fn temporarily_unavailable(&self) -> bool {
         matches!(self, Self::Unavailable | Self::Network | Self::Timeout)
+    }
+
+    /// The service refused what was sent, so sending it again is refused
+    /// too: an upload it refused leaves an orphaned file to roll back. Every
+    /// other failure either may have reached the service unseen, ended the
+    /// session or stopped here. No wildcard, so each new variant is placed.
+    fn refused_by_service(&self) -> bool {
+        match self {
+            Self::Network
+            | Self::Timeout
+            | Self::Unavailable
+            | Self::Response
+            | Self::Unsupported
+            | Self::SignedOut
+            | Self::Expired
+            | Self::Denied
+            | Self::Consent
+            | Self::Administrator
+            | Self::EmailTaken
+            | Self::Identity
+            | Self::Storage
+            | Self::Cancelled
+            | Self::UploadPending
+            | Self::UploadInUse
+            | Self::UploadRegistered => false,
+            Self::NotFound
+            | Self::SubjectNotFound
+            | Self::Rejected
+            | Self::SharingBlocked
+            | Self::AlreadyReported
+            | Self::Quota
+            | Self::InvalidInput
+            | Self::UploadNoFiles
+            | Self::UploadSubject
+            | Self::UploadTeacher
+            | Self::UploadYear
+            | Self::UploadOccasion
+            | Self::UploadOccasionNumber
+            | Self::UploadRole
+            | Self::UploadNotFound
+            | Self::UploadNoteLength
+            | Self::UploadFile
+            | Self::UploadMixed
+            | Self::UploadSize
+            | Self::UploadDuplicate
+            | Self::UploadQuota => true,
+        }
     }
 }
 
@@ -210,19 +269,14 @@ struct Session {
     register_attempted: bool,
 }
 
-/// Whether a signed-in account may use the service.
-enum Admission {
-    Admitted(SessionToken),
-    /// It has not registered; the session now waits on the consent page.
-    NeedsConsent,
-}
-
 pub struct ExamShare {
     api: Client,
     version: String,
     vault: Arc<dyn SecretVault>,
     folder: PathBuf,
     session: Mutex<Session>,
+    /// Outside the session gate, which an upload or a sign-in holds for long.
+    config: config::ConfigCache,
     /// Absent when this build has no OAuth client configured.
     sign_in: Option<ExamSignIn>,
     upload: upload::UploadTracker,
@@ -242,10 +296,7 @@ impl ExamShare {
     ) -> Result<Self, ExamError> {
         let api = Client::new(version.clone())?;
         let saved = Self::stored_session(vault.as_ref(), &folder)?;
-        let status = if saved
-            .as_ref()
-            .is_some_and(|session: &SavedSession| session.registered)
-        {
+        let status = if saved.is_some() {
             ExamAccountStatus::Connected
         } else {
             ExamAccountStatus::Disconnected
@@ -272,6 +323,7 @@ impl ExamShare {
             vault,
             folder,
             session: Mutex::new(session),
+            config: config::ConfigCache::default(),
             sign_in,
             upload: upload::UploadTracker::new(publisher.clone(), upload),
             publisher,
@@ -303,13 +355,20 @@ impl ExamShare {
         Self::load_session(vault)
     }
 
+    /// The registered account the vault keeps. 1.4.0 also kept one on the
+    /// consent page, which a restart starts over: it is dropped.
     fn load_session(vault: &dyn SecretVault) -> Result<Option<SavedSession>, ExamError> {
-        vault
+        let saved: Option<SavedSession> = vault
             .load(ACCOUNT)
             .map_err(|_| ExamError::Storage)?
             .map(|encoded| serde_json::from_str(&encoded))
             .transpose()
-            .map_err(|_| ExamError::Storage)
+            .map_err(|_| ExamError::Storage)?;
+        if saved.as_ref().is_some_and(|saved| !saved.registered) {
+            vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
+            return Ok(None);
+        }
+        Ok(saved)
     }
 
     pub(crate) fn clean_cached_materials(&self, now: SystemTime) -> Result<(), ExamError> {
@@ -335,10 +394,12 @@ impl ExamShare {
     ) -> Result<ExamAnswer, ExamError> {
         let answer = match action {
             // These answer without waiting for the session gate: the first
-            // needs no account, the others stop work that holds the gate.
-            ExamAction::Choices => ExamAnswer::Choices(form::choices()),
-            ExamAction::UploadReadiness { draft, files } => {
-                let ready = tokio::task::spawn_blocking(move || upload_readiness(&draft, &files))
+            // three need no account, the others stop work that holds the gate.
+            ExamAction::Site => ExamAnswer::Site(client::site_pages()),
+            ExamAction::Choices => ExamAnswer::Choices(self.choices().await?),
+            ExamAction::UploadReadiness { files } => {
+                let limit = self.upload_limit().await?;
+                let ready = tokio::task::spawn_blocking(move || upload_readiness(&files, limit))
                     .await
                     .map_err(|_| ExamError::Storage)?;
                 ExamAnswer::UploadReadiness(ready)
@@ -407,25 +468,6 @@ impl ExamShare {
         result
     }
 
-    async fn connect(
-        &self,
-        session: &mut Session,
-        cancel: &CancellationToken,
-    ) -> Result<ExamAnswer, ExamError> {
-        let sign_in = self.sign_in.as_ref().ok_or(ExamError::Unavailable)?;
-        self.clear(session).await?;
-        self.check_version_for_action(session, cancel).await?;
-        let token =
-            google::connect(&self.api, &sign_in.client, sign_in.browser.as_ref(), cancel).await?;
-        // A connection that did not get through keeps nothing, so a signed
-        // out page never holds an account to resume later.
-        if let Err(error) = interrupt(cancel, self.establish(session, token)).await {
-            self.clear(session).await?;
-            return Err(error);
-        }
-        Ok(self.account_answer(session))
-    }
-
     fn account_answer(&self, session: &Session) -> ExamAnswer {
         self.publisher.session(session);
         ExamAnswer::Account(self.publisher.current())
@@ -451,6 +493,9 @@ impl ExamShare {
             ExamAction::RecoverUpload => return self.recover_upload(session, cancel).await,
             ExamAction::Account => return interrupt(cancel, self.account(session)).await,
             ExamAction::AcceptTerms => return interrupt(cancel, self.accept_terms(session)).await,
+            ExamAction::DeleteAccount => {
+                return interrupt(cancel, self.delete_account(session)).await
+            }
             action => action,
         };
         let language = remote::content_language(store)?;
@@ -506,7 +551,9 @@ impl ExamShare {
                     ExamAnswer::UploadForm(self.edit_upload(session, form, edit, language).await?)
                 }
                 // `act` and `run` answer these before reaching here.
-                ExamAction::Choices
+                ExamAction::Site
+                | ExamAction::Choices
+                | ExamAction::DeleteAccount
                 | ExamAction::Decline
                 | ExamAction::CancelUpload
                 | ExamAction::CancelConnect
@@ -520,106 +567,6 @@ impl ExamShare {
             })
         })
         .await
-    }
-
-    async fn account(&self, session: &mut Session) -> Result<ExamAnswer, ExamError> {
-        if session.saved.is_some() && session.token.is_none() {
-            let result = self.resume(session).await;
-            self.apply_session_error(session, &result).await?;
-            if let Err(error) = result {
-                let offline = error.temporarily_unavailable()
-                    && session.saved.as_ref().is_some_and(|saved| saved.registered);
-                let signed_out = matches!(
-                    error,
-                    ExamError::Expired | ExamError::Denied | ExamError::Administrator
-                );
-                if !offline && !signed_out {
-                    return Err(error);
-                }
-            }
-        }
-        Ok(self.account_answer(session))
-    }
-
-    async fn accept_terms(&self, session: &mut Session) -> Result<ExamAnswer, ExamError> {
-        if !matches!(session.status, ExamAccountStatus::NeedsConsent) {
-            return Err(ExamError::InvalidInput);
-        }
-        let expires = session.token.as_ref().ok_or(ExamError::SignedOut)?.expires;
-        if expires <= crate::clock::now().timestamp() + 60 {
-            self.refresh_unregistered(session).await?;
-        }
-        let register = |session: &Session| -> Result<_, ExamError> {
-            let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-            Ok(self
-                .service(Method::POST, &["auth", "register"])?
-                .bearer_auth(&current.id_token)
-                .json(&json!({})))
-        };
-        #[derive(Deserialize)]
-        struct Registered {
-            ok: bool,
-        }
-        session.register_attempted = true;
-        let mut answer = self.api.service::<Registered>(register(session)?).await;
-        if matches!(answer, Err(ExamError::Expired)) {
-            self.refresh_unregistered(session).await?;
-            answer = self.api.service(register(session)?).await;
-        }
-        if !answer?.ok {
-            return Err(ExamError::Response);
-        }
-        // Keep the token issued after register, so a retry after a failed
-        // `/api/me` starts from it.
-        self.refresh_unregistered(session).await?;
-        let updated = session.token.clone().ok_or(ExamError::SignedOut)?;
-        self.establish(session, updated).await?;
-        Ok(self.account_answer(session))
-    }
-
-    /// A new ID token for the account on the consent page, which has no
-    /// `allowed` claim yet and stays in memory.
-    async fn refresh_unregistered(&self, session: &mut Session) -> Result<(), ExamError> {
-        let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        let token = identity::refresh(&self.api, &current.saved).await?;
-        self.remember(session, &token);
-        session.token = Some(token);
-        Ok(())
-    }
-
-    /// Refuse the terms: leave the account and, as the website does, ask the
-    /// service to forget one that never registered.
-    async fn decline(
-        &self,
-        session: &mut Session,
-        cancel: &CancellationToken,
-    ) -> Result<ExamAnswer, ExamError> {
-        if !matches!(session.status, ExamAccountStatus::NeedsConsent) {
-            return Err(ExamError::InvalidInput);
-        }
-        if let Some(token) = session
-            .token
-            .as_ref()
-            .filter(|token| !token.saved.registered && !session.register_attempted)
-        {
-            let _ = interrupt(cancel, self.discard(token)).await;
-        }
-        self.clear(session).await?;
-        Ok(self.account_answer(session))
-    }
-
-    /// `POST /api/auth/discard` for `token`'s account, which deletes an
-    /// account that never registered. Its answer is not read; callers ignore
-    /// its failure.
-    async fn discard(&self, token: &SessionToken) -> Result<(), ExamError> {
-        self.api
-            .fire(
-                self.service(Method::POST, &["auth", "discard"])?
-                    .bearer_auth(&token.id_token)
-                    .json(&json!({}))
-                    .timeout(DISCARD_TIMEOUT),
-            )
-            .await
     }
 
     async fn check_version_for_action(
@@ -641,19 +588,11 @@ impl ExamShare {
         {
             return check.result();
         }
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct Config {
-            min_app_version: Option<String>,
-        }
-        let config = self
-            .api
-            .service::<Config>(self.service(Method::GET, &["client-config"])?)
-            .await;
+        let config = self.config().await;
         let (compatible, max_age) = match config {
             Ok(config) => (
-                compatible_version(&self.version, config.min_app_version.as_deref())?,
-                VERSION_MAX_AGE,
+                compatible_version(&self.version, config::min_app_version(&config)?)?,
+                config::MAX_AGE,
             ),
             Err(error)
                 if error.temporarily_unavailable()
@@ -681,228 +620,9 @@ impl ExamShare {
         result
     }
 
-    async fn resume(&self, session: &mut Session) -> Result<(), ExamError> {
-        let saved = session.saved.as_ref().ok_or(ExamError::SignedOut)?;
-        let token = identity::refresh(&self.api, saved).await?;
-        self.establish(session, token).await
-    }
-
-    async fn establish(&self, session: &mut Session, token: SessionToken) -> Result<(), ExamError> {
-        let Admission::Admitted(mut token) = self.admit(session, token).await? else {
-            return Ok(());
-        };
-        #[derive(Deserialize)]
-        struct Profile {
-            profile: Option<UserRole>,
-        }
-        #[derive(Deserialize)]
-        struct UserRole {
-            role: String,
-        }
-        let answer: Profile = self
-            .api
-            .service(
-                self.service(Method::GET, &["me"])?
-                    .bearer_auth(&token.id_token),
-            )
-            .await?;
-        match answer.profile {
-            Some(profile) if profile.role == "admin" => return Err(ExamError::Administrator),
-            Some(_) => {}
-            None => {
-                self.await_consent(session, token);
-                return Ok(());
-            }
-        }
-        token.saved.registered = true;
-        session.status = ExamAccountStatus::Connected;
-        self.remember(session, &token);
-        session.token = Some(token);
-        self.update_upload_account(session);
-        Ok(())
-    }
-
-    /// The one judgement of whether `token`'s account may use the service,
-    /// for connecting, resuming, renewing and a refused request alike. A
-    /// token with the `allowed` claim may; otherwise `recheck` asks.
-    async fn admit(
-        &self,
-        session: &mut Session,
-        token: SessionToken,
-    ) -> Result<Admission, ExamError> {
-        if token.allowed {
-            self.remember(session, &token);
-            return Ok(Admission::Admitted(token));
-        }
-        self.recheck(session, token).await
-    }
-
-    /// Ask `claims/refresh` about `token`'s account and bring the session in
-    /// line with the answer: a granted account takes a token carrying the
-    /// grant, one that has to accept the terms waits on the consent page, and
-    /// one the service refuses is told to forget an account that never
-    /// registered before it is signed out.
-    async fn recheck(
-        &self,
-        session: &mut Session,
-        token: SessionToken,
-    ) -> Result<Admission, ExamError> {
-        #[derive(Deserialize)]
-        struct Claim {
-            allowed: bool,
-            #[serde(default)]
-            eligible: bool,
-        }
-        let claim: Claim = self
-            .api
-            .service(
-                self.service(Method::POST, &["auth", "claims", "refresh"])?
-                    .bearer_auth(&token.id_token)
-                    .json(&json!({})),
-            )
-            .await?;
-        if claim.allowed {
-            let updated = identity::refresh(&self.api, &token.saved).await?;
-            self.remember(session, &updated);
-            // Granted, but the new token does not show it yet: try later,
-            // keeping the account.
-            return if updated.allowed {
-                Ok(Admission::Admitted(updated))
-            } else {
-                Err(ExamError::Unavailable)
-            };
-        }
-        if claim.eligible {
-            self.await_consent(session, token);
-            return Ok(Admission::NeedsConsent);
-        }
-        // A registered account refused later (taken off the list) is only
-        // signed out here: the service keeps it.
-        if !token.saved.registered && !session.register_attempted {
-            let _ = self.discard(&token).await;
-        }
-        Err(ExamError::Denied)
-    }
-
-    /// Hold the session on the consent page with `token` in memory.
-    fn await_consent(&self, session: &mut Session, mut token: SessionToken) {
-        token.saved.registered = false;
-        session.status = ExamAccountStatus::NeedsConsent;
-        self.remember(session, &token);
-        session.token = Some(token);
-        self.update_upload_account(session);
-    }
-
-    /// Keep `token`'s grant: in memory, and in the vault only for a
-    /// registered account. An unregistered one does not outlive the app, so
-    /// a restart starts the connection over and no stale `registered` record
-    /// stays behind.
-    fn remember(&self, session: &mut Session, token: &SessionToken) {
-        session.saved = Some(token.saved.clone());
-        // Token rotation remains usable in memory if the keychain is
-        // temporarily locked; each successful refresh tries again.
-        if !token.saved.registered {
-            let _ = self.vault.delete(ACCOUNT);
-        } else if let Ok(data) = serde_json::to_string(&token.saved) {
-            let _ = self.vault.store(ACCOUNT, &data);
-        }
-    }
-
-    async fn apply_session_error<T>(
-        &self,
-        session: &mut Session,
-        result: &Result<T, ExamError>,
-    ) -> Result<(), ExamError> {
-        match result {
-            Err(ExamError::Expired | ExamError::Denied | ExamError::Administrator) => {
-                self.clear(session).await?
-            }
-            Err(ExamError::Unsupported) => {
-                session.status = ExamAccountStatus::Unsupported;
-                // If the version gate opens again, re-establish the account
-                // through its stored session instead of showing stale state.
-                session.token = None;
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
-    async fn clear(&self, session: &mut Session) -> Result<(), ExamError> {
-        session.token = None;
-        session.register_attempted = false;
-        session.status = ExamAccountStatus::Disconnected;
-        session.version_check = None;
-        self.upload.settled(false);
-        self.vault.delete(ACCOUNT).map_err(|_| ExamError::Storage)?;
-        if let Some(saved) = session.saved.take() {
-            cache::erase(&self.account_folder(&saved.uid)).await?;
-        }
-        Ok(())
-    }
-
     fn service(&self, method: Method, path: &[&str]) -> Result<reqwest::RequestBuilder, ExamError> {
         let path: Vec<_> = std::iter::once("api").chain(path.iter().copied()).collect();
         self.api.request(client::Endpoint::Site, method, &path)
-    }
-
-    async fn call<T: DeserializeOwned>(
-        &self,
-        session: &mut Session,
-        request: reqwest::RequestBuilder,
-    ) -> Result<T, ExamError> {
-        if session.token.is_none() {
-            self.resume(session).await?;
-        }
-        if !matches!(session.status, ExamAccountStatus::Connected) {
-            return Err(
-                if matches!(session.status, ExamAccountStatus::NeedsConsent) {
-                    ExamError::Consent
-                } else {
-                    ExamError::Unsupported
-                },
-            );
-        }
-        let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        if current.expires <= crate::clock::now().timestamp() + 60 {
-            self.renew(session).await?;
-        }
-        let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        let retry = request.try_clone().ok_or(ExamError::Response)?;
-        let mut result = self
-            .api
-            .service(request.bearer_auth(&current.id_token))
-            .await;
-        if matches!(result, Err(ExamError::Expired)) {
-            self.renew(session).await?;
-            let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-            result = self.api.service(retry.bearer_auth(&current.id_token)).await;
-        }
-        // Refused as not allowed or not registered: ask again, and end the
-        // request as the answer leaves the account.
-        if matches!(result, Err(ExamError::Denied | ExamError::Consent)) {
-            let current = session.token.take().ok_or(ExamError::SignedOut)?;
-            return match self.recheck(session, current).await? {
-                Admission::Admitted(token) => {
-                    session.token = Some(token);
-                    Err(ExamError::Rejected)
-                }
-                Admission::NeedsConsent => Err(ExamError::Consent),
-            };
-        }
-        result
-    }
-
-    async fn renew(&self, session: &mut Session) -> Result<(), ExamError> {
-        let current = session.token.as_ref().ok_or(ExamError::SignedOut)?;
-        let token = identity::refresh(&self.api, &current.saved).await?;
-        match self.admit(session, token).await? {
-            Admission::Admitted(token) => {
-                session.token = Some(token);
-                Ok(())
-            }
-            Admission::NeedsConsent => Err(ExamError::Consent),
-        }
     }
 }
 

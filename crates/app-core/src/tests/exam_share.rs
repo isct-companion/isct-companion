@@ -1,15 +1,46 @@
 use super::*;
+use std::collections::HashSet;
 
-fn draft(role: ExamRole, occasion: ExamOccasion) -> ExamUploadDraft {
+fn codes(values: &[&str]) -> Vec<String> {
+    values.iter().map(|value| (*value).to_owned()).collect()
+}
+
+/// Every code this build has words for, plus one it does not (`oral`,
+/// `spam`), as the service may add codes at any time.
+fn known_codes() -> form::Codes {
+    form::Codes {
+        upload_occasions: codes(&["final", "midterm", "quiz", "report", "other", "oral"]),
+        request_occasions: codes(&["final", "midterm", "quiz", "report"]),
+        numbered_occasions: codes(&["quiz", "report"]),
+        roles: codes(&["question", "answer", "both", "notes", "other", "oral"]),
+        provenances: codes(&["original", "reconstructed"]),
+        answer_sources: codes(&["official", "student", "unknown"]),
+        wanted_roles: codes(&["question", "answer"]),
+        report_reasons: codes(&[
+            "copyright",
+            "inappropriate",
+            "wrong_info",
+            "wrong_answer",
+            "broken_file",
+            "other",
+            "spam",
+        ]),
+    }
+}
+
+fn draft(role: ExamRole) -> ExamUploadDraft {
     ExamUploadDraft {
         subject_codes: vec!["LAS.B103".into()],
         teacher_ids: vec![],
         new_teachers: vec![],
+        all_teachers: false,
         academic_year: Some(2025),
-        occasion,
-        occasion_number: 3,
+        occasion: None,
+        occasion_text: String::new(),
+        occasion_number: 0,
         variant: String::new(),
         role,
+        role_text: String::new(),
         provenance: ExamProvenance::Original,
         answer_source: None,
         note: String::new(),
@@ -17,47 +48,203 @@ fn draft(role: ExamRole, occasion: ExamOccasion) -> ExamUploadDraft {
     }
 }
 
-/// The API accepts an occasion only for exam materials, a number only for
-/// numbered occasions and an answer source only for answers; the forms keep
-/// a draft that way and an upload is checked against the API's limits.
+/// The forms offer the codes the service lists that this build knows, the
+/// report reasons by their snake_case API codes, and a draft keeps to what
+/// its role and occasion take, as the website's form does: no occasion until
+/// picked, `none` for notes, a number only when numbered, a name only for
+/// `other`, an answer source only for answers (`unknown` until picked), and
+/// no teachers for a material common to all.
 #[test]
-fn a_draft_follows_its_role_and_the_api_limits() {
-    let mut notes = draft(ExamRole::Notes, ExamOccasion::Quiz);
-    upload::validate(&mut notes).unwrap();
+fn a_draft_follows_the_choices_the_service_lists() {
+    let choices = form::build(known_codes(), ExamLimits::default()).unwrap();
     assert_eq!(
-        (notes.occasion, notes.occasion_number, notes.answer_source),
-        (ExamOccasion::NotApplicable, 0, None)
+        choices
+            .roles
+            .iter()
+            .map(|choice| choice.role)
+            .collect::<Vec<_>>(),
+        [
+            ExamRole::Question,
+            ExamRole::Answer,
+            ExamRole::Both,
+            ExamRole::Notes,
+            ExamRole::Other
+        ]
+    );
+    assert_eq!(
+        choices
+            .report_reasons
+            .iter()
+            .map(ExamReportReason::api_code)
+            .collect::<Vec<_>>(),
+        [
+            "copyright",
+            "inappropriate",
+            "wrong_info",
+            "wrong_answer",
+            "broken_file",
+            "other"
+        ]
     );
 
-    let mut answer = draft(ExamRole::Answer, ExamOccasion::NotApplicable);
-    upload::validate(&mut answer).unwrap();
+    let mut upload = draft(ExamRole::Question);
+    form::normalize(&mut upload, &choices);
+    assert_eq!((upload.occasion, upload.answer_source), (None, None));
+
+    upload.role = ExamRole::Answer;
+    upload.occasion = Some(ExamOccasion::Quiz);
+    upload.occasion_number = 3;
+    form::normalize(&mut upload, &choices);
     assert_eq!(
         (
-            answer.occasion,
-            answer.occasion_number,
-            answer.answer_source
+            upload.occasion,
+            upload.occasion_number,
+            upload.answer_source
         ),
-        (ExamOccasion::Unknown, 0, Some(ExamAnswerSource::Unknown))
+        (Some(ExamOccasion::Quiz), 3, Some(ExamAnswerSource::Unknown))
     );
 
-    let mut quiz = draft(ExamRole::Question, ExamOccasion::Quiz);
-    upload::validate(&mut quiz).unwrap();
-    assert_eq!(quiz.occasion_number, 3);
+    upload.occasion = Some(ExamOccasion::Other);
+    upload.occasion_text = "Mock exam".into();
+    form::normalize(&mut upload, &choices);
+    assert_eq!(
+        (upload.occasion_number, upload.occasion_text.as_str()),
+        (0, "Mock exam")
+    );
 
-    let mut crowded = draft(ExamRole::Question, ExamOccasion::Final);
-    crowded.subject_codes = (0..=form::limits().subjects)
-        .map(|n| format!("LAS.B1{n:02}"))
-        .collect();
-    assert!(matches!(
-        upload::validate(&mut crowded),
-        Err(ExamError::InvalidInput)
-    ));
-    let mut long_note = draft(ExamRole::Question, ExamOccasion::Final);
-    long_note.note = "x".repeat(41);
-    assert!(matches!(
-        upload::validate(&mut long_note),
-        Err(ExamError::UploadNoteLength)
-    ));
+    upload.role = ExamRole::Other;
+    upload.role_text = "Slides".into();
+    upload.answer_source = Some(ExamAnswerSource::Student);
+    form::normalize(&mut upload, &choices);
+    assert_eq!(
+        (
+            upload.occasion,
+            upload.occasion_text.as_str(),
+            upload.role_text.as_str(),
+            upload.answer_source
+        ),
+        (Some(ExamOccasion::NotApplicable), "", "Slides", None)
+    );
+
+    upload.role = ExamRole::Question;
+    upload.all_teachers = true;
+    upload.teacher_ids = vec!["t1".into()];
+    upload.new_teachers = vec![ExamNewTeacher {
+        family_name: "Tanaka".into(),
+        given_name: String::new(),
+    }];
+    form::normalize(&mut upload, &choices);
+    assert_eq!(
+        (
+            upload.occasion,
+            upload.role_text.as_str(),
+            upload.teacher_ids.len(),
+            upload.new_teachers.len()
+        ),
+        (None, "", 0, 0)
+    );
+}
+
+/// A list a form needs with nothing this build knows means the service has
+/// moved past this build; the forms are not offered empty pickers.
+#[test]
+fn choices_this_build_cannot_offer_are_refused() {
+    let strips: [fn(&mut form::Codes); 5] = [
+        |listed| listed.roles = codes(&["oral"]),
+        |listed| listed.upload_occasions.clear(),
+        |listed| listed.answer_sources.clear(),
+        |listed| listed.provenances.clear(),
+        |listed| listed.report_reasons = codes(&["spam"]),
+    ];
+    for strip in strips {
+        let mut listed = known_codes();
+        strip(&mut listed);
+        assert!(matches!(
+            form::build(listed, ExamLimits::default()),
+            Err(ExamError::Unsupported)
+        ));
+    }
+}
+
+fn document(id: &str, role: &str, teachers: &[&str]) -> ExamDocument {
+    ExamDocument {
+        id: id.into(),
+        subjects: vec![],
+        teachers: teachers
+            .iter()
+            .map(|id| ExamTeacher {
+                id: (*id).into(),
+                name: (*id).into(),
+            })
+            .collect(),
+        all_teachers: false,
+        academic_year: Some(2025),
+        occasion: Some("final".into()),
+        occasion_text: String::new(),
+        occasion_number: 0,
+        variant: String::new(),
+        role: Some(role.into()),
+        role_text: String::new(),
+        note: None,
+        file_name: format!("{id}.pdf"),
+        file_type: "application/pdf".into(),
+        number: None,
+    }
+}
+
+/// Documents the service pairs are one sitting and nothing else is; the
+/// page's class takes, as the service decides it, a material naming one of
+/// its teachers or common to all, or every material when it lists no
+/// teachers; and a page with no class has no sitting of its own.
+#[test]
+fn sittings_follow_the_service_pairs_and_the_class() {
+    let mut common = document("common", "question", &[]);
+    common.all_teachers = true;
+    let exams = || {
+        vec![
+            (Some("k2".into()), document("other-q", "question", &["t2"])),
+            (Some("k1".into()), document("q-1", "question", &["t1"])),
+            (Some("k1".into()), document("a", "answer", &["t1"])),
+            (Some("k1".into()), document("q-2", "question", &["t1"])),
+            (None, document("unpaired", "question", &["t1"])),
+            (Some("k3".into()), common.clone()),
+        ]
+    };
+    let layout = |sets: &[ExamSet]| {
+        sets.iter()
+            .map(|set| {
+                (
+                    set.mine,
+                    set.documents
+                        .iter()
+                        .map(|document| (document.id.clone(), document.number))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let class: HashSet<String> = ["t1".to_owned()].into();
+    assert_eq!(
+        layout(&sets::group(exams(), Some(&class))),
+        [
+            (
+                true,
+                vec![
+                    ("q-1".into(), Some(1)),
+                    ("q-2".into(), Some(2)),
+                    ("a".into(), None)
+                ]
+            ),
+            (true, vec![("unpaired".into(), None)]),
+            (true, vec![("common".into(), None)]),
+            (false, vec![("other-q".into(), None)]),
+        ]
+    );
+    let no_teachers = HashSet::new();
+    assert!(sets::group(exams(), Some(&no_teachers))
+        .iter()
+        .all(|set| set.mine));
+    assert!(sets::group(exams(), None).iter().all(|set| !set.mine));
 }
 
 /// Signed file URLs are fetched only from the storage host, over HTTPS on
@@ -80,7 +267,7 @@ fn files_come_only_from_the_storage_host() {
 }
 
 #[test]
-fn upload_readiness_validates_staged_bytes_and_the_actual_draft() {
+fn upload_readiness_checks_the_staged_bytes() {
     let folder = std::env::temp_dir().join(format!("exam-readiness-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir(&folder).unwrap();
     let image = folder.join("photo.png");
@@ -93,45 +280,16 @@ fn upload_readiness_validates_staged_bytes_and_the_actual_draft() {
     };
     let photo = file(&image, "misleading.pdf");
     let document = file(&pdf, "misleading.jpg");
-    let mut draft = draft(ExamRole::Question, ExamOccasion::Final);
-    let ready = |draft: &ExamUploadDraft, files: &[ExamUploadFile], reason: Option<&str>| {
-        assert_eq!(upload_readiness(draft, files).reason_key.as_deref(), reason);
+    let ready = |files: &[ExamUploadFile], limit: u64, reason: Option<&str>| {
+        assert_eq!(upload_readiness(files, limit).reason_key.as_deref(), reason);
     };
-    ready(&draft, &[], Some("error.exam-share-upload-no-files"));
+    ready(&[], u64::MAX, Some("error.exam-share-upload-no-files"));
     ready(
-        &draft,
         &[photo.clone(), document],
+        u64::MAX,
         Some("error.exam-share-upload-mixed"),
     );
-    ready(&draft, &[photo.clone(), photo.clone()], None);
-    draft.new_teachers.push(ExamNewTeacher {
-        family_name: " ".into(),
-        given_name: "A".into(),
-    });
-    ready(
-        &draft,
-        std::slice::from_ref(&photo),
-        Some("error.exam-share-upload-teacher-name"),
-    );
-    draft.new_teachers[0].family_name = "𠮷".repeat(51);
-    ready(
-        &draft,
-        std::slice::from_ref(&photo),
-        Some("error.exam-share-upload-teacher-length"),
-    );
-    draft.new_teachers[0].family_name = "𠮷".repeat(50);
-    draft.variant = "𠮷".repeat(51);
-    ready(
-        &draft,
-        std::slice::from_ref(&photo),
-        Some("error.exam-share-upload-variant-length"),
-    );
-    draft.variant.clear();
-    draft.note = "𠮷".repeat(21);
-    ready(
-        &draft,
-        &[photo],
-        Some("error.exam-share-upload-note-length"),
-    );
+    ready(&[photo.clone(), photo.clone()], u64::MAX, None);
+    ready(&[photo], 8, Some("error.exam-share-upload-size"));
     std::fs::remove_dir_all(folder).unwrap();
 }

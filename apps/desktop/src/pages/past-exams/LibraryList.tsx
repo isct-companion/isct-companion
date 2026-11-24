@@ -8,14 +8,15 @@ import {
   Tag,
 } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
-import { lookup, t } from "../../i18n";
+import { t } from "../../i18n";
 import type { ExamDocument, ExamLibrary } from "../../generated/persistence";
 import {
   Row,
   Workspace,
   documentOccasion,
+  roleName,
   subjectLabel,
-  teacherNames,
+  teacherLine,
   type ViewProps,
 } from "./ExamList";
 
@@ -153,7 +154,7 @@ function DocumentRow({
           {document.subjects.map(subjectLabel).join(" / ")}
           {document.role && (
             <Tag tone={document.role === "answer" ? "ok" : "neutral"}>
-              {lookup(`examShare.role.${document.role}`)}
+              {roleName(document.role, document.roleText)}
             </Tag>
           )}
         </>
@@ -162,7 +163,7 @@ function DocumentRow({
         [document.academicYear, documentOccasion(document)]
           .filter(Boolean)
           .join(" "),
-        teacherNames(document.teachers),
+        teacherLine(document),
         document.note,
       ]
         .filter(Boolean)

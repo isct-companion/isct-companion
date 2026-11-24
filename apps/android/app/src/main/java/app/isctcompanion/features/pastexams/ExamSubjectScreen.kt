@@ -44,6 +44,7 @@ import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAccountStatus
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
+import app.isctcompanion.core.ExamChoices
 import app.isctcompanion.core.ExamSet
 import app.isctcompanion.core.ExamSubjectPage
 import app.isctcompanion.core.ExamUploadForm
@@ -74,14 +75,15 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
     val calls = rememberExamCalls()
-    val choices by rememberExamChoices(calls)
+    val site by rememberExamSite(calls)
     val account = model.examAccount
     val connected = account?.status == ExamAccountStatus.CONNECTED
     var page by remember { mutableStateOf<ExamSubjectPage?>(null) }
     var othersOpen by rememberSaveable { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
-    var requesting by rememberSaveable { mutableStateOf(false) }
-    var uploadForm by remember { mutableStateOf<ExamUploadForm?>(null) }
+    // An open form holds the choices read as it opened.
+    var requesting by remember { mutableStateOf<ExamChoices?>(null) }
+    var upload by remember { mutableStateOf<Pair<ExamUploadForm, ExamChoices>?>(null) }
 
     /** The subject again once shown; a course entry resolves it the first time. */
     suspend fun load() {
@@ -111,24 +113,29 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                 if (current != null && connected) Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Add, t("examShare.upload.title")) }
                     DropdownMenu(menu, { menu = false }) {
-                        DropdownMenuItem({ Text(t("examShare.upload.title")) }, enabled = !calls.busy && choices != null, onClick = {
+                        DropdownMenuItem({ Text(t("examShare.upload.title")) }, enabled = !calls.busy, onClick = {
                             menu = false
                             scope.launch {
-                                uploadForm = (calls.call(ExamAction.UploadForm(ExamUploadStart.Subject(current.subject.code))) as? ExamAnswer.UploadForm)?.v1
+                                val choices = calls.choices() ?: return@launch
+                                val form = (calls.call(ExamAction.UploadForm(ExamUploadStart.Subject(current.subject.code))) as? ExamAnswer.UploadForm)?.v1
+                                upload = form?.let { it to choices }
                             }
                         })
-                        DropdownMenuItem({ Text(t("examShare.newRequest")) }, enabled = choices != null, onClick = { menu = false; requesting = true })
+                        DropdownMenuItem({ Text(t("examShare.newRequest")) }, enabled = !calls.busy, onClick = {
+                            menu = false
+                            scope.launch { requesting = calls.choices() }
+                        })
                         DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, onClick = { menu = false; links.open(current.webUrl) })
                     }
-                } else choices?.site?.let { site ->
+                } else site?.let { pages ->
                     // Loading, or before connecting: the search.
-                    ExamLinkButton(links) { site.search }
+                    ExamLinkButton(links) { pages.search }
                 }
             },
         ) {
             when {
                 account == null -> Loading()
-                !connected -> AccountGate(calls, choices?.site) { reload(it) }
+                !connected -> AccountGate(calls, site) { reload(it) }
                 current != null -> {
                     // A class of one's own puts its teachers' sittings first.
                     val grouped = current.classId != null
@@ -139,7 +146,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                             item { Text(t("examShare.noItems"), color = Theme.colors.muted) }
                         } else {
                             if (mine.isEmpty()) item { Text(t("examShare.noOwnTeacher"), color = Theme.colors.muted) }
-                            else cardRows(mine, { it.documents.first().id }) { SetRow(it, withTeachers = !it.mine) }
+                            else cardRows(mine, { it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it, withTeachers = !it.mine || it.allTeachers) }
                             if (others.isNotEmpty()) {
                                 item(key = "others") {
                                     Row(
@@ -151,7 +158,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                                         Text(t("examShare.otherTeachers", "count" to others.size), color = Theme.colors.muted)
                                     }
                                 }
-                                if (othersOpen) cardRows(others, { "other:" + it.documents.first().id }) { SetRow(it, withTeachers = true) }
+                                if (othersOpen) cardRows(others, { "other:" + it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it, withTeachers = true) }
                             }
                         }
                         item { ExamCredit() }
@@ -164,20 +171,19 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
             }
         }
     }
-    val form = uploadForm
-    val formChoices = choices
-    if (form != null && formChoices != null) {
-        UploadSheet(form, formChoices, dismiss = { uploadForm = null }) {
-            uploadForm = null
+    upload?.let { (form, choices) ->
+        UploadSheet(form, choices, dismiss = { upload = null }) {
+            upload = null
             ExamViews.notice = t("examShare.upload.uploaded")
             scope.launch { load() }
         }
     }
-    if (requesting && current != null && formChoices != null) {
-        RequestDialog(current, formChoices, calls.busy, calls.error, dismiss = { requesting = false }) { draft ->
+    val requestChoices = requesting
+    if (requestChoices != null && current != null) {
+        RequestDialog(current, requestChoices, calls.busy, calls.error, dismiss = { requesting = null }) { draft ->
             scope.launch {
                 if (calls.call(ExamAction.CreateRequest(draft)) != null) {
-                    requesting = false
+                    requesting = null
                     ExamViews.notice = t("examShare.requestCreated")
                 }
             }
@@ -191,8 +197,9 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
 private fun SetRow(set: ExamSet, withTeachers: Boolean) {
     val navigator = LocalNavigator.current
     ExamRow(
-        sittingLabel(set.academicYear, set.occasion, set.occasionNumber, set.variant).ifBlank { set.documents.first().fileName },
-        if (withTeachers) set.teachers.joinToString(" / ") { it.name } else null,
+        ExamLabels.sitting(set.academicYear, ExamLabels.occasion(set.occasion, set.occasionText), set.occasionNumber, set.variant)
+            .ifBlank { set.documents.firstOrNull()?.fileName.orEmpty() },
+        if (withTeachers) ExamLabels.teachers(set.teachers, set.allTeachers) else null,
         onClick = null,
         leading = { Icon(Icons.Rounded.Description, null, tint = Theme.colors.accent, modifier = Modifier.size(20.dp)) },
         trailing = {
@@ -203,7 +210,7 @@ private fun SetRow(set: ExamSet, withTeachers: Boolean) {
                     Text(
                         // Core numbers several documents of one role in a sitting.
                         listOfNotNull(
-                            document.role?.let { t("examShare.role.$it") } ?: document.fileName,
+                            ExamLabels.role(document.role, document.roleText) ?: document.fileName,
                             document.number?.toString(),
                         ).joinToString(" "),
                         color = ink,

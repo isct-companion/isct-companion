@@ -20,7 +20,12 @@ fn one_photo_goes_up_as_a_pdf_keyed_by_the_photo() {
     std::fs::create_dir_all(&folder).unwrap();
     let file = photo(&folder, "past exam.png", 800, 5000);
     let original = std::fs::read(&file.path).unwrap();
-    let prepared = prepare(std::slice::from_ref(&file), &CancellationToken::new()).unwrap();
+    let prepared = prepare(
+        std::slice::from_ref(&file),
+        u64::MAX,
+        &CancellationToken::new(),
+    )
+    .unwrap();
     assert_eq!(prepared.name, "past exam.pdf");
     assert_eq!(prepared.content_type, "application/pdf");
     assert!(prepared.bytes.starts_with(b"%PDF-"));
@@ -42,7 +47,7 @@ fn one_photo_goes_up_as_a_pdf_keyed_by_the_photo() {
     let cancelled = CancellationToken::new();
     cancelled.cancel();
     assert!(matches!(
-        prepare(&[file], &cancelled),
+        prepare(&[file], u64::MAX, &cancelled),
         Err(ExamError::Cancelled)
     ));
     std::fs::remove_dir_all(folder).unwrap();

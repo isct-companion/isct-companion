@@ -37,8 +37,9 @@ struct ExamRequestScreen: View {
                     }
                 }
                 if !item.mine && item.status == "open" {
-                    Button(t("examShare.upload.answerRequest"), systemImage: "square.and.arrow.up") { uploadEntry = .request(item) }
-                        .disabled(page.choices == nil)
+                    Button(t("examShare.upload.answerRequest"), systemImage: "square.and.arrow.up") {
+                        Task { if await page.loadChoices(model) { uploadEntry = .request(item) } }
+                    }
                 }
                 if item.mine {
                     Button(t(item.status == "open" ? "examShare.closeRequest" : "examShare.reopenRequest")) {
@@ -50,7 +51,7 @@ struct ExamRequestScreen: View {
                         }
                     }
                 }
-                if let web = page.choices.flatMap({ URL(string: $0.site.requests) }) {
+                if let web = page.site.flatMap({ URL(string: $0.requests) }) {
                     Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
                 }
             }
@@ -60,7 +61,7 @@ struct ExamRequestScreen: View {
         .disabled(page.busy)
         .navigationTitle(t("examShare.requests"))
         .navigationBarTitleDisplayMode(.inline)
-        .task { await page.loadChoices(model) }
+        .task { await page.loadSite(model) }
         .sheet(item: $uploadEntry) { entry in
             if let choices = page.choices {
                 ExamUploadSheet(entry: entry, choices: choices) { outcome in

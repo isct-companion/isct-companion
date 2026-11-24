@@ -480,17 +480,20 @@ export const Chip = Object.assign(
     Group: ({
       value,
       onChange,
+      disabled,
       children,
     }: {
       multiple?: boolean;
       value: string[];
       onChange: (value: string[]) => void;
+      disabled?: boolean;
       children: ReactNode;
     }) => (
       <ToggleGroup.Root
         type="multiple"
         value={value}
         onValueChange={onChange}
+        disabled={disabled}
         className="uiGroup"
       >
         {children}

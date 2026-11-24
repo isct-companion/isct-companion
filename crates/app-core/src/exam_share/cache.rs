@@ -206,7 +206,12 @@ fn read_cache(base: &Path, now: SystemTime) -> Result<Option<CacheEntry>, ExamEr
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(storage(error)),
     };
-    let cached: Cached = serde_json::from_slice(&body).map_err(storage)?;
+    // A copy an earlier version kept in a form this one cannot read goes,
+    // file and all, as if it had expired.
+    let Ok(cached) = serde_json::from_slice::<Cached>(&body) else {
+        remove_folder(base)?;
+        return Ok(None);
+    };
     let path = file_path(base, &cached)?;
     let facts = match fs::symlink_metadata(path) {
         Ok(facts) if facts.is_file() => facts,

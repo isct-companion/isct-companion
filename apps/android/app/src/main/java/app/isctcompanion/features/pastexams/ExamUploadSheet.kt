@@ -70,6 +70,8 @@ import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
 import app.isctcompanion.core.ExamChoices
 import app.isctcompanion.core.ExamNewTeacher
+import app.isctcompanion.core.ExamOccasion
+import app.isctcompanion.core.ExamRole
 import app.isctcompanion.core.ExamSubject
 import app.isctcompanion.core.ExamUploadDraft
 import app.isctcompanion.core.ExamUploadEdit
@@ -102,7 +104,6 @@ import kotlin.math.roundToInt
 
 private val acceptedDocuments = arrayOf("application/pdf", "text/plain", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif")
 private val photoExtensions = setOf("jpg", "jpeg", "png", "webp")
-private const val maxSourceBytes = 25 * 1024 * 1024
 
 private const val NUMBERS_SHOWN = 10
 
@@ -175,8 +176,9 @@ internal fun UploadSheet(
     val pending = progress?.phase == ExamUploadPhase.PENDING
     val canEdit = !busy && !pending
     val limits = choices.limits
-    val role = choices.roles.first { it.role == draft.role }
-    val numbered = draft.occasion in choices.numbered
+    val role = choices.roles.firstOrNull { it.role == draft.role }
+    val occasions = role?.occasions.orEmpty()
+    val numbered = draft.occasion?.let { it in choices.numbered } == true
     val held by rememberUpdatedState(busy)
 
     /** A plain field: the draft changes here. */
@@ -202,7 +204,7 @@ internal fun UploadSheet(
             error = null
             val selection = File(staging, UUID.randomUUID().toString())
             try {
-                val next = withContext(Dispatchers.IO) { stageFiles(app, selection, uris) }
+                val next = withContext(Dispatchers.IO) { stageFiles(app, selection, uris, limits.maxUploadBytes) }
                 if (replace) {
                     files.mapNotNull { File(it.path).parentFile }.distinct().forEach { it.deleteRecursively() }
                     files = next
@@ -309,15 +311,16 @@ internal fun UploadSheet(
         }
     }
 
-    var checked by remember { mutableStateOf<Pair<Pair<ExamUploadDraft, List<ExamUploadFile>>, ExamUploadReadiness>?>(null) }
-    val input = draft to files
-    val readiness = checked?.takeIf { it.first == input }?.second
-    LaunchedEffect(input, picking) {
+    // Whether the staged files can go; the service checks the rest of the form.
+    var checked by remember { mutableStateOf<Pair<List<ExamUploadFile>, ExamUploadReadiness>?>(null) }
+    val readiness = checked?.takeIf { it.first == files }?.second
+    LaunchedEffect(files, picking) {
         if (picking) return@LaunchedEffect
         checked = null
         try {
-            val answer = model.examShare(ExamAction.UploadReadiness(files, draft))
-            if (answer is ExamAnswer.UploadReadiness) checked = input to answer.v1
+            val selection = files
+            val answer = model.examShare(ExamAction.UploadReadiness(selection))
+            if (answer is ExamAnswer.UploadReadiness) checked = selection to answer.v1
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -391,9 +394,9 @@ internal fun UploadSheet(
                         )
                     }
                 }
-                if (current.subjects.size.toUInt() < limits.subjects) {
+                if (limits.subjects?.let { current.subjects.size.toUInt() < it } != false) {
                     OutlinedTextField(
-                        query, { query = it.take(limits.query.toInt()) },
+                        query, { query = it.limit(limits.searchQuery) },
                         enabled = canEdit,
                         placeholder = { Text(t("examShare.upload.addSubject")) },
                         leadingIcon = { Icon(Icons.Rounded.Search, null) },
@@ -417,15 +420,28 @@ internal fun UploadSheet(
                 }
             }
 
-            // Teachers: those the site lists, and any it does not yet.
+            // Teachers: those the site lists, and any it does not yet; or all of them.
             Column(verticalArrangement = Arrangement.spacedBy(Theme.space2)) {
                 ChoiceLabel(t("examShare.teacher"))
+                val naming = canEdit && !draft.allTeachers
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
+                    FilterChip(
+                        selected = draft.allTeachers,
+                        enabled = canEdit,
+                        onClick = {
+                            // Common to all names no one: the picks and the unfinished name go.
+                            edit { it.copy(allTeachers = !it.allTeachers, teacherIds = emptyList(), newTeachers = emptyList()) }
+                            familyName = ""
+                            givenName = ""
+                            addingTeacher = false
+                        },
+                        label = { Text(t("examShare.allTeachers")) },
+                    )
                     current.teachers.forEach { teacher ->
                         val checked = teacher.id in draft.teacherIds
                         FilterChip(
                             selected = checked,
-                            enabled = canEdit && (checked || draft.teacherIds.size.toUInt() < limits.teachers),
+                            enabled = naming && (checked || limits.teachers?.let { draft.teacherIds.size.toUInt() < it } != false),
                             onClick = { edit { it.copy(teacherIds = if (checked) it.teacherIds - teacher.id else it.teacherIds + teacher.id) } },
                             label = { Text(teacher.name) },
                         )
@@ -433,24 +449,24 @@ internal fun UploadSheet(
                     draft.newTeachers.forEachIndexed { index, teacher ->
                         FilterChip(
                             selected = true,
-                            enabled = canEdit,
+                            enabled = naming,
                             onClick = { edit { it.copy(newTeachers = it.newTeachers.toMutableList().apply { removeAt(index) }) } },
                             label = { Text(listOf(teacher.familyName, teacher.givenName).filter { it.isNotEmpty() }.joinToString(" ")) },
                             trailingIcon = { Icon(Icons.Rounded.Close, t("common.remove"), Modifier.size(FilterChipDefaults.IconSize)) },
                         )
                     }
-                    if (draft.newTeachers.size.toUInt() < limits.teachers) FilterChip(
+                    FilterChip(
                         selected = addingTeacher,
-                        enabled = canEdit,
+                        enabled = naming && limits.newTeachers?.let { draft.newTeachers.size.toUInt() < it } != false,
                         onClick = { addingTeacher = !addingTeacher },
                         label = { Text(t("examShare.upload.newTeacher")) },
                         leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(FilterChipDefaults.IconSize)) },
                     )
                 }
                 if (addingTeacher) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space3)) {
-                    OutlinedTextField(familyName, { familyName = it }, enabled = canEdit, singleLine = true,
+                    OutlinedTextField(familyName, { familyName = it.limit(limits.metadataText) }, enabled = canEdit, singleLine = true,
                         label = { Text(t("examShare.upload.familyName")) }, modifier = Modifier.weight(1f))
-                    OutlinedTextField(givenName, { givenName = it }, enabled = canEdit, singleLine = true,
+                    OutlinedTextField(givenName, { givenName = it.limit(limits.metadataText) }, enabled = canEdit, singleLine = true,
                         label = { Text(t("examShare.upload.givenName")) }, modifier = Modifier.weight(1f))
                     TextButton(enabled = canEdit && familyName.isNotBlank(), onClick = {
                         edit { it.copy(newTeachers = it.newTeachers + ExamNewTeacher(familyName.trim(), givenName.trim())) }
@@ -464,6 +480,10 @@ internal fun UploadSheet(
             Choices(t("examShare.upload.role"), choices.roles.map { it.role to t("examShare.role.${it.role.wire}") }, draft.role, canEdit) {
                 change(ExamUploadEdit.Role(it))
             }
+            if (draft.role == ExamRole.OTHER) {
+                OutlinedTextField(draft.roleText, { value -> edit { it.copy(roleText = value.limit(limits.metadataText)) } }, enabled = canEdit,
+                    label = { Text(t("examShare.upload.roleText")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
             val (recent, older) = years(choices)
             Choices(
                 t("examShare.year"),
@@ -471,40 +491,41 @@ internal fun UploadSheet(
                 draft.academicYear, canEdit,
                 more = older.map { it to "$it" },
             ) { picked -> edit { it.copy(academicYear = picked) } }
-            // A role with one occasion (notes, other) has nothing to pick.
-            if (role.occasions.size != 1) {
-                Choices(t("examShare.occasion"), role.occasions.map { it to t("examShare.occasion.${it.wire}") }, draft.occasion, canEdit) { picked ->
-                    edit {
-                        it.copy(
-                            occasion = picked,
-                            occasionNumber = when {
-                                picked !in choices.numbered -> 0u
-                                it.occasionNumber == 0u -> 1u
-                                else -> it.occasionNumber
-                            },
-                        )
-                    }
-                }
+            // A role with one occasion (notes, other) has nothing to pick: Core sets it.
+            if (occasions.size > 1) {
+                Choices(
+                    t("examShare.occasion"),
+                    occasions.map<ExamOccasion, Pair<ExamOccasion?, String>> { it to t("examShare.occasion.${it.wire}") },
+                    draft.occasion, canEdit,
+                    hint = t("examShare.upload.pickOccasion"),
+                ) { picked -> edit { it.copy(occasion = picked) } }
+            }
+            if (draft.occasion == ExamOccasion.OTHER) {
+                OutlinedTextField(draft.occasionText, { value -> edit { it.copy(occasionText = value.limit(limits.metadataText)) } }, enabled = canEdit,
+                    label = { Text(t("examShare.upload.occasionText")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
             if (numbered) {
-                val numbers = (1u..limits.occasionNumber).toList()
+                // 0 is "no number"; Core clears the number of an occasion that takes none.
+                val numbers = listOf(0u) + (1u..(limits.occasionNumberMax ?: 0u)).toList()
+                fun label(number: UInt) = if (number == 0u) t("examShare.upload.noNumber") else "$number"
                 Choices(
                     t("examShare.upload.occasionNumber"),
-                    numbers.take(NUMBERS_SHOWN).map { it to "$it" }, draft.occasionNumber, canEdit,
-                    more = numbers.drop(NUMBERS_SHOWN).map { it to "$it" },
+                    numbers.take(NUMBERS_SHOWN).map { it to label(it) }, draft.occasionNumber, canEdit,
+                    more = numbers.drop(NUMBERS_SHOWN).map { it to label(it) },
                 ) { picked -> edit { it.copy(occasionNumber = picked) } }
             }
             Choices(t("examShare.upload.provenance"), choices.provenances.map { it to t("examShare.upload.${it.wire}") }, draft.provenance, canEdit) { picked ->
                 edit { it.copy(provenance = picked) }
             }
-            if (role.answerSources.isNotEmpty()) {
-                Choices(t("examShare.upload.answerSource"), role.answerSources.map { it to t("examShare.upload.${it.wire}") }, draft.answerSource, canEdit) { picked ->
+            val answerSources = role?.answerSources.orEmpty()
+            if (answerSources.isNotEmpty()) {
+                Choices(t("examShare.upload.answerSource"), answerSources.map { it to t("examShare.upload.${it.wire}") }, draft.answerSource, canEdit) { picked ->
                     edit { it.copy(answerSource = picked) }
                 }
             }
-            OutlinedTextField(draft.variant, { value -> edit { it.copy(variant = value) } }, enabled = canEdit,
+            OutlinedTextField(draft.variant, { value -> edit { it.copy(variant = value.limit(limits.metadataText)) } }, enabled = canEdit,
                 label = { Text(t("examShare.upload.variant")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(draft.note, { value -> edit { it.copy(note = value) } }, enabled = canEdit,
+            OutlinedTextField(draft.note, { value -> edit { it.copy(note = value.limit(limits.note)) } }, enabled = canEdit,
                 label = { Text(t("examShare.upload.note")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Text(t("examShare.uploadPublic"), color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
             if (!pending && !sending) readiness?.reasonKey?.let { Text(t(it), color = Theme.colors.danger) }
@@ -541,9 +562,11 @@ internal fun UploadSheet(
     }
 }
 
-/** Copy while the document picker URI grants are live. Android's decoder
- * supplies HEIF support; Core handles the common image/PDF preparation. */
-private suspend fun stageFiles(context: Context, folder: File, uris: List<Uri>): List<ExamUploadFile> {
+/** Copy while the document picker URI grants are live, stopping at the
+ * service's size [limit] for one file when it gives one. Android's decoder
+ * supplies HEIF support; Core handles the common image/PDF preparation and
+ * checks every size again. */
+private suspend fun stageFiles(context: Context, folder: File, uris: List<Uri>, limit: UInt?): List<ExamUploadFile> {
     if (!folder.mkdirs()) throw IOException()
     val resolver = context.contentResolver
     return uris.map { uri ->
@@ -575,13 +598,13 @@ private suspend fun stageFiles(context: Context, folder: File, uris: List<Uri>):
             input.use {
                 file.outputStream().use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    var size = 0
+                    var size = 0L
                     while (true) {
                         currentCoroutineContext().ensureActive()
                         val count = input.read(buffer)
                         if (count < 0) break
                         size += count
-                        if (size > maxSourceBytes) throw TooLarge()
+                        if (limit != null && size > limit.toLong()) throw TooLarge()
                         output.write(buffer, 0, count)
                     }
                 }

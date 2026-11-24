@@ -18,7 +18,7 @@ import {
 } from "../../components/ui";
 import { notify } from "../../components/notifications/notify";
 import { useScheduleQuery } from "../../platform/core-query";
-import { lookup, t } from "../../i18n";
+import { t } from "../../i18n";
 import type {
   ExamAction,
   ExamChoices,
@@ -32,9 +32,11 @@ import { RequestDialog } from "./ExamDialogs";
 import {
   Row,
   Workspace,
+  loadChoices,
   occasionLabel,
+  roleName,
   subjectLabel,
-  teacherNames,
+  teacherLine,
   useReload,
   type Call,
   type OpenUpload,
@@ -45,8 +47,7 @@ import {
  * sitting holds several of that role. */
 const roleLabel = (document: ExamDocument) =>
   [
-    (document.role && lookup(`examShare.role.${document.role}`)) ||
-      t("examShare.file"),
+    roleName(document.role, document.roleText) ?? t("examShare.file"),
     document.number,
   ]
     .filter(Boolean)
@@ -72,7 +73,6 @@ type PanelState = {
  * panel of its sittings. Right: always the reader. */
 export function BrowseList({
   active,
-  choices,
   takeCourse,
   openUpload,
   call,
@@ -84,7 +84,6 @@ export function BrowseList({
   setViewUrl,
 }: ViewProps & {
   active: boolean;
-  choices?: ExamChoices;
   /** Names the expanded subject's page on the website. */
   setViewUrl: (url: string | undefined) => void;
   takeCourse: () => string | undefined;
@@ -259,7 +258,6 @@ export function BrowseList({
           type="search"
           value={query}
           onChange={(e) => setQuery(e.currentTarget.value)}
-          maxLength={choices?.limits.query ?? 100}
           placeholder={t("examShare.search")}
           aria-label={t("examShare.search")}
           rightSection={<Search size={14} strokeWidth={1.75} aria-hidden />}
@@ -331,7 +329,6 @@ export function BrowseList({
                     <Accordion.Content className="examPanelContent">
                       <SubjectSets
                         state={pages[entry.key]}
-                        choices={choices}
                         call={call}
                         open={open}
                         opening={opening}
@@ -389,7 +386,6 @@ export function BrowseList({
  * what is missing. */
 function SubjectSets({
   state,
-  choices,
   call,
   open,
   opening,
@@ -399,7 +395,6 @@ function SubjectSets({
   openUpload,
 }: {
   state?: PanelState;
-  choices?: ExamChoices;
   call: Call;
   open: (id: string) => void;
   opening?: string;
@@ -408,7 +403,8 @@ function SubjectSets({
   choose: (code: string) => void;
   openUpload: OpenUpload;
 }) {
-  const [requesting, setRequesting] = useState(false);
+  /** The request form's choices while it is open. */
+  const [requesting, setRequesting] = useState<ExamChoices>();
   const [othersOpen, setOthersOpen] = useState(false);
   if (state?.failed)
     return (
@@ -445,7 +441,7 @@ function SubjectSets({
           open={open}
           opening={opening}
           reading={reading}
-          withTeachers={!set.mine}
+          withTeachers={!set.mine || set.allTeachers}
         />
       ))}
     </ul>
@@ -481,7 +477,6 @@ function SubjectSets({
         <Button
           variant="subtle"
           size="compact-sm"
-          disabled={!choices}
           onClick={() =>
             openUpload({ kind: "subject", code: page.subject.code })
           }
@@ -491,21 +486,19 @@ function SubjectSets({
         <Button
           variant="subtle"
           size="compact-sm"
-          disabled={!choices}
-          onClick={() => setRequesting(true)}
+          onClick={() => void loadChoices(call).then(setRequesting)}
         >
           {t("examShare.newRequest")}
         </Button>
       </div>
-      {choices && (
+      {requesting && (
         <RequestDialog
-          opened={requesting}
           subject={page}
-          choices={choices}
-          close={() => setRequesting(false)}
+          choices={requesting}
+          close={() => setRequesting(undefined)}
           submit={async (draft) => {
             if (await call({ kind: "createRequest", draft })) {
-              setRequesting(false);
+              setRequesting(undefined);
               notify.info(t("examShare.requestCreated"));
             }
           }}
@@ -540,7 +533,7 @@ function SetRow({
           <strong>
             {occasionLabel(set, set.documents[0]?.fileName ?? "")}
           </strong>
-          {withTeachers && <small>{teacherNames(set.teachers)}</small>}
+          {withTeachers && <small>{teacherLine(set)}</small>}
         </span>
       </div>
       <span className="examSetRoles">

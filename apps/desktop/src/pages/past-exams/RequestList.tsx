@@ -18,18 +18,17 @@ import type {
 import {
   Row,
   Workspace,
+  occasionName,
+  roleName,
   subjectLabel,
+  teacherLine,
   useReload,
   type OpenUpload,
   type ViewProps,
 } from "./ExamList";
 
 const requestFacts = (item: ExamRequest) =>
-  [
-    item.academicYear,
-    item.occasion && lookup(`examShare.occasion.${item.occasion}`),
-    item.wantedRole && lookup(`examShare.role.${item.wantedRole}`),
-  ]
+  [item.academicYear, occasionName(item.occasion), roleName(item.wantedRole)]
     .filter(Boolean)
     .join(" · ");
 
@@ -235,7 +234,7 @@ function RequestDetail({
       {facts && <p className="examRequestFacts">{facts}</p>}
       {item.teachers.length > 0 && (
         <p className="examRequestFacts">
-          {item.teachers.map(({ name }) => name).join(" / ")}
+          {teacherLine({ teachers: item.teachers, allTeachers: false })}
         </p>
       )}
       {item.description && (
