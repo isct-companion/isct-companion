@@ -6,20 +6,24 @@
 //!
 //! This crate holds the printer's address and the student ID's format.
 //! On macOS it prepares a CUPS queue with `lpadmin` arguments and a PPD.
-//! On Windows and Android it sends documents through LPD with a PJL header.
+//! On Windows, Android and iOS it sends documents through LPD with a PJL
+//! header.
 //! Ported from InstitutePrinter's `master` (CUPS) and `cross-platform` branches.
 
 mod endpoint;
 mod student_id;
 
+/// Every shell's printing can choose pages, so this is on every platform.
+pub mod pages;
+
 #[cfg(target_os = "macos")]
 pub mod cups;
 
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub mod document;
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub mod lpd;
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 pub mod pjl;
 
 pub use endpoint::{ADDRESS, HOST, PORT, QUEUE};

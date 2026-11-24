@@ -215,10 +215,11 @@ fn connect(server: SocketAddr) -> io::Result<TcpStream> {
     ))
 }
 
-/// Android reserves the ports below 1024 for root, so an app cannot send
-/// from one as RFC 1179 asks; the system picks the source port, as it does
-/// for the macOS queue's lpd backend when that runs without one reserved.
-#[cfg(target_os = "android")]
+/// Android and iOS reserve the ports below 1024 for root, so an app cannot
+/// send from one as RFC 1179 asks; the system picks the source port, as it
+/// does for the macOS queue's lpd backend when that runs without one
+/// reserved.
+#[cfg(any(target_os = "android", target_os = "ios"))]
 fn connect(server: SocketAddr) -> io::Result<TcpStream> {
     with_timeouts(TcpStream::connect_timeout(&server, CONNECT_TIMEOUT)?)
 }
@@ -288,6 +289,12 @@ pub fn local_hostname() -> String {
 #[cfg(target_os = "android")]
 pub fn local_hostname() -> String {
     "android".to_string()
+}
+
+/// The control file's `H` line on an iPhone or iPad, for the same reason.
+#[cfg(target_os = "ios")]
+pub fn local_hostname() -> String {
+    "ios".to_string()
 }
 
 /// LPD job numbers have three digits. Start somewhere unlikely to repeat a

@@ -117,6 +117,8 @@ class CampusPrintService : PrintService() {
                 PrintAttributes.COLOR_MODE_MONOCHROME -> CampusPrintColor.MONO
                 else -> null
             },
+            // The system renders only the pages chosen in its dialog.
+            pages = emptyList(),
         )
     }
 

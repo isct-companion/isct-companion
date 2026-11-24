@@ -58,7 +58,10 @@ pub struct Core {
     pub(crate) widgets: Arc<crate::widgets::Publisher>,
     /// Campus print sends wait here for the one before them
     /// (`Core::campus_print`).
-    #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
+    #[cfg(all(
+        feature = "campus-printer",
+        any(windows, target_os = "android", target_os = "ios")
+    ))]
     pub(crate) campus_print_turn: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -396,7 +399,10 @@ impl Core {
             reset_lease: Default::default(),
             finder: Default::default(),
             widgets,
-            #[cfg(all(feature = "campus-printer", any(windows, target_os = "android")))]
+            #[cfg(all(
+                feature = "campus-printer",
+                any(windows, target_os = "android", target_os = "ios")
+            ))]
             campus_print_turn: Default::default(),
         }
     }

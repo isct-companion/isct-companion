@@ -79,7 +79,7 @@ fn the_student_id_comes_only_from_a_verified_account_name() {
 // there, or the person reads a raw key or `{{printed}}`. A count of zero
 // accepted copies has its own wording.
 #[test]
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 fn every_outcome_message_has_copy_with_its_placeholders() {
     let catalogs = [
         include_str!("../../../../resources/locales/en.json"),
@@ -109,6 +109,7 @@ fn every_outcome_message_has_copy_with_its_placeholders() {
         CampusPrintOutcome::NotPrintable,
         CampusPrintOutcome::InvalidCopies,
         CampusPrintOutcome::TooLarge,
+        CampusPrintOutcome::PagesNotSelectable,
     ]);
     for outcome in &outcomes {
         let message = outcome.message();
@@ -128,7 +129,7 @@ fn every_outcome_message_has_copy_with_its_placeholders() {
 // Sends go one at a time: a send waits while another holds the turn, and
 // then runs (here to a port that refuses, so it ends unreachable).
 #[tokio::test]
-#[cfg(any(windows, target_os = "android"))]
+#[cfg(any(windows, target_os = "android", target_os = "ios"))]
 async fn a_send_waits_for_the_one_before_it() {
     let held = tokio::net::TcpSocket::new_v4().unwrap();
     held.bind("127.0.0.1:0".parse().unwrap()).unwrap();

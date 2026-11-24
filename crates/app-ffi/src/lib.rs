@@ -33,6 +33,7 @@ pub mod types {
 pub use campus_print::{
     campus_printer_capabilities, CampusPrintColor, CampusPrintJob, CampusPrintMedia,
     CampusPrintMessage, CampusPrintReport, CampusPrintSides, CampusPrinterCapabilities,
+    CampusPrinterState,
 };
 pub use clock::clock_offset_ms;
 pub use diagnostics::{export_application_logs, feedback_form_url};
