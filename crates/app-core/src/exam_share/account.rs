@@ -73,13 +73,8 @@ impl ExamShare {
             return Err(ExamError::Response);
         }
         // The token issued after register carries the grant.
-        let saved = session
-            .token
-            .as_ref()
-            .ok_or(ExamError::SignedOut)?
-            .saved
-            .clone();
-        let token = self.refresh(session, &saved).await?;
+        self.renew(session).await?;
+        let token = session.token.clone().ok_or(ExamError::SignedOut)?;
         self.granted(session, token).await?;
         Ok(self.account_answer(session))
     }
@@ -139,8 +134,9 @@ impl ExamShare {
         }
     }
 
-    /// A new ID token for `saved`'s account. Every refresh goes through here,
-    /// so the rotated refresh token is always kept.
+    /// A new ID token for `saved`'s account, which the session holds from
+    /// now on. Every refresh goes through here, so a later step that fails
+    /// never leaves the session on the token or refresh token it replaced.
     pub(super) async fn refresh(
         &self,
         session: &mut Session,
@@ -148,6 +144,7 @@ impl ExamShare {
     ) -> Result<SessionToken, ExamError> {
         let token = identity::refresh(&self.api, saved).await?;
         self.remember(session, &token);
+        session.token = Some(token.clone());
         Ok(token)
     }
 
@@ -355,15 +352,8 @@ impl ExamShare {
 
     /// A new ID token for the current account, keeping its state.
     pub(super) async fn renew(&self, session: &mut Session) -> Result<(), ExamError> {
-        let saved = session
-            .token
-            .as_ref()
-            .ok_or(ExamError::SignedOut)?
-            .saved
-            .clone();
-        let token = self.refresh(session, &saved).await?;
-        session.token = Some(token);
-        Ok(())
+        let saved = session.saved.clone().ok_or(ExamError::SignedOut)?;
+        self.refresh(session, &saved).await.map(drop)
     }
 
     /// Delete the account on the service, as its website's account page

@@ -63,11 +63,9 @@ struct ExamRequestScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await page.loadSite(model) }
         .sheet(item: $uploadEntry) { entry in
-            if let choices = page.choices {
-                ExamUploadSheet(entry: entry, choices: choices) { outcome in
-                    page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
-                }
+            ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
+                page.notice = outcome.notice
+                if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }
         .examPageFeedback(page)

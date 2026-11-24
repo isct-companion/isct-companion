@@ -631,7 +631,6 @@ export function UploadDialog({
                 <TextInput
                   aria-label={t("examShare.upload.familyName")}
                   placeholder={t("examShare.upload.familyName")}
-                  required
                   maxLength={hint(limits.metadataText)}
                   value={teacher.familyName}
                   disabled={teachersDisabled}

@@ -63,7 +63,7 @@ fn check_size(size: u64, limit: u64) -> Result<(), ExamError> {
 
 fn upload_name(file: &ExamUploadFile) -> Result<&str, ExamError> {
     let name = file.name.trim();
-    if name.is_empty() || name.encode_utf16().count() > 255 {
+    if name.is_empty() {
         return Err(ExamError::UploadFile);
     }
     Ok(name)

@@ -644,16 +644,14 @@ impl ExamShare {
                 .await
                 .map_err(|_| ExamError::Storage)?;
             let mut keep = TempFile(path.clone());
-            let limit = self.upload_limit().await?;
-            match self
-                .api
-                .fetch_file(
-                    url::Url::parse(&url.url).map_err(|_| ExamError::Response)?,
-                    &path,
-                    limit,
-                )
-                .await
-            {
+            // Within the service's own limit for one material, when it names
+            // one; reading it offline falls back like the transfer.
+            let fetch = async {
+                let limit = self.upload_limit().await?.unwrap_or(u64::MAX);
+                let url = url::Url::parse(&url.url).map_err(|_| ExamError::Response)?;
+                self.api.fetch_file(url, &path, limit).await
+            };
+            match fetch.await {
                 Err(ExamError::NotFound) => {
                     erase(&base).await?;
                     return Err(ExamError::NotFound);

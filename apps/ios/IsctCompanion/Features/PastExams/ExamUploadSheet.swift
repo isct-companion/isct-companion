@@ -57,7 +57,8 @@ struct ExamUploadSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     let entry: ExamUploadEntry
-    let choices: ExamChoices
+    /// The form's choices; a recovery shows no form and needs none.
+    let choices: ExamChoices?
     /// An upload or recovery finished.
     let onFinished: (ExamUploadOutcome) async -> Void
 
@@ -114,14 +115,14 @@ struct ExamUploadSheet: View {
                         Text(t("examShare.upload.pending"))
                     }
                 }
-                if let form = Binding($form) {
+                if let form = Binding($form), let choices {
                     Group {
                         fileFields
-                        classificationFields(form.draft)
-                        subjectFields(form.wrappedValue)
-                        teacherFields(form)
-                        sourceFields(form.draft)
-                        noteField(form.draft)
+                        classificationFields(form.draft, choices)
+                        subjectFields(form.wrappedValue, choices)
+                        teacherFields(form, choices)
+                        sourceFields(form.draft, choices)
+                        noteField(form.draft, choices)
                     }
                     .disabled(formDisabled)
                 }
@@ -280,7 +281,7 @@ struct ExamUploadSheet: View {
         files.swapAt(index, index + offset)
     }
 
-    private func classificationFields(_ draft: Binding<ExamUploadDraft>) -> some View {
+    private func classificationFields(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
         let value = draft.wrappedValue
         let occasions = choices.roles.first { $0.role == value.role }?.occasions ?? []
         let textLimit = choices.limits.metadataText
@@ -314,8 +315,10 @@ struct ExamUploadSheet: View {
                 TextField(t("examShare.upload.occasionText"), text: draft.occasionText)
                     .examMaxLength(textLimit, draft.occasionText)
             }
-            if let occasion = value.occasion, choices.numbered.contains(occasion) {
-                Stepper(value: draft.occasionNumber, in: 0...(choices.limits.occasionNumberMax ?? UInt32.max)) {
+            // Shown only when the service says how high the number goes.
+            if let occasion = value.occasion, choices.numbered.contains(occasion),
+               let numberMax = choices.limits.occasionNumberMax {
+                Stepper(value: draft.occasionNumber, in: 0...numberMax) {
                     LabeledContent(t("examShare.upload.occasionNumber"),
                                    value: value.occasionNumber == 0 ? t("examShare.upload.noNumber") : "\(value.occasionNumber)")
                 }
@@ -325,7 +328,7 @@ struct ExamUploadSheet: View {
         }
     }
 
-    private func subjectFields(_ form: ExamUploadForm) -> some View {
+    private func subjectFields(_ form: ExamUploadForm, _ choices: ExamChoices) -> some View {
         Section(t("examShare.upload.subjects")) {
             ForEach(form.subjects, id: \.subject.code) { entry in
                 let code = entry.subject.code
@@ -345,7 +348,7 @@ struct ExamUploadSheet: View {
         }
     }
 
-    private func teacherFields(_ form: Binding<ExamUploadForm>) -> some View {
+    private func teacherFields(_ form: Binding<ExamUploadForm>, _ choices: ExamChoices) -> some View {
         let teacherIds = form.draft.teacherIds
         let limits = choices.limits
         let allTeachers = form.wrappedValue.draft.allTeachers
@@ -397,7 +400,7 @@ struct ExamUploadSheet: View {
     }
 
     @ViewBuilder
-    private func sourceFields(_ draft: Binding<ExamUploadDraft>) -> some View {
+    private func sourceFields(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
         let sources = choices.roles.first { $0.role == draft.wrappedValue.role }?.answerSources ?? []
         Section {
             Picker(t("examShare.upload.provenance"), selection: draft.provenance) {
@@ -411,7 +414,7 @@ struct ExamUploadSheet: View {
         }
     }
 
-    private func noteField(_ draft: Binding<ExamUploadDraft>) -> some View {
+    private func noteField(_ draft: Binding<ExamUploadDraft>, _ choices: ExamChoices) -> some View {
         Section {
             TextField(t("examShare.upload.note"), text: draft.note, axis: .vertical)
                 .examMaxLength(choices.limits.note, draft.note)

@@ -280,14 +280,12 @@ struct PastExamsScreen: View {
             if status == .unsupported { page.confirmation = nil }
         }
         .sheet(item: $uploadEntry) { entry in
-            if let choices = page.choices {
-                ExamUploadSheet(entry: entry, choices: choices) { outcome in
-                    requestPages.removeAll()
-                    library = nil
-                    await loadVisible(reload: true)
-                    page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
-                }
+            ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
+                requestPages.removeAll()
+                library = nil
+                await loadVisible(reload: true)
+                page.notice = outcome.notice
+                if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }
         .examPageFeedback(page)
@@ -398,7 +396,8 @@ struct PastExamsScreen: View {
             if account?.upload.phase == .pending {
                 Section {
                     Button(t("examShare.upload.recover"), systemImage: "arrow.clockwise") {
-                        Task { if await page.loadChoices(model) { uploadEntry = .recovery } }
+                        // A recovery shows no form, so it needs no choices.
+                        uploadEntry = .recovery
                     }
                 } footer: {
                     Text(t("examShare.upload.pending"))
@@ -468,6 +467,7 @@ struct PastExamsScreen: View {
                             examSitting(year: item.academicYear, occasion: item.occasion, occasionText: item.occasionText,
                                         number: item.occasionNumber, variant: item.variant),
                             ExamLabels.role(item.role, text: item.roleText),
+                            ExamLabels.teachers(item.teachers, all: item.allTeachers),
                         ])
                     }
                     .swipeActions {

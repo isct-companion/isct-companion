@@ -53,21 +53,25 @@ export const teacherLine = (item: {
     ? t("examShare.allTeachers")
     : item.teachers.map(({ name }) => name).join(" / ") ||
       t("examShare.unknownTeacher");
-/** A sitting's or document's occasion: "Quiz 3 B", else the file name. */
+/** A sitting's or document's occasion: "Quiz 3 B", else the file name. A
+ * number only follows an occasion's name. */
 export const occasionLabel = (
   item: Pick<
     ExamSet,
     "occasion" | "occasionText" | "occasionNumber" | "variant"
   >,
   fallback: string,
-) =>
-  [
-    occasionName(item.occasion, item.occasionText),
-    item.occasionNumber > 0 ? item.occasionNumber : null,
-    item.variant,
-  ]
-    .filter(Boolean)
-    .join(" ") || fallback;
+) => {
+  const name = occasionName(item.occasion, item.occasionText);
+  return (
+    [
+      name && item.occasionNumber > 0 ? `${name} ${item.occasionNumber}` : name,
+      item.variant,
+    ]
+      .filter(Boolean)
+      .join(" ") || fallback
+  );
+};
 export const documentOccasion = (document: ExamDocument) =>
   occasionLabel(document, document.fileName);
 

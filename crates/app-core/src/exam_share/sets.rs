@@ -36,6 +36,7 @@ pub(super) fn group(
         match paired {
             Some((_, set)) => set.documents.push(exam),
             None => {
+                let mine = class.is_some_and(|teachers| taught_by(&exam, teachers));
                 let set = ExamSet {
                     academic_year: exam.academic_year,
                     occasion: exam.occasion.clone(),
@@ -44,7 +45,10 @@ pub(super) fn group(
                     variant: exam.variant.clone(),
                     teachers: exam.teachers.clone(),
                     all_teachers: exam.all_teachers,
-                    mine: class.is_some_and(|teachers| taught_by(&exam, teachers)),
+                    mine,
+                    show_teachers: !mine
+                        || exam.all_teachers
+                        || class.is_some_and(|teachers| teachers.is_empty()),
                     documents: vec![exam],
                 };
                 sets.push((key, set));

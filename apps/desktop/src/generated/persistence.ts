@@ -1054,10 +1054,9 @@ export type ExamDocument = {
   fileName: string;
   fileType: string;
   /**
-   * In a sitting (`ExamSet`) with several documents of this one role (and
-   * role name), its
-   * place among them from 1, so they can be told apart ("Question 2");
-   * otherwise none.
+   * In a sitting (`ExamSet`) with several documents of this one role and
+   * role name, its place among them from 1, so they can be told apart
+   * ("Question 2"); otherwise none.
    */
   number: number | null;
 };
@@ -1096,6 +1095,12 @@ export type ExamSet = {
    * a material common to all teachers, or one naming a class teacher.
    */
   mine: boolean;
+  /**
+   * Whether a row names the sitting's teachers (`teachers`, else common
+   * to all or unknown): all but a sitting of the class's own listed
+   * teachers, which would only repeat them.
+   */
+  showTeachers: boolean;
   documents: Array<ExamDocument>;
 };
 

@@ -7410,7 +7410,7 @@ checks:
       - apps/ios/IsctCompanion/Core/BrowserAuthentication.swift
       - apps/ios/IsctCompanion/Core/KeychainVault.swift
       - apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift
-      - crates/app-core/src/exam_share/mod.rs
+      - crates/app-core/src/exam_share/account.rs
       - crates/app-core/src/exam_share/library.rs
     verified: null
 
@@ -7459,7 +7459,7 @@ checks:
       and deletion endpoints and the signed apps' browser sign-in. CI has no
       service credentials and the deletion cannot be undone.
     covers:
-      - crates/app-core/src/exam_share/mod.rs
+      - crates/app-core/src/exam_share/account.rs
       - apps/desktop/src/pages/past-exams/PastExamsPage.tsx
       - apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift
       - apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt

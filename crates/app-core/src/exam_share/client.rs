@@ -202,8 +202,18 @@ impl Client {
             Some(
                 "TOKEN_EXPIRED" | "USER_DISABLED" | "USER_NOT_FOUND" | "INVALID_REFRESH_TOKEN",
             ) => Err(ExamError::Expired),
-            _ if status.is_server_error() => Err(ExamError::Unavailable),
-            _ => Err(ExamError::Rejected),
+            _ if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS => {
+                Err(ExamError::Unavailable)
+            }
+            Some(message)
+                if message.starts_with("TOO_MANY_ATTEMPTS_TRY_LATER")
+                    || message.starts_with("QUOTA_EXCEEDED") =>
+            {
+                Err(ExamError::Unavailable)
+            }
+            // Google's sign-in refused it, not ScienceTokyoExam: never read
+            // as the service refusing what was sent (`refused_by_service`).
+            _ => Err(ExamError::Identity),
         }
     }
 

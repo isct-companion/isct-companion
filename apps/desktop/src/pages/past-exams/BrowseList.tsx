@@ -441,7 +441,6 @@ function SubjectSets({
           open={open}
           opening={opening}
           reading={reading}
-          withTeachers={!set.mine || set.allTeachers}
         />
       ))}
     </ul>
@@ -515,13 +514,11 @@ function SetRow({
   open,
   opening,
   reading,
-  withTeachers,
 }: {
   set: ExamSet;
   open: (id: string) => void;
   opening?: string;
   reading?: string;
-  withTeachers: boolean;
 }) {
   const current = set.documents.some((d) => d.id === reading);
   return (
@@ -533,7 +530,7 @@ function SetRow({
           <strong>
             {occasionLabel(set, set.documents[0]?.fileName ?? "")}
           </strong>
-          {withTeachers && <small>{teacherLine(set)}</small>}
+          {set.showTeachers && <small>{teacherLine(set)}</small>}
         </span>
       </div>
       <span className="examSetRoles">

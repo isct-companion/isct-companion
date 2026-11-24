@@ -146,7 +146,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                             item { Text(t("examShare.noItems"), color = Theme.colors.muted) }
                         } else {
                             if (mine.isEmpty()) item { Text(t("examShare.noOwnTeacher"), color = Theme.colors.muted) }
-                            else cardRows(mine, { it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it, withTeachers = !it.mine || it.allTeachers) }
+                            else cardRows(mine, { it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it) }
                             if (others.isNotEmpty()) {
                                 item(key = "others") {
                                     Row(
@@ -158,7 +158,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
                                         Text(t("examShare.otherTeachers", "count" to others.size), color = Theme.colors.muted)
                                     }
                                 }
-                                if (othersOpen) cardRows(others, { "other:" + it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it, withTeachers = true) }
+                                if (othersOpen) cardRows(others, { "other:" + it.documents.firstOrNull()?.id.orEmpty() }) { SetRow(it) }
                             }
                         }
                         item { ExamCredit() }
@@ -194,12 +194,12 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
 /** One sitting: a label, and a button per document (question, answer) — the
  * buttons are what opens, as on the desktop and iOS. */
 @Composable
-private fun SetRow(set: ExamSet, withTeachers: Boolean) {
+private fun SetRow(set: ExamSet) {
     val navigator = LocalNavigator.current
     ExamRow(
         ExamLabels.sitting(set.academicYear, ExamLabels.occasion(set.occasion, set.occasionText), set.occasionNumber, set.variant)
             .ifBlank { set.documents.firstOrNull()?.fileName.orEmpty() },
-        if (withTeachers) ExamLabels.teachers(set.teachers, set.allTeachers) else null,
+        if (set.showTeachers) ExamLabels.teachers(set.teachers, set.allTeachers) else null,
         onClick = null,
         leading = { Icon(Icons.Rounded.Description, null, tint = Theme.colors.accent, modifier = Modifier.size(20.dp)) },
         trailing = {

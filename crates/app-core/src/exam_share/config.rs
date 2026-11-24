@@ -49,11 +49,19 @@ impl ExamShare {
     }
 
     /// The service's limit for one material, which uploads and downloads
-    /// keep to.
-    pub(super) async fn upload_limit(&self) -> Result<u64, ExamError> {
-        form::limits(&*self.config().await?)?
+    /// keep to; none when the service names none.
+    pub(super) async fn upload_limit(&self) -> Result<Option<u64>, ExamError> {
+        Ok(form::limits(&*self.config().await?)?
             .max_upload_bytes
-            .map(u64::from)
-            .ok_or(ExamError::Unsupported)
+            .map(u64::from))
+    }
+
+    /// The limit of the last answer this client read, however old, without
+    /// asking the service: a hint while files are chosen, which sending
+    /// checks again.
+    pub(super) async fn last_upload_limit(&self) -> Option<u64> {
+        let cached = self.config.0.lock().await;
+        let (_, config) = cached.as_ref()?;
+        form::limits(config).ok()?.max_upload_bytes.map(u64::from)
     }
 }

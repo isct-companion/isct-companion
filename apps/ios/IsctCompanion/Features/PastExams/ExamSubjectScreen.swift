@@ -31,13 +31,15 @@ struct ExamSubjectScreen: View {
                 } else {
                     if !mine.isEmpty {
                         Section {
-                            ForEach(mine, id: \.self) { row($0, withTeachers: !$0.mine || $0.allTeachers) }
+                            ForEach(mine, id: \.self) { row($0) }
                         }
+                    } else if grouped {
+                        Section { Text(t("examShare.noOwnTeacher")).foregroundStyle(Theme.muted) }
                     }
                     if !others.isEmpty {
                         Section {
                             DisclosureGroup(t("examShare.otherTeachers", ["count": others.count]), isExpanded: $othersOpen) {
-                                ForEach(others, id: \.self) { row($0, withTeachers: true) }
+                                ForEach(others, id: \.self) { row($0) }
                             }
                         }
                     }
@@ -95,19 +97,17 @@ struct ExamSubjectScreen: View {
             }
         }
         .sheet(item: $uploadEntry) { entry in
-            if let choices = page.choices {
-                ExamUploadSheet(entry: entry, choices: choices) { outcome in
-                    await load()
-                    page.notice = outcome.notice
-                    if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
-                }
+            ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
+                await load()
+                page.notice = outcome.notice
+                if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }
         .examPageFeedback(page)
     }
 
-    private func row(_ set: ExamSet, withTeachers: Bool) -> some View {
-        ExamSetRow(set: set, withTeachers: withTeachers, opening: opening) { id in Task { await open(id) } }
+    private func row(_ set: ExamSet) -> some View {
+        ExamSetRow(set: set, opening: opening) { id in Task { await open(id) } }
     }
 
     private func load() async {
@@ -136,12 +136,11 @@ struct ExamSubjectScreen: View {
     }
 }
 
-/// One sitting: a label, its teachers when they are not the course's own or
-/// are common to all, and a pill per document. The row itself does not open;
+/// One sitting: a label, its teachers unless Core leaves them out (the
+/// class's own), and a pill per document. The row itself does not open;
 /// each pill does.
 private struct ExamSetRow: View {
     let set: ExamSet
-    let withTeachers: Bool
     let opening: String?
     let open: (String) -> Void
 
@@ -152,7 +151,7 @@ private struct ExamSetRow: View {
                 let label = examSitting(year: set.academicYear, occasion: set.occasion, occasionText: set.occasionText,
                                         number: set.occasionNumber, variant: set.variant)
                 Text(label.isEmpty ? set.documents.first?.fileName ?? "" : label).foregroundStyle(Theme.ink)
-                if withTeachers {
+                if set.showTeachers {
                     Text(ExamLabels.teachers(set.teachers, all: set.allTeachers))
                         .font(.footnote).foregroundStyle(Theme.muted).lineLimit(1)
                 }

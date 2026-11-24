@@ -88,13 +88,22 @@ fn journal(folder: &Path, uid: &str) -> PathBuf {
     super::cache::account_folder(folder, uid).with_extension("upload.json")
 }
 
-/// Whether the session's account left an upload to recover.
+/// Whether the session's account left an upload to recover. A journal this
+/// build cannot read (an earlier version's) is dropped here as `read_pending`
+/// drops it, so it never shows as an upload to recover.
 pub(super) fn pending_upload(folder: &Path, session: &Session) -> bool {
-    session
-        .saved
-        .as_ref()
-        .filter(|saved| saved.registered)
-        .is_some_and(|saved| journal(folder, &saved.uid).is_file())
+    let Some(saved) = session.saved.as_ref().filter(|saved| saved.registered) else {
+        return false;
+    };
+    let path = journal(folder, &saved.uid);
+    match std::fs::read(&path) {
+        Ok(data) if serde_json::from_slice::<Pending>(&data).is_ok() => true,
+        Ok(_) => {
+            let _ = std::fs::remove_file(&path);
+            false
+        }
+        Err(_) => false,
+    }
 }
 
 /// The status a run ends in: a journal left behind needs recovery.
@@ -263,8 +272,10 @@ impl ExamShare {
         mut draft: ExamUploadDraft,
         cancel: &CancellationToken,
     ) -> Result<ExamAnswer, ExamError> {
-        form::normalize(&mut draft, &interrupt(cancel, self.choices()).await?);
-        let limit = interrupt(cancel, self.upload_limit()).await?;
+        let choices = interrupt(cancel, self.choices()).await?;
+        form::normalize(&mut draft, &choices);
+        // A service that names no limit checks the size itself.
+        let limit = choices.limits.max_upload_bytes.map_or(u64::MAX, u64::from);
         let preparation = cancel.clone();
         let file = tokio::task::spawn_blocking(move || {
             super::upload_file::prepare(&files, limit, &preparation)
@@ -291,12 +302,12 @@ impl ExamShare {
             self.call(
                 session,
                 self.service(Method::POST, &["exams", "uploads", "authorize"])?
-                    .json(&AuthorizationRequest {
+                    .json(&service_body(&AuthorizationRequest {
                         fields: &draft,
                         file_name: &file.name,
                         content_type: file.content_type,
                         size,
-                    }),
+                    })?),
             ),
         )
         .await?;
@@ -400,7 +411,7 @@ impl ExamShare {
                 session,
                 self.service(Method::POST, &["exams"])?
                     .timeout(REGISTER_TIMEOUT)
-                    .json(&pending.registration),
+                    .json(&service_body(&pending.registration)?),
             ),
         )
         .await;
@@ -469,6 +480,19 @@ impl ExamShare {
             Err(error) => Err(error),
         }
     }
+}
+
+/// `value` as the service reads it: an occasion not picked yet is left out,
+/// which the service refuses, rather than sent as null, which it still takes
+/// as 1.4.0's "unknown" occasion.
+pub(super) fn service_body(value: &impl Serialize) -> Result<Value, ExamError> {
+    let mut body = serde_json::to_value(value).map_err(|_| ExamError::Response)?;
+    if let Some(fields) = body.as_object_mut() {
+        if fields.get("occasion").is_some_and(Value::is_null) {
+            fields.remove("occasion");
+        }
+    }
+    Ok(body)
 }
 
 /// The journal of an upload to recover. One this build cannot read (an

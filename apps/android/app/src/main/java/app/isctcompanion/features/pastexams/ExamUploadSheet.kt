@@ -458,7 +458,14 @@ internal fun UploadSheet(
                     FilterChip(
                         selected = addingTeacher,
                         enabled = naming && limits.newTeachers?.let { draft.newTeachers.size.toUInt() < it } != false,
-                        onClick = { addingTeacher = !addingTeacher },
+                        onClick = {
+                            // Closing the row drops the unfinished name, which would hold the submit back unseen.
+                            addingTeacher = !addingTeacher
+                            if (!addingTeacher) {
+                                familyName = ""
+                                givenName = ""
+                            }
+                        },
                         label = { Text(t("examShare.upload.newTeacher")) },
                         leadingIcon = { Icon(Icons.Rounded.Add, null, Modifier.size(FilterChipDefaults.IconSize)) },
                     )
@@ -504,9 +511,10 @@ internal fun UploadSheet(
                 OutlinedTextField(draft.occasionText, { value -> edit { it.copy(occasionText = value.limit(limits.metadataText)) } }, enabled = canEdit,
                     label = { Text(t("examShare.upload.occasionText")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             }
-            if (numbered) {
+            val numberMax = limits.occasionNumberMax
+            if (numbered && numberMax != null) {
                 // 0 is "no number"; Core clears the number of an occasion that takes none.
-                val numbers = listOf(0u) + (1u..(limits.occasionNumberMax ?: 0u)).toList()
+                val numbers = listOf(0u) + (1u..numberMax).toList()
                 fun label(number: UInt) = if (number == 0u) t("examShare.upload.noNumber") else "$number"
                 Choices(
                     t("examShare.upload.occasionNumber"),

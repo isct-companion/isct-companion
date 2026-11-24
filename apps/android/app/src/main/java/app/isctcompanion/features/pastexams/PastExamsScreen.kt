@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Search
@@ -91,8 +93,14 @@ private enum class Tab(val key: String) {
     Library("examShare.library"),
 }
 
-/** A destructive step to confirm: [key] titles it, [body] explains it. */
-internal data class Confirmation(val key: String, val action: ExamAction, val body: String? = null)
+/** A destructive step to confirm: [key] titles it, [body] explains it and
+ * [confirmKey] names its button. */
+internal data class Confirmation(
+    val key: String,
+    val action: ExamAction,
+    val body: String? = null,
+    val confirmKey: String = "common.ok",
+)
 
 /** The API word an enum value stands for (`WRONG_ANSWER` → `wrongAnswer`),
  * which names its label; the API calls `NOT_APPLICABLE` `none`. */
@@ -211,9 +219,12 @@ internal fun ConfirmDialog(confirmation: Confirmation, dismiss: () -> Unit, conf
     AlertDialog(
         onDismissRequest = dismiss,
         title = { Text(t(confirmation.key)) },
-        text = confirmation.body?.let { body -> { Text(t(body)) } },
+        // A long explanation scrolls on a small screen or with large text.
+        text = confirmation.body?.let { body -> { Text(t(body), Modifier.verticalScroll(rememberScrollState())) } },
         confirmButton = {
-            TextButton(onClick = { dismiss(); confirm(confirmation.action) }) { Text(t("common.ok"), color = Theme.colors.danger) }
+            TextButton(onClick = { dismiss(); confirm(confirmation.action) }) {
+                Text(t(confirmation.confirmKey), color = Theme.colors.danger)
+            }
         },
         dismissButton = { TextButton(onClick = dismiss) { Text(t("common.cancel")) } },
     )
@@ -617,6 +628,7 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
                         listOfNotNull(
                             ExamLabels.sitting(document).ifBlank { null },
                             ExamLabels.role(document.role, document.roleText),
+                            ExamLabels.teachers(document.teachers, document.allTeachers),
                         ).joinToString(" · "),
                         onClick = { navigator.openExamDocument(document.id) },
                         trailing = removal?.let { key ->
@@ -647,7 +659,10 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
                 TextButton(
                     enabled = !calls.busy && model.examAccount?.upload?.phase?.let { it in uploadRunning } != true,
                     onClick = {
-                        confirm = Confirmation("examShare.deleteAccountTitle", ExamAction.DeleteAccount, "examShare.deleteAccountBody")
+                        confirm = Confirmation(
+                            "examShare.deleteAccountTitle", ExamAction.DeleteAccount,
+                            body = "examShare.deleteAccountBody", confirmKey = "examShare.deleteAccount",
+                        )
                     },
                     modifier = Modifier.padding(horizontal = Theme.space2),
                 ) { Text(t("examShare.deleteAccount"), color = Theme.colors.danger) }

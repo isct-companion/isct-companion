@@ -127,11 +127,11 @@ pub enum ExamError {
 }
 
 /// Check the staged file selection against `limit`, the service's size for
-/// one material, without preparing a PDF or contacting the upload service.
-/// The service checks the draft when it is sent.
-fn upload_readiness(files: &[ExamUploadFile], limit: u64) -> ExamUploadReadiness {
+/// one material when known, without preparing a PDF or contacting the
+/// service. The service checks the draft when it is sent.
+fn upload_readiness(files: &[ExamUploadFile], limit: Option<u64>) -> ExamUploadReadiness {
     use crate::error_code::Coded;
-    let reason_key = upload_file::validate_selection(files, limit)
+    let reason_key = upload_file::validate_selection(files, limit.unwrap_or(u64::MAX))
         .err()
         .map(|error| format!("error.{}", error.code().name()));
     ExamUploadReadiness { reason_key }
@@ -398,7 +398,7 @@ impl ExamShare {
             ExamAction::Site => ExamAnswer::Site(client::site_pages()),
             ExamAction::Choices => ExamAnswer::Choices(self.choices().await?),
             ExamAction::UploadReadiness { files } => {
-                let limit = self.upload_limit().await?;
+                let limit = self.last_upload_limit().await;
                 let ready = tokio::task::spawn_blocking(move || upload_readiness(&files, limit))
                     .await
                     .map_err(|_| ExamError::Storage)?;

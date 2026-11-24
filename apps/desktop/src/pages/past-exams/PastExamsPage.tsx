@@ -242,11 +242,11 @@ export function PastExams({
 
   const openUpload = useCallback(
     async (start: ExamUploadStart) => {
-      const [choices, answer] = await Promise.all([
-        loadChoices(call),
-        call({ kind: "uploadForm", start }),
-      ]);
-      if (choices && answer?.kind === "uploadForm")
+      // One after the other, so a failure is told once.
+      const choices = await loadChoices(call);
+      if (!choices) return;
+      const answer = await call({ kind: "uploadForm", start });
+      if (answer?.kind === "uploadForm")
         setUpload({ form: answer.value, choices });
     },
     [call],

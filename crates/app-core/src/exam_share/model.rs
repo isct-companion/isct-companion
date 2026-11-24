@@ -100,6 +100,10 @@ pub struct ExamSet {
     /// it: only on a page with a class, for a class with no teachers listed,
     /// a material common to all teachers, or one naming a class teacher.
     pub mine: bool,
+    /// Whether a row names the sitting's teachers (`teachers`, else common
+    /// to all or unknown): all but a sitting of the class's own listed
+    /// teachers, which would only repeat them.
+    pub show_teachers: bool,
     pub documents: Vec<ExamDocument>,
 }
 

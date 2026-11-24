@@ -192,14 +192,21 @@ fn document(id: &str, role: &str, teachers: &[&str]) -> ExamDocument {
     }
 }
 
-/// Documents the service pairs are one sitting and nothing else is; the
-/// page's class takes, as the service decides it, a material naming one of
-/// its teachers or common to all, or every material when it lists no
-/// teachers; and a page with no class has no sitting of its own.
+/// Documents the service pairs are one sitting and nothing else is, and
+/// several of one role and role name are numbered; the page's class takes,
+/// as the service decides it, a material naming one of its teachers or
+/// common to all, or every material when it lists no teachers; a page with
+/// no class has no sitting of its own; and a row names the teachers unless
+/// they are the class's own listed ones.
 #[test]
 fn sittings_follow_the_service_pairs_and_the_class() {
     let mut common = document("common", "question", &[]);
     common.all_teachers = true;
+    let named = |id: &str, name: &str| {
+        let mut other = document(id, "other", &["t1"]);
+        other.role_text = name.into();
+        (Some("k4".to_owned()), other)
+    };
     let exams = || {
         vec![
             (Some("k2".into()), document("other-q", "question", &["t2"])),
@@ -208,43 +215,101 @@ fn sittings_follow_the_service_pairs_and_the_class() {
             (Some("k1".into()), document("q-2", "question", &["t1"])),
             (None, document("unpaired", "question", &["t1"])),
             (Some("k3".into()), common.clone()),
+            named("slides-1", "Slides"),
+            named("drills", "Drills"),
+            named("slides-2", "Slides"),
         ]
     };
-    let layout = |sets: &[ExamSet]| {
+    type Layout = Vec<(bool, bool, Vec<(String, Option<u32>)>)>;
+    let layout = |sets: &[ExamSet]| -> Layout {
         sets.iter()
             .map(|set| {
                 (
                     set.mine,
+                    set.show_teachers,
                     set.documents
                         .iter()
                         .map(|document| (document.id.clone(), document.number))
-                        .collect::<Vec<_>>(),
+                        .collect(),
                 )
             })
-            .collect::<Vec<_>>()
+            .collect()
     };
     let class: HashSet<String> = ["t1".to_owned()].into();
+    let row = |mine, shown, documents: &[(&str, Option<u32>)]| {
+        let documents = documents
+            .iter()
+            .map(|(id, number)| ((*id).to_owned(), *number))
+            .collect();
+        (mine, shown, documents)
+    };
     assert_eq!(
         layout(&sets::group(exams(), Some(&class))),
         [
-            (
+            row(
                 true,
-                vec![
-                    ("q-1".into(), Some(1)),
-                    ("q-2".into(), Some(2)),
-                    ("a".into(), None)
+                false,
+                &[("q-1", Some(1)), ("q-2", Some(2)), ("a", None)]
+            ),
+            row(true, false, &[("unpaired", None)]),
+            row(true, true, &[("common", None)]),
+            row(
+                true,
+                false,
+                &[
+                    ("drills", None),
+                    ("slides-1", Some(1)),
+                    ("slides-2", Some(2))
                 ]
             ),
-            (true, vec![("unpaired".into(), None)]),
-            (true, vec![("common".into(), None)]),
-            (false, vec![("other-q".into(), None)]),
+            row(false, true, &[("other-q", None)]),
         ]
     );
     let no_teachers = HashSet::new();
     assert!(sets::group(exams(), Some(&no_teachers))
         .iter()
-        .all(|set| set.mine));
-    assert!(sets::group(exams(), None).iter().all(|set| !set.mine));
+        .all(|set| set.mine && set.show_teachers));
+    assert!(sets::group(exams(), None)
+        .iter()
+        .all(|set| !set.mine && set.show_teachers));
+}
+
+/// An upload journal an earlier version wrote in a form this build cannot
+/// read (1.4.0's) is dropped instead of showing an upload to recover that
+/// blocks every new one.
+#[test]
+fn an_unreadable_upload_journal_is_dropped() {
+    let folder = std::env::temp_dir().join(format!("exam-journal-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&folder).unwrap();
+    let session = Session {
+        saved: Some(SavedSession {
+            uid: "u1".into(),
+            email: "student@example.invalid".into(),
+            refresh_token: String::new(),
+            registered: true,
+        }),
+        token: None,
+        status: ExamAccountStatus::Connected,
+        version_check: None,
+        register_attempted: false,
+    };
+    let journal = cache::account_folder(&folder, "u1").with_extension("upload.json");
+    std::fs::write(&journal, br#"{"registration":{"occasion":"unknown"}}"#).unwrap();
+    assert!(!upload::pending_upload(&folder, &session));
+    assert!(!journal.exists());
+    std::fs::remove_dir_all(folder).unwrap();
+}
+
+/// An occasion not picked yet is left out of what is sent, which the
+/// service refuses; sent as null it would still be published as 1.4.0's
+/// "unknown" occasion.
+#[test]
+fn an_unpicked_occasion_is_not_sent() {
+    let mut upload = draft(ExamRole::Question);
+    let sent = upload::service_body(&upload).unwrap();
+    assert!(sent.get("occasion").is_none());
+    upload.occasion = Some(ExamOccasion::Final);
+    assert_eq!(upload::service_body(&upload).unwrap()["occasion"], "final");
 }
 
 /// Signed file URLs are fetched only from the storage host, over HTTPS on
@@ -280,16 +345,16 @@ fn upload_readiness_checks_the_staged_bytes() {
     };
     let photo = file(&image, "misleading.pdf");
     let document = file(&pdf, "misleading.jpg");
-    let ready = |files: &[ExamUploadFile], limit: u64, reason: Option<&str>| {
+    let ready = |files: &[ExamUploadFile], limit: Option<u64>, reason: Option<&str>| {
         assert_eq!(upload_readiness(files, limit).reason_key.as_deref(), reason);
     };
-    ready(&[], u64::MAX, Some("error.exam-share-upload-no-files"));
+    ready(&[], None, Some("error.exam-share-upload-no-files"));
     ready(
         &[photo.clone(), document],
-        u64::MAX,
+        None,
         Some("error.exam-share-upload-mixed"),
     );
-    ready(&[photo.clone(), photo.clone()], u64::MAX, None);
-    ready(&[photo], 8, Some("error.exam-share-upload-size"));
+    ready(&[photo.clone(), photo.clone()], None, None);
+    ready(&[photo], Some(8), Some("error.exam-share-upload-size"));
     std::fs::remove_dir_all(folder).unwrap();
 }
