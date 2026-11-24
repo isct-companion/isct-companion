@@ -670,7 +670,7 @@ impl ExamShare {
                 .await
                 .map_err(|_| ExamError::Storage)?;
             while let Some(entry) = entries.next_entry().await.map_err(|_| ExamError::Storage)? {
-                if entry.path() != path && entry.file_name() != "metadata.json" {
+                if entry.path() != path && entry.file_name() != cache::MANIFEST {
                     let _ = tokio::fs::remove_file(entry.path()).await;
                 }
             }

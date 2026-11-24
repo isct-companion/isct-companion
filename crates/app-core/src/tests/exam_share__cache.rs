@@ -80,14 +80,8 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
     file.set_modified(now - Duration::from_secs(25 * 3_600))
         .unwrap();
     drop(file);
-    let upload = root.0.join("account.upload.json");
+    let upload = root.0.join("account.pending-upload.json");
     fs::write(&upload, b"pending publication").unwrap();
-    // A copy kept in a form this build cannot read (1.4.0's) neither breaks
-    // the list nor stays behind.
-    let unreadable = owner.join("unreadable");
-    fs::create_dir_all(&unreadable).unwrap();
-    fs::write(unreadable.join("metadata.json"), b"{\"document\":{}}").unwrap();
-    fs::write(unreadable.join("file.txt"), b"Old text").unwrap();
 
     assert!(cache_file(stale.parent().unwrap()).await.unwrap().is_none());
     let available = downloads(&owner, ContentLanguage::En).await.unwrap();
@@ -98,7 +92,6 @@ async fn stale_exam_copies_are_unavailable_and_maintenance_keeps_recent_download
             .collect::<Vec<_>>(),
         ["current"]
     );
-    assert!(!unreadable.exists());
 
     let opened_folder = opened.parent().unwrap();
     assert!(matches!(

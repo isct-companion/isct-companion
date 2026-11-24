@@ -84,26 +84,23 @@ impl Drop for UploadRun<'_> {
     }
 }
 
+/// The upload to recover, beside the account's folder. 1.4.1 renamed it
+/// from `.upload.json` when the draft changed, so an earlier version's is
+/// never read; deleting the account removes it (`OLD_JOURNAL`).
 fn journal(folder: &Path, uid: &str) -> PathBuf {
-    super::cache::account_folder(folder, uid).with_extension("upload.json")
+    super::cache::account_folder(folder, uid).with_extension("pending-upload.json")
 }
 
-/// Whether the session's account left an upload to recover. A journal this
-/// build cannot read (an earlier version's) is dropped here as `read_pending`
-/// drops it, so it never shows as an upload to recover.
+/// The name 1.4.0 kept its upload journal under.
+pub(super) const OLD_JOURNAL: &str = "upload.json";
+
+/// Whether the session's account left an upload to recover.
 pub(super) fn pending_upload(folder: &Path, session: &Session) -> bool {
-    let Some(saved) = session.saved.as_ref().filter(|saved| saved.registered) else {
-        return false;
-    };
-    let path = journal(folder, &saved.uid);
-    match std::fs::read(&path) {
-        Ok(data) if serde_json::from_slice::<Pending>(&data).is_ok() => true,
-        Ok(_) => {
-            let _ = std::fs::remove_file(&path);
-            false
-        }
-        Err(_) => false,
-    }
+    session
+        .saved
+        .as_ref()
+        .filter(|saved| saved.registered)
+        .is_some_and(|saved| journal(folder, &saved.uid).is_file())
 }
 
 /// The status a run ends in: a journal left behind needs recovery.
@@ -495,19 +492,12 @@ pub(super) fn service_body(value: &impl Serialize) -> Result<Value, ExamError> {
     Ok(body)
 }
 
-/// The journal of an upload to recover. One this build cannot read (an
-/// earlier version's) is dropped, leaving any file it sent to the service.
+/// The upload to recover, if one is left.
 async fn read_pending(path: &Path) -> Result<Option<Pending>, ExamError> {
     match tokio::fs::read(path).await {
-        Ok(data) => match serde_json::from_slice(&data) {
-            Ok(pending) => Ok(Some(pending)),
-            Err(_) => {
-                tokio::fs::remove_file(path)
-                    .await
-                    .map_err(|_| ExamError::Storage)?;
-                Ok(None)
-            }
-        },
+        Ok(data) => serde_json::from_slice(&data)
+            .map(Some)
+            .map_err(|_| ExamError::Storage),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err(ExamError::Storage),
     }

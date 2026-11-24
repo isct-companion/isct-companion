@@ -369,12 +369,17 @@ impl ExamShare {
                     .json(&json!({})),
             )
             .await?;
-        let journal = session
-            .saved
-            .as_ref()
-            .map(|saved| self.upload_journal(&saved.uid));
+        // The upload journal, and the one 1.4.0 kept under its old name: a
+        // deleted account keeps nothing of its drafts here either.
+        let journals = session.saved.as_ref().map(|saved| {
+            let journal = self.upload_journal(&saved.uid);
+            let old = self
+                .account_folder(&saved.uid)
+                .with_extension(upload::OLD_JOURNAL);
+            [journal, old]
+        });
         self.clear(session).await?;
-        if let Some(journal) = journal {
+        for journal in journals.into_iter().flatten() {
             match tokio::fs::remove_file(journal).await {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

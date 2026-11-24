@@ -274,32 +274,6 @@ fn sittings_follow_the_service_pairs_and_the_class() {
         .all(|set| !set.mine && set.show_teachers));
 }
 
-/// An upload journal an earlier version wrote in a form this build cannot
-/// read (1.4.0's) is dropped instead of showing an upload to recover that
-/// blocks every new one.
-#[test]
-fn an_unreadable_upload_journal_is_dropped() {
-    let folder = std::env::temp_dir().join(format!("exam-journal-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir(&folder).unwrap();
-    let session = Session {
-        saved: Some(SavedSession {
-            uid: "u1".into(),
-            email: "student@example.invalid".into(),
-            refresh_token: String::new(),
-            registered: true,
-        }),
-        token: None,
-        status: ExamAccountStatus::Connected,
-        version_check: None,
-        register_attempted: false,
-    };
-    let journal = cache::account_folder(&folder, "u1").with_extension("upload.json");
-    std::fs::write(&journal, br#"{"registration":{"occasion":"unknown"}}"#).unwrap();
-    assert!(!upload::pending_upload(&folder, &session));
-    assert!(!journal.exists());
-    std::fs::remove_dir_all(folder).unwrap();
-}
-
 /// An occasion not picked yet is left out of what is sent, which the
 /// service refuses; sent as null it would still be published as 1.4.0's
 /// "unknown" occasion.
