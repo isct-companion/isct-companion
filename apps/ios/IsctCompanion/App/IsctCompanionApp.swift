@@ -500,6 +500,7 @@ extension View {
         .navigationDestination(for: CourseArchiveRoute.self) { CourseArchiveScreen(route: $0) }
         .navigationDestination(for: AssignmentListRoute.self) { _ in AssignmentListScreen() }
         .navigationDestination(for: AssignmentRecordRoute.self) { _ in RecordScreen() }
+        .navigationDestination(for: PrintGuideRoute.self) { _ in PrintGuideScreen() }
         .navigationDestination(for: AssignmentRoute.self) { AssignmentScreen(assignmentId: $0.id) }
         .navigationDestination(for: PastExamsRoute.self) { route in
             PastExamsScreen(courseId: route.courseId)

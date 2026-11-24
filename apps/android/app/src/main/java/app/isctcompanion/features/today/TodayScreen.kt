@@ -28,6 +28,9 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +51,7 @@ import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -130,6 +134,18 @@ fun TodayScreen() {
     TabPage(
         t("common.today"),
         actions = {
+            // How to print on the campus printer, and a file to print.
+            val printLabel = t("campusPrint.guide.title")
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button) { navigator.openPrintGuide() }
+                    .semantics { contentDescription = printLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(Icons.Rounded.Print, null, tint = Theme.colors.accent)
+            }
             // The whole campus, to look a building or room up.
             RoomMapButton(null, Modifier.clip(CircleShape)) {
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {

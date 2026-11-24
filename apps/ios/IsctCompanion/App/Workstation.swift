@@ -106,6 +106,7 @@ private struct BenchRoot: View {
         case let route as SettingsRoute: SettingsDestination(route: route)
         case is AssignmentListRoute: AssignmentListScreen()
         case is AssignmentRecordRoute: RecordScreen()
+        case is PrintGuideRoute: PrintGuideScreen()
         default:
             // Pages pushed before the window widened, without what they were
             // pushed from.

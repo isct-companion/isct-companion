@@ -296,7 +296,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
 | `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
-| `MOBILE-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt<br>apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift<br>apps/ios/IsctCompanion/Features/Print/CampusPrint.swift<br>apps/ios/IsctPrint/PrintViewController.swift<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/pages.rs<br>crates/adpt-printer/src/lpd.rs |
+| `MOBILE-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/print/PrintGuideScreen.kt<br>apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift<br>apps/ios/IsctCompanion/Features/Print/CampusPrint.swift<br>apps/ios/IsctCompanion/Features/Print/PrintGuideScreen.swift<br>apps/ios/IsctPrint/PrintViewController.swift<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/pages.rs<br>crates/adpt-printer/src/lpd.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
 | `MOBILE-NOTIFICATION-PERMISSION` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/NotificationScheduler.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/NotificationScheduler.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/NotificationSettings.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AssignmentLeadsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsRows.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/BackgroundWake.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `IOS-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Today/TodayScreen.swift<br>apps/ios/IsctCompanion/Features/Assignments/AssignmentLists.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift |
@@ -6723,11 +6723,18 @@ file; and access to the print release or billing page.
    once, and print it in colour on A4.
    - *Why:* The page preview must follow the orientation and the turn, and the
      sheet must match the preview, within the printer's margin.
-4. Open a past exam PDF and a course PDF in the app's readers and
+4. On 今日 tap the printer button beside the map button, read the
+   page, tap ファイルを選択 and pick the PDF; then try to pick the
+   Word file.
+   - *Why:* The page must explain both ways to print and that only PDFs and
+     pictures print; the picker must offer only PDFs and pictures (the
+     Word file greyed out or not listed), and picking the PDF must open
+     the print screen on it.
+5. Open a past exam PDF and a course PDF in the app's readers and
    use the print button in their toolbars.
    - *Why:* Each must open the same print screen on that file, under the
      uploader's or the file's name.
-5. Switch to mobile data (or ScienceTokyoX), share the PDF again, then
+6. Switch to mobile data (or ScienceTokyoX), share the PDF again, then
    rejoin ScienceTokyo Wi-Fi and tap 再確認.
    - *Why:* Off the printer's network the screen must name ScienceTokyo Wi-Fi
      and keep 印刷 off; back on it, checking again must allow printing.
@@ -6739,8 +6746,8 @@ release panel and the billing page.
 
 **Expected**
 
-A PDF or photo shared to "Print via campus printer" or opened from a
-reader prints from the app's own screen on both phones, billed to the
+A PDF or photo shared to "Print via campus printer", picked on 今日's
+print page or opened from a reader prints from the app's own screen on both phones, billed to the
 student, with the chosen pages, copies, sides, colour and, for a photo,
 page layout; without an account or off the campus Wi-Fi the screen
 says why and prints nothing.
@@ -6754,8 +6761,10 @@ in crates/adpt-printer/src/tests.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/print/PrintGuideScreen.kt`
 - `apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift`
 - `apps/ios/IsctCompanion/Features/Print/CampusPrint.swift`
+- `apps/ios/IsctCompanion/Features/Print/PrintGuideScreen.swift`
 - `apps/ios/IsctPrint/PrintViewController.swift`
 - `crates/app-ffi/src/campus_print.rs`
 - `crates/app-core/src/campus_printer/mod.rs`

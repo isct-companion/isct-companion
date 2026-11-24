@@ -52,6 +52,7 @@ UniFFI checks signatures when the library loads.
 | `core/NotificationScheduler.kt` | Reports permission and stored alarms, then applies Core's reminder plan through `AlarmManager` and `NotificationManager` |
 | `core/DriveTokens.kt` | `NativeDriveTokens`: drive.appdata tokens from Google Identity's authorization API; Core owns every Drive request |
 | `CampusPrintActivity.kt` | The campus print screen, as on iOS: "Print via campus printer" in the share sheet and the readers' print button open it on a PDF or picture; the person picks pages, copies, sides and colour, and Core verifies the student ID, keeps the chosen pages and sends it over LPD |
+| `features/print` | 今日's print button: how to print, and a picker for a PDF or picture that opens the print screen |
 | `CampusPrintSending.kt` | A short foreground service that keeps the app awake while a print is sent, so HyperOS does not freeze it |
 | `BackgroundWake.kt` | The WorkManager wake that runs Core's `backgroundWake` out of front |
 | `features/*` | 今日 (class stack, exams and the quarter's assignments) · 時間割 (week picker, session marks, quarter .ics) · 授業 (wide windows) · ウェブ · 設定 (school accounts with the OTP authenticator setup, notifications, study profile, data updates, backup, ウェブ, reset), course and assignment pages |

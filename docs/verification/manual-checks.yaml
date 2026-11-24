@@ -5844,6 +5844,15 @@ checks:
           The page preview must follow the orientation and the turn, and the
           sheet must match the preview, within the printer's margin.
       - action: |
+          On 今日 tap the printer button beside the map button, read the
+          page, tap ファイルを選択 and pick the PDF; then try to pick the
+          Word file.
+        reason: |
+          The page must explain both ways to print and that only PDFs and
+          pictures print; the picker must offer only PDFs and pictures (the
+          Word file greyed out or not listed), and picking the PDF must open
+          the print screen on it.
+      - action: |
           Open a past exam PDF and a course PDF in the app's readers and
           use the print button in their toolbars.
         reason: |
@@ -5859,8 +5868,8 @@ checks:
       The share sheets, the print screen, the notifications, the printer's
       release panel and the billing page.
     expected: |
-      A PDF or photo shared to "Print via campus printer" or opened from a
-      reader prints from the app's own screen on both phones, billed to the
+      A PDF or photo shared to "Print via campus printer", picked on 今日's
+      print page or opened from a reader prints from the app's own screen on both phones, billed to the
       student, with the chosen pages, copies, sides, colour and, for a photo,
       page layout; without an account or off the campus Wi-Fi the screen
       says why and prints nothing.
@@ -5870,8 +5879,10 @@ checks:
       in crates/adpt-printer/src/tests.
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/CampusPrintActivity.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/print/PrintGuideScreen.kt
       - apps/ios/IsctCompanion/Features/Print/CampusPrintScreen.swift
       - apps/ios/IsctCompanion/Features/Print/CampusPrint.swift
+      - apps/ios/IsctCompanion/Features/Print/PrintGuideScreen.swift
       - apps/ios/IsctPrint/PrintViewController.swift
       - crates/app-ffi/src/campus_print.rs
       - crates/app-core/src/campus_printer/mod.rs
