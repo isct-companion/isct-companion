@@ -10,9 +10,9 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 
-/// A cached copy's record, beside its file. 1.4.1 renamed it from
-/// `metadata.json` when the record changed, so earlier copies are not read:
-/// maintenance sweeps them like any stale file.
+/// A cached copy's record, beside its file. It took this name (1.4.0's was
+/// `metadata.json`) when the record changed, so 1.4.0's copies are never
+/// read: maintenance sweeps them like any stale file.
 pub(super) const MANIFEST: &str = "document.json";
 const DOWNLOAD_LIFETIME: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(24 * 60 * 60);

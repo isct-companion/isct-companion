@@ -84,9 +84,9 @@ impl Drop for UploadRun<'_> {
     }
 }
 
-/// The upload to recover, beside the account's folder. 1.4.1 renamed it
-/// from `.upload.json` when the draft changed, so an earlier version's is
-/// never read; deleting the account removes it (`OLD_JOURNAL`).
+/// The upload to recover, beside the account's folder. It took this name
+/// when the draft changed after 1.4.0, so 1.4.0's is never read; deleting
+/// the account removes it (`OLD_JOURNAL`).
 fn journal(folder: &Path, uid: &str) -> PathBuf {
     super::cache::account_folder(folder, uid).with_extension("pending-upload.json")
 }
