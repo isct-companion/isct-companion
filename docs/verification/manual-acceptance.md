@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 172 checks must be re-run before the next release.**
+**5 of 173 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**167 checks have never been run or could not be run:**
+**168 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -150,6 +150,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-DEBUG-ICLOUD` — never verified
 - `CLOUD-PROVIDER-COMBINATIONS` — never verified
 - `IOS-EXAM-ACCOUNT-ISOLATION` — never verified
+- `EXAM-SHARE-CONSENT-AND-DELETION` — never verified
 - `IOS-DRIVE-SIGNIN` — never verified
 - `ANDROID-DRIVE-SIGNIN` — never verified
 - `IOS-PRIVACY-POLICY` — never verified
@@ -326,7 +327,8 @@ an unverified area becomes an assumed-good one.
 | `IOS-ICLOUD-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/CloudKitStore.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/desktop/src-tauri/src/icloud.rs<br>apps/desktop/src-tauri/Entitlements.plist<br>apps/desktop/src/pages/settings/BackupSettings.tsx |
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-dev-signing.mjs<br>scripts/desktop/macos-signing.mjs<br>scripts/desktop/macos-widgets.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs<br>apps/desktop/src-tauri/src/secrets.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/cloud_sync/restore.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
-| `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/mod.rs<br>crates/app-core/src/exam_share/library.rs |
+| `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/account.rs<br>crates/app-core/src/exam_share/library.rs |
+| `EXAM-SHARE-CONSENT-AND-DELETION` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/exam_share/account.rs<br>apps/desktop/src/pages/past-exams/PastExamsPage.tsx<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt |
 | `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelCloud.swift<br>apps/ios/project.yml |
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
@@ -8489,8 +8491,65 @@ file preview. CI has no signed iPhone session or service credentials.
 - `apps/ios/IsctCompanion/Core/BrowserAuthentication.swift`
 - `apps/ios/IsctCompanion/Core/KeychainVault.swift`
 - `apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift`
-- `crates/app-core/src/exam_share/mod.rs`
+- `crates/app-core/src/exam_share/account.rs`
 - `crates/app-core/src/exam_share/library.rs`
+
+**Last recorded** never run
+
+### A new ScienceTokyoExam account can refuse or accept the terms, and delete itself (`EXAM-SHARE-CONSENT-AND-DELETION`)
+
+**Area** identity · **Persona** 理工学系 1年生・初学期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+Signed desktop, iPhone and Android builds, and a school Google account
+that has never signed in to ScienceTokyoExam (or deleted its account
+there). Run the steps on one shell, then repeat on the next.
+
+**Steps**
+
+1. In 過去問, connect with the account. On the terms page choose 同意しない,
+   then connect again.
+   - *Why:* Refusing must sign out and ask the service to forget the unregistered
+     account; the next connection must show the terms again instead of
+     a connected account or an error.
+2. Choose 同意して続ける, then quit and reopen the app.
+   - *Why:* Only an account that registered is kept: after consent it must stay
+     connected across a restart without the terms page.
+3. Download one material, then choose アカウントを削除 in the account
+   menu, read the confirmation and confirm.
+   - *Why:* The confirmation must say what the service deletes and keeps. The
+     deletion must sign out, show that it finished and remove the
+     downloaded copy from マイ資料.
+4. Connect with the same account again.
+   - *Why:* The service deleted the account, so it must come back as a new one:
+     the terms page, not a connected account.
+
+**Where to look**
+
+The terms page, the account menu and its confirmation, and マイ資料 in
+過去問 on each shell.
+
+**Expected**
+
+Refusing leads back to the signed-out page and the terms show again.
+Consent survives a restart. Deletion signs out with a finished notice,
+removes the download, and a new connection shows the terms.
+
+**Why this is manual**
+
+Every step needs a real school Google account, the service's consent
+and deletion endpoints and the signed apps' browser sign-in. CI has no
+service credentials and the deletion cannot be undone.
+
+**Covers**
+
+- `crates/app-core/src/exam_share/account.rs`
+- `apps/desktop/src/pages/past-exams/PastExamsPage.tsx`
+- `apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift`
+- `apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt`
 
 **Last recorded** never run
 

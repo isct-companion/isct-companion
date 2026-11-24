@@ -457,11 +457,11 @@ internal object ExamLabels {
     /** An `other` occasion's own name, else the code's label (a code this
      * build has no words for reads as other); none without an occasion. */
     fun occasion(code: String?, text: String = ""): String? =
-        text.ifBlank { null } ?: code?.let { codeLabel("examShare.occasion", it) }
+        text.ifBlank { null } ?: code?.let { lookup("examShare.occasion.$it") ?: t("examShare.occasion.other") }
 
     /** An `other` role's own name, else the code's label, as [occasion]. */
     fun role(code: String?, text: String = ""): String? =
-        text.ifBlank { null } ?: code?.let { codeLabel("examShare.role", it) }
+        text.ifBlank { null } ?: code?.let { lookup("examShare.role.$it") ?: t("examShare.role.other") }
 
     fun teachers(teachers: List<ExamTeacher>, allTeachers: Boolean): String = when {
         allTeachers -> t("examShare.allTeachers")
@@ -480,7 +480,6 @@ internal object ExamLabels {
         document.academicYear, occasion(document.occasion, document.occasionText), document.occasionNumber, document.variant,
     )
 
-    private fun codeLabel(prefix: String, code: String): String = lookup("$prefix.$code") ?: t("$prefix.other")
 }
 
 internal fun documentTitle(document: ExamDocument): String = listOfNotNull(
