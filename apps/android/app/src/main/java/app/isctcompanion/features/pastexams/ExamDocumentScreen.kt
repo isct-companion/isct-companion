@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -26,7 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import app.isctcompanion.CampusPrintActivity
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.core.Viewer
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
 import app.isctcompanion.core.ExamLocalDocument
@@ -66,6 +69,13 @@ fun ExamDocumentScreen(id: String) {
             current?.let { documentTitle(it.document) }.orEmpty(),
             navigationIcon = { BackButton { navigator.back() } },
             actions = {
+                // A PDF or a picture goes to the campus printer from here,
+                // under the uploader's name like a shared copy.
+                if (current != null && (current.viewer == Viewer.PDF || current.viewer == Viewer.IMAGE)) {
+                    IconButton(onClick = { CampusPrintActivity.print(context, File(current.path), current.exportName) }) {
+                        Icon(Icons.Rounded.Print, t("campusPrint.window.printToCampusPrinter"))
+                    }
+                }
                 if (current != null) Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.MoreVert, t("examShare.more")) }
                     DropdownMenu(menu, { menu = false }) {

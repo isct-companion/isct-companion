@@ -41,7 +41,6 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Check
@@ -202,7 +201,6 @@ private fun PageMenu(site: SchoolSite) {
             web.pages[site]?.url?.let { url ->
                 item(t("common.share"), Icons.Rounded.Share) { share(context, url) }
                 item(t("common.openInBrowser"), Icons.AutoMirrored.Rounded.OpenInNew) { openInBrowser(context, url) }
-                item(t("web.print"), Icons.Rounded.Print) { web.browser.print(site, context) }
             }
             HorizontalDivider()
             for (percent in SchoolBrowserHost.textScales) {

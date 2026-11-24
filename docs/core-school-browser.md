@@ -339,10 +339,10 @@ Nothing is injected into a school page to show these.
 person is looking at, titled with the initiating frame's origin, and answered
 Cancel for a hidden view without any UI. `window.print()` opens the system
 print panel for the foreground view only (WebKit: the private
-`_webView:printFrame:pdfFirstPageSize:completionHandler:`). Android WebView
-has no hook for a page's `window.print()`, so the page's button does
-nothing there and the app's page menu prints the page on screen through
-`PrintManager`. A `beforeunload` question is shown the same way, and a
+`_webView:printFrame:pdfFirstPageSize:completionHandler:`). The phones do
+not print school pages: Android WebView has no hook for a page's
+`window.print()`, so the page's button does nothing there, and the page
+menus offer no print. A `beforeunload` question is shown the same way, and a
 hidden view always leaves.
 
 A file input (`<input type=file>`) chooses files only for the page in front of

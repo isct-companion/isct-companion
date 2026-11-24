@@ -1,0 +1,5 @@
+<resources>
+    <!-- The share sheet entries: printing, and handing in (MainActivity). -->
+    <string name="campus_print_share">学内プリンタで印刷</string>
+    <string name="hand_in_share">課題を提出</string>
+</resources>

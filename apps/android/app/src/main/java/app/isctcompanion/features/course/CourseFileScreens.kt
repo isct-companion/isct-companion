@@ -8,6 +8,7 @@ import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.rememberMaterialOpening
 import app.isctcompanion.design.t
+import app.isctcompanion.CampusPrintActivity
 import app.isctcompanion.core.openInAnotherApp
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
@@ -24,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.FolderZip
+import androidx.compose.material.icons.rounded.Print
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +60,12 @@ fun CourseFileScreen(path: String, title: String, viewer: Viewer) {
         title.ifEmpty { file.name },
         navigationIcon = { BackButton { navigator.back() } },
         actions = {
+            // A PDF or a picture goes to the campus printer from here.
+            if (viewer == Viewer.PDF || viewer == Viewer.IMAGE) {
+                IconButton(onClick = { CampusPrintActivity.print(context, file, title.ifEmpty { file.name }) }) {
+                    Icon(Icons.Rounded.Print, t("campusPrint.window.printToCampusPrinter"))
+                }
+            }
             IconButton(onClick = { openInAnotherApp(context, file) }) {
                 Icon(Icons.AutoMirrored.Rounded.OpenInNew, t("common.openInDefaultApp"))
             }
