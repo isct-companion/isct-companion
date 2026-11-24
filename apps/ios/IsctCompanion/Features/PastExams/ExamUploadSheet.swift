@@ -179,7 +179,7 @@ struct ExamUploadSheet: View {
                 .ignoresSafeArea()
             }
             .sheet(isPresented: $choosingSubject) {
-                ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? [])) { subject in
+                ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? []), limit: choices?.limits.searchQuery) { subject in
                     try await edit(.addSubject(code: subject.code))
                 }
             }
@@ -589,6 +589,8 @@ private struct ExamUploadSubjectPicker: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let selected: Set<String>
+    /// The service's search length, as a hint.
+    let limit: UInt32?
     let pick: (ExamSubject) async throws -> Void
     @State private var query = ""
     @State private var results: [ExamSubject]?
@@ -618,6 +620,7 @@ private struct ExamUploadSubjectPicker: View {
             .themedRows()
             .themedList()
             .searchable(text: $query, prompt: t("examShare.search"))
+            .examMaxLength(limit, $query)
             .onSubmit(of: .search) {
                 Task { await search() }
             }
