@@ -40,7 +40,43 @@ pub struct LectureList {
     pub courses: Vec<LectureCourse>,
     pub next_by_course: BTreeMap<String, LectureMeeting>,
     pub exams: Vec<ExamView>,
+    /// `exams` by key, in the order the exam list shows them.
+    pub exam_groups: LectureExamGroups,
     pub all_terms: Vec<String>,
+}
+
+/// The exam list's groups. Exams still to come lead, then the exam-week
+/// classes still to come, both earliest first; what is over follows, the
+/// latest first, so the exam just sat comes before older ones.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct LectureExamGroups {
+    /// Exams and quizzes that are not over.
+    pub upcoming_keys: Vec<String>,
+    /// Exam-week classes that are not over.
+    pub class_keys: Vec<String>,
+    /// Exams, quizzes and exam-week classes that are over.
+    pub ended_keys: Vec<String>,
+}
+
+impl LectureExamGroups {
+    /// `exams` is in date order, as `exam_views` returns it.
+    fn of(exams: &[ExamView], now: DateTime<FixedOffset>) -> Self {
+        let mut groups = Self::default();
+        for exam in exams {
+            let key = exam.key.clone();
+            if exam.ended(now) {
+                groups.ended_keys.push(key);
+            } else if exam.kind == "class" {
+                groups.class_keys.push(key);
+            } else {
+                groups.upcoming_keys.push(key);
+            }
+        }
+        groups.ended_keys.reverse();
+        groups
+    }
 }
 
 pub(super) fn lecture_list(
@@ -109,10 +145,12 @@ pub(super) fn lecture_list(
             course.title.clone(),
         )
     });
+    let exams = exam_views(workspace, school, &term);
     Ok(LectureList {
         courses,
         next_by_course: next,
-        exams: exam_views(workspace, school, &term),
+        exam_groups: LectureExamGroups::of(&exams, now),
+        exams,
         all_terms: terms.available,
     })
 }

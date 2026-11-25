@@ -24,24 +24,19 @@ export function TodayAgenda({
   agenda,
   today,
   now,
-  viewIso,
-  isToday,
-  swap,
+  todayIso,
   scheduleLoading,
   scheduleReveal,
   selection,
   open,
   openExam,
   openEvent,
-  openSchedule,
 }: {
   data: Workspace;
   agenda?: DatedAgenda;
   today?: TodayView;
   now: Date;
-  viewIso: string;
-  isToday: boolean;
-  swap: React.CSSProperties;
+  todayIso: string;
   scheduleLoading: boolean;
   scheduleReveal?: string;
   selection?: { courseId: string; assignmentId?: string };
@@ -52,14 +47,13 @@ export function TodayAgenda({
   ) => void;
   openExam?: (key: string, term: string) => void;
   openEvent: (event: PersonalEvent) => void;
-  openSchedule: () => void;
 }) {
   const [allClasses, setAllClasses] = useState(false);
   const blocks = agenda?.occurrences ?? [];
   const clock = jstClock(now);
-  const currentKey = isToday ? today?.hero?.occurrence.key : undefined;
+  const currentKey = today?.hero?.occurrence.key;
   const nextClass = today?.upcoming[0]?.occurrence;
-  const nextKey = isToday ? nextClass?.key : undefined;
+  const nextKey = nextClass?.key;
   const focusKey = currentKey ?? nextKey;
   const openBlock = (
     block: Occurrence | ScheduleOccurrence,
@@ -91,36 +85,29 @@ export function TodayAgenda({
     <section className="todaySection" data-today-section="classes">
       <header>
         <h2>{t("common.schedule", { context: "today" })}</h2>
-        <UiButton className="textButton" onClick={openSchedule}>
-          {t("today.week")}
-        </UiButton>
       </header>
       {scheduleLoading ? (
         <Skeleton count={3} />
       ) : (
         <div
-          className={`dayAgenda daySwap${scheduleReveal ? ` ${scheduleReveal}` : ""}`}
-          key={viewIso}
-          style={swap}
+          className={`dayAgenda${scheduleReveal ? ` ${scheduleReveal}` : ""}`}
         >
           {(allClasses ? blocks : blocks.slice(0, CLASS_ROWS)).map((block) => {
             const state = block.cancelled
               ? t("common.noClass")
-              : !isToday
-                ? ""
-                : t(
-                    block.key === currentKey
-                      ? "common.now"
-                      : block.key === nextKey
-                        ? "today.next"
-                        : block.endTime <= clock
-                          ? "common.earlier"
-                          : // Core's moment covers classes; a personal
-                            // event is now while its own time runs.
-                            block.kind === "event" && block.startTime <= clock
-                            ? "common.now"
-                            : "common.later",
-                  );
+              : t(
+                  block.key === currentKey
+                    ? "common.now"
+                    : block.key === nextKey
+                      ? "today.next"
+                      : block.endTime <= clock
+                        ? "common.earlier"
+                        : // Core's moment covers classes; a personal
+                          // event is now while its own time runs.
+                          block.kind === "event" && block.startTime <= clock
+                          ? "common.now"
+                          : "common.later",
+                );
             return (
               <UiButton
                 className={`dayAgendaRow ${block.kind}${block.key === focusKey ? " focus" : ""}${selection?.courseId === block.id && !selection.assignmentId ? " selected" : ""}${block.conflict ? " conflict" : ""}`}
@@ -168,14 +155,10 @@ export function TodayAgenda({
             )}
           {!blocks.length && (
             <EmptyState compact icon={CalendarCheck}>
-              {t(
-                isToday
-                  ? "today.nothingScheduledToday"
-                  : "today.nothingScheduled",
-              )}
+              {t("today.nothingScheduledToday")}
             </EmptyState>
           )}
-          {nextClass && nextClass.date > viewIso && (
+          {nextClass && nextClass.date > todayIso && (
             <UiButton
               className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}
               style={{ "--course": nextClass.color } as React.CSSProperties}
@@ -184,7 +167,7 @@ export function TodayAgenda({
               <span className="agendaState">{t("today.next")}</span>
               <time>
                 <small>
-                  {isToday && nextClass.date === addDays(viewIso, 1)
+                  {nextClass.date === addDays(todayIso, 1)
                     ? t("common.tomorrow")
                     : formatJst(nextClass.date, data.settings.locale, {
                         weekday: "short",

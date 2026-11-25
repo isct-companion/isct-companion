@@ -11,6 +11,7 @@ use super::{
     OccurrenceKind, ScheduleError, TeachingPeriod,
 };
 use crate::locale::{pick, ContentLanguage};
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeSet, HashMap};
@@ -67,6 +68,16 @@ pub struct ExamView {
 }
 
 impl ExamView {
+    /// Over at `now`: past its end time, or, with no time, past its day. A
+    /// date or time Core cannot read never counts as over.
+    pub(crate) fn ended(&self, now: DateTime<FixedOffset>) -> bool {
+        match self.end_time.as_deref() {
+            Some(end) => super::today::at(&self.date, end),
+            None => super::today::start_of_next_day(&self.date),
+        }
+        .is_ok_and(|end| end <= now)
+    }
+
     /// The course whose weekly sessions this timetable row replaces on its
     /// date: a scheduled row an agenda can draw.
     pub(super) fn replaced_course(&self) -> Option<&str> {

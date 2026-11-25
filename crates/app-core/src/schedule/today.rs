@@ -230,7 +230,7 @@ pub(super) fn at(date: &str, time: &str) -> Result<DateTime<FixedOffset>, Schedu
         .map_err(|_| ScheduleError::Compatibility("schedule contains an invalid time".into()))
 }
 
-fn start_of_next_day(date: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
+pub(super) fn start_of_next_day(date: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
     let next = parse_civil_date(date)? + Duration::days(1);
     at(&next.to_string(), "00:00")
 }

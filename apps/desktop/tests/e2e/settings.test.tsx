@@ -2153,7 +2153,7 @@ describe("Academic calendar profile", () => {
       expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual(
         workspace.academicProfile.studyEnrollments,
       );
-      await mounted.go(paths.home("week"));
+      await mounted.go(paths.home());
       await wait(() =>
         expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
           "07:30",
@@ -2170,7 +2170,7 @@ describe("Academic calendar profile", () => {
           mounted.core.workspace.academicProfile.teachingPeriods,
         ).toBeNull(),
       );
-      await mounted.go(paths.home("week"));
+      await mounted.go(paths.home());
       await wait(() => {
         expect(mounted.host.querySelector(".ttAxis")?.textContent).toContain(
           "08:50",
