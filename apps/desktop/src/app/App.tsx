@@ -12,9 +12,13 @@ import {
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
-import { ResizableWorkspace } from "../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../components/ResizableWorkspace";
+import { TitlebarNav } from "../components/TitleRow";
+import { usePanelRef } from "react-resizable-panels";
 import { WelcomeSheet } from "../components/guide";
-import { useMediaQuery } from "usehooks-ts";
 import { refresh, syncAvailable } from "../platform/sync-intents";
 import { useOpenHint } from "./useOpenHint";
 import { useSync } from "../store/sync";
@@ -134,7 +138,9 @@ const SHELL_RECORDS = [
 
 export function WorkspaceApp() {
   useTranslation();
-  const wideHome = useMediaQuery("(min-width: 1001px)");
+  // Today folds away beside the calendar as the lecture list does.
+  const todayPanel = usePanelRef();
+  const [todayFolded, setTodayFolded] = useState(false);
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   // The shell reads only the records it renders itself; each page asks
@@ -198,14 +204,12 @@ export function WorkspaceApp() {
   const location = useLocation();
   const params = useParams();
   const timetableMatch = useMatch(routePatterns.timetable);
-  const homeMatch = useMatch(`${routePatterns.home}/*`);
   const lecturesMatch = useMatch(`${routePatterns.lectures}/*`);
   const webMatch = useMatch(`${routePatterns.web}/*`);
   const toolsMatch = useMatch(routePatterns.tools);
   const pastExamsMatch = useMatch(`${routePatterns.pastExams}/*`);
   const settingsMatch = useMatch(`${routePatterns.settings}/*`);
   const aboutMatch = useMatch(routePatterns.about);
-  const weekMatch = useMatch(routePatterns.week);
   const page: Page = timetableMatch
     ? "timetable"
     : lecturesMatch
@@ -258,13 +262,12 @@ export function WorkspaceApp() {
     [],
   );
   const section = (params.section ?? "accounts") as Section;
-  const homeView = homeMatch && weekMatch ? "week" : "day";
   const [mountedPages, setMountedPages] = useState<Page[]>([page]);
   if (!mountedPages.includes(page)) setMountedPages([...mountedPages, page]);
   const pageRef = useRef<Page>(page);
   pageRef.current = page;
   // Switching pages returns to where each page was left (open lecture,
-  // settings section, week view); the course drawer query is not carried.
+  // settings section); the course drawer query is not carried.
   const pageLocations = useRef<Partial<Record<Page, string>>>({});
   pageLocations.current[page] = location.pathname;
   // A course zoom stays paired while the course is shown, so back reverses
@@ -285,7 +288,6 @@ export function WorkspaceApp() {
   // Hidden Activities keep their last route props so another page's params
   // cannot replace retained subpages. Visible navigation always reads the URL.
   const renderedRoutes = useRef({
-    homeView,
     section,
     lectureEntry: null as CourseEntry | null,
     examEntry: null as { key: string; term: TermId; request: number } | null,
@@ -322,7 +324,6 @@ export function WorkspaceApp() {
           : Date.now()),
     };
   }, [params.examKey, params.examTerm, location.state?.lectureRequest]);
-  if (page === "home") renderedRoutes.current.homeView = homeView;
   if (page === "settings") renderedRoutes.current.section = section;
   if (page === "lectures") {
     renderedRoutes.current.lectureEntry = lectureEntry;
@@ -596,9 +597,17 @@ export function WorkspaceApp() {
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
     !connectedSession(tokyoTechSession);
+  const todayToggle = (
+    <WorkspaceSidebarToggle
+      panel={todayPanel}
+      collapsed={todayFolded}
+      controls="home-today"
+    />
+  );
   const homePage = (
     <div
-      className={`homePage ${renderedRoutes.current.homeView}${showSchoolSetup ? " needsSetup" : ""}`}
+      className={`homePage${showSchoolSetup ? " needsSetup" : ""}`}
+      data-sidebar-collapsed={todayFolded}
     >
       {showSchoolSetup && (
         <aside className="homeSetup" aria-label={t("app.schoolAccountSetup")}>
@@ -616,16 +625,20 @@ export function WorkspaceApp() {
       )}
       <ResizableWorkspace
         id="home"
-        enabled={wideHome}
+        enabled
         firstSize={360}
+        firstCollapsible
+        firstPanelRef={todayPanel}
+        onFirstCollapse={setTodayFolded}
         firstMin={240}
         firstMax="50%"
         secondMin="45%"
       >
-        <div className="homeDay">
+        <div className="homeDay" id="home-today" inert={todayFolded}>
           <Today
             data={data}
-            active={page === "home"}
+            sidebar={todayFolded ? undefined : todayToggle}
+            active={page === "home" && !todayFolded}
             term={todayTerm}
             openExam={openExam}
             open={(courseId, _tab, context) => openLecture(courseId, context)}
@@ -651,18 +664,14 @@ export function WorkspaceApp() {
               setAssignmentsRequest(Date.now());
               void navigate(paths.lectures());
             }}
-            openSchedule={() => void navigate(paths.home("week"))}
           />
         </div>
         <div className="homeWeek">
-          <UiButton
-            className="textButton homeBack"
-            onClick={() => navigate(paths.home())}
-          >
-            ‹ {t("common.today")}
-          </UiButton>
           <CalendarView
             data={data}
+            titleStart={
+              todayFolded ? <TitlebarNav sidebar={todayToggle} /> : undefined
+            }
             mark={
               readOnly
                 ? undefined

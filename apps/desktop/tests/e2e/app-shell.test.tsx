@@ -283,13 +283,12 @@ describe("shell navigation", () => {
       planItems: [planItemFor(placedCourse)],
     });
     app = await mountShell(shellOptions({ workspace, revision: "rev:route" }), {
-      route: paths.home("week"),
+      route: paths.timetable(),
     });
     await until(() =>
-      expect(app!.host.querySelector(".homeMain")).not.toBeNull(),
+      expect(app!.host.querySelector(".timetableMain")).not.toBeNull(),
     );
-    expect(app.host.querySelector(".homePage.week")).not.toBeNull();
-    expect(window.location.hash).toBe(`#${paths.home("week")}`);
+    expect(window.location.hash).toBe(`#${paths.timetable()}`);
   }, 20_000);
 
   it("replaces unknown, unsupported and deleted-course routes", async () => {
@@ -2179,7 +2178,6 @@ it("shows every page and settings section in Chinese without English leftovers",
   const leaks: Record<string, string[]> = {};
   for (const route of [
     paths.home(),
-    paths.home("week"),
     paths.timetable(),
     paths.lectures(),
     paths.web(),

@@ -637,8 +637,9 @@ describe("shared workspace routes", () => {
   };
 
   it("round-trips page, section, course and assignment paths including encoded ids", () => {
-    expect(parseRoute(paths.home()).homeView).toBe("day");
-    expect(parseRoute(paths.home("week")).homeView).toBe("week");
+    expect(parseRoute(paths.home()).page).toBe("home");
+    // The day and the week share one page; the old week path is unknown.
+    expect(parseRoute("/home/week").matched).toBe(false);
     expect(parseRoute(paths.web()).page).toBe("web");
     expect(parseRoute(paths.lectures()).courseId).toBeUndefined();
     expect(parseRoute(paths.settings("appearance")).section).toBe("appearance");

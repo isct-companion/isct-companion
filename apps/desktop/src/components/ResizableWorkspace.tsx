@@ -123,10 +123,34 @@ export function WorkspaceSidebarToggle({
       aria-expanded={!collapsed}
       aria-controls={controls}
       title={t("common.toggleSidebar")}
-      onClick={() => {
+      onClick={(event) => {
+        const current = panel.current;
+        if (!current) return;
+        const wasCollapsed = current.isCollapsed();
         onToggle?.();
-        if (panel.current?.isCollapsed()) panel.current.expand();
-        else panel.current?.collapse();
+        if (wasCollapsed) current.expand();
+        else current.collapse();
+
+        const isCollapsed = current.isCollapsed();
+        if (event.detail !== 0 || isCollapsed === wasCollapsed) return;
+        const focusVisibleToggle = () => {
+          if (document.activeElement !== document.body) return;
+          const sidebar = document.getElementById(controls);
+          if (!sidebar) return;
+          const toggles = document.querySelectorAll<HTMLButtonElement>(
+            `.workspaceSidebarToggle[aria-controls="${CSS.escape(controls)}"]`,
+          );
+          for (const toggle of toggles) {
+            if (sidebar.contains(toggle) === isCollapsed) continue;
+            toggle.focus({ preventScroll: true });
+            if (document.activeElement === toggle) break;
+          }
+        };
+        requestAnimationFrame(() => {
+          focusVisibleToggle();
+          // Resizing a narrow reader can move the control again after paint.
+          requestAnimationFrame(focusVisibleToggle);
+        });
       }}
     >
       <PanelLeft size={18} strokeWidth={1.75} aria-hidden />

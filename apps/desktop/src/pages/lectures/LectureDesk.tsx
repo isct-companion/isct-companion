@@ -128,7 +128,8 @@ function LectureDeskBody({
     }
   }, [term]);
   const [query, setQuery] = useState("");
-  const [examKey, setExamKey] = useState<string | null>(null);
+  const [examSelection, setExamSelection] = useState<typeof examEntry>(null);
+  const examKey = examSelection?.key ?? null;
   // The list shows the quarter's lectures, or all of its assignments.
   const [mode, setMode] = useState<"lectures" | "assignments" | "exams">(
     "lectures",
@@ -165,7 +166,7 @@ function LectureDeskBody({
     if (!examEntry) return;
     setMode("exams");
     setQuery("");
-    setExamKey(examEntry.key);
+    setExamSelection(examEntry);
     setShownTerm(examEntry.term);
     if (takeChoice()) setEntering(`exam:${examEntry.key}`);
   });
@@ -222,7 +223,11 @@ function LectureDeskBody({
       panel={sidebar}
       collapsed={collapsed}
       controls="lecture-sidebar"
-      onToggle={() => setFloating(false)}
+      onToggle={() => {
+        setFloating(false);
+        setListFocused(false);
+        setListHovered(false);
+      }}
     />
   );
   // With the list folded away the content column is first after the rail,
@@ -343,7 +348,7 @@ function LectureDeskBody({
               schedule={schedule}
               query={query}
               search={search}
-              examKey={examKey}
+              selection={examSelection}
               chooseExam={(key, term) => {
                 setQuery("");
                 setFloating(false);
@@ -413,7 +418,7 @@ function LectureDeskBody({
               entering={entering}
               endEntrance={endEntrance}
               sidebarToggle={contentStart}
-              onRemoved={() => setExamKey(null)}
+              onRemoved={() => setExamSelection(null)}
             />
           )}
           <div className="lectureCourseContent" hidden={mode === "exams"}>

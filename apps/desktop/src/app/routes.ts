@@ -12,7 +12,6 @@ import {
 export const routePatterns = {
   home: "/home",
   timetable: "/timetable",
-  week: "/home/week",
   lectures: "/lectures",
   exam: "/lectures/exams/:examTerm/:examKey",
   course: "/lectures/:courseId",
@@ -27,8 +26,7 @@ export const routePatterns = {
 } as const;
 const encode = encodeURIComponent;
 export const paths = {
-  home: (view: "day" | "week" = "day") =>
-    view === "week" ? routePatterns.week : routePatterns.home,
+  home: () => routePatterns.home,
   timetable: () => routePatterns.timetable,
   exam: (key: string, term: string) =>
     `${routePatterns.lectures}/exams/${encode(term)}/${encode(key)}`,
@@ -78,7 +76,6 @@ export function parseRoute(location: string) {
   return {
     page,
     matched: Boolean(match),
-    homeView: id === "week" ? ("week" as const) : ("day" as const),
     section: match?.params.section,
     courseId: match?.params.courseId,
     examCourseId: match?.params.examCourseId,

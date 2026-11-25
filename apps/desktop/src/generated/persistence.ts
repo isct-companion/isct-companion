@@ -1770,11 +1770,13 @@ export type CourseDetail = {
   sections: Array<number>;
   assignmentIds: Array<string>;
   /**
-   * The course's exams and quizzes.
+   * The course's exams and quizzes. The `CourseDetail` query leaves out
+   * those already over.
    */
   exams: Array<ExamView>;
   /**
-   * The exam timetable's exam-week rows that hold an ordinary class.
+   * The exam timetable's exam-week rows that hold an ordinary class, also
+   * without those over in the query.
    */
   examClasses: Array<ExamView>;
   /**
@@ -2273,10 +2275,29 @@ export type LectureMeeting = {
   inClass: boolean;
 };
 
+export type LectureExamGroups = {
+  /**
+   * Exams and quizzes that are not over.
+   */
+  upcomingKeys: Array<string>;
+  /**
+   * Exam-week classes that are not over.
+   */
+  classKeys: Array<string>;
+  /**
+   * Exams, quizzes and exam-week classes that are over.
+   */
+  endedKeys: Array<string>;
+};
+
 export type LectureList = {
   courses: Array<LectureCourse>;
   nextByCourse: { [key in string]: LectureMeeting };
   exams: Array<ExamView>;
+  /**
+   * `exams` by key, in the order the exam list shows them.
+   */
+  examGroups: LectureExamGroups;
   allTerms: Array<string>;
 };
 
@@ -2307,10 +2328,10 @@ export type WorkspaceQuery =
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
-  | { kind: "upcomingExams"; from: string; to: string | null }
+  | { kind: "upcomingExams"; from: string; to: string | null; now: string }
   | { kind: "calendarRange"; from: string; to: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
-  | { kind: "courseDetail"; courseId: string }
+  | { kind: "courseDetail"; courseId: string; now: string }
   | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }

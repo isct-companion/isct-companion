@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { TitleRow } from "../../components/TitleRow";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Paper, Input, Skeleton } from "../../components/ui";
 import { UiButton } from "../../components/ui";
 import {
@@ -25,8 +25,12 @@ export function CalendarView({
   data,
   open,
   mark,
+  titleStart,
 }: {
   data: Workspace;
+  /** Back, Forward and Today's button, once Today is folded away and the
+   * calendar is the first column. */
+  titleStart?: ReactNode;
   open: (block: Block) => void;
   /** Marks one session; absent when the workspace is read-only. */
   mark?: (block: Block, as: "exam" | "quiz" | "cancelled" | "class") => void;
@@ -76,6 +80,7 @@ export function CalendarView({
   return (
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
       <TitleRow className="calendarTitle">
+        {titleStart}
         <h1>{t("today.calendar")}</h1>
       </TitleRow>
       {/* Stepping through weeks is the calendar's own tool: it sits on the
