@@ -1153,6 +1153,7 @@
   "campusPrint.window.uncertainAfter": "打印机接收了 {{printed}} 份。下一份已发送但没有应答，可能已经打印。再次发送前请先查看打印机。",
   "campusPrint.result.pagesNotApplied": "无法只打印选中的页：读不出这个文件的页面。请打印全部页，或先另存为新的 PDF 再试。",
   "campusPrint.screen.checking": "正在检查打印机…",
+  "campusPrint.screen.checkFailed": "无法检查账号和打印机，请重试。",
   "campusPrint.screen.pages": "页码",
   "campusPrint.screen.allPages": "全部 {{count}} 页",
   "campusPrint.screen.choosePages": "自定义",

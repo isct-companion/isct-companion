@@ -1153,6 +1153,7 @@
   "campusPrint.window.uncertainAfter": "The printer accepted {{printed}} copies. The next one was sent but got no answer, so it may have printed. Check the printer before sending again.",
   "campusPrint.result.pagesNotApplied": "Couldn't print only the chosen pages: this file's pages can't be picked out. Print all pages, or save it as a new PDF first.",
   "campusPrint.screen.checking": "Checking the printer…",
+  "campusPrint.screen.checkFailed": "Could not check the account and the printer. Try again.",
   "campusPrint.screen.pages": "Pages",
   "campusPrint.screen.allPages": "All {{count}} pages",
   "campusPrint.screen.choosePages": "Choose",

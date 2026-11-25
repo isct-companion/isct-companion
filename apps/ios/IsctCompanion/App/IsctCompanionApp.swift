@@ -229,6 +229,15 @@ struct RootView: View {
                         request.transfer?.discard()
                     }
             }
+            // How a print ended, when it ended off the print screen.
+            .alert(unseenPrint?.title ?? "", isPresented: Binding(
+                get: { unseenPrint != nil },
+                set: { if !$0 { CampusPrintRun.shared.unseen = nil } }
+            )) {
+                Button(t("common.done"), role: .cancel) {}
+            } message: {
+                Text(unseenPrint?.message ?? "")
+            }
             // System controls follow the app's language.
             .environment(\.locale, Localizer.shared.locale)
             .environment(\.isctTheme, model.records.settings.text("theme") ?? "warm")
@@ -255,8 +264,15 @@ struct RootView: View {
         openPrint(shared)
     }
 
+    /// A send that ended off the print screen, as its title and words.
+    private var unseenPrint: (title: String, message: String)? {
+        guard case let .ended(title, _, message)? = CampusPrintRun.shared.unseen else { return nil }
+        return (title, message)
+    }
+
     private func openPrint(_ request: CampusPrintRequest) {
         CampusPrintRun.shared.forget()
+        CampusPrintRun.shared.unseen = nil
         printRequest = request
     }
 

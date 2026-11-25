@@ -240,6 +240,8 @@ internal object CampusPrintRun {
                 }
             } catch (error: CancellationException) {
                 throw error
+            } catch (error: DocumentTooLarge) {
+                State.Ended(job.title, false, tooLargeText())
             } catch (error: Exception) {
                 Log.w(TAG, "campus print", error)
                 State.Ended(job.title, false, t("campusPrint.notice.queueFailed"))
@@ -271,6 +273,17 @@ internal object CampusPrintRun {
     private const val RESULT_CHANNEL = "campus-print-result"
     private const val RESULT_ID = 7303
 }
+
+/** A document larger than Core takes (`maxDocumentBytes`): not read whole,
+ * and not sent. */
+private class DocumentTooLarge : IOException()
+
+/** The most Core sends in one job. */
+private fun maxDocumentBytes(): Long =
+    runCatching { campusPrinterCapabilities().maxDocumentBytes.toLong() }.getOrDefault(64L * 1024 * 1024)
+
+/** Core's words for a document past its limit. */
+private fun tooLargeText(): String = t("campusPrint.notice.tooLarge", "megabytes" to maxDocumentBytes() / (1024 * 1024))
 
 /** Core's words for how a print ended or why it would not go through. */
 private fun text(message: CampusPrintMessage): String =
@@ -384,10 +397,17 @@ private data class ImageLayout(val media: CampusPrintMedia, val landscape: Boole
         }
 }
 
-/** The bytes to send: a PDF as it is; an image as [layout] puts it, as
- * large as fits inside the printer's margin and centred. */
+/** The bytes to send: a PDF as it is, read at most one byte past Core's
+ * limit so a larger one is refused ([DocumentTooLarge]) without being read
+ * whole; an image as [layout] puts it, as large as fits inside the
+ * printer's margin and centred. */
 private fun documentBytes(document: SharedDocument, layout: ImageLayout, marginMils: Int): ByteArray? {
-    if (document.isPdf) return document.file.readBytes()
+    if (document.isPdf) {
+        val limit = maxDocumentBytes()
+        val bytes = document.file.inputStream().use { input -> input.readNBytes((limit + 1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()) }
+        if (bytes.size > limit) throw DocumentTooLarge()
+        return bytes
+    }
     val bitmap = decodeUpright(document.file, MAX_PHOTO_SIDE, layout.turn) ?: return null
     val (pageWidth, pageHeight) = layout.page
     val margin = marginMils * 72f / 1000f
@@ -474,7 +494,7 @@ private fun formatPages(pages: Set<Int>): String {
 
 private sealed interface PrinterCheck {
     data object Checking : PrinterCheck
-    data class Ready(val studentId: String?) : PrinterCheck
+    data class Ready(val studentId: String) : PrinterCheck
     data class Problem(val message: String) : PrinterCheck
 }
 
@@ -555,7 +575,14 @@ private fun ColumnScope.SettingsView(app: IsctApplication, document: SharedDocum
         check = PrinterCheck.Checking
         val state = app.model.campusPrinterState()
         val problem = state?.problem
-        check = if (problem != null) PrinterCheck.Problem(text(problem)) else PrinterCheck.Ready(state?.studentId)
+        val studentId = state?.studentId
+        // Core answers with a student ID to bill or a reason it would not
+        // print; no answer (no session, a failed call) is neither.
+        check = when {
+            problem != null -> PrinterCheck.Problem(text(problem))
+            studentId != null -> PrinterCheck.Ready(studentId)
+            else -> PrinterCheck.Problem(t("campusPrint.screen.checkFailed"))
+        }
     }
 
     val canChoose = document.isPdf && total > 1
@@ -731,9 +758,11 @@ private fun ColumnScope.SettingsView(app: IsctApplication, document: SharedDocum
         )
     }
 
-    val blocked = pagesBad || check is PrinterCheck.Problem || check is PrinterCheck.Checking
+    // Larger than Core takes: refused here, before anything is read.
+    val tooLarge = remember(document.file) { document.isPdf && document.file.length() > maxDocumentBytes() }
+    val blocked = pagesBad || tooLarge || check is PrinterCheck.Problem || check is PrinterCheck.Checking
     BottomBar(
-        summary = if (pagesBad || document.isPdf && total == 0) "" else t("campusPrint.screen.summary", "pages" to count, "sheets" to sheets, "copies" to copies),
+        summary = if (tooLarge) tooLargeText() else if (pagesBad || document.isPdf && total == 0) "" else t("campusPrint.screen.summary", "pages" to count, "sheets" to sheets, "copies" to copies),
     ) {
         PrimaryButton(t("campusPrint.window.print"), Icons.Rounded.Print, enabled = !blocked) {
             val job = CampusPrintJob(
@@ -759,10 +788,7 @@ private fun StatusLine(check: PrinterCheck, onCheckAgain: () -> Unit) {
         is PrinterCheck.Ready -> Pill(Theme.colors.okSoft, Theme.colors.ok) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(Theme.colors.ok))
             Text(
-                listOfNotNull(
-                    t("tools.campusPrinter.readyToPrint"),
-                    check.studentId?.let { t("tools.campusPrinter.billedTo", "id" to it) },
-                ).joinToString(" · "),
+                t("tools.campusPrinter.readyToPrint") + " · " + t("tools.campusPrinter.billedTo", "id" to check.studentId),
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = Theme.colors.ok,

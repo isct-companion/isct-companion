@@ -33,6 +33,8 @@ struct CampusPrintScreen: View {
                     }
                 }
         }
+        .onAppear { run.watching = true }
+        .onDisappear { run.watching = false }
         .task {
             run.forget()
             let (url, name) = (request.url, request.name)
@@ -68,7 +70,7 @@ struct CampusPrintScreen: View {
 /// Whether a print would go through now.
 private enum PrinterCheck: Equatable {
     case checking
-    case ready(studentId: String?)
+    case ready(studentId: String)
     case problem(String)
 }
 
@@ -175,10 +177,14 @@ private struct PrintSettings: View {
         .task(id: checkRound) {
             check = .checking
             let state = await model.campusPrinterState()
+            // Core answers with a student ID to bill or a reason it would
+            // not print; no answer (no session, a failed call) is neither.
             if let problem = state?.problem {
                 check = .problem(CampusPrintRun.text(problem))
+            } else if let studentId = state?.studentId {
+                check = .ready(studentId: studentId)
             } else {
-                check = .ready(studentId: state?.studentId)
+                check = .problem(t("campusPrint.screen.checkFailed"))
             }
         }
     }
@@ -193,8 +199,7 @@ private struct PrintSettings: View {
             }
         case let .ready(studentId):
             Label {
-                Text([t("tools.campusPrinter.readyToPrint"), studentId.map { t("tools.campusPrinter.billedTo", ["id": $0]) }]
-                    .compactMap { $0 }.joined(separator: " · "))
+                Text(t("tools.campusPrinter.readyToPrint") + " · " + t("tools.campusPrinter.billedTo", ["id": studentId]))
                     .fontWeight(.semibold)
             } icon: {
                 Image(systemName: "checkmark.circle.fill")
@@ -304,15 +309,24 @@ private struct PrintSettings: View {
         if next.count == total { choosing = false }
     }
 
+    /// Larger than Core takes: refused here, before anything is read.
+    private var tooLarge: Bool { document.isPDF && document.tooLarge(maxBytes) }
+    private var maxBytes: UInt64 { capabilities?.maxDocumentBytes ?? 64 * 1024 * 1024 }
+
     private var blocked: Bool {
-        if pagesBad { return true }
+        if pagesBad || tooLarge { return true }
         if case .ready = check { return false }
         return true
     }
 
     private var bottomBar: some View {
         VStack(spacing: 10) {
-            if !pagesBad, !(document.isPDF && total == 0) {
+            if tooLarge {
+                Text(CampusPrintRun.tooLargeText)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.warn)
+                    .multilineTextAlignment(.center)
+            } else if !pagesBad, !(document.isPDF && total == 0) {
                 Text(t("campusPrint.screen.summary", ["pages": count, "sheets": sheets, "copies": copies]))
                     .font(.footnote)
                     .foregroundStyle(Theme.muted)
@@ -336,8 +350,8 @@ private struct PrintSettings: View {
         let pages = choosing ? (chosen ?? []).sorted().map { UInt32($0) } : []
         let job = CampusPrintJob(
             title: document.name, copies: UInt32(copies), sides: sides, color: color, pages: pages)
-        let (file, placed, margin) = (document, layout, marginMils)
-        CampusPrintRun.shared.start(model, job: job) { file.bytes(placed, marginMils: margin) }
+        let (file, placed, margin, limit) = (document, layout, marginMils, maxBytes)
+        CampusPrintRun.shared.start(model, job: job) { try file.bytes(placed, marginMils: margin, limit: limit) }
     }
 }
 

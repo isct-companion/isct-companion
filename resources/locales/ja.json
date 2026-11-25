@@ -1153,6 +1153,7 @@
   "campusPrint.window.uncertainAfter": "プリンタは {{printed}} 部を受け付けました。次の 1 部は送信しましたが応答がなく、印刷された可能性があります。もう一度送る前にプリンタを確認してください。",
   "campusPrint.result.pagesNotApplied": "選んだページだけを印刷できませんでした。このファイルのページを取り出せません。全ページを印刷するか、新しい PDF として保存してから試してください。",
   "campusPrint.screen.checking": "プリンタを確認しています…",
+  "campusPrint.screen.checkFailed": "アカウントとプリンタを確認できませんでした。もう一度お試しください。",
   "campusPrint.screen.pages": "ページ",
   "campusPrint.screen.allPages": "全 {{count}} ページ",
   "campusPrint.screen.choosePages": "指定",

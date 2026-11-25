@@ -107,13 +107,29 @@ struct ImageLayout: Equatable {
     }
 }
 
+/// A document larger than Core takes (`maxDocumentBytes`): not read whole,
+/// and not sent.
+struct DocumentTooLarge: Error {}
+
 extension PrintDocument {
-    /// The bytes to send: a PDF as it is; a picture as `layout` puts it, as
-    /// large as fits inside the printer's margin and centred on one page.
-    func bytes(_ layout: ImageLayout, marginMils: Int32) -> Data? {
+    /// Whether the file is larger than Core takes, by its size on disk.
+    func tooLarge(_ limit: UInt64) -> Bool {
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return false }
+        return UInt64(size) > limit
+    }
+
+    /// The bytes to send: a PDF as it is, read at most one byte past
+    /// `limit` so a larger one is refused without being read whole; a
+    /// picture as `layout` puts it, as large as fits inside the printer's
+    /// margin and centred on one page.
+    func bytes(_ layout: ImageLayout, marginMils: Int32, limit: UInt64) throws -> Data? {
         switch kind {
         case .pdf:
-            return try? Data(contentsOf: url)
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+            defer { try? handle.close() }
+            guard let data = try? handle.read(upToCount: Int(clamping: limit) + 1) else { return nil }
+            if UInt64(data.count) > limit { throw DocumentTooLarge() }
+            return data
         case let .image(image):
             let picture = ImageLayout.turned(image, layout.turns)
             let page = CGRect(origin: .zero, size: layout.page)
@@ -128,8 +144,9 @@ extension PrintDocument {
 
 /// One send at a time, in the app rather than the screen, so closing the
 /// screen does not stop it. iOS gives a backgrounded app a short while to
-/// finish (`beginBackgroundTask`); a send that ends while the app is not
-/// in front says how in a notification.
+/// finish (`beginBackgroundTask`). A send that ends off the print screen
+/// is shown by the app until dismissed (`unseen`), and one that ends while
+/// the app is in the background also says how in a notification.
 @MainActor
 @Observable
 final class CampusPrintRun {
@@ -141,6 +158,12 @@ final class CampusPrintRun {
 
     static let shared = CampusPrintRun()
     private(set) var state = State.idle
+    /// A send that ended while the print screen was not on screen: the app
+    /// shows it until the person dismisses it, so the result is not lost
+    /// when the screen was closed and the app stayed open.
+    var unseen: State?
+    /// Set while the print screen is on screen, where the result shows.
+    var watching = false
 
     private init() {}
 
@@ -148,26 +171,41 @@ final class CampusPrintRun {
         if case .ended = state { state = .idle }
     }
 
-    func start(_ model: AppModel, job: CampusPrintJob, document: @escaping @Sendable () -> Data?) {
+    /// `document` reads the bytes to send; it throws `DocumentTooLarge`
+    /// past Core's limit.
+    func start(_ model: AppModel, job: CampusPrintJob, document: @escaping @Sendable () throws -> Data?) {
         if case .sending = state { return }
         state = .sending(title: job.title)
         let background = UIApplication.shared.beginBackgroundTask(withName: "campus-print")
         Task {
-            let bytes = await Task.detached(priority: .userInitiated) { document() }.value
+            let read = await Task.detached(priority: .userInitiated) { Result { try document() } }.value
             let ended: State
-            if let bytes {
+            switch read {
+            case let .success(bytes?):
                 if let report = await model.campusPrint(bytes, job: job) {
                     ended = .ended(title: job.title, printed: report.printed, message: Self.text(report.message))
                 } else {
                     ended = .ended(title: job.title, printed: false, message: t("campusPrint.notice.queueFailed"))
                 }
-            } else {
+            case .failure(is DocumentTooLarge):
+                ended = .ended(title: job.title, printed: false, message: Self.tooLargeText)
+            default:
                 ended = .ended(title: job.title, printed: false, message: t("campusPrint.window.couldNotReadTheFile"))
             }
             state = ended
+            // On screen, the print screen shows the result; off it, the app
+            // shows it until dismissed. In the background a notification
+            // says it too.
+            if !watching { unseen = ended }
             if UIApplication.shared.applicationState != .active { await notify(ended) }
             if background != .invalid { UIApplication.shared.endBackgroundTask(background) }
         }
+    }
+
+    /// Core's words for a document past its limit.
+    static var tooLargeText: String {
+        let limit = (try? campusPrinterCapabilities())?.maxDocumentBytes ?? 64 * 1024 * 1024
+        return t("campusPrint.notice.tooLarge", ["megabytes": limit / (1024 * 1024)])
     }
 
     private func notify(_ ended: State) async {
@@ -193,7 +231,7 @@ func parsePages(_ text: String, total: Int) -> Set<Int>? {
     var pages = Set<Int>()
     let parts = text.split(whereSeparator: { ",，、 \t\n".contains($0) })
     for part in parts {
-        let bounds = part.split(whereSeparator: { "-–~〜".contains($0) }, omittingEmptySubsequences: false)
+        let bounds = part.split(omittingEmptySubsequences: false, whereSeparator: { "-–~〜".contains($0) })
         guard (1...2).contains(bounds.count),
               let first = Int(bounds[0]),
               let last = Int(bounds[bounds.count - 1]),
