@@ -193,7 +193,7 @@ async fn automatic_run_rechecks_disabled_task_before_claim() {
         .run(
             &services,
             "stale-auto",
-            Some(Utc::now().to_rfc3339()),
+            Some(crate::clock::now().to_rfc3339()),
             false,
         )
         .await
@@ -249,7 +249,7 @@ async fn automatic_runs_defer_while_manual_runs_wait() {
             .run(
                 &services,
                 "running-lock",
-                Some(Utc::now().to_rfc3339()),
+                Some(crate::clock::now().to_rfc3339()),
                 false,
             )
             .await

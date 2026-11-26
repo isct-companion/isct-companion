@@ -55,7 +55,6 @@ struct ExamDocumentScreen: View {
             }
         }
         .task {
-            await page.loadChoices(model)
             if file == nil {
                 if let preloaded = route.file { file = preloaded } else { await open() }
             }
@@ -115,8 +114,10 @@ struct ExamDocumentScreen: View {
             if let web = URL(string: file.webUrl) {
                 Link(destination: web) { Label(t("examShare.openOnWeb"), systemImage: "safari") }
             }
-            Button(t("examShare.report"), systemImage: "flag", role: .destructive) { showsReport = true }
-                .disabled(file.offline || page.choices == nil)
+            Button(t("examShare.report"), systemImage: "flag", role: .destructive) {
+                Task { if await page.loadChoices(model) { showsReport = true } }
+            }
+            .disabled(file.offline)
             if let removal {
                 Button(t(removal.key), systemImage: "trash", role: .destructive) {
                     page.confirm(removal.key) {

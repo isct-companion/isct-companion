@@ -624,7 +624,9 @@ impl AssignmentWorkspaces {
                 )
                 .await
             {
-                Ok(Material::Ready { file, .. }) => {
+                // A ZIP opens as `Archive` so readers can browse it; the
+                // workspace copies the downloaded archive itself.
+                Ok(Material::Ready { file, .. } | Material::Archive { file, .. }) => {
                     saved.push(Attachment {
                         path: file.path,
                         name: attachment.name.clone(),

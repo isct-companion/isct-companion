@@ -66,7 +66,7 @@ fn exercise_and_lab_share_their_slot_without_a_schedule() {
     data["classSchedules"] = json!([]);
     data["courses"].as_array_mut().unwrap().extend([
         json!({"id":"lab","termId":"2026-3Q","title":"Physics Experiment II","code":"LAS.P108","color":"#8a5a44",
-            "meetings":[{"days":[5],"periods":[7,8],"startTime":"15:25","endTime":"17:05","room":"S-B101"}]}),
+            "meetings":[{"days":[5],"startTime":"16:00","endTime":"17:05","room":"S-B101"}]}),
         json!({"id":"other","termId":"2026-3Q","title":"Seminar","code":"LAH.S101","color":"#445566",
             "meetings":[{"days":[5],"periods":[7,8],"startTime":"15:25","endTime":"17:05","room":""}]}),
     ]);
@@ -112,9 +112,27 @@ fn exercise_and_lab_share_their_slot_without_a_schedule() {
     check(&week.days[4].blocks);
     assert_eq!(week.conflict_count, 1);
     // The lab's own timeline still finds the shared block.
-    let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T12:00:00+09:00").unwrap();
+    let now = chrono::DateTime::parse_from_rfc3339("2026-10-30T15:30:00+09:00").unwrap();
+    let list = crate::schedule::lecture_list::lecture_list(
+        &data,
+        &SchoolReads::fixture(&data),
+        "2026-3Q",
+        now,
+    )
+    .unwrap();
+    let pair: Vec<_> = list
+        .courses
+        .iter()
+        .map(|course| course.id.as_str())
+        .filter(|id| matches!(*id, "ex" | "lab"))
+        .collect();
+    assert_eq!(pair, ["ex", "lab"]);
+    assert!(list.next_by_course["ex"].in_class);
+    let lab = &list.next_by_course["lab"];
+    assert!(!lab.in_class);
+    assert_eq!(lab.room, "S-B101");
     let timeline = course_timeline(&data, &SchoolReads::fixture(&data), "lab", now, 0, 0).unwrap();
-    assert_eq!(timeline.next.as_deref(), Some("2026-10-30T15:25:00+09:00"));
+    assert_eq!(timeline.next.as_deref(), Some("2026-10-30T16:00:00+09:00"));
 }
 
 #[test]

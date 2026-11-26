@@ -683,7 +683,7 @@ impl SubmissionService {
             transport,
             plan,
             tasks,
-            Arc::new(|| chrono::Utc::now().timestamp()),
+            Arc::new(|| crate::clock::now().timestamp()),
         )
     }
 

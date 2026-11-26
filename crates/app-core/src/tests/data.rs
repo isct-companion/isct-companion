@@ -435,7 +435,7 @@ fn insert_school_assignment(store: &DataStore) {
 fn seeing_a_recent_item_records_its_version_and_drops_entries_past_the_window() {
     let store = store("recent-seen");
     insert_school_assignment(&store);
-    let fresh = chrono::Utc::now().to_rfc3339();
+    let fresh = crate::clock::now().to_rfc3339();
     let mut connection = store.test_connection();
     let transaction = connection.transaction().unwrap();
     upsert_row(
@@ -508,12 +508,12 @@ fn course_identity_is_shared_by_every_provider_and_merges_by_offering() {
     record(
         "plan_items",
         "plan",
-        json!({"termId": "2026-3Q", "courseId": early}),
+        json!({"kind": "plan-item", "termId": "2026-3Q", "state": "planned", "courseId": early}),
     );
     record(
         "schedule_overrides",
         "mark",
-        json!({"targetKey": format!("{early}-weekly-0-2026-10-05"), "courseId": early, "hidden": false}),
+        json!({"targetKey": format!("{early}-weekly-0-2026-10-05"), "targetKind": "course", "mark": "exam", "hidden": false}),
     );
     record(
         "assignments",
@@ -523,6 +523,18 @@ fn course_identity_is_shared_by_every_provider_and_merges_by_offering() {
     let official =
         resolve_course_id(&transaction, "kyomu", "202602440", 2026, Some("202602440")).unwrap();
     assert_ne!(official, early);
+    let session = format!("{official}-weekly-0-2026-10-05");
+    record(
+        "schedule_overrides",
+        "deleted-mark",
+        json!({"targetKey": session, "targetKind": "course", "mark": "quiz", "hidden": false,
+               "deletedAt": "2026-10-02T00:00:00Z", "updatedAt": "2026-10-02T00:00:00Z"}),
+    );
+    record(
+        "schedule_overrides",
+        "another-mark",
+        json!({"targetKey": format!("{official}-weekly-0-2026-10-12"), "targetKind": "course", "mark": "quiz", "hidden": false}),
+    );
 
     // The LMS course's idnumber now names the offering 教務 already holds.
     let merged = resolve_course_id(&transaction, "lms", "42", 2026, Some("202602440")).unwrap();
@@ -552,22 +564,22 @@ fn course_identity_is_shared_by_every_provider_and_merges_by_offering() {
             )
             .unwrap()
     };
-    assert_eq!(
-        value("plan_items", "plan"),
-        (value("plan_items", "plan").0, 3)
-    );
-    assert_eq!(value("plan_items", "plan").0["courseId"], official);
-    let (mark, _) = value("schedule_overrides", "mark");
-    assert_eq!(mark["courseId"], official);
-    assert_eq!(mark["targetKey"], format!("{official}-weekly-0-2026-10-05"));
-    let target: String = transaction
-        .query_row(
-            "SELECT target_key FROM schedule_overrides WHERE id='mark'",
-            [],
-            |row| row.get(0),
-        )
+    let (plan, revision) = value("plan_items", "plan");
+    assert_eq!(revision, 3);
+    assert_eq!(plan["courseId"], official);
+    let (mark, revision) = value("schedule_overrides", "mark");
+    assert_eq!(mark["targetKey"], session);
+    assert_eq!(mark["mark"], "exam");
+    assert_eq!(revision, 3);
+    let projected = read_visible_rows(&transaction, "schedule_overrides").unwrap();
+    assert_eq!(projected.len(), 2);
+    let effective = projected
+        .iter()
+        .find(|row| row["targetKey"] == session)
         .unwrap();
-    assert_eq!(target, format!("{official}-weekly-0-2026-10-05"));
+    assert_eq!(effective["id"], "deleted-mark");
+    assert_eq!(effective["deletedAt"], "2026-10-02T00:00:00Z");
+    assert!(projected.iter().any(|row| row["id"] == "another-mark"));
     assert_eq!(value("assignments", "work").0["courseId"], official);
 
     // Resolving known keys again changes nothing and keeps the id.
@@ -576,6 +588,52 @@ fn course_identity_is_shared_by_every_provider_and_merges_by_offering() {
         official
     );
     transaction.commit().unwrap();
+    drop(connection);
+
+    // Restoring a version with the old mark must make it effective again,
+    // even though the competing id's newer tombstone must still be retained.
+    let mut snapshot = store.export_document().unwrap();
+    snapshot["tables"]["schedule_overrides"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|row| row["id"] != "deleted-mark");
+    store
+        .restore_records(&snapshot, crate::data::WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    let connection = store.test_connection();
+    let projected = read_visible_rows(&connection, "schedule_overrides").unwrap();
+    let restored = projected
+        .iter()
+        .find(|row| row["targetKey"] == session)
+        .unwrap();
+    assert_eq!(restored["id"], "mark");
+    assert!(restored["deletedAt"].is_null());
+    assert_eq!(store.user_rows("schedule_overrides").unwrap().len(), 3);
+
+    snapshot["tables"]["schedule_overrides"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|row| row["id"] != "mark");
+    store
+        .restore_records(&snapshot, crate::data::WorkspaceChangeSource::CloudRestore)
+        .unwrap();
+    let projected = read_visible_rows(&connection, "schedule_overrides").unwrap();
+    let removed = projected
+        .iter()
+        .find(|row| row["targetKey"] == session)
+        .unwrap();
+    assert!(removed["deletedAt"].is_string());
+    assert!(projected
+        .iter()
+        .any(|row| row["id"] == "another-mark" && row["deletedAt"].is_null()));
+    drop(connection);
+    let marked = store
+        .put_user_record(
+            "schedule_overrides",
+            json!({"targetKey": session, "targetKind": "course", "mark": "class", "hidden": false}),
+        )
+        .unwrap();
+    assert_eq!(marked["id"], "mark");
     let _ = fs::remove_dir_all(store.directory());
 }
 
@@ -598,9 +656,16 @@ fn synced_copies_name_courses_by_external_key() {
         json!({"kind":"plan-item","courseId":course,"termId":"2026-3Q","state":"planned"}),
     )
     .unwrap();
-    a.put_user_record(
+    let mark = a.put_user_record(
         "schedule_overrides",
-        json!({"targetKey":format!("{course}-weekly-0-2026-10-05"),"courseId":course,"hidden":true}),
+        json!({"targetKey":format!("{course}-weekly-0-2026-10-05"),"targetKind":"course","mark":"quiz","hidden":false}),
+    )
+    .unwrap();
+    let exam = a.put_user_record(
+        "schedule_overrides",
+        json!({"targetKey":"published-exam-2026-11-12","targetKind":"exam","room":"W9-101","hidden":false,
+               "base":{"date":"2026-11-12","room":"W9-102","term":"2026-3Q","code":"CSC.T101","kind":"exam",
+                       "title":"Computing","courseId":course}}),
     )
     .unwrap();
     a.put_user_record(
@@ -613,12 +678,17 @@ fn synced_copies_name_courses_by_external_key() {
     assert!(plans
         .iter()
         .any(|row| row["courseId"] == "offering:2026:202602440"));
-    let mark = &sent["tables"]["schedule_overrides"][0];
-    assert_eq!(mark["courseId"], "offering:2026:202602440");
+    let override_for =
+        |rows: &[Value], id: &Value| rows.iter().find(|row| &row["id"] == id).unwrap().clone();
+    let sent_overrides = sent["tables"]["schedule_overrides"].as_array().unwrap();
+    let synced_mark = override_for(sent_overrides, &mark["id"]);
     assert_eq!(
-        mark["targetKey"],
+        synced_mark["targetKey"],
         "offering:2026:202602440-weekly-0-2026-10-05"
     );
+    let synced_exam = override_for(sent_overrides, &exam["id"]);
+    assert_eq!(synced_exam["targetKey"], exam["targetKey"]);
+    assert_eq!(synced_exam["base"]["courseId"], "offering:2026:202602440");
 
     b.merge_cloud_data(&sent, crate::data::WorkspaceChangeSource::CloudSync)
         .unwrap();
@@ -639,11 +709,13 @@ fn synced_copies_name_courses_by_external_key() {
     transaction.commit().unwrap();
     drop(connection);
     let stored = b.user_rows("schedule_overrides").unwrap();
-    assert_eq!(stored[0]["courseId"], placeholder);
+    let stored_mark = override_for(&stored, &mark["id"]);
     assert_eq!(
-        stored[0]["targetKey"],
+        stored_mark["targetKey"],
         format!("{placeholder}-weekly-0-2026-10-05")
     );
+    let stored_exam = override_for(&stored, &exam["id"]);
+    assert_eq!(stored_exam["base"]["courseId"], placeholder);
     assert!(b
         .user_rows("plan_items")
         .unwrap()
@@ -688,7 +760,7 @@ fn courses_merge_when_any_of_their_sources_is_written() {
     let ingest = || {
         store
             .write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
-                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, Utc::now())
+                crate::lms_ingest::apply_lms_enrolment(transaction, &enrolment, crate::clock::now())
                     .map_err(|error| DataError::from(error.to_string()))
             })
             .unwrap()
@@ -1019,7 +1091,7 @@ fn a_freshness_commit_refreshes_only_the_views_that_read_it() {
                 transaction,
                 &Key::new(Dataset::KyomuPage, "grades"),
                 commit,
-                Utc::now(),
+                crate::clock::now(),
             )
         })
         .unwrap();

@@ -48,7 +48,7 @@ struct AssignmentScreen: View {
             guard let deadline = assignment?.deadline, deadline.state == .remaining,
                   let due = Format.date(deadline.at) else { return }
             do {
-                try await Task.sleep(for: .seconds(max(0.001, due.timeIntervalSinceNow)))
+                try await Task.sleep(for: .seconds(max(0.001, AppClock.until(due))))
             } catch { return }
             guard let loaded = await model.assignmentDetail(assignmentId), !Task.isCancelled else { return }
             assignment = loaded

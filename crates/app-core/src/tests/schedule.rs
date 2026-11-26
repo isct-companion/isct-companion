@@ -101,6 +101,14 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
         friday.calendar_notice.as_deref(),
         Some("No classes due to Campus Festival")
     );
+    let list = lecture_list::lecture_list(
+        &data,
+        &SchoolReads::fixture(&data),
+        "2026-3Q",
+        parse_timestamp("2026-10-08T18:00:00+09:00").unwrap(),
+    )
+    .unwrap();
+    assert_eq!(list.next_by_course["course"].date, "2026-10-13");
     // The day's calendar row reaches the shell with its label already read.
     assert_eq!(
         friday.calendar_state.as_ref().unwrap()["label"],
@@ -266,7 +274,7 @@ fn malformed_period_meeting_is_reported_without_hiding_a_good_course() {
 }
 
 #[test]
-fn overview_uses_live_terms_global_timetable_and_static_department_name() {
+fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     let mut data = workspace();
     data["selectedTerm"] = json!("2099-4Q");
     data["settings"]["departmentId"] = json!("undergraduate:cs");
@@ -293,9 +301,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     assert!(!view.all_terms.contains(&"2099-4Q".to_string()));
     assert!(view.all_terms.contains(&"2027-1Q".to_string()));
     assert_eq!(view.enrolled_course_ids, vec!["course"]);
-    assert!(view
-        .on_timetable_course_ids
-        .contains(&"future-course".to_string()));
+    assert_eq!(view.term_course_ids, vec!["course"]);
     assert_eq!(
         view.default_finder_keys,
         vec!["curr".to_string(), "情報工学系".to_string()]
@@ -313,6 +319,7 @@ fn overview_uses_live_terms_global_timetable_and_static_department_name() {
     assert_eq!(future.default_finder_keys, vec!["1Q", "情報工学系"]);
     assert_eq!(future.courses_term, "2026-1Q");
     assert_eq!(future.term, "2027-1Q");
+    assert_eq!(future.term_course_ids, vec!["future-course"]);
 }
 
 #[test]
@@ -2442,7 +2449,7 @@ fn exam_lists_agendas_and_reminders_share_term_class_identity_and_personal_edits
         &data,
         &SchoolReads::fixture(&data),
         "reference:mine",
-        "course",
+        Some("course"),
     )
     .unwrap();
     assert!(association.conflicts.iter().any(|exam| exam.key == key));
@@ -2562,7 +2569,7 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
         &data,
         &SchoolReads::fixture(&data),
         "reference:extra",
-        "course"
+        Some("course")
     )
     .unwrap()
     .conflicts
@@ -2625,6 +2632,13 @@ fn a_user_mark_decides_what_a_session_is() {
     // carries it under the session's own key.
     mark_session(&mut data, "course-weekly-0-2026-04-20", "exam");
     assert_eq!(agenda(&data, "2026-04-20"), [(OccurrenceKind::Exam, None)]);
+    let school = SchoolReads::fixture(&data);
+    let now = parse_timestamp("2026-04-13T08:00:00+09:00").unwrap();
+    let today = today::today_view(&data, &school, now).unwrap();
+    let next = &today.upcoming[0].occurrence;
+    assert_eq!(next.key, "course-weekly-0-2026-04-20");
+    assert_eq!(next.kind, OccurrenceKind::Exam);
+    assert_eq!(next.term_id.as_deref(), Some("2026-1Q"));
     let listed = |data: &Value| {
         exam_views(data, &SchoolReads::fixture(data), "2026-1Q")
             .into_iter()
@@ -3208,7 +3222,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
             url: "https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf".into(),
         }]
     );
-    assert!(assignment_detail(&data, "gone", chrono::Utc::now().fixed_offset()).is_none());
+    assert!(assignment_detail(&data, "gone", crate::clock::now().fixed_offset()).is_none());
     // Names decode; a link to a folder falls back to its text; plain http,
     // relative links and other hosts are not attachments.
     let mut named = data.clone();
@@ -3218,7 +3232,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
         r#"<a href="http://lms.s.isct.ac.jp/pluginfile.php/1/x.zip">plain</a>"#,
         r#"<a href="/pluginfile.php/relative.zip">relative</a>"#,
     ));
-    let names: Vec<_> = assignment_detail(&named, "a", chrono::Utc::now().fixed_offset())
+    let names: Vec<_> = assignment_detail(&named, "a", crate::clock::now().fixed_offset())
         .unwrap()
         .attachments
         .into_iter()
@@ -3228,7 +3242,7 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     // Without a module row the page still shows the assignment's own fields.
     let mut bare = data.clone();
     bare["materials"] = json!([]);
-    let view = assignment_detail(&bare, "a", chrono::Utc::now().fixed_offset()).unwrap();
+    let view = assignment_detail(&bare, "a", crate::clock::now().fixed_offset()).unwrap();
     assert!(view.body_html.is_empty() && view.attachments.is_empty());
     assert_eq!(view.title, "Report");
 

@@ -1022,19 +1022,41 @@ export type ExamClass = {
 export type ExamDocument = {
   id: string;
   subjects: Array<ExamSubject>;
+  /**
+   * No teachers and `all_teachers` false is "teacher unknown".
+   */
   teachers: Array<ExamTeacher>;
+  /**
+   * The material is common to every teacher of the subject.
+   */
+  allTeachers: boolean;
   academicYear: number | null;
+  /**
+   * The API's occasion code; a code this build does not know is shown as
+   * "other".
+   */
   occasion: string | null;
+  /**
+   * The name of an `other` occasion; empty otherwise.
+   */
+  occasionText: string;
+  /**
+   * Shown when above 0.
+   */
   occasionNumber: number;
   variant: string;
   role: string | null;
+  /**
+   * The name of an `other` role; empty otherwise.
+   */
+  roleText: string;
   note: string | null;
   fileName: string;
   fileType: string;
   /**
-   * In a sitting (`ExamSet`) with several documents of this one role, its
-   * place among them from 1, so they can be told apart ("Question 2");
-   * otherwise none.
+   * In a sitting (`ExamSet`) with several documents of this one role and
+   * role name, its place among them from 1, so they can be told apart
+   * ("Question 2"); otherwise none.
    */
   number: number | null;
 };
@@ -1053,8 +1075,8 @@ export type ExamSubjectPage = {
   webUrl: string;
   /**
    * The subject's documents by sitting: the class's own first, then newest
-   * first and in the forms' occasion order. A question and its answer are
-   * one row on every shell.
+   * first and in occasion order. A question and its answer are one row on
+   * every shell.
    */
   sets: Array<ExamSet>;
 };
@@ -1062,13 +1084,23 @@ export type ExamSubjectPage = {
 export type ExamSet = {
   academicYear: number | null;
   occasion: string | null;
+  occasionText: string;
   occasionNumber: number;
   variant: string;
   teachers: Array<ExamTeacher>;
+  allTeachers: boolean;
   /**
-   * A teacher of the course's own class is among `teachers`.
+   * The sitting belongs to the course's own class, as the service decides
+   * it: only on a page with a class, for a class with no teachers listed,
+   * a material common to all teachers, or one naming a class teacher.
    */
   mine: boolean;
+  /**
+   * Whether a row names the sitting's teachers (`teachers`, else common
+   * to all or unknown): all but a sitting of the class's own listed
+   * teachers, which would only repeat them.
+   */
+  showTeachers: boolean;
   documents: Array<ExamDocument>;
 };
 
@@ -1077,8 +1109,11 @@ export type ExamRequest = {
   subject: ExamSubject;
   teachers: Array<ExamTeacher>;
   academicYear: number | null;
-  occasion: string | null;
-  wantedRole: string | null;
+  /**
+   * None when the request names none, or one this build does not know.
+   */
+  occasion: ExamOccasion | null;
+  wantedRole: ExamRole | null;
   description: string;
   status: string;
   answerExamId: string | null;
@@ -1090,10 +1125,6 @@ export type ExamRequestCursor = { createdAt: number; id: string };
 export type ExamRequestPage = {
   items: Array<ExamRequest>;
   cursor: ExamRequestCursor | null;
-  /**
-   * The requests board on the ScienceTokyoExam website.
-   */
-  webUrl: string;
 };
 
 export type ExamRequestDraft = {
@@ -1132,10 +1163,6 @@ export type ExamLibrary = {
   saved: Array<ExamDocument>;
   downloaded: Array<ExamDocument>;
   submitted: Array<ExamDocument>;
-  /**
-   * The person's library on the ScienceTokyoExam website.
-   */
-  webUrl: string;
 };
 
 export type ExamAccountStatus =
@@ -1148,7 +1175,12 @@ export type ExamAccount = {
 };
 
 export type ExamReportReason =
-  "copyright" | "inappropriate" | "wrongAnswer" | "brokenFile" | "other";
+  | "copyright"
+  | "inappropriate"
+  | "wrongInfo"
+  | "wrongAnswer"
+  | "brokenFile"
+  | "other";
 
 export type ExamUploadFile = { path: string; name: string };
 
@@ -1158,11 +1190,26 @@ export type ExamUploadDraft = {
   subjectCodes: Array<string>;
   teacherIds: Array<string>;
   newTeachers: Array<ExamNewTeacher>;
+  /**
+   * Common to every teacher; then it names none.
+   */
+  allTeachers: boolean;
   academicYear: number | null;
-  occasion: ExamOccasion;
+  /**
+   * None until the person picks one, as on the website.
+   */
+  occasion: ExamOccasion | null;
+  /**
+   * The name of an `other` occasion.
+   */
+  occasionText: string;
   occasionNumber: number;
   variant: string;
   role: ExamRole;
+  /**
+   * The name of an `other` role.
+   */
+  roleText: string;
   provenance: ExamProvenance;
   answerSource: ExamAnswerSource | null;
   note: string;
@@ -1172,17 +1219,7 @@ export type ExamUploadDraft = {
 export type ExamRole = "question" | "answer" | "both" | "notes" | "other";
 
 export type ExamOccasion =
-  | "unknown"
-  | "final"
-  | "midterm"
-  | "makeup"
-  | "quiz"
-  | "check"
-  | "report"
-  | "exercise"
-  | "textbook"
-  | "mock"
-  | "none";
+  "final" | "midterm" | "quiz" | "report" | "other" | "none";
 
 export type ExamProvenance = "original" | "reconstructed";
 
@@ -1190,6 +1227,9 @@ export type ExamAnswerSource = "unknown" | "official" | "student";
 
 export type ExamRoleChoice = {
   role: ExamRole;
+  /**
+   * A single entry is set without asking (`none` for notes).
+   */
   occasions: Array<ExamOccasion>;
   /**
    * Empty when the role has no answer.
@@ -1210,30 +1250,43 @@ export type ExamChoices = {
   limits: ExamLimits;
 };
 
+export type ExamSitePages = {
+  search: string;
+  requests: string;
+  library: string;
+  terms: string;
+  privacy: string;
+};
+
 export type ExamLimits = {
   /**
    * Subjects one upload may list.
    */
-  subjects: number;
+  subjects: number | null;
   /**
-   * Listed teachers one upload may name, and as many new ones.
+   * Listed teachers one upload may name.
    */
-  teachers: number;
-  occasionNumber: number;
-  variant: number;
-  note: number;
-  requestDescription: number;
-  reportDetail: number;
-  query: number;
+  teachers: number | null;
   /**
-   * A new teacher's family and given name, each.
+   * Teachers one upload may add to the list.
    */
-  teacherName: number;
+  newTeachers: number | null;
   /**
-   * The academic years an upload or a request may name.
+   * A variant, an occasion or role name, a new teacher's family or given
+   * name.
    */
-  earliestYear: number;
-  latestYear: number;
+  metadataText: number | null;
+  note: number | null;
+  reportDetail: number | null;
+  occasionNumberMax: number | null;
+  requestDescription: number | null;
+  searchQuery: number | null;
+  maxUploadBytes: number | null;
+  /**
+   * The academic years an upload may name.
+   */
+  earliestYear: number | null;
+  latestYear: number | null;
 };
 
 export type ExamUploadSubject = {
@@ -1289,11 +1342,14 @@ export type ExamUploadStatus = {
 
 export type ExamAction =
   | { kind: "account" }
+  | { kind: "site" }
   | { kind: "choices" }
   | { kind: "connect" }
   | { kind: "cancelConnect" }
   | { kind: "acceptTerms" }
+  | { kind: "decline" }
   | { kind: "disconnect" }
+  | { kind: "deleteAccount" }
   | { kind: "search"; query: string }
   | {
       kind: "subject";
@@ -1316,11 +1372,7 @@ export type ExamAction =
   | { kind: "deleteRequest"; id: string; mine: boolean }
   | { kind: "uploadForm"; start: ExamUploadStart }
   | { kind: "editUpload"; form: ExamUploadForm; edit: ExamUploadEdit }
-  | {
-      kind: "uploadReadiness";
-      files: Array<ExamUploadFile>;
-      draft: ExamUploadDraft;
-    }
+  | { kind: "uploadReadiness"; files: Array<ExamUploadFile> }
   | { kind: "upload"; files: Array<ExamUploadFile>; draft: ExamUploadDraft }
   | { kind: "cancelUpload" }
   | { kind: "recoverUpload" };
@@ -1333,6 +1385,7 @@ export type ExamAnswer =
   | { kind: "library"; value: ExamLibrary }
   | { kind: "saved"; value: boolean }
   | { kind: "requests"; value: ExamRequestPage }
+  | { kind: "site"; value: ExamSitePages }
   | { kind: "choices"; value: ExamChoices }
   | { kind: "uploadForm"; value: ExamUploadForm }
   | { kind: "uploadReadiness"; value: ExamUploadReadiness }
@@ -1965,7 +2018,10 @@ export type ExamConflict = {
   removed: boolean;
 };
 
+export type ExamLinkCourse = { id: string; title: string; code: string };
+
 export type ExamAssociation = {
+  courses: Array<ExamLinkCourse>;
   /**
    * Other exams (not exam-week classes) already linked to the course.
    */
@@ -2097,6 +2153,10 @@ export type TodayView = {
   date: string;
   term: string;
   /**
+   * Enough course or assignment data to leave the first-load state.
+   */
+  hasAcademicRecords: boolean;
+  /**
    * Week of the quarter, counted from its first day.
    */
   teachingWeek: number | null;
@@ -2149,6 +2209,16 @@ export type AssignmentBoard = {
 
 export type AcademicYearIndex = { currentYear: number; years: Array<number> };
 
+export type CourseTimetableControl =
+  | { kind: "manual"; visible: boolean }
+  | { kind: "lms"; visible: boolean; canRestore: boolean };
+
+export type CoursePlacementActions = {
+  canRemovePlan: boolean;
+  canDeleteCourse: boolean;
+  timetable: CourseTimetableControl | null;
+};
+
 export type WorkspaceOverview = {
   term: string;
   currentTerm: string;
@@ -2158,15 +2228,14 @@ export type WorkspaceOverview = {
   range: QuarterRange | null;
   courses: unknown[];
   /**
-   * Every visible course belonging to `term` (own quarter or placed
-   * there), on its timetable or not.
+   * The quarter's lecture roster, including courses with no meeting time.
    */
   termCourseIds: Array<string>;
   declaredCredits: number | null;
   termCredits: number;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
-  onTimetableCourseIds: Array<string>;
+  placements: { [key in string]: CoursePlacementActions };
   allTerms: Array<string>;
   defaultFinderKeys: Array<string>;
 };
@@ -2190,6 +2259,27 @@ export type ExamCourse = {
 
 export type ExamCourseList = { courses: Array<ExamCourse> };
 
+export type LectureCourse = {
+  id: string;
+  title: string;
+  code: string;
+  color: string;
+};
+
+export type LectureMeeting = {
+  date: string;
+  startTime: string;
+  room: string;
+  inClass: boolean;
+};
+
+export type LectureList = {
+  courses: Array<LectureCourse>;
+  nextByCourse: { [key in string]: LectureMeeting };
+  exams: Array<ExamView>;
+  allTerms: Array<string>;
+};
+
 export type ScheduleView = {
   term: string;
   range: QuarterRange | null;
@@ -2199,7 +2289,6 @@ export type ScheduleView = {
   declaredCredits: number | null;
   colors: { [key in string]: string };
   enrolledCourseIds: Array<string>;
-  onTimetableCourseIds: Array<string>;
   allTerms: Array<string>;
   /**
    * Stored plans and overrides left out of `agendas`.
@@ -2225,8 +2314,9 @@ export type WorkspaceQuery =
   | { kind: "courseContent"; courseId: string; now: string }
   | { kind: "deadlineDisplay"; at: string; now: string }
   | { kind: "assignmentDetail"; assignmentId: string }
-  | { kind: "examAssociation"; examKey: string; courseId: string }
+  | { kind: "examAssociation"; examKey: string; courseId: string | null }
   | { kind: "lectureSearch"; term: string | null; query: string }
+  | { kind: "lectureList"; term: string; now: string }
   | {
       kind: "scheduleView";
       /**
@@ -2293,6 +2383,7 @@ export type WorkspaceQueryResult =
   | { kind: "courseContent"; value: CourseContent | null }
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
+  | { kind: "lectureList"; value: LectureList }
   | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
@@ -2347,6 +2438,7 @@ export type WorkspaceIntent =
   | { kind: "removeTerm"; termId: string }
   | { kind: "saveCourse"; draft: unknown; termId: string; existingId?: string }
   | { kind: "deleteCourseBatch"; courseIds: Array<string> }
+  | { kind: "removeCatalogPlans"; courseIds: Array<string>; termId: string }
   | {
       kind: "editCourseBatch";
       courseIds: Array<string>;
@@ -2583,9 +2675,9 @@ export type FinderPage = {
   ineligible: number;
   activeSlots: Array<string>;
   /**
-   * Codes on the term's timetable.
+   * Catalog offering IDs on the term's timetable.
    */
-  placedCodes: Array<string>;
+  placedOfferingIds: Array<string>;
   commitKey: string | null;
   pasteHandled: boolean;
   pasted: Array<FinderRowView>;
@@ -2780,15 +2872,21 @@ export type ErrorCode =
   | "exam-share-denied"
   | "exam-share-consent"
   | "exam-share-administrator"
+  | "exam-share-email-taken"
   | "exam-share-not-found"
   | "exam-share-rejected"
+  | "exam-share-sharing-blocked"
   | "exam-share-identity"
   | "exam-share-already-reported"
   | "exam-share-quota"
   | "exam-share-upload-no-files"
-  | "exam-share-upload-teacher-name"
-  | "exam-share-upload-teacher-length"
-  | "exam-share-upload-variant-length"
+  | "exam-share-upload-subject"
+  | "exam-share-upload-teacher"
+  | "exam-share-upload-year"
+  | "exam-share-upload-occasion"
+  | "exam-share-upload-occasion-number"
+  | "exam-share-upload-role"
+  | "exam-share-upload-not-found"
   | "exam-share-upload-note-length"
   | "exam-share-upload-file"
   | "exam-share-upload-mixed"

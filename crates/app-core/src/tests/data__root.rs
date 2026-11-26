@@ -99,7 +99,7 @@ fn a_flat_folder_moves_into_a_store_and_keeps_user_data() {
         fs::read(store.paths().local(crate::schedule::REMINDER_LOG)).unwrap(),
         b"{\"a\":1}"
     );
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     assert_eq!(store.root().collect_retired(now).unwrap(), 0);
     assert!(flat.join(LEGACY_USER_FILE).is_file());
     assert_eq!(
@@ -159,7 +159,7 @@ fn generations_of_the_build_before_become_one_store() {
     assert_eq!(
         store
             .root()
-            .collect_retired(chrono::Utc::now() + RETIRED_GRACE + chrono::Duration::days(1))
+            .collect_retired(crate::clock::now() + RETIRED_GRACE + chrono::Duration::days(1))
             .unwrap(),
         2
     );

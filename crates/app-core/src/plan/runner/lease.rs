@@ -226,7 +226,7 @@ impl Lease {
             run: uuid::Uuid::new_v4().to_string(),
             locator: None,
             depth: Depth::Full,
-            started: Utc::now(),
+            started: crate::clock::now(),
             deadline: tokio::time::Instant::now() + KEY_DEADLINE,
             cancel: CancellationToken::new(),
             writer: LeaseWriter {
@@ -357,7 +357,7 @@ impl Ending {
     /// Blocking: writes the record and returns the key's state after it.
     pub(crate) fn write(self) -> Option<KeyState> {
         if let Some((outcome, kind, backoff)) = &self.record {
-            let now = Utc::now();
+            let now = crate::clock::now();
             let written = self.writer.write(None, |transaction| {
                 if *backoff {
                     sync_state::fail(transaction, &self.key, kind, now)?;

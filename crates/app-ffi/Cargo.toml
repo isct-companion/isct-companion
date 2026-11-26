@@ -14,6 +14,9 @@ bindgen = ["uniffi/cli"]
 ocr = ["dep:app-ocr", "dep:app-ocr-adapter"]
 # The campus map's reads; the iOS and Android bindings build it.
 campus-map = ["app-core/campus-map"]
+# The website screenshot scene (app-core's `demo`): a debug build of the
+# separate iOS demo app only (`build-ios.mjs --demo`).
+demo = ["app-core/demo"]
 
 [dependencies]
 adpt-isct = { path = "../adpt-isct" }

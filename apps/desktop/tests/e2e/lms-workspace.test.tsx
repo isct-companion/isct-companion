@@ -13,7 +13,7 @@ import {
   mountApp,
   offering,
   overviewFor,
-  scheduleViewFor,
+  lectureListFor,
   typeInto,
   until,
   workspaceFixture,
@@ -1257,7 +1257,7 @@ describe("the LMS reading workspace", () => {
       await waitFor(() =>
         expect(host.querySelector(".lmsWorkspaceCard")).not.toBeNull(),
       );
-      await click(buttonByText(host, "Prepare in LMS"));
+      await click(buttonByText(host, "Upload to LMS draft"));
       expect(
         core.commands("prepare_workspace_submission")[0].args,
       ).toMatchObject({
@@ -1580,7 +1580,7 @@ describe("the reading workspace on its lecture route", () => {
         },
         queries: {
           workspaceOverview: (_query, core) => overviewFor(core.workspace),
-          scheduleView: (_query, core) => scheduleViewFor(core.workspace),
+          lectureList: (_query, core) => lectureListFor(core.workspace),
           courseContent: (query) =>
             (query as { courseId: string }).courseId === f.course.id
               ? contentFor(f)
@@ -2484,11 +2484,14 @@ describe("a past exam's Markdown document", () => {
             id: "exam-1",
             subjects: [],
             teachers: [],
+            allTeachers: false,
             academicYear: 2025,
             occasion: null,
+            occasionText: "",
             occasionNumber: 1,
             variant: "",
             role: null,
+            roleText: "",
             note: null,
             fileName: "midterm.md",
             fileType: "text/plain",

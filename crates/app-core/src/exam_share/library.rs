@@ -1,10 +1,10 @@
 use super::cache::{
     cache_file, downloads, erase, file_path, local, save_metadata, Cached, TempFile,
 };
-use super::remote::{present_all, RemoteDocument, RemoteSubject};
+use super::remote::{has_class, present_all, RemoteDocument, RemoteSubject, SubjectRecords};
 use super::*;
 use crate::locale::ContentLanguage;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,53 +15,24 @@ struct RemoteExam {
     updated_at: u64,
 }
 
-#[derive(Deserialize)]
-struct RemotePage {
-    subject: RemoteSubject,
-    rows: Vec<ExamClass>,
-    exams: Vec<RemoteDocument>,
-}
-
-impl RemotePage {
-    /// Materials naming a teacher of the course's own class come first. The
-    /// class is matched by its exact ID in this subject's latest-year rows;
-    /// teachers are matched by ID, since a name does not establish identity.
-    fn present(
-        self,
-        class_id: Option<u32>,
-        language: ContentLanguage,
-    ) -> Result<ExamSubjectPage, ExamError> {
-        let class_id = class_id.filter(|id| has_class(&self.rows, Some(*id)));
-        let ours: HashSet<String> = self
-            .rows
-            .iter()
-            .filter(|row| class_id.is_some_and(|id| row.class_ids.contains(&id)))
-            .flat_map(|row| &row.teachers)
-            .map(|teacher| teacher.id.clone())
-            .collect();
-        let mut exams = present_all(self.exams, language);
-        exams.sort_by_key(|exam| !exam.teachers.iter().any(|t| ours.contains(&t.id)));
-        let web_url = url::Url::parse_with_params(
-            &format!("https://{}/search", client::Endpoint::Site.host()),
-            [("course", &self.subject.code)],
-        )
-        .map_err(|_| ExamError::Response)?
-        .into();
-        Ok(ExamSubjectPage {
-            subject: self.subject.present(language),
-            rows: self.rows,
-            sets: sets::group(exams, &ours),
-            class_id,
-            web_url,
-        })
-    }
+fn present_subject(
+    records: SubjectRecords,
+    class_id: Option<u32>,
+    language: ContentLanguage,
+) -> Result<ExamSubjectPage, ExamError> {
+    let web_url = url::Url::parse_with_params(
+        &client::site_page("search"),
+        [("course", &records.subject.code)],
+    )
+    .map_err(|_| ExamError::Response)?;
+    Ok(records.present(class_id, language, web_url.into()))
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SubjectDetails {
     #[serde(flatten)]
-    page: RemotePage,
+    page: SubjectRecords,
     current_teachers: Vec<ExamTeacher>,
     past_teachers: Vec<ExamTeacher>,
 }
@@ -106,8 +77,8 @@ impl RemoteRequest {
             subject: r.subject.present(language),
             teachers: r.teachers,
             academic_year: r.academic_year,
-            occasion: r.occasion,
-            wanted_role: r.wanted_role,
+            occasion: form::parse_code(r.occasion.as_deref()),
+            wanted_role: form::parse_code(r.wanted_role.as_deref()),
             description: r.description,
             status: r.status,
             answer_exam_id: r.answer_exam_id,
@@ -139,11 +110,7 @@ struct SubjectHit {
 struct SubjectCandidate {
     subject: RemoteSubject,
     class_matches: bool,
-    page: Option<RemotePage>,
-}
-
-fn has_class(rows: &[ExamClass], id: Option<u32>) -> bool {
-    id.is_some_and(|id| rows.iter().any(|row| row.class_ids.contains(&id)))
+    page: Option<SubjectRecords>,
 }
 
 fn course_candidates(candidates: BTreeMap<String, SubjectCandidate>) -> Vec<SubjectCandidate> {
@@ -274,7 +241,7 @@ impl ExamShare {
                         .page
                 }
             };
-            return page.present(class_id, language).map(ExamAnswer::Subject);
+            return present_subject(page, class_id, language).map(ExamAnswer::Subject);
         }
         Ok(ExamAnswer::Subjects(
             candidates
@@ -293,9 +260,6 @@ impl ExamShare {
         let query = query.trim();
         if query.is_empty() {
             return Ok(vec![]);
-        }
-        if query.encode_utf16().count() > form::limits().query as usize {
-            return Err(ExamError::InvalidInput);
         }
         let matches = self.search_subjects(session, query, "20").await?;
         Ok(matches
@@ -336,12 +300,10 @@ impl ExamShare {
             }
             ExamUploadStart::Request { .. } => return Err(ExamError::InvalidInput),
         };
+        let choices = self.choices().await?;
         let subject = self.upload_subject(session, &code, language).await?;
-        let role = form::role(
-            request
-                .as_ref()
-                .and_then(|item| item.wanted_role.as_deref()),
-        );
+        let first = choices.roles.first().ok_or(ExamError::Unsupported)?.role;
+        let provenance = *choices.provenances.first().ok_or(ExamError::Unsupported)?;
         let mut form = ExamUploadForm {
             draft: ExamUploadDraft {
                 subject_codes: vec![],
@@ -351,14 +313,18 @@ impl ExamShare {
                     .map(|teacher| teacher.id.clone())
                     .collect(),
                 new_teachers: vec![],
+                all_teachers: false,
                 academic_year: request.as_ref().and_then(|item| item.academic_year),
-                occasion: form::occasion(
-                    request.as_ref().and_then(|item| item.occasion.as_deref()),
-                ),
+                occasion: request.as_ref().and_then(|item| item.occasion),
+                occasion_text: String::new(),
                 occasion_number: 0,
                 variant: String::new(),
-                role,
-                provenance: ExamProvenance::Original,
+                role: request
+                    .as_ref()
+                    .and_then(|item| item.wanted_role)
+                    .unwrap_or(first),
+                role_text: String::new(),
+                provenance,
                 answer_source: None,
                 note: String::new(),
                 request_id: request.as_ref().map(|item| item.id.clone()),
@@ -367,7 +333,7 @@ impl ExamShare {
             teachers: vec![],
             request,
         };
-        form::settle(&mut form);
+        form::settle(&mut form, &choices);
         Ok(form)
     }
 
@@ -378,15 +344,18 @@ impl ExamShare {
         edit: ExamUploadEdit,
         language: ContentLanguage,
     ) -> Result<ExamUploadForm, ExamError> {
+        let choices = self.choices().await?;
         match edit {
             ExamUploadEdit::AddSubject { code } => {
                 let subject = self.upload_subject(session, &code, language).await?;
-                form::add_subject(&mut form, subject)?;
+                form::add_subject(&mut form, subject, &choices);
             }
-            ExamUploadEdit::RemoveSubject { code } => form::remove_subject(&mut form, &code)?,
+            ExamUploadEdit::RemoveSubject { code } => {
+                form::remove_subject(&mut form, &code, &choices)?
+            }
             ExamUploadEdit::Role { role } => {
                 form.draft.role = role;
-                form::normalize(&mut form.draft);
+                form::normalize(&mut form.draft, &choices);
             }
         }
         Ok(form)
@@ -454,9 +423,6 @@ impl ExamShare {
         detail: &str,
     ) -> Result<(), ExamError> {
         let detail = detail.trim();
-        if detail.encode_utf16().count() > form::limits().report_detail as usize {
-            return Err(ExamError::InvalidInput);
-        }
         let _: Value = self
             .call(
                 session,
@@ -495,7 +461,6 @@ impl ExamShare {
                 .map(|request| request.model(uid, language))
                 .collect(),
             cursor: answer.cursor,
-            web_url: client::site_page("request"),
         })
     }
 
@@ -504,13 +469,6 @@ impl ExamShare {
         session: &mut Session,
         draft: ExamRequestDraft,
     ) -> Result<(), ExamError> {
-        if draft.description.encode_utf16().count() > form::limits().request_description as usize
-            || draft
-                .academic_year
-                .is_some_and(|year| !form::valid_year(year))
-        {
-            return Err(ExamError::InvalidInput);
-        }
         let _: Value = self
             .call(
                 session,
@@ -580,7 +538,6 @@ impl ExamShare {
             saved: present_all(saved, language),
             submitted: present_all(submitted, language),
             downloaded: downloads(&self.account_folder(uid), language).await?,
-            web_url: client::site_page("library"),
         })
     }
 
@@ -687,14 +644,14 @@ impl ExamShare {
                 .await
                 .map_err(|_| ExamError::Storage)?;
             let mut keep = TempFile(path.clone());
-            match self
-                .api
-                .fetch_file(
-                    url::Url::parse(&url.url).map_err(|_| ExamError::Response)?,
-                    &path,
-                )
-                .await
-            {
+            // Within the service's own limit for one material, when it names
+            // one; reading it offline falls back like the transfer.
+            let fetch = async {
+                let limit = self.upload_limit().await?.unwrap_or(u64::MAX);
+                let url = url::Url::parse(&url.url).map_err(|_| ExamError::Response)?;
+                self.api.fetch_file(url, &path, limit).await
+            };
+            match fetch.await {
                 Err(ExamError::NotFound) => {
                     erase(&base).await?;
                     return Err(ExamError::NotFound);
@@ -713,7 +670,7 @@ impl ExamShare {
                 .await
                 .map_err(|_| ExamError::Storage)?;
             while let Some(entry) = entries.next_entry().await.map_err(|_| ExamError::Storage)? {
-                if entry.path() != path && entry.file_name() != "metadata.json" {
+                if entry.path() != path && entry.file_name() != cache::MANIFEST {
                     let _ = tokio::fs::remove_file(entry.path()).await;
                 }
             }
@@ -732,7 +689,3 @@ impl ExamShare {
         local(&base, metadata, false, saved, language).await
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/exam_share__library.rs"]
-mod tests;

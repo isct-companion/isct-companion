@@ -237,7 +237,7 @@ impl Publisher {
             return Ok(());
         };
         let generation = engine.generation();
-        let now = Utc::now();
+        let now = crate::clock::now();
         let (port, rebuild) = {
             let mut state = self.state();
             let Some(port) = state.port.clone().filter(|_| !state.paused) else {
@@ -274,7 +274,7 @@ impl Publisher {
                     .is_none_or(|old| old.get(kind) != snapshot.content_hash.get(kind))
             });
             if changed.contains(&true) {
-                snapshot.generated_at = Utc::now();
+                snapshot.generated_at = crate::clock::now();
                 let json = serde_json::to_string(&snapshot)?;
                 port.replace(&json)?;
                 let (courses, assignments) = snapshot.metrics();
@@ -373,7 +373,7 @@ impl Duty for Publisher {
                 // Another normal lifecycle or workspace event can retry.
                 let mut state = self.state();
                 state.renew = None;
-                state.advance_display(Utc::now());
+                state.advance_display(crate::clock::now());
                 crate::diagnostics::report("widgets", &error);
             }
         })

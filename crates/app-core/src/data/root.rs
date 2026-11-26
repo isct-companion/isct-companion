@@ -289,7 +289,7 @@ impl StoreRoot {
         candidates: &[Candidate],
         legacy: bool,
     ) -> Result<(), StoreOpenError> {
-        let now = chrono::Utc::now().timestamp();
+        let now = crate::clock::now().timestamp();
         let mut index = self.index();
         let transaction =
             index.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;

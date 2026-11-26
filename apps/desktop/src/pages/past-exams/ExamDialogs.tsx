@@ -4,6 +4,7 @@ import { desktopBridge } from "../../platform/native";
 import { errorText } from "../../lib/error-text";
 import {
   Button,
+  Checkbox,
   Chip,
   Field,
   Group,
@@ -39,21 +40,24 @@ import type {
   ExamUploadStatus,
 } from "../../generated/persistence";
 
-/** The academic years Core accepts, newest first. */
-const years = ({ limits }: ExamChoices) =>
-  Array.from({ length: limits.latestYear - limits.earliestYear + 1 }, (_, i) =>
-    String(limits.latestYear - i),
-  );
+/** The academic years the service names, newest first; none when it names
+ * no range. */
+const years = ({ limits: { earliestYear, latestYear } }: ExamChoices) =>
+  earliestYear === null || latestYear === null
+    ? []
+    : Array.from({ length: latestYear - earliestYear + 1 }, (_, i) =>
+        String(latestYear - i),
+      );
+/** A limit as a field's hint; a limit the service does not send is none. */
+const hint = (limit: number | null) => limit ?? undefined;
 
 /** Asks for documents of one subject; every field but the subject is optional. */
 export function RequestDialog({
-  opened,
   subject,
   choices,
   close,
   submit,
 }: {
-  opened: boolean;
   subject: ExamSubjectPage;
   choices: ExamChoices;
   close: () => void;
@@ -75,7 +79,7 @@ export function RequestDialog({
     })),
   );
   return (
-    <Modal opened={opened} onClose={close} title={t("examShare.newRequest")}>
+    <Modal opened onClose={close} title={t("examShare.newRequest")}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
@@ -142,7 +146,7 @@ export function RequestDialog({
           <Field label={t("examShare.description")}>
             <UiTextarea
               rows={3}
-              maxLength={choices.limits.requestDescription}
+              maxLength={hint(choices.limits.requestDescription)}
               value={description}
               onChange={(e) => setDescription(e.currentTarget.value)}
             />
@@ -162,26 +166,23 @@ export function RequestDialog({
 }
 
 export function ReportDialog({
-  opened,
   choices,
   close,
   submit,
 }: {
-  opened: boolean;
   choices: ExamChoices;
   close: () => void;
   submit: (reason: ExamReportReason, detail: string) => Promise<void>;
 }) {
-  const [reason, setReason] = useState<ExamReportReason>(
-    choices.reportReasons[0],
-  );
+  const [reason, setReason] = useState(choices.reportReasons.at(0));
   const [detail, setDetail] = useState("");
   const [sending, setSending] = useState(false);
   return (
-    <Modal opened={opened} onClose={close} title={t("examShare.report")}>
+    <Modal opened onClose={close} title={t("examShare.report")}>
       <form
         onSubmit={async (event) => {
           event.preventDefault();
+          if (!reason) return;
           setSending(true);
           await submit(reason, detail.trim());
           setSending(false);
@@ -190,7 +191,7 @@ export function ReportDialog({
         <Stack>
           <Radio.Group
             label={t("examShare.reportReason")}
-            value={reason}
+            value={reason ?? ""}
             onChange={(value) => setReason(value as ExamReportReason)}
           >
             {choices.reportReasons.map((value) => (
@@ -204,7 +205,7 @@ export function ReportDialog({
           <Field label={t("examShare.description")}>
             <UiTextarea
               rows={3}
-              maxLength={choices.limits.reportDetail}
+              maxLength={hint(choices.limits.reportDetail)}
               value={detail}
               onChange={(e) => setDetail(e.currentTarget.value)}
             />
@@ -254,41 +255,39 @@ export function UploadDialog({
   const [pickerError, setPickerError] = useState("");
   const { draft } = form;
   const { limits } = choices;
-  // Core's choices list every role; the draft's role is always among them.
-  const role = choices.roles.find((choice) => choice.role === draft.role)!;
+  const role = choices.roles.find((choice) => choice.role === draft.role);
+  const occasions = role?.occasions ?? [];
+  const answerSources = role?.answerSources ?? [];
   const pending = status.phase === "pending";
   const waiting = running || choosing || finding;
   const disabled = waiting || pending;
+  const teachersDisabled = disabled || draft.allTeachers;
+  const numbered =
+    draft.occasion !== null && choices.numbered.includes(draft.occasion);
 
+  // Core checks the file selection; the service checks the rest at send.
   const [checked, setChecked] = useState<{
-    draft: ExamUploadDraft;
     files: ExamUploadFile[];
     readiness: ExamUploadReadiness;
   }>();
-  const readiness =
-    checked?.draft === draft && checked.files === files
-      ? checked.readiness
-      : undefined;
+  const readiness = checked?.files === files ? checked.readiness : undefined;
   const canSubmit = !disabled && readiness?.reasonKey === null;
   useEffect(() => {
     if (choosing) return;
     let current = true;
-    void run({ kind: "uploadReadiness", draft, files }).then((answer) => {
+    void run({ kind: "uploadReadiness", files }).then((answer) => {
       if (current && answer?.kind === "uploadReadiness")
-        setChecked({ draft, files, readiness: answer.value });
+        setChecked({ files, readiness: answer.value });
     });
     return () => {
       current = false;
     };
-  }, [choosing, draft, files, run]);
+  }, [choosing, files, run]);
 
-  const update = <K extends keyof ExamUploadDraft>(
-    key: K,
-    value: ExamUploadDraft[K],
-  ) =>
+  const update = (change: Partial<ExamUploadDraft>) =>
     setForm((previous) => ({
       ...previous,
-      draft: { ...previous.draft, [key]: value },
+      draft: { ...previous.draft, ...change },
     }));
 
   /** Core applies the edits that follow a rule and answers the whole form. */
@@ -345,12 +344,11 @@ export function UploadDialog({
     key: "familyName" | "givenName",
     value: string,
   ) =>
-    update(
-      "newTeachers",
-      draft.newTeachers.map((entry, position) =>
+    update({
+      newTeachers: draft.newTeachers.map((entry, position) =>
         position === index ? { ...entry, [key]: value } : entry,
       ),
-    );
+    });
 
   return (
     <Modal
@@ -460,11 +458,12 @@ export function UploadDialog({
                 </span>
               ))}
             </div>
-            {form.subjects.length < limits.subjects && (
+            {(limits.subjects === null ||
+              form.subjects.length < limits.subjects) && (
               <Input
                 type="search"
                 className="examUploadSearch"
-                maxLength={limits.query}
+                maxLength={hint(limits.searchQuery)}
                 value={query}
                 disabled={disabled}
                 aria-label={t("examShare.upload.addSubject")}
@@ -532,51 +531,92 @@ export function UploadDialog({
               label: t(`examShare.role.${value}`),
             }))}
           />
+          {draft.role === "other" && (
+            <TextInput
+              label={t("examShare.upload.roleText")}
+              maxLength={hint(limits.metadataText)}
+              disabled={disabled}
+              value={draft.roleText}
+              onChange={(e) => update({ roleText: e.currentTarget.value })}
+            />
+          )}
           <Group grow>
             <Select
               label={t("examShare.year")}
               value={draft.academicYear ? String(draft.academicYear) : ""}
               disabled={disabled}
               onChange={(value) =>
-                update("academicYear", Number(value) || null)
+                update({ academicYear: Number(value) || null })
               }
               data={[
                 ...years(choices),
                 { value: "", label: t("examShare.unknownYear") },
               ]}
             />
-            {role.occasions.length !== 1 && (
+            {/* A role with one occasion has it set by Core. The picker
+                starts again when Core clears the occasion, since a select
+                with no value keeps its last pick. */}
+            {occasions.length > 1 && (
               <Select
+                key={draft.occasion === null ? "unpicked" : "picked"}
                 label={t("examShare.occasion")}
                 value={draft.occasion}
+                placeholder={t("examShare.upload.pickOccasion")}
                 disabled={disabled}
-                onChange={(value) => update("occasion", value as ExamOccasion)}
-                data={role.occasions.map((value) => ({
+                onChange={(value) =>
+                  update({ occasion: value as ExamOccasion })
+                }
+                data={occasions.map((value) => ({
                   value,
                   label: t(`examShare.occasion.${value}`),
                 }))}
               />
             )}
-            {choices.numbered.includes(draft.occasion) && (
+            {numbered && limits.occasionNumberMax !== null && (
               <Select
                 label={t("examShare.upload.occasionNumber")}
                 value={String(draft.occasionNumber)}
                 disabled={disabled}
-                onChange={(value) => update("occasionNumber", Number(value))}
-                data={Array.from({ length: limits.occasionNumber }, (_, i) =>
-                  String(i + 1),
-                )}
+                onChange={(value) => update({ occasionNumber: Number(value) })}
+                data={[
+                  { value: "0", label: t("examShare.upload.noNumber") },
+                  ...Array.from({ length: limits.occasionNumberMax }, (_, i) =>
+                    String(i + 1),
+                  ),
+                ]}
               />
             )}
           </Group>
+          {draft.occasion === "other" && (
+            <TextInput
+              label={t("examShare.upload.occasionText")}
+              maxLength={hint(limits.metadataText)}
+              disabled={disabled}
+              value={draft.occasionText}
+              onChange={(e) => update({ occasionText: e.currentTarget.value })}
+            />
+          )}
           <Field label={t("examShare.teacher")}>
+            <Checkbox
+              label={t("examShare.allTeachers")}
+              checked={draft.allTeachers}
+              disabled={disabled}
+              onCheckedChange={(checked) =>
+                update(
+                  checked === true
+                    ? { allTeachers: true, teacherIds: [], newTeachers: [] }
+                    : { allTeachers: false },
+                )
+              }
+            />
             {form.teachers.length > 0 && (
               <Chip.Group
                 multiple
                 value={draft.teacherIds}
+                disabled={teachersDisabled}
                 onChange={(ids) => {
-                  if (!disabled && ids.length <= limits.teachers)
-                    update("teacherIds", ids);
+                  if (limits.teachers === null || ids.length <= limits.teachers)
+                    update({ teacherIds: ids });
                 }}
               >
                 {form.teachers.map((teacher) => (
@@ -591,9 +631,9 @@ export function UploadDialog({
                 <TextInput
                   aria-label={t("examShare.upload.familyName")}
                   placeholder={t("examShare.upload.familyName")}
-                  required
+                  maxLength={hint(limits.metadataText)}
                   value={teacher.familyName}
-                  disabled={disabled}
+                  disabled={teachersDisabled}
                   onChange={(e) =>
                     setName(index, "familyName", e.currentTarget.value)
                   }
@@ -601,8 +641,9 @@ export function UploadDialog({
                 <TextInput
                   aria-label={t("examShare.upload.givenName")}
                   placeholder={t("examShare.upload.givenName")}
+                  maxLength={hint(limits.metadataText)}
                   value={teacher.givenName}
-                  disabled={disabled}
+                  disabled={teachersDisabled}
                   onChange={(e) =>
                     setName(index, "givenName", e.currentTarget.value)
                   }
@@ -611,45 +652,48 @@ export function UploadDialog({
                   variant="subtle"
                   color="gray"
                   size="compact-sm"
-                  disabled={disabled}
+                  disabled={teachersDisabled}
                   aria-label={t("common.remove")}
                   title={t("common.remove")}
                   onClick={() =>
-                    update(
-                      "newTeachers",
-                      draft.newTeachers.filter(
+                    update({
+                      newTeachers: draft.newTeachers.filter(
                         (_, position) => position !== index,
                       ),
-                    )
+                    })
                   }
                 >
                   <X size={14} aria-hidden />
                 </Button>
               </Group>
             ))}
-            {draft.newTeachers.length < limits.teachers && (
-              <Button
-                variant="subtle"
-                size="compact-sm"
-                className="examUploadAdd"
-                disabled={disabled}
-                onClick={() =>
-                  update("newTeachers", [
+            <Button
+              variant="subtle"
+              size="compact-sm"
+              className="examUploadAdd"
+              disabled={
+                teachersDisabled ||
+                (limits.newTeachers !== null &&
+                  draft.newTeachers.length >= limits.newTeachers)
+              }
+              onClick={() =>
+                update({
+                  newTeachers: [
                     ...draft.newTeachers,
                     { familyName: "", givenName: "" },
-                  ])
-                }
-              >
-                {t("examShare.upload.newTeacher")}
-              </Button>
-            )}
+                  ],
+                })
+              }
+            >
+              {t("examShare.upload.newTeacher")}
+            </Button>
           </Field>
           <Field label={t("examShare.upload.provenance")}>
             <SegmentedControl
               value={draft.provenance}
               disabled={disabled}
               onChange={(value) =>
-                update("provenance", value as ExamProvenance)
+                update({ provenance: value as ExamProvenance })
               }
               data={choices.provenances.map((value) => ({
                 value,
@@ -657,15 +701,15 @@ export function UploadDialog({
               }))}
             />
           </Field>
-          {role.answerSources.length > 0 && (
+          {answerSources.length > 0 && (
             <Field label={t("examShare.upload.answerSource")}>
               <SegmentedControl
-                value={draft.answerSource ?? role.answerSources[0]}
+                value={draft.answerSource ?? ""}
                 disabled={disabled}
                 onChange={(value) =>
-                  update("answerSource", value as ExamAnswerSource)
+                  update({ answerSource: value as ExamAnswerSource })
                 }
-                data={role.answerSources.map((value) => ({
+                data={answerSources.map((value) => ({
                   value,
                   label: t(`examShare.upload.${value}` as MessageKey),
                 }))}
@@ -675,15 +719,17 @@ export function UploadDialog({
           <Group grow>
             <TextInput
               label={t("examShare.upload.variant")}
+              maxLength={hint(limits.metadataText)}
               disabled={disabled}
               value={draft.variant}
-              onChange={(e) => update("variant", e.currentTarget.value)}
+              onChange={(e) => update({ variant: e.currentTarget.value })}
             />
             <TextInput
               label={t("examShare.upload.note")}
+              maxLength={hint(limits.note)}
               disabled={disabled}
               value={draft.note}
-              onChange={(e) => update("note", e.currentTarget.value)}
+              onChange={(e) => update({ note: e.currentTarget.value })}
             />
           </Group>
           <p className="examQuiet">{t("examShare.uploadPublic")}</p>

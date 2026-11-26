@@ -242,7 +242,7 @@ final class AppModel {
         guard let session, let directive, let raw = directive.at, let at = Self.date(raw) else { return }
         let revision = directive.revision
         deadlineTask = Task {
-            let wait = at.timeIntervalSinceNow
+            let wait = AppClock.until(at)
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
             guard !Task.isCancelled else { return }
             _ = try? session.deadlineReached(revision: revision)
@@ -268,7 +268,7 @@ final class AppModel {
             BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.backgroundMaintenance)
         }
         for request in requests {
-            let earliest = Self.date(request.earliest) ?? Date()
+            let earliest = Self.date(request.earliest).map(AppClock.system) ?? Date()
             switch request.work {
             case .network:
                 let task = BGAppRefreshTaskRequest(identifier: Self.backgroundRefresh)
@@ -423,7 +423,7 @@ final class AppModel {
     func refresh() async { await scheduleRefresh(force: true)?.value }
 
     private func readDashboard(_ session: Session, generation: Int) async throws {
-        let date = Date()
+        let date = AppClock.now
         let now = Self.timestamp(date)
         let from = Self.civil(date)
         let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: 14, to: date) ?? date)
@@ -445,7 +445,7 @@ final class AppModel {
         if let boundary = result.values.compactMap({ value -> Date? in
             guard case let .today(view) = value, let raw = view.nextBoundary else { return nil }
             return Self.date(raw)
-        }).first, boundary <= Date() { return }
+        }).first, boundary <= AppClock.now { return }
         guard try dashboardReads.accept(result, started: generation, session: session) else { return }
         if revision == previousRevision { revision = current }
         // No suspension between accepting the snapshot and publishing its views.
@@ -470,7 +470,7 @@ final class AppModel {
     private func scheduleBoundary() {
         boundaryTask?.cancel()
         guard let raw = today?.nextBoundary, let at = Self.date(raw) else { return }
-        let delay = max(1, at.timeIntervalSinceNow + 1)
+        let delay = max(1, AppClock.until(at) + 1)
         boundaryTask = Task {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
@@ -532,7 +532,7 @@ final class AppModel {
     /// A quarter as an iCalendar file, written by Core as the desktop's export.
     func quarterIcs(term: String, scope: CalendarExportScope) async throws -> String {
         guard let session else { throw SdkError.Unavailable(detail: "quarter calendar") }
-        let query = WorkspaceQuery.quarterIcs(term: term, scope: scope, generatedAt: Self.timestamp(Date()))
+        let query = WorkspaceQuery.quarterIcs(term: term, scope: scope, generatedAt: Self.timestamp(AppClock.now))
         guard case let .schedule(result) = try await session.scheduleQuery(queries: [query]).value(),
             case let .quarterIcs(text)? = result.values.first
         else { throw SdkError.Unavailable(detail: "quarter calendar") }
@@ -540,12 +540,12 @@ final class AppModel {
     }
 
     /// The quarter's courses as Core lists them for the course list.
-    func overview(_ term: String) async -> WorkspaceOverview? {
+    func lectureList(_ term: String) async -> LectureList? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .workspaceOverview(term: term)
+                .lectureList(term: term, now: Self.timestamp(Date()))
             ]).value(),
-            case let .workspaceOverview(view)? = result.values.first
+            case let .lectureList(view)? = result.values.first
         else { return nil }
         return view
     }
@@ -572,7 +572,7 @@ final class AppModel {
     func board(term: String) async -> AssignmentBoard? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .assignmentBoard(now: Self.timestamp(Date()), term: term)
+                .assignmentBoard(now: Self.timestamp(AppClock.now), term: term)
             ]).value(),
             case let .assignmentBoard(board)? = result.values.first
         else { return nil }
@@ -598,7 +598,7 @@ final class AppModel {
     func courseContent(_ id: String) async -> CourseContent? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .courseContent(courseId: id, now: Self.timestamp(Date()))
+                .courseContent(courseId: id, now: Self.timestamp(AppClock.now))
             ]).value(),
             case let .courseContent(content)? = result.values.first
         else { return nil }
@@ -619,7 +619,7 @@ final class AppModel {
     func deadlineDisplay(at: String) async -> TaskDeadlineView? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .deadlineDisplay(at: at, now: Self.timestamp(Date(), fractional: true))
+                .deadlineDisplay(at: at, now: Self.timestamp(AppClock.now, fractional: true))
             ]).value(),
             case let .deadlineDisplay(display)? = result.values.first
         else { return nil }
@@ -742,7 +742,7 @@ final class AppModel {
             ).value(),
             checked
         else { return }
-        defaults.set(Date().formatted(.iso8601), forKey: Self.lastUpdateCheck)
+        defaults.set(AppClock.now.formatted(.iso8601), forKey: Self.lastUpdateCheck)
         availableUpdate = release
         upToDate = manual && release == nil
         if prompt { updateOffer = release }

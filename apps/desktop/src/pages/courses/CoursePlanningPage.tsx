@@ -11,6 +11,7 @@ import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
 import { saveExportFile } from "../../platform/save-export";
+import { wallNow } from "../../platform/use-clock";
 import type { CourseEntry } from "../../features/lms";
 import { Courses } from "./CoursesPage";
 import { useState } from "react";
@@ -139,6 +140,9 @@ export function CoursePlanningPage({
   const panelCourse = panelCourseId
     ? data.courses.find((c) => c.id === panelCourseId && !c.deletedAt)
     : undefined;
+  const panelPlacement = panelCourse
+    ? workspaceView.placements[panelCourse.id]
+    : undefined;
   const termCredits = workspaceView.termCredits;
   const addFinderCourses = async (rows: FinderCourse[]) => {
     await academicIntentOrThrow({
@@ -147,18 +151,25 @@ export function CoursePlanningPage({
       offerings: rows,
     });
   };
-  const removeFromTimetable = async (course: Course) => {
-    const school = data.memberships.some(
-      (item) =>
-        item.courseId === course.id &&
-        !item.deletedAt &&
-        item.evidence?.provider !== "manual",
-    );
+  const removePlan = async (course: Course) => {
+    try {
+      await academicIntentOrThrow({
+        kind: "removeCatalogPlans",
+        courseIds: [course.id],
+        termId: courseTerm,
+      });
+      setPanelCourseId(null);
+    } catch (error) {
+      notify.error(error);
+    }
+  };
+  const showOnTimetable = async (course: Course, on: boolean) => {
     if (
-      school &&
+      !on &&
+      workspaceView.placements[course.id]?.timetable?.kind === "lms" &&
       !(await confirmAction(
-        t("app.removeThisCourseFromThe"),
-        t("common.remove"),
+        t("courses.hideLmsTimetableTitle", { title: course.title }),
+        t("courses.hideLmsTimetable"),
       ))
     )
       return;
@@ -166,7 +177,7 @@ export function CoursePlanningPage({
       await academicIntentOrThrow({
         kind: "setCourseOnTimetable",
         courseId: course.id,
-        onTimetable: false,
+        onTimetable: on,
       });
       setPanelCourseId(null);
     } catch (error) {
@@ -253,7 +264,7 @@ export function CoursePlanningPage({
             <OfferingPanel
               key={shownOffering.course.id}
               course={shownOffering.course}
-              placed={finder.placedCodes.has(shownOffering.course.code)}
+              placed={finder.placedOfferingIds.has(shownOffering.course.id)}
               replaces={shownOffering.replaces.map(
                 (id) =>
                   data.courses.find((course) => course.id === id)?.title ?? "",
@@ -275,11 +286,18 @@ export function CoursePlanningPage({
               course={panelCourse}
               readOnly={readOnly}
               close={() => setPanelCourseId(null)}
-              remove={() => void removeFromTimetable(panelCourse)}
+              timetable={panelPlacement?.timetable}
+              removePlan={
+                workspaceView.term === courseTerm &&
+                panelPlacement?.canRemovePlan
+                  ? () => void removePlan(panelCourse)
+                  : undefined
+              }
+              showOnTimetable={(on) => void showOnTimetable(panelCourse, on)}
               edit={() =>
                 courseEditors.editCourse({
                   course: panelCourse,
-                  term: panelCourse.termId,
+                  term: courseTerm,
                 })
               }
               editIntensive={() => courseEditors.editIntensive(panelCourse.id)}
@@ -373,7 +391,7 @@ export function CoursePlanningPage({
                 kind: "quarterIcs",
                 term,
                 scope,
-                generatedAt: new Date().toISOString(),
+                generatedAt: new Date(wallNow()).toISOString(),
               }),
             notify.info,
           )

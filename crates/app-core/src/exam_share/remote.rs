@@ -1,13 +1,15 @@
-//! The service's records as it sends them and the download cache keeps them:
+//! Records used by the service, download cache, and demo scene:
 //! subject names in both languages. Shells never see these types; `present`
 //! builds the read models with each name already in the content language, so
 //! no answer can leave one unchosen (`approach/content-language-in-core`).
 
-use super::model::{ExamDocument, ExamSubject, ExamTeacher};
+use super::model::{ExamClass, ExamDocument, ExamSubject, ExamSubjectPage, ExamTeacher};
+use super::sets;
 use super::ExamError;
 use crate::data::DataStore;
 use crate::locale::{ContentLanguage, Localized};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 /// The content language the answer to this action is built in.
 pub(super) fn content_language(store: &DataStore) -> Result<ContentLanguage, ExamError> {
@@ -21,8 +23,8 @@ pub(super) fn content_language(store: &DataStore) -> Result<ContentLanguage, Exa
 #[serde(rename_all = "camelCase")]
 pub(super) struct RemoteSubject {
     pub(super) code: String,
-    name: String,
-    name_en: Option<String>,
+    pub(super) name: String,
+    pub(super) name_en: Option<String>,
 }
 
 impl RemoteSubject {
@@ -44,14 +46,20 @@ pub(super) struct RemoteDocument {
     pub(super) id: String,
     subjects: Vec<RemoteSubject>,
     pub(super) teachers: Vec<ExamTeacher>,
+    all_teachers: bool,
     academic_year: Option<u32>,
     occasion: Option<String>,
+    occasion_text: String,
     occasion_number: u32,
     variant: String,
     role: Option<String>,
+    role_text: String,
     note: Option<String>,
     pub(super) file_name: String,
     pub(super) file_type: String,
+    /// The service's key for the documents shown together as one sitting;
+    /// none for one it pairs with nothing.
+    pair_key: Option<String>,
 }
 
 impl RemoteDocument {
@@ -64,11 +72,14 @@ impl RemoteDocument {
                 .map(|subject| subject.present(language))
                 .collect(),
             teachers: self.teachers,
+            all_teachers: self.all_teachers,
             academic_year: self.academic_year,
             occasion: self.occasion,
+            occasion_text: self.occasion_text,
             occasion_number: self.occasion_number,
             variant: self.variant,
             role: self.role,
+            role_text: self.role_text,
             note: self.note,
             file_name: self.file_name,
             file_type: self.file_type,
@@ -85,4 +96,49 @@ pub(super) fn present_all(
         .into_iter()
         .map(|document| document.present(language))
         .collect()
+}
+
+/// Subject records before content language, class priority, and exam grouping
+/// are applied.
+#[derive(Clone, Deserialize)]
+pub(crate) struct SubjectRecords {
+    pub(super) subject: RemoteSubject,
+    pub(super) rows: Vec<ExamClass>,
+    pub(super) exams: Vec<RemoteDocument>,
+}
+
+impl SubjectRecords {
+    /// The course's own class's sittings come first. The class and teachers
+    /// are matched by their IDs.
+    pub(super) fn present(
+        self,
+        class_id: Option<u32>,
+        language: ContentLanguage,
+        web_url: String,
+    ) -> ExamSubjectPage {
+        let class_id = class_id.filter(|id| has_class(&self.rows, Some(*id)));
+        let ours: HashSet<String> = self
+            .rows
+            .iter()
+            .filter(|row| class_id.is_some_and(|id| row.class_ids.contains(&id)))
+            .flat_map(|row| &row.teachers)
+            .map(|teacher| teacher.id.clone())
+            .collect();
+        let exams = self
+            .exams
+            .into_iter()
+            .map(|exam| (exam.pair_key.clone(), exam.present(language)))
+            .collect();
+        ExamSubjectPage {
+            subject: self.subject.present(language),
+            rows: self.rows,
+            sets: sets::group(exams, class_id.map(|_| &ours)),
+            class_id,
+            web_url,
+        }
+    }
+}
+
+pub(super) fn has_class(rows: &[ExamClass], id: Option<u32>) -> bool {
+    id.is_some_and(|id| rows.iter().any(|row| row.class_ids.contains(&id)))
 }

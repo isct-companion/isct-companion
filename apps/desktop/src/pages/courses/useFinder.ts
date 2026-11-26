@@ -35,7 +35,7 @@ export type Finder = {
   error?: string;
   /** Timetable slots of the time conditions, with local toggles applied. */
   slots: Set<string>;
-  placedCodes: Set<string>;
+  placedOfferingIds: Set<string>;
   includeIneligible: boolean;
   /** The request number of the shown page; later requests have larger ones. */
   shown: number;
@@ -254,7 +254,7 @@ export function useFinder({
     rows: s.rows,
     error: s.error,
     slots,
-    placedCodes: new Set(s.page?.placedCodes ?? []),
+    placedOfferingIds: new Set(s.page?.placedOfferingIds ?? []),
     includeIneligible: s.includeIneligible,
     shown: s.shown,
     issued: () => s.sent,

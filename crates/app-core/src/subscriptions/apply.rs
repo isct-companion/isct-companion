@@ -3,7 +3,6 @@ use super::{
     PublishedExamFeed, SubscriptionError,
 };
 use crate::data::{offering_course_id, versioned::content_hash};
-use chrono::Utc;
 use rusqlite::{OptionalExtension, Transaction};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -24,7 +23,7 @@ fn apply_row(
         )
         .optional()
         .map_err(SubscriptionError::from)?;
-    let timestamp = Utc::now().to_rfc3339();
+    let timestamp = crate::clock::now().to_rfc3339();
     if let Some((stored, _, gone)) = &old {
         if stored == &hash {
             return crate::data::versioned::keep_unchanged(tx, table, id, *gone, &timestamp)
@@ -224,7 +223,7 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(SubscriptionError::from)?;
     drop(statement);
-    crate::data::versioned::mark_missing_rows(tx, table, old, live, || Utc::now().to_rfc3339())
+    crate::data::versioned::mark_missing_rows(tx, table, old, live, || crate::clock::now().to_rfc3339())
         .map_err(SubscriptionError::from)
 }
 

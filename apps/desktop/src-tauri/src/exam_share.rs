@@ -1,10 +1,9 @@
-use crate::{
-    coded, commands::cloud::SystemBrowser, require_local_main, secrets::OsSecretVault, CommandError,
-};
-use app_core::{
-    exam_share::{ExamAction, ExamAnswer, ExamError, ExamSignIn, ExamUploadFile},
-    oauth::code_exchange,
-};
+use crate::{coded, require_local_main, CommandError};
+#[cfg(not(feature = "demo"))]
+use crate::{commands::cloud::SystemBrowser, secrets::OsSecretVault};
+use app_core::exam_share::{ExamAction, ExamAnswer, ExamError, ExamUploadFile};
+#[cfg(not(feature = "demo"))]
+use app_core::{exam_share::ExamSignIn, oauth::code_exchange};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -14,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 /// Open Core's ScienceTokyoExam client with the system browser for sign-in.
+#[cfg(not(feature = "demo"))]
 pub(crate) fn open(app: &tauri::AppHandle, vault: OsSecretVault) {
     let sign_in = code_exchange::installed_client().map(|client| ExamSignIn {
         client,

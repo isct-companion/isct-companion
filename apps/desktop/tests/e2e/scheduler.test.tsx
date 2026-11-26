@@ -7,7 +7,7 @@ import {
   mountApp,
   overviewFor,
   planningWeekFor,
-  scheduleViewFor,
+  lectureListFor,
   until,
   workspaceFixture,
   type FakeCore,
@@ -174,8 +174,8 @@ function eventQueries() {
       overviewFor(core.workspace),
     planningWeek: (_query: unknown, core: FakeCore) =>
       planningWeekWithEvent(core.workspace),
-    scheduleView: (_query: unknown, core: FakeCore) =>
-      scheduleViewFor(core.workspace),
+    lectureList: (_query: unknown, core: FakeCore) =>
+      lectureListFor(core.workspace),
   };
 }
 

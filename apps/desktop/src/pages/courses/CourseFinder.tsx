@@ -622,7 +622,7 @@ export function CourseFinder({
         {view && total === 0 && (
           <EmptyState icon={SearchX}>
             {firstDownload
-              ? t("courses.downloadingTheYearCourseCatalogResults", { year })
+              ? t("courses.downloadingTheYearCourseCatalog", { year })
               : stored === 0 && signInNeeded
                 ? t("courses.signInToSearchCourses")
                 : stored === 0 && accountHeld

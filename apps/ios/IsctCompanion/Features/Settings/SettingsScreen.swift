@@ -214,7 +214,7 @@ struct SettingsScreen: View {
     }
 
     private static var today: String {
-        Date().formatted(.iso8601.year().month().day())
+        AppClock.now.formatted(.iso8601.year().month().day())
     }
 
     /// The system this build runs on, as the log and the feedback form name

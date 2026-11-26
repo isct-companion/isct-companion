@@ -11,6 +11,7 @@ use app_core::cloud_sync::google_drive::{DriveAuthorization, GoogleDrive};
 #[cfg(not(target_os = "ios"))]
 use app_core::cloud_sync::google_drive::{SCOPE, VAULT_ACCOUNT};
 use app_core::cloud_sync::{CloudFuture, CloudSignIn, CloudSyncError};
+#[cfg(any(target_os = "ios", not(feature = "demo")))]
 use app_core::oauth::{BrowserCallback, OAuthError};
 #[cfg(target_os = "ios")]
 use app_core::{cloud_sync::google_drive::Pkce, oauth::code_exchange::OAuthClient};
@@ -616,6 +617,7 @@ pub trait NativeBrowserOpener: Send + Sync {
     async fn open_url(&self, url: String) -> Result<(), SdkError>;
 }
 
+#[cfg(any(target_os = "ios", not(feature = "demo")))]
 fn browser_error(error: SdkError) -> OAuthError {
     match error {
         SdkError::Cancelled => OAuthError::Cancelled,
@@ -625,7 +627,7 @@ fn browser_error(error: SdkError) -> OAuthError {
 
 #[cfg(target_os = "ios")]
 pub(crate) struct BrowserAuth(pub Arc<dyn NativeWebAuthSession>);
-#[cfg(not(target_os = "ios"))]
+#[cfg(all(not(target_os = "ios"), not(feature = "demo")))]
 pub(crate) struct BrowserAuth(pub Arc<dyn NativeBrowserOpener>);
 
 #[cfg(target_os = "ios")]
@@ -646,7 +648,7 @@ impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
         Box::pin(self.0.cancel())
     }
 }
-#[cfg(not(target_os = "ios"))]
+#[cfg(all(not(target_os = "ios"), not(feature = "demo")))]
 impl app_core::oauth::NativeBrowserAuth for BrowserAuth {
     fn authenticate<'a>(
         &'a self,
@@ -867,11 +869,11 @@ impl app_core::cloud_sync::CloudTransport for NoCloud {
     ) -> app_core::cloud_sync::CloudFuture<'a, Vec<app_core::cloud_sync::CloudVersion>> {
         Box::pin(async { Err(no_cloud()) })
     }
-    fn version_document<'a>(
+    fn restore_documents<'a>(
         &'a self,
         _: app_core::cloud_sync::CloudProvider,
         _: u64,
-    ) -> app_core::cloud_sync::CloudFuture<'a, serde_json::Value> {
+    ) -> app_core::cloud_sync::CloudFuture<'a, (serde_json::Value, serde_json::Value)> {
         Box::pin(async { Err(no_cloud()) })
     }
 }

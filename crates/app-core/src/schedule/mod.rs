@@ -7,6 +7,8 @@ mod civil;
 mod colors;
 mod course_content;
 mod course_detail;
+mod course_scope;
+pub(crate) use course_scope::planned_courses;
 mod credits;
 mod exam_courses;
 mod exams;
@@ -18,6 +20,7 @@ mod range;
 mod reminders;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
 pub use reminders::{reminder_lead_options, ReminderLeadOptions};
+mod lecture_list;
 mod requests;
 mod school;
 mod search;
@@ -63,14 +66,16 @@ pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, exam_association, exam_views,
     linked_exam_override, marked_session_override, removed_exam_override, ExamCorrection,
 };
-pub use exams::{ExamAssociation, ExamConflict, ExamSchedule, ExamView};
+pub use exams::{ExamAssociation, ExamConflict, ExamLinkCourse, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
+pub use lecture_list::{LectureCourse, LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
-pub(crate) use occurrence::placement_terms;
+pub(crate) use course_scope::placement_terms;
+pub use course_scope::{course_terms, term_courses};
 pub use occurrence::{
-    course_terms, course_timeline, intensive_days, planning_week, resolve_day_agenda,
-    schedule_problems, scheduled_courses, term_courses, validate_academic_profile, AgendaOptions,
+    course_timeline, intensive_days, planning_week, resolve_day_agenda,
+    schedule_problems, scheduled_courses, validate_academic_profile, AgendaOptions,
     CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
     PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
@@ -206,11 +211,15 @@ pub enum WorkspaceQuery {
     },
     ExamAssociation {
         exam_key: String,
-        course_id: String,
+        course_id: Option<String>,
     },
     LectureSearch {
         term: Option<String>,
         query: String,
+    },
+    LectureList {
+        term: String,
+        now: String,
     },
     ScheduleView {
         /// Toolbar/credit context only; agendas include every term in the date range.
@@ -366,7 +375,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::ScheduleView { .. } => &[
+            Self::ScheduleView { .. } | Self::LectureList { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -480,10 +489,30 @@ pub struct ScheduleView {
     pub declared_credits: Option<f64>,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
-    pub on_timetable_course_ids: Vec<String>,
     pub all_terms: Vec<String>,
     /// Stored plans and overrides left out of `agendas`.
     pub problems: Vec<ScheduleProblem>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum CourseTimetableControl {
+    Manual { visible: bool },
+    Lms {
+        visible: bool,
+        #[serde(rename = "canRestore")]
+        can_restore: bool,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[serde(rename_all = "camelCase")]
+pub struct CoursePlacementActions {
+    pub can_remove_plan: bool,
+    pub can_delete_course: bool,
+    pub timetable: Option<CourseTimetableControl>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -498,14 +527,13 @@ pub struct WorkspaceOverview {
     pub range: Option<QuarterRange>,
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub courses: Vec<Value>,
-    /// Every visible course belonging to `term` (own quarter or placed
-    /// there), on its timetable or not.
+    /// The quarter's lecture roster, including courses with no meeting time.
     pub term_course_ids: Vec<String>,
     pub declared_credits: Option<f64>,
     pub term_credits: f64,
     pub colors: std::collections::BTreeMap<String, String>,
     pub enrolled_course_ids: Vec<String>,
-    pub on_timetable_course_ids: Vec<String>,
+    pub placements: std::collections::BTreeMap<String, CoursePlacementActions>,
     pub all_terms: Vec<String>,
     pub default_finder_keys: Vec<String>,
 }
@@ -542,6 +570,7 @@ pub enum WorkspaceQueryResult {
     CourseContent(Option<CourseContent>),
     ExamAssociation(ExamAssociation),
     LectureSearch(LectureSearch),
+    LectureList(LectureList),
     ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
@@ -592,7 +621,10 @@ pub fn query(
             exam_key,
             course_id,
         } => Ok(WorkspaceQueryResult::ExamAssociation(exam_association(
-            workspace, school, &exam_key, &course_id,
+            workspace,
+            school,
+            &exam_key,
+            course_id.as_deref(),
         )?)),
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
@@ -679,7 +711,7 @@ pub fn query(
             Ok(WorkspaceQueryResult::AssignmentDetail(assignment_detail(
                 workspace,
                 &assignment_id,
-                chrono::Utc::now().fixed_offset(),
+                crate::clock::now().fixed_offset(),
             )))
         }
         WorkspaceQuery::DeadlineDisplay { at, now } => Ok(WorkspaceQueryResult::DeadlineDisplay(
@@ -689,16 +721,17 @@ pub fn query(
             workspace,
             parse_timestamp(&now)?,
         )?)),
+        WorkspaceQuery::LectureList { term, now } => Ok(WorkspaceQueryResult::LectureList(
+            lecture_list::lecture_list(workspace, school, &term, parse_timestamp(&now)?)?,
+        )),
         WorkspaceQuery::ScheduleView {
             term,
             from,
             to,
             include_personal,
         } => {
-            let term = Term::parse(&term)?;
-            let term_id = term.to_string();
-            let overview = workspace_overview(workspace, school, &term_id)?;
-            let courses = overview.courses.clone();
+            let term = Term::parse(&term)?.to_string();
+            let overview = workspace_overview(workspace, school, &term)?;
             let agendas = range::calendar_between_with_personal(
                 workspace,
                 school,
@@ -706,15 +739,15 @@ pub fn query(
                 &to,
                 include_personal,
             )?;
+            let exams = exam_views(workspace, school, &term);
             Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
-                term: term.to_string(),
+                term,
                 range: overview.range,
-                courses,
+                courses: overview.courses,
                 agendas,
-                exams: exam_views(workspace, school, &term_id),
+                exams,
                 colors: overview.colors,
                 enrolled_course_ids: overview.enrolled_course_ids,
-                on_timetable_course_ids: overview.on_timetable_course_ids,
                 all_terms: overview.all_terms,
                 declared_credits: overview.declared_credits,
                 problems: schedule_problems(workspace),
@@ -843,64 +876,64 @@ pub fn query(
     }
 }
 
-fn workspace_overview(
+struct WorkspaceTerms {
+    current: Term,
+    selected: String,
+    planning: String,
+    shown: Term,
+    available: Vec<String>,
+}
+
+fn workspace_terms(
     workspace: &Value,
     school: &SchoolReads,
-    term: &str,
-) -> Result<WorkspaceOverview, ScheduleError> {
-    let current_term = text(workspace, "currentTerm")
-        .or_else(|| (!term.is_empty()).then_some(term))
-        .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?
-        .to_owned();
-    let selected_term = text(workspace, "selectedTerm")
-        .unwrap_or(&current_term)
-        .to_owned();
-    let mut on_timetable_course_ids: Vec<String> = array(workspace, "memberships")
-        .iter()
-        .filter(|row| visible(row))
-        .filter_map(|row| text(row, "courseId").map(str::to_owned))
-        .collect();
-    on_timetable_course_ids.extend(
-        array(workspace, "planItems")
-            .iter()
-            .filter(|row| visible(row))
-            .filter_map(|row| text(row, "courseId").map(str::to_owned)),
-    );
-    on_timetable_course_ids.sort();
-    on_timetable_course_ids.dedup();
-    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
-    let mut all_terms: Vec<String> = exams::exam_terms(workspace, school).into_iter().collect();
-    all_terms.extend(earned.keys().cloned());
-    all_terms.extend(
+    requested: &str,
+    graded_terms: impl IntoIterator<Item = String>,
+) -> Result<WorkspaceTerms, ScheduleError> {
+    let current = text(workspace, "currentTerm")
+        .or_else(|| (!requested.is_empty()).then_some(requested))
+        .ok_or_else(|| ScheduleError::InvalidInput("Current term is unavailable.".into()))?;
+    let current_term = Term::parse(current)?;
+    let selected = text(workspace, "selectedTerm").unwrap_or(current);
+    let mut available = exams::exam_terms(workspace, school);
+    available.extend(graded_terms);
+    available.extend(
         array(workspace, "terms")
             .iter()
             .filter_map(Value::as_str)
             .map(str::to_owned),
     );
-    if !current_term.is_empty() {
-        all_terms.push(current_term.clone());
-    }
-    all_terms.sort();
-    all_terms.dedup();
+    available.insert(current.to_owned());
+    let planning = if available.contains(selected) {
+        selected
+    } else {
+        current
+    };
+    let shown = if requested.is_empty() { planning } else { requested };
+    Ok(WorkspaceTerms {
+        current: current_term,
+        selected: selected.into(),
+        planning: planning.into(),
+        shown: Term::parse(shown)?,
+        available: available.into_iter().collect(),
+    })
+}
+
+fn workspace_overview(
+    workspace: &Value,
+    school: &SchoolReads,
+    term: &str,
+) -> Result<WorkspaceOverview, ScheduleError> {
+    let earned = credits::earned_credits_by_term(array(workspace, "grades"));
+    let terms = workspace_terms(workspace, school, term, earned.keys().cloned())?;
+    let term = terms.shown.to_string();
     let colors = array(workspace, "courses")
         .iter()
         .filter(|course| visible(course))
         .filter_map(|course| Some((text(course, "id")?.to_owned(), display_color(course))))
         .collect();
-    let today_term = current_term.clone();
-    let courses_term = if all_terms.contains(&selected_term) {
-        selected_term.clone()
-    } else {
-        current_term.clone()
-    };
-    let term = if term.is_empty() {
-        courses_term.clone()
-    } else {
-        Term::parse(term)?.to_string()
-    };
-    Term::parse(&term)?;
     let courses = scheduled_courses(workspace, &term);
-    let term_course_ids = term_courses(workspace, &term)
+    let term_course_ids = course_scope::lecture_courses(workspace, Some(&term))
         .into_iter()
         .filter_map(|course| text(course, "id").map(str::to_owned))
         .collect();
@@ -910,8 +943,9 @@ fn workspace_overview(
         .filter_map(|row| text(row, "courseId").map(str::to_owned))
         .collect();
     let declared_credits = declared_term_credits(array(workspace, "registrations"), &term)?;
-    let current = Term::parse(&current_term)?;
-    let selected = Term::parse(&term)?;
+    let current = terms.current;
+    let current_term = current.to_string();
+    let selected = terms.shown;
     let current_semester =
         current.year == selected.year && (current.quarter - 1) / 2 == (selected.quarter - 1) / 2;
     let term_credits = if current_semester {
@@ -925,11 +959,10 @@ fn workspace_overview(
             .filter_map(|course| course.get("credits").and_then(Value::as_f64))
             .sum()
     });
-    let planned = Term::parse(&term)?;
-    let mut default_finder_keys = vec![if term == current_term {
+    let mut default_finder_keys = vec![if selected == current {
         "curr".into()
     } else {
-        format!("{}Q", planned.quarter)
+        format!("{}Q", selected.quarter)
     }];
     let department_id = workspace
         .pointer("/settings/departmentId")
@@ -946,10 +979,10 @@ fn workspace_overview(
     }
     Ok(WorkspaceOverview {
         term: term.clone(),
+        today_term: current_term.clone(),
         current_term,
-        selected_term,
-        today_term,
-        courses_term,
+        selected_term: terms.selected,
+        courses_term: terms.planning,
         range: calendar::quarter_range(workspace, &term)?,
         courses,
         term_course_ids,
@@ -957,8 +990,8 @@ fn workspace_overview(
         term_credits,
         colors,
         enrolled_course_ids,
-        on_timetable_course_ids,
-        all_terms,
+        placements: course_scope::placement_actions(workspace, &term),
+        all_terms: terms.available,
         default_finder_keys,
     })
 }
@@ -1090,6 +1123,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamView::decl(cfg),
         ExamSchedule::decl(cfg),
         ExamConflict::decl(cfg),
+        ExamLinkCourse::decl(cfg),
         ExamAssociation::decl(cfg),
         LectureSearch::decl(cfg),
         TaskDeadlineView::decl(cfg),
@@ -1109,9 +1143,14 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         DeadlineGroups::decl(cfg),
         AssignmentBoard::decl(cfg),
         AcademicYearIndex::decl(cfg),
+        CourseTimetableControl::decl(cfg),
+        CoursePlacementActions::decl(cfg),
         WorkspaceOverview::decl(cfg),
         ExamCourse::decl(cfg),
         ExamCourseList::decl(cfg),
+        LectureCourse::decl(cfg),
+        LectureMeeting::decl(cfg),
+        LectureList::decl(cfg),
         ScheduleView::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),
         WorkspaceQuery::decl(cfg),

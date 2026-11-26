@@ -143,28 +143,32 @@ pub(super) fn row_version(value: &Value) -> Result<VersionedValue, DataError> {
 
 pub(super) fn read_rows(connection: &Connection, table: &str) -> Result<Vec<Value>, DataError> {
     let sql = format!("SELECT value FROM {table} ORDER BY id");
-    read_json_rows(connection, table, &sql)
+    read_json_rows(connection, table, &sql, [])
 }
 
 pub(super) fn read_visible_rows(
     connection: &Connection,
     table: &str,
 ) -> Result<Vec<Value>, DataError> {
+    if table == "schedule_overrides" {
+        return schedule_overrides::read_effective(connection);
+    }
     if !SCHOOL_CACHE_TABLES.contains(&table) {
         return read_rows(connection, table);
     }
     let sql = format!("SELECT value FROM {table} WHERE missing_since IS NULL ORDER BY id");
-    read_json_rows(connection, table, &sql)
+    read_json_rows(connection, table, &sql, [])
 }
 
-fn read_json_rows(
+pub(super) fn read_json_rows(
     connection: &Connection,
     table: &str,
     sql: &str,
+    params: impl rusqlite::Params,
 ) -> Result<Vec<Value>, DataError> {
     let mut statement = connection.prepare(sql).map_err(DataError::from)?;
     let rows = statement
-        .query_map([], |row| row.get::<_, String>(0))
+        .query_map(params, |row| row.get::<_, String>(0))
         .map_err(DataError::from)?
         .map(|row| {
             let raw = row.map_err(DataError::from)?;
@@ -209,8 +213,7 @@ pub(crate) fn offering_course_id(
     academic_year: i32,
     offering_id: &str,
 ) -> Result<String, DataError> {
-    let key = course_keys::offering_key(academic_year, offering_id)
-        .unwrap_or_else(|| format!("catalog:{academic_year}:{offering_id}"));
+    let key = course_keys::catalog_key(academic_year, offering_id);
     course_keys::resolve(transaction, &[key])
 }
 
@@ -262,6 +265,17 @@ pub(super) fn upsert_row(
             return Ok(false);
         }
     }
+    let previous_target = if table == "schedule_overrides" {
+        transaction
+            .query_row(
+                "SELECT json_extract(value, '$.targetKey') FROM schedule_overrides WHERE id=?1",
+                [id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+    } else {
+        None
+    };
     let raw = serde_json::to_string(value).map_err(DataError::from)?;
     let sql = format!(
         "INSERT INTO {table}
@@ -287,6 +301,16 @@ pub(super) fn upsert_row(
             ],
         )
         .map_err(DataError::from)?;
+    if table == "schedule_overrides" {
+        let target = schedule_overrides::target_key(value)?;
+        if let Some(previous) = previous_target
+            .as_deref()
+            .filter(|previous| *previous != target)
+        {
+            schedule_overrides::update_lookup(transaction, previous)?;
+        }
+        schedule_overrides::update_lookup(transaction, target)?;
+    }
     Ok(true)
 }
 

@@ -457,6 +457,9 @@ declare global {
     __ISCT_COMPANION_TOOLS__?: readonly DesktopTool[];
     /** Set by the same bootstrap: the material the native window draws. */
     __ISCT_COMPANION_WINDOW_MATERIAL__?: "mica" | "";
+    /** Set by the same bootstrap: how far Core's clock runs ahead of the
+     * system clock (`app_core::clock::offset`), zero outside a demo build. */
+    __ISCT_COMPANION_CLOCK_OFFSET_MS__?: number;
   }
 }
 

@@ -86,13 +86,13 @@ export function Today({
   // Apart from the rest: another week's days must not draw under this one,
   // while the answers below stay on screen when only the minute changes.
   const weekQuery = useScheduleQuery<DatedAgenda[]>(
-    { kind: "calendarRange", from: weekStart, to: addDays(viewIso, 7) },
+    { kind: "calendarRange", from: weekStart, to: addDays(weekStart, 6) },
     active,
   );
   const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
     [
       { kind: "upcomingExams", from: viewIso, to: null },
-      { kind: "today", now: nowIso },
+      { kind: "today", now: isToday ? nowIso : `${viewIso}T00:00:00+09:00` },
       { kind: "taskView", now: nowIso },
     ],
     active,
@@ -110,7 +110,9 @@ export function Today({
     return {
       date,
       busy: Boolean(
-        agendas?.find((day) => day.date === date)?.occurrences.length,
+        agendas
+          ?.find((day) => day.date === date)
+          ?.occurrences.some((item) => !item.cancelled),
       ),
     };
   });
@@ -217,7 +219,6 @@ export function Today({
             </header>
             <ExamCards
               exams={exams?.slice(0, 3) ?? []}
-              courses={data.courses}
               open={(id) => open(id)}
               openExam={openExam}
             />
@@ -225,9 +226,8 @@ export function Today({
         )}
         <TodayAgenda
           data={data}
-          agendas={agendas}
           agenda={agenda}
-          today={today}
+          today={today?.date === viewIso ? today : undefined}
           now={now}
           viewIso={viewIso}
           isToday={isToday}

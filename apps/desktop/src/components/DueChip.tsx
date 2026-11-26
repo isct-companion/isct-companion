@@ -5,6 +5,7 @@ import { countdownText } from "../lib/deadline-text";
 import { formatJst } from "../lib/civil-date";
 import { t } from "../i18n";
 import { scheduleQuery } from "../platform/core-query";
+import { wallNow } from "../platform/use-clock";
 import { Tag, type TagRole } from "./ui";
 
 /** Core supplies each display and its next refresh instant. */
@@ -31,7 +32,7 @@ export function DueChip({
         void scheduleQuery<TaskDeadlineView>({
           kind: "deadlineDisplay",
           at: view.at,
-          now: new Date().toISOString(),
+          now: new Date(wallNow()).toISOString(),
         }).then(
           (next) => {
             if (!cancelled) setRefresh({ initial: due, view: next });
@@ -39,7 +40,7 @@ export function DueChip({
           () => undefined,
         );
       },
-      Math.max(1, Date.parse(view.nextChangeAt) - Date.now()),
+      Math.max(1, Date.parse(view.nextChangeAt) - wallNow()),
     );
     return () => {
       cancelled = true;

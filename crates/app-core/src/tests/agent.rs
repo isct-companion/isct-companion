@@ -560,7 +560,25 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
         )
         .unwrap();
     assert_eq!(added["terms"], json!(["2026-3Q", "2026-4Q"]));
-    assert_eq!(added["planItemId"], "mcp-plan:2026-4Q:202612346");
+    let quarter_plan = |term: &str| {
+        fixture
+            .store
+            .user_rows("plan_items")
+            .unwrap()
+            .into_iter()
+            .find(|row| row["termId"] == term)
+            .unwrap()
+    };
+    let other_quarter = quarter_plan("2026-4Q");
+    let removed_id = quarter_plan("2026-3Q")["id"].clone();
+    assert_eq!(added["planItemId"], other_quarter["id"]);
+    // Older versions could delete the offline description even while another
+    // matching plan survived. The draft still has a course in both quarters.
+    let description = fixture.store.user_rows("manual_courses").unwrap().remove(0);
+    fixture
+        .store
+        .delete_user_record("manual_courses", description["id"].as_str().unwrap())
+        .unwrap();
     // One course, the same in each of its quarters.
     let ids: Vec<_> = ["3Q", "4Q"]
         .map(|quarter| {
@@ -575,13 +593,16 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
         })
         .into();
     assert_eq!(ids[0], ids[1]);
-    // Planned in another of its quarters is no reason to refuse.
     service
         .call(
             "plan_remove",
             json!({"offeringId":"202612346","term":"2026-3Q"}),
         )
         .unwrap();
+    let removed = service
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
+        .unwrap();
+    assert_eq!(removed["courses"], json!([]));
     let again = service
         .call(
             "plan_add",
@@ -589,59 +610,12 @@ fn plan_add_places_a_multi_quarter_offering_in_each_of_its_quarters() {
         )
         .unwrap();
     assert_eq!(again["courseId"], ids[0]);
-    assert_eq!(fixture.store.user_rows("manual_courses").unwrap().len(), 1);
-    let live = fixture
-        .store
-        .user_rows("plan_items")
-        .unwrap()
-        .into_iter()
-        .filter(|row| row.get("deletedAt").is_none())
-        .count();
-    assert_eq!(live, 2);
-}
-
-#[test]
-fn plan_add_does_not_revive_a_deleted_copy_of_a_live_course() {
-    let fixture = Fixture::new();
-    fixture.seed_offering();
-    let service = fixture.service();
-    service
-        .call(
-            "plan_add",
-            json!({"offeringId":"202612345","term":"2026-3Q"}),
-        )
+    assert_eq!(again["planItemId"], removed_id);
+    assert_eq!(quarter_plan("2026-4Q"), other_quarter);
+    let courses = service
+        .call("courses", json!({"year":2026,"quarter":"3Q"}))
         .unwrap();
-    let course = fixture.store.user_rows("manual_courses").unwrap().remove(0);
-    fixture
-        .store
-        .delete_user_record("manual_courses", course["id"].as_str().unwrap())
-        .unwrap();
-    // The school lists the same offering as a registered course.
-    let mut school = course.clone();
-    school["id"] = json!("2026-school-202612345");
-    school["source"] = json!({"provider":"kyomu"});
-    fixture
-        .store
-        .write(None, |transaction| {
-            transaction
-                .execute(
-                    "INSERT INTO timetable_courses (id,value,hash,updated_at,updated_by,rev)
-                     VALUES (?1,?2,'seed','2026-10-01T00:00:00Z','kyomu',1)",
-                    rusqlite::params!["2026-school-202612345", school.to_string()],
-                )
-                .map_err(crate::data::DataError::from)
-        })
-        .unwrap();
-    let added = service
-        .call(
-            "plan_add",
-            json!({"offeringId":"202612345","term":"2026-3Q"}),
-        )
-        .unwrap();
-    assert_eq!(added["courseId"], "2026-school-202612345");
-    assert!(fixture.store.user_rows("manual_courses").unwrap()[0]
-        .get("deletedAt")
-        .is_some());
+    assert_eq!(courses["courses"][0]["id"], ids[0]);
 }
 
 // A read tool loads only the fields its declared changes name. A field it
@@ -804,14 +778,15 @@ fn seed_personal_schedule(fixture: &Fixture) {
     use crate::workspace::WorkspaceIntent::{EditExam, MarkSession, SaveScheduleOverride};
     fixture.seed_offering();
     fixture.seed_calendar();
-    fixture
+    let planned = fixture
         .service()
         .call(
             "plan_add",
             json!({"offeringId":"202612345","term":"2026-3Q"}),
         )
         .unwrap();
-    let key = |date: &str| format!("2026-202612345-weekly-0-{date}");
+    let course_id = planned["courseId"].as_str().unwrap();
+    let key = |date: &str| format!("{course_id}-weekly-0-{date}");
     fixture.intent(MarkSession {
         key: key("2026-10-19"),
         mark: "quiz".into(),
@@ -898,7 +873,6 @@ fn schedule_today_and_exams_carry_the_persons_changes() {
         (&quiz["kind"], &quiz["quiz"]),
         (&json!("exam"), &json!(true))
     );
-    assert_eq!(quiz["key"], "2026-202612345-weekly-0-2026-10-19");
     // Cancelled stays in `schedule` to explain the day, marked as such.
     assert_eq!(day("2026-10-26")[0]["cancelled"], true);
     // The moved class leaves its own date and lands in 4Q.
@@ -960,7 +934,7 @@ fn schedule_today_and_exams_carry_the_persons_changes() {
     assert!(find("reference:exams:2026:undergraduate:3q:other")
         .get("courseId")
         .is_none());
-    let marked = find("2026-202612345-weekly-0-2026-10-19");
+    let marked = find(quiz["key"].as_str().unwrap());
     assert_eq!(
         (&marked["kind"], &marked["origin"]),
         (&json!("quiz"), &json!("session"))

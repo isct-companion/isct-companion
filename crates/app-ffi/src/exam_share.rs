@@ -3,12 +3,13 @@ use crate::{
     types::ExamAction,
     Operation, OperationResult, SdkError, Session,
 };
+#[cfg(not(feature = "demo"))]
 use app_core::exam_share::ExamSignIn;
 use std::sync::Arc;
 
 /// The sign-in this build offers: iOS's registered client in a web
 /// authentication session.
-#[cfg(target_os = "ios")]
+#[cfg(all(not(feature = "demo"), target_os = "ios"))]
 pub(crate) fn sign_in(
     session: Option<Arc<dyn crate::ports::NativeWebAuthSession>>,
     client_id: Option<String>,
@@ -22,7 +23,7 @@ pub(crate) fn sign_in(
 
 /// The sign-in this build offers: the installed-app client, answered on
 /// Core's loopback once the browser opened Google's page.
-#[cfg(not(target_os = "ios"))]
+#[cfg(all(not(feature = "demo"), not(target_os = "ios")))]
 pub(crate) fn sign_in(
     opener: Option<Arc<dyn crate::ports::NativeBrowserOpener>>,
 ) -> Option<ExamSignIn> {

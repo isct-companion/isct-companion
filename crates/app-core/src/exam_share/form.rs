@@ -1,104 +1,178 @@
-//! The rules the past-exams forms follow, in one place: which values each
-//! form offers and how an upload draft stays consistent as it is edited.
+//! The past-exams forms: the values they offer, read from the service's
+//! `client-config`, and how an upload draft stays consistent as it is edited.
+//! The service checks every form; nothing here repeats its rules.
 use super::{
     ExamAnswerSource as Source, ExamChoices, ExamError, ExamLimits, ExamOccasion as Occasion,
-    ExamProvenance, ExamReportReason, ExamRole as Role, ExamRoleChoice, ExamTeacher,
-    ExamUploadDraft, ExamUploadForm, ExamUploadSubject,
+    ExamReportReason, ExamRole as Role, ExamRoleChoice, ExamTeacher, ExamUploadDraft,
+    ExamUploadForm, ExamUploadSubject,
 };
+use serde::{de::DeserializeOwned, Deserialize};
+use serde_json::Value;
 use std::collections::HashSet;
 
-/// The occasions of an exam material, the default first.
-const EXAM_OCCASIONS: [Occasion; 10] = [
-    Occasion::Unknown,
-    Occasion::Final,
-    Occasion::Midterm,
-    Occasion::Makeup,
-    Occasion::Quiz,
-    Occasion::Check,
-    Occasion::Report,
-    Occasion::Exercise,
-    Occasion::Textbook,
-    Occasion::Mock,
-];
-
-pub(super) fn choices() -> ExamChoices {
-    let role = |role| ExamRoleChoice {
-        role,
-        occasions: match role {
-            Role::Notes | Role::Other => vec![Occasion::NotApplicable],
-            Role::Question | Role::Answer | Role::Both => EXAM_OCCASIONS.to_vec(),
-        },
-        answer_sources: match role {
-            Role::Answer | Role::Both => vec![Source::Unknown, Source::Official, Source::Student],
-            Role::Question | Role::Notes | Role::Other => vec![],
-        },
-    };
-    ExamChoices {
-        roles: [
-            Role::Question,
-            Role::Answer,
-            Role::Both,
-            Role::Notes,
-            Role::Other,
-        ]
-        .into_iter()
-        .map(role)
-        .collect(),
-        numbered: vec![Occasion::Quiz, Occasion::Check, Occasion::Report],
-        provenances: vec![ExamProvenance::Original, ExamProvenance::Reconstructed],
-        request_roles: vec![Role::Question, Role::Answer],
-        request_occasions: EXAM_OCCASIONS[1..].to_vec(),
-        report_reasons: vec![
-            ExamReportReason::Copyright,
-            ExamReportReason::Inappropriate,
-            ExamReportReason::WrongAnswer,
-            ExamReportReason::BrokenFile,
-            ExamReportReason::Other,
-        ],
-        limits: limits(),
-    }
+/// The parts of `client-config` the forms read. A list or limit the service
+/// stops sending reads as empty, and the version gate never rests on them.
+#[derive(Deserialize)]
+struct Choices {
+    choices: Codes,
 }
 
-/// Bring the role's dependent fields in line with what the role allows:
-/// a value the role does not offer becomes its default.
-pub(super) fn normalize(draft: &mut ExamUploadDraft) {
-    let choices = choices();
-    let Some(allowed) = choices
+#[derive(Deserialize)]
+struct Limits {
+    #[serde(default)]
+    limits: ExamLimits,
+}
+
+pub(super) fn limits(config: &Value) -> Result<ExamLimits, ExamError> {
+    Limits::deserialize(config)
+        .map(|rules| rules.limits)
+        .map_err(|_| ExamError::Response)
+}
+
+/// The codes `client-config` lists for the forms, as sent.
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub(super) struct Codes {
+    pub upload_occasions: Vec<String>,
+    pub request_occasions: Vec<String>,
+    pub numbered_occasions: Vec<String>,
+    pub roles: Vec<String>,
+    pub provenances: Vec<String>,
+    pub answer_sources: Vec<String>,
+    pub wanted_roles: Vec<String>,
+    pub report_reasons: Vec<String>,
+}
+
+/// The codes of `codes` this build has words for, in the service's order.
+/// The service may add codes at any time; they show once the app knows them.
+fn known<T: DeserializeOwned>(codes: &[String]) -> Vec<T> {
+    codes
+        .iter()
+        .filter_map(|code| serde_json::from_value(Value::from(code.as_str())).ok())
+        .collect()
+}
+
+/// The forms' choices from a `client-config` answer.
+pub(super) fn choices(config: &Value) -> Result<ExamChoices, ExamError> {
+    let codes = Choices::deserialize(config)
+        .map_err(|_| ExamError::Response)?
+        .choices;
+    build(codes, limits(config)?)
+}
+
+/// The choices for `codes`. A list a form needs that holds nothing this
+/// build knows makes the forms unusable: this build is too old for the
+/// service.
+pub(super) fn build(codes: Codes, limits: ExamLimits) -> Result<ExamChoices, ExamError> {
+    let occasions: Vec<Occasion> = known(&codes.upload_occasions);
+    let sources: Vec<Source> = known(&codes.answer_sources);
+    let roles: Vec<Role> = known(&codes.roles);
+    let choices = ExamChoices {
+        roles: roles
+            .into_iter()
+            .map(|role| ExamRoleChoice {
+                role,
+                // The service's config does not say which occasions a role
+                // takes; its upload check does (`examUploadModel.ts`).
+                occasions: match role {
+                    Role::Notes | Role::Other => vec![Occasion::NotApplicable],
+                    Role::Question | Role::Answer | Role::Both => occasions.clone(),
+                },
+                answer_sources: match role {
+                    Role::Answer | Role::Both => sources.clone(),
+                    Role::Question | Role::Notes | Role::Other => vec![],
+                },
+            })
+            .collect(),
+        numbered: known(&codes.numbered_occasions),
+        provenances: known(&codes.provenances),
+        request_roles: known(&codes.wanted_roles),
+        request_occasions: known(&codes.request_occasions),
+        report_reasons: codes
+            .report_reasons
+            .iter()
+            .filter_map(|code| ExamReportReason::from_api_code(code))
+            .collect(),
+        limits,
+    };
+    if choices.roles.is_empty()
+        || occasions.is_empty()
+        || sources.is_empty()
+        || choices.provenances.is_empty()
+        || choices.report_reasons.is_empty()
+    {
+        return Err(ExamError::Unsupported);
+    }
+    Ok(choices)
+}
+
+/// Bring the draft's dependent fields in line with its role and occasion,
+/// as the website's form does: a role the service does not offer becomes
+/// its first; an occasion the role does not take is cleared for the person
+/// to pick again, unless the role takes only one; a number only for a
+/// numbered occasion; a name only for an `other` occasion or role; an answer
+/// source only for an answer, `unknown` until picked; no teachers for a
+/// material common to all.
+pub(super) fn normalize(draft: &mut ExamUploadDraft, choices: &ExamChoices) {
+    let allowed = match choices
         .roles
         .iter()
         .find(|choice| choice.role == draft.role)
-    else {
-        return;
+    {
+        Some(allowed) => allowed,
+        None => match choices.roles.first() {
+            Some(first) => {
+                draft.role = first.role;
+                first
+            }
+            None => return,
+        },
     };
-    if !allowed.occasions.contains(&draft.occasion) {
-        draft.occasion = allowed.occasions[0];
+    if let [only] = allowed.occasions.as_slice() {
+        draft.occasion = Some(*only);
+    } else if draft
+        .occasion
+        .is_some_and(|occasion| !allowed.occasions.contains(&occasion))
+    {
+        draft.occasion = None;
     }
-    if !choices.numbered.contains(&draft.occasion) {
+    if !draft
+        .occasion
+        .is_some_and(|occasion| choices.numbered.contains(&occasion))
+    {
         draft.occasion_number = 0;
+    }
+    if draft.occasion != Some(Occasion::Other) {
+        draft.occasion_text.clear();
+    }
+    if draft.role != Role::Other {
+        draft.role_text.clear();
     }
     draft.answer_source = match draft.answer_source {
         Some(source) if allowed.answer_sources.contains(&source) => Some(source),
+        _ if allowed.answer_sources.contains(&Source::Unknown) => Some(Source::Unknown),
         _ => allowed.answer_sources.first().copied(),
     };
+    if !choices.provenances.contains(&draft.provenance) {
+        if let Some(first) = choices.provenances.first() {
+            draft.provenance = *first;
+        }
+    }
+    if draft.all_teachers {
+        draft.teacher_ids.clear();
+        draft.new_teachers.clear();
+    }
 }
 
-/// The API's own word for an occasion, as requests carry it.
-pub(super) fn occasion(value: Option<&str>) -> Occasion {
-    value
-        .and_then(|value| serde_json::from_value(serde_json::Value::from(value)).ok())
-        .filter(|occasion| EXAM_OCCASIONS.contains(occasion))
-        .unwrap_or(Occasion::Unknown)
-}
-
-pub(super) fn role(value: Option<&str>) -> Role {
-    value
-        .and_then(|value| serde_json::from_value(serde_json::Value::from(value)).ok())
-        .unwrap_or(Role::Question)
+/// A code the API sends, as this build's value; a code it does not know is
+/// none.
+pub(super) fn parse_code<T: DeserializeOwned>(value: Option<&str>) -> Option<T> {
+    value.and_then(|value| serde_json::from_value(Value::from(value)).ok())
 }
 
 /// The form's teacher choices and the draft's subjects, after `subjects`
 /// changed. A chosen teacher no subject lists any more is dropped.
-pub(super) fn settle(form: &mut ExamUploadForm) {
+pub(super) fn settle(form: &mut ExamUploadForm, choices: &ExamChoices) {
     let mut seen = HashSet::new();
     form.teachers = form
         .subjects
@@ -121,29 +195,30 @@ pub(super) fn settle(form: &mut ExamUploadForm) {
     for entry in &mut form.subjects {
         entry.removable = !only && requested.as_ref() != Some(&entry.subject.code);
     }
-    normalize(&mut form.draft);
+    normalize(&mut form.draft, choices);
 }
 
 pub(super) fn add_subject(
     form: &mut ExamUploadForm,
     subject: ExamUploadSubject,
-) -> Result<(), ExamError> {
+    choices: &ExamChoices,
+) {
     if form
         .subjects
         .iter()
         .any(|entry| entry.subject.code == subject.subject.code)
     {
-        return Ok(());
-    }
-    if form.subjects.len() >= limits().subjects as usize {
-        return Err(ExamError::InvalidInput);
+        return;
     }
     form.subjects.push(subject);
-    settle(form);
-    Ok(())
+    settle(form, choices);
 }
 
-pub(super) fn remove_subject(form: &mut ExamUploadForm, code: &str) -> Result<(), ExamError> {
+pub(super) fn remove_subject(
+    form: &mut ExamUploadForm,
+    code: &str,
+    choices: &ExamChoices,
+) -> Result<(), ExamError> {
     if !form
         .subjects
         .iter()
@@ -152,31 +227,8 @@ pub(super) fn remove_subject(form: &mut ExamUploadForm, code: &str) -> Result<()
         return Err(ExamError::InvalidInput);
     }
     form.subjects.retain(|entry| entry.subject.code != code);
-    settle(form);
+    settle(form, choices);
     Ok(())
-}
-
-/// The App API's limits; the latest year is next year, so it moves.
-pub(super) fn limits() -> ExamLimits {
-    ExamLimits {
-        subjects: 10,
-        teachers: 40,
-        occasion_number: 30,
-        variant: 100,
-        note: 40,
-        request_description: 1000,
-        report_detail: 900,
-        query: 100,
-        teacher_name: 100,
-        earliest_year: 1950,
-        latest_year: chrono::Datelike::year(&chrono::Utc::now()) as u32 + 1,
-    }
-}
-
-/// Whether `year` is one an upload or a request may name.
-pub(super) fn valid_year(year: u32) -> bool {
-    let limits = limits();
-    (limits.earliest_year..=limits.latest_year).contains(&year)
 }
 
 /// Teachers once each, in the order the materials first name them.
@@ -188,19 +240,4 @@ pub(super) fn distinct_teachers<'a>(
         .filter(|teacher| seen.insert(teacher.id.clone()))
         .cloned()
         .collect()
-}
-
-/// Where an occasion comes in the order the forms offer them; a word the
-/// forms do not know comes last.
-pub(super) fn occasion_rank(value: &str) -> usize {
-    EXAM_OCCASIONS
-        .iter()
-        .position(|occasion| {
-            serde_json::to_value(occasion)
-                .ok()
-                .as_ref()
-                .and_then(|v| v.as_str())
-                == Some(value)
-        })
-        .unwrap_or(EXAM_OCCASIONS.len())
 }

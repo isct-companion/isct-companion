@@ -14,11 +14,11 @@ pub(super) struct SavedSession {
     pub registered: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct SessionToken {
     pub saved: SavedSession,
     pub id_token: String,
     pub expires: i64,
-    pub allowed: bool,
 }
 
 #[derive(Deserialize)]
@@ -29,8 +29,6 @@ struct FirebaseClaims {
     exp: i64,
     #[serde(default)]
     admin: bool,
-    #[serde(default)]
-    allowed: bool,
 }
 
 impl SessionToken {
@@ -49,7 +47,7 @@ impl SessionToken {
         if claims.sub != saved.uid
             || claims.aud != FIREBASE_PROJECT
             || claims.iss != format!("https://securetoken.google.com/{FIREBASE_PROJECT}")
-            || claims.exp <= chrono::Utc::now().timestamp()
+            || claims.exp <= crate::clock::now().timestamp()
         {
             return Err(ExamError::Response);
         }
@@ -57,7 +55,6 @@ impl SessionToken {
             saved,
             id_token,
             expires: claims.exp,
-            allowed: claims.allowed,
         })
     }
 }

@@ -115,7 +115,7 @@ impl AgentService {
             store,
             workspaces,
             submissions,
-            now: chrono::Utc::now,
+            now: crate::clock::now,
             #[cfg(debug_assertions)]
             sessions,
         }

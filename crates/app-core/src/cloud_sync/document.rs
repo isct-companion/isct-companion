@@ -226,18 +226,22 @@ impl<T: WorkspaceTransport> CloudTransport for DocumentCloud<T> {
         })
     }
 
-    fn version_document<'a>(
+    fn restore_documents<'a>(
         &'a self,
         provider: CloudProvider,
         revision: u64,
-    ) -> CloudFuture<'a, Value> {
+    ) -> CloudFuture<'a, (Value, Value)> {
         Box::pin(async move {
-            self.transport
+            let file = self
+                .transport
                 .read(provider)
                 .await
                 .map_err(transport_error)?
-                .and_then(|file| file.version_document(revision).cloned())
-                .ok_or_else(|| transport_error(DocumentError::VersionMissing))
+                .ok_or_else(|| transport_error(DocumentError::VersionMissing))?;
+            let selected = file
+                .version_document(revision)
+                .ok_or_else(|| transport_error(DocumentError::VersionMissing))?;
+            Ok((selected.clone(), file.merged_document()))
         })
     }
 }
@@ -443,7 +447,7 @@ fn make_workspace_file(
         format_version: CLOUD_FORMAT_VERSION,
         revision,
         version: cloud_merge::version(&document).unwrap_or_default(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
+        updated_at: crate::clock::now().to_rfc3339(),
         updated_by: device.into(),
         device_name: device_name.map(str::to_owned),
         siblings: Vec::new(),
@@ -474,7 +478,7 @@ fn rotate_versions(current: Option<&CloudWorkspaceFile>) -> Vec<CloudWorkspaceFi
         .filter(|old| seen.insert(old.revision))
         .map(flatten_history)
         .collect::<Vec<_>>();
-    let now = chrono::Utc::now();
+    let now = crate::clock::now();
     let new_backup = now.to_rfc3339();
     // The new current document and this retained history are one atomic write.
     let expired = crate::backup::retention::expired(

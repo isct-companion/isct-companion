@@ -128,6 +128,7 @@ impl Inner {
         *self.gate.lock().map_err(|_| SdkError::Closed)? = true;
         self.tasks.close();
         self.closed.cancel();
+        #[cfg(not(feature = "demo"))]
         self.core.cancel_exam_share();
         if let Ok(operations) = self.operations.lock() {
             for op in operations.values().filter_map(Weak::upgrade) {
@@ -768,21 +769,28 @@ async fn initialize(
     let files = PathBuf::from(&config.files_directory);
     let backup_directory = data.join("backups");
     // Each target takes the ports its sign-in uses; the others go unused.
+    #[cfg(all(not(feature = "demo"), target_os = "ios"))]
+    let exam_sign_in = crate::exam_share::sign_in(web_auth.clone(), ios_google_client_id.clone());
+    #[cfg(all(not(feature = "demo"), not(target_os = "ios")))]
+    let exam_sign_in = crate::exam_share::sign_in(browser_opener);
     #[cfg(target_os = "ios")]
-    let (exam_sign_in, drive) = {
+    let drive = {
         let _ = (browser_opener, drive_tokens);
-        (
-            crate::exam_share::sign_in(web_auth.clone(), ios_google_client_id.clone()),
-            DriveAuth::new(vault.clone(), web_auth, ios_google_client_id)?.map(Arc::new),
-        )
+        DriveAuth::new(vault.clone(), web_auth, ios_google_client_id)?.map(Arc::new)
     };
     #[cfg(not(target_os = "ios"))]
-    let (exam_sign_in, drive) = {
+    let drive = {
         let _ = (web_auth, ios_google_client_id);
-        (
-            crate::exam_share::sign_in(browser_opener),
-            DriveAuth::new(vault.clone(), drive_tokens).map(Arc::new),
-        )
+        #[cfg(feature = "demo")]
+        let _ = browser_opener;
+        DriveAuth::new(vault.clone(), drive_tokens).map(Arc::new)
+    };
+    // The demo scene's fictional workspace never reaches a cloud: no store,
+    // so it supports no provider.
+    #[cfg(feature = "demo")]
+    let (cloud, drive): (Option<Arc<dyn NativeCloud>>, Option<Arc<DriveAuth>>) = {
+        let _ = (cloud, drive);
+        (None, None)
     };
     let capabilities = Capabilities {
         school_browser: browser.is_some(),
@@ -793,10 +801,15 @@ async fn initialize(
     let start_suspended = config.start_suspended;
     let native_cloud = cloud.clone();
     let store_drive = drive.clone();
+    #[cfg(not(feature = "demo"))]
     let exam_vault = Arc::new(crate::ports::Vault(vault.clone()));
     let credential_vault = crate::ports::Vault(vault.clone());
     let (store, auth, sync) = tokio::task::spawn_blocking(move || {
         let (store, _) = DataStore::initialize_dir(data.clone())?;
+        // The demo scene's school accounts live in memory only.
+        #[cfg(feature = "demo")]
+        let auth = Arc::new(SchoolAuthService::demo()?);
+        #[cfg(not(feature = "demo"))]
         let auth = Arc::new(SchoolAuthService::with_status_cache(
             Vault(vault),
             data.join("school-credential-status.json"),
@@ -835,6 +848,7 @@ async fn initialize(
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
+    #[cfg(not(feature = "demo"))]
     core.open_exam_share(exam_vault, exam_sign_in, config.app_version.clone());
     if let Some(web_cookies) = web_cookies {
         core.attach_web_cookies(Arc::new(crate::ports::WebCookies(web_cookies)));
@@ -885,6 +899,19 @@ async fn initialize(
         )),
     });
     inner.core.runtime.notes.at(inner.files.clone());
+    // Before the runtime starts syncing: the scene is in place by the first
+    // read.
+    #[cfg(feature = "demo")]
+    {
+        let core = inner.core.clone();
+        let files = inner.files.clone();
+        tokio::task::spawn_blocking(move || app_core::demo::seed(&core, &files))
+            .await
+            .map_err(app_core::runtime_tasks::RuntimeTaskError::from)?
+            .map_err(|detail| SdkError::Internal {
+                detail: format!("demo scene: {detail}"),
+            })?;
+    }
     // Core's deadline duties use these ports from now on.
     inner.core.attach_ports(app_core::facade::PlatformPorts {
         exporter: Some(Arc::new(Exporter(

@@ -38,6 +38,14 @@ device. The release workflow uses the App Store profile in
 It must grant `group.app.isctcompanion`, the same App Group as the host.
 OCR is unavailable on the Intel simulator.
 
+Every bundle id, the App Group and the keychain group derive from the build
+setting `ISCT_APP_ID` (`app.isctcompanion`), so a build signed by another
+team passes its own id once on the command line. The `Demo` configuration is
+the website screenshot app `app.isctcompanion.demo` over an SDK built with
+`--demo`, with no iCloud and no App Group; a build phase refuses a demo SDK
+under any id not ending in `.demo`, and the other way round. Commands are in
+[docs/screenshots/README.md](../../docs/screenshots/README.md).
+
 ## Layout
 
 | Path | Content |

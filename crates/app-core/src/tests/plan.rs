@@ -1023,7 +1023,7 @@ fn failures(store: &DataStore, key: &Key) -> u32 {
 async fn a_paused_host_or_a_blocked_account_holds_keys_without_failing_them() {
     let (engine, store, _) = tokyo_engine("paused");
     let page = key(Dataset::KyomuPage, "grades");
-    let until = Utc::now() + Duration::minutes(5);
+    let until = crate::clock::now() + Duration::minutes(5);
     engine
         .settle_for_test(
             Lease::detached(&store, page.clone()),
@@ -1149,7 +1149,7 @@ async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
                 outcome: Outcome::Complete,
                 message: None,
             },
-            Utc::now(),
+            crate::clock::now(),
         )
     });
     assert!(matches!(refused, Err(Gated::Stale)));
@@ -1175,7 +1175,7 @@ async fn closed_admission_refuses_leases_and_commits_of_the_old_generation() {
                     outcome: Outcome::Complete,
                     message: None,
                 },
-                Utc::now(),
+                crate::clock::now(),
             )
         })
         .is_ok());

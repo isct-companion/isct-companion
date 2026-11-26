@@ -26,9 +26,9 @@ struct TodayScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     header.padding(.horizontal, Self.margin)
                     HStack(alignment: .top, spacing: 0) {
-                        page { overview(context.date) }
+                        page { overview(AppClock.at(context.date)) }
                         page {
-                            if model.today != nil { TodayAssignmentSections(now: context.date) }
+                            if model.today != nil { TodayAssignmentSections(now: AppClock.at(context.date)) }
                         }
                         .frame(width: 420)
                     }
@@ -40,9 +40,9 @@ struct TodayScreen: View {
                 .frame(maxWidth: .infinity)
             } else {
                 page {
-                    overview(context.date)
+                    overview(AppClock.at(context.date))
                     if model.today != nil {
-                        TodayAssignmentSections(now: context.date)
+                        TodayAssignmentSections(now: AppClock.at(context.date))
                     }
                 }
             }
@@ -76,7 +76,7 @@ struct TodayScreen: View {
             }
             if model.needsAccount { ConnectCard() }
             if let snapshot = model.syncSnapshot, snapshot.showsLoading,
-                model.records.courses.isEmpty, model.records.assignments.isEmpty
+                model.today?.hasAcademicRecords != true
             {
                 FirstLoadCard(snapshot: snapshot)
             }
@@ -314,11 +314,11 @@ private struct ClassStack: View {
     private static func title(_ item: TodayClass, first: Bool) -> String {
         let exam = item.occurrence.kind == .exam
         let date = Format.civilDate(item.occurrence.date)
-        if date.map(Calendar.tokyo.isDateInToday) == true {
+        if date.map(AppClock.isToday) == true {
             if first { return exam ? t("today.nextExam") : t("today.nextClass") }
             return t("today.laterToday")
         }
-        if date.map(Calendar.tokyo.isDateInTomorrow) == true {
+        if date.map(AppClock.isTomorrow) == true {
             return exam ? t("today.tomorrowsExam") : t("today.tomorrowsClass")
         }
         return Format.dayTitle(item.occurrence.date)

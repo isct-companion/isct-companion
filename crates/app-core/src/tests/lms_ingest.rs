@@ -16,7 +16,7 @@ fn enrol(connection: &mut Connection) {
         "viewurl": "https://lms.s.isct.ac.jp/2025/course/view.php?id=42"}], "timetables": []}))
     .unwrap();
     commit_on(connection, |tx| {
-        apply_lms_enrolment(tx, &enrolment, Utc::now())
+        apply_lms_enrolment(tx, &enrolment, crate::clock::now())
     })
     .unwrap();
 }
@@ -64,7 +64,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
                {"id": "8", "number": 8, "title": "Week", "visible": true}]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &first, Utc::now())
+        apply_lms_course(tx, &first, crate::clock::now())
     })
     .unwrap();
     // The next read fetches details only for what changed.
@@ -92,7 +92,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
                {"id": "8", "number": 8, "title": "Week", "visible": true}]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, Utc::now())
+        apply_lms_course(tx, &second, crate::clock::now())
     })
     .unwrap();
     let course = row(&connection, "lms_courses", "lms-course:42").unwrap();
@@ -118,7 +118,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
     // identity is written, only the key's freshness, so no view hears of a
     // change and cloud sync captures nothing.
     let (_, tables) = commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, Utc::now())
+        apply_lms_course(tx, &second, crate::clock::now())
     })
     .unwrap();
     assert_eq!(
@@ -139,7 +139,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
         )
         .unwrap();
     let (_, tables) = commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &second, Utc::now())
+        apply_lms_course(tx, &second, crate::clock::now())
     })
     .unwrap();
     assert!(tables.contains("lms_items"));
@@ -156,7 +156,7 @@ fn a_course_commits_whole_and_marks_what_its_outline_dropped_missing() {
     // missing; its stored sections are left to `lms.course`.
     let empty = validate_enrolment(json!({"courses": []})).unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_enrolment(tx, &empty, Utc::now())
+        apply_lms_enrolment(tx, &empty, crate::clock::now())
     })
     .unwrap();
     assert!(missing(&connection, "lms_courses", "lms-course:42"));
@@ -184,7 +184,7 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         commit_on(&mut missing_schema, |tx| apply_lms_course(
             tx,
             &content,
-            Utc::now()
+            crate::clock::now()
         )),
         Err(IngestError::Storage(_))
     ));
@@ -210,11 +210,11 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         ],
     };
     assert!(matches!(
-        commit_on(&mut connection, |tx| apply_lms_course(tx, &bad, Utc::now())),
+        commit_on(&mut connection, |tx| apply_lms_course(tx, &bad, crate::clock::now())),
         Err(IngestError::InvalidPayload(_))
     ));
     commit_on(&mut connection, |tx| {
-        sync_state::fail(tx, &key, "parse", Utc::now())
+        sync_state::fail(tx, &key, "parse", crate::clock::now())
     })
     .unwrap();
     assert!(row(&connection, "lms_items", "lms-item:8").is_none());
@@ -234,7 +234,7 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         commit_on(&mut connection, |tx| apply_lms_course(
             tx,
             &other,
-            Utc::now()
+            crate::clock::now()
         )),
         Err(IngestError::NotEnrolled(43))
     ));
@@ -244,7 +244,7 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
 fn each_key_keeps_the_assignment_fields_the_others_own() {
     let mut connection = database();
     enrol(&mut connection);
-    let due = Utc::now().timestamp() + 86_400;
+    let due = crate::clock::now().timestamp() + 86_400;
     let deadlines = |listed: bool| {
         let events = if listed {
             vec![
@@ -265,7 +265,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
 
     // Open work of a course whose outline was not read yet gets its row.
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(true), Utc::now())
+        apply_lms_deadlines(tx, &deadlines(true), crate::clock::now())
     })
     .unwrap();
     let first = assignment(&connection);
@@ -280,7 +280,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
         json!([]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, Utc::now())
+        apply_lms_course(tx, &course, crate::clock::now())
     })
     .unwrap();
     let renamed = assignment(&connection);
@@ -296,15 +296,15 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     )
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_assign(tx, &graded, Utc::now())
+        apply_lms_assign(tx, &graded, crate::clock::now())
     })
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(true), Utc::now())
+        apply_lms_deadlines(tx, &deadlines(true), crate::clock::now())
     })
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, Utc::now())
+        apply_lms_course(tx, &course, crate::clock::now())
     })
     .unwrap();
     let kept = assignment(&connection);
@@ -321,7 +321,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
     )
     .unwrap();
     commit_on(&mut connection, |tx| {
-        apply_lms_assign(tx, &reopened, Utc::now())
+        apply_lms_assign(tx, &reopened, crate::clock::now())
     })
     .unwrap();
     let open = assignment(&connection);
@@ -331,7 +331,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
 
     // Open work that left the list before its deadline was handed in.
     commit_on(&mut connection, |tx| {
-        apply_lms_deadlines(tx, &deadlines(false), Utc::now())
+        apply_lms_deadlines(tx, &deadlines(false), crate::clock::now())
     })
     .unwrap();
     assert_eq!(assignment(&connection)["submission"], "submitted");
@@ -347,7 +347,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
             .and_then(|state| state.fetched_at)
     };
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &course, Utc::now())
+        apply_lms_course(tx, &course, crate::clock::now())
     })
     .unwrap();
     assert!(fetched(&connection).is_some());
@@ -360,7 +360,7 @@ fn each_key_keeps_the_assignment_fields_the_others_own() {
         json!([]),
     );
     commit_on(&mut connection, |tx| {
-        apply_lms_course(tx, &grown, Utc::now())
+        apply_lms_course(tx, &grown, crate::clock::now())
     })
     .unwrap();
     assert!(fetched(&connection).is_none());

@@ -21,7 +21,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
+import app.isctcompanion.core.ExamChoices
 import app.isctcompanion.core.ExamLocalDocument
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.FileViewer
@@ -47,10 +47,10 @@ fun ExamDocumentScreen(id: String) {
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
     val calls = rememberExamCalls()
-    val choices by rememberExamChoices(calls)
     var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
     var menu by remember { mutableStateOf(false) }
-    var reporting by rememberSaveable { mutableStateOf(false) }
+    // The report form's choices, read as it opens; set while it is open.
+    var reporting by remember { mutableStateOf<ExamChoices?>(null) }
 
     suspend fun open(download: Boolean = false) {
         (calls.call(ExamAction.Open(id, download)) as? ExamAnswer.Document)?.v1?.let {
@@ -98,8 +98,8 @@ fun ExamDocumentScreen(id: String) {
                         DropdownMenuItem({ Text(t("examShare.openOnWeb")) }, { menu = false; links.open(current.webUrl) })
                         DropdownMenuItem(
                             { Text(t("examShare.report"), color = Theme.colors.danger) },
-                            { menu = false; reporting = true },
-                            enabled = !calls.busy && !current.offline && choices != null,
+                            { menu = false; scope.launch { reporting = calls.choices() } },
+                            enabled = !calls.busy && !current.offline,
                         )
                     }
                 }
@@ -123,12 +123,12 @@ fun ExamDocumentScreen(id: String) {
             }
         }
     }
-    val reasons = choices
-    if (reporting && current != null && reasons != null) {
-        ReportDialog(reasons.reportReasons, reasons.limits.reportDetail.toInt(), calls.busy, calls.error, dismiss = { reporting = false }) { reason, detail ->
+    val choices = reporting
+    if (choices != null && current != null) {
+        ReportDialog(choices.reportReasons, choices.limits.reportDetail, calls.busy, calls.error, dismiss = { reporting = null }) { reason, detail ->
             scope.launch {
                 if (calls.call(ExamAction.Report(id, reason, detail)) != null) {
-                    reporting = false
+                    reporting = null
                     ExamViews.notice = t("examShare.reported")
                 }
             }
