@@ -9,15 +9,15 @@ enum ResetKind: Hashable {
 /// Settings → Reset, the desktop's `ResetSettings` as a page: clear the school
 /// caches and read them again, or return this device to its first-launch
 /// state. It lists what goes and what stays, with Core's estimate of the
-/// space freed; a full reset needs the acknowledgement and one more
-/// confirmation. Core decides what each scope removes.
+/// space freed; a full reset asks once more before it runs. Settings' entry
+/// says what each is for, so the page does not repeat it. Core decides what
+/// each scope removes.
 struct ResetScreen: View {
     let kind: ResetKind
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     @State private var signOutWeb = false
     @State private var deleteDownloads = false
-    @State private var acknowledged = false
     @State private var restore = true
     @State private var estimate: Estimate = .estimating
     @State private var confirming = false
@@ -67,16 +67,12 @@ struct ResetScreen: View {
                     Section {
                         option(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), $signOutWeb)
                         option(t("settings.reset.caches.downloads"), t("settings.reset.caches.downloadsHint"), $deleteDownloads)
-                    } footer: {
-                        Text(t("settings.reset.caches.hint"))
                     }
                 }
                 items("settings.reset.deletes", deletes, icon: "trash")
                 items("settings.reset.keeps", keeps, icon: "checkmark")
                 Section {
                     LabeledContent(t("settings.reset.freed"), value: freed)
-                } footer: {
-                    if everything { Text(t("settings.reset.full.hint")) }
                 }
                 if everything, cloudOn {
                     Section(t("settings.reset.full.cloudQuestion")) {
@@ -88,18 +84,13 @@ struct ResetScreen: View {
                         .labelsHidden()
                     }
                 }
-                if everything {
-                    Section {
-                        Toggle(t("settings.reset.full.acknowledge"), isOn: $acknowledged)
-                    }
-                }
                 Section {
                     Button(role: .destructive) {
                         if everything { confirming = true } else { Task { await reset() } }
                     } label: {
                         if resetting { Text(t("settings.reset.resetting")) } else { Text(confirmLabel) }
                     }
-                    .disabled(resetting || (everything && !acknowledged))
+                    .disabled(resetting)
                 }
             }
             .themedRows()
@@ -127,7 +118,7 @@ struct ResetScreen: View {
             Text(t("settings.reset.full.acknowledge"))
         }
         .alert(item: $notice) { notice in
-            Alert(title: Text(notice.text), dismissButton: .default(Text("OK")) { if notice.leave { dismiss() } })
+            Alert(title: Text(notice.text), dismissButton: .default(Text(t("common.ok"))) { if notice.leave { dismiss() } })
         }
     }
 
