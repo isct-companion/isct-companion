@@ -1,5 +1,5 @@
 import type { NativeOs } from "../platform/desktop-bridge";
-import type { Page } from "../lib/route-contract";
+import type { Page } from "./route-contract";
 
 /** The rail's pages in shortcut order: the primary modifier with 1–6 opens
  * the page at that position. */
@@ -14,6 +14,9 @@ export const railPageOrder: readonly Page[] = [
 
 /** Windows uses Ctrl for app shortcuts; macOS (and the browser preview,
  * which only ever runs on a developer's Mac) uses ⌘. */
+export const primaryModifierName = (os: NativeOs | undefined) =>
+  os === "windows" ? "Ctrl" : "⌘";
+/** The modifier as it prefixes a key: "⌘1", "Ctrl+1". */
 export const primaryModifierLabel = (os: NativeOs | undefined) =>
   os === "windows" ? "Ctrl+" : "⌘";
 

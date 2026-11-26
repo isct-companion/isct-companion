@@ -8,7 +8,7 @@ import {
   routeRedirect,
   workspaceRoutes,
 } from "@app/app/routes";
-import { railPageOrder, shortcutHint, shortcutPage } from "@app/app/shortcuts";
+import { railPageOrder, shortcutHint, shortcutPage } from "@app/lib/shortcuts";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
   CoreWorkspaceCommit,

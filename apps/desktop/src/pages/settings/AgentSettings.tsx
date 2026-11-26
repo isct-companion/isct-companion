@@ -93,7 +93,7 @@ export function AgentSettings({
       {access?.enabled && (
         <SettingsGroup
           title="settings.agent.connectAnAgent"
-          footer={
+          description={
             connection?.state === "listening"
               ? t("settings.agent.pickYourAssistantBelowAnd")
               : undefined

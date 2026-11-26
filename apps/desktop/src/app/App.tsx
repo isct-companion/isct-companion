@@ -50,7 +50,7 @@ import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge } from "../platform/native";
 import { nativeOs } from "../platform/desktop-bridge";
-import { railPageOrder, shortcutHint, shortcutPage } from "./shortcuts";
+import { railPageOrder, shortcutHint, shortcutPage } from "../lib/shortcuts";
 import { hideNativeSchoolWeb } from "../platform/school-web-owner";
 import { type Page, type Section } from "../lib/route-contract";
 import { Today } from "../pages/today/TodayPage";
@@ -655,12 +655,14 @@ export function WorkspaceApp() {
                 hidden: true,
               }).then(
                 () =>
-                  notify.undoable(t("today.assignmentHidden"), () =>
-                    void academicIntent({
-                      kind: "setAssignmentMark",
-                      assignmentId,
-                      hidden: false,
-                    }),
+                  notify.undoable(
+                    t("today.assignmentHidden"),
+                    () =>
+                      void academicIntent({
+                        kind: "setAssignmentMark",
+                        assignmentId,
+                        hidden: false,
+                      }),
                   ),
                 notify.error,
               )

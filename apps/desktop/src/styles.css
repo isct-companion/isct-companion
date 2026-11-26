@@ -2720,18 +2720,6 @@ summary,
   margin-left: auto;
   min-width: 0;
 }
-.timetableViewBar {
-  min-height: 45px;
-  padding: var(--space-3) var(--space-7);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-5);
-  border-bottom: 1px solid var(--line);
-}
-.timetableViewBar > b {
-  font-size: calc(var(--type-note-size) * var(--text));
-}
 .coursesSide {
   gap: var(--space-6);
 }

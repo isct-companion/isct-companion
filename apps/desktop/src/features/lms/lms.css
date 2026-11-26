@@ -76,7 +76,6 @@
 }
 .lmsSection:hover .lmsAddNote, .lmsAddNote:focus-visible { opacity: 1; }
 .lmsAddNote:hover { background: var(--accent-soft); color: var(--accent) !important; }
-.lmsSectionPreview { margin: -2px var(--space-8) var(--space-4) var(--space-11); color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); }
 .lmsSectionBody { padding: var(--space-1) var(--space-4) var(--space-4) var(--space-11); animation: lmsFadeIn var(--motion-duration-slow) var(--motion-easing-emphasized); }
 .lmsSectionBody > .lmsRichContent { margin-bottom: var(--space-6); font-size: calc(var(--type-row-size) * var(--text)); line-height: 1.85; }
 .lmsQuiet { padding: var(--space-4) 0; color: var(--muted); font-size: calc(var(--type-note-size) * var(--text)); line-height: 1.7; }
