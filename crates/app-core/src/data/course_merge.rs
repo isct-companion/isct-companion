@@ -109,6 +109,11 @@ pub(super) fn refresh(transaction: &Transaction<'_>, touched: &[Touched]) -> Res
 /// Merges every course again, e.g. after the caches were emptied.
 pub(super) fn rebuild(transaction: &Transaction<'_>) -> Result<(), DataError> {
     merge(transaction, None)?;
+    // Already at this version: rewriting the row would report a commit to
+    // `merge_state` that changed nothing.
+    if built(transaction)? {
+        return Ok(());
+    }
     transaction.execute("DELETE FROM merge_state", [])?;
     transaction.execute(
         "INSERT INTO merge_state(built) VALUES (?1)",
