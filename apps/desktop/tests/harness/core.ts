@@ -181,6 +181,8 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     commands: (name) => calls.filter((call) => call.command === name),
     restore() {
       delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+      delete (window as unknown as Record<string, unknown>)
+        .__TAURI_EVENT_PLUGIN_INTERNALS__;
       delete window.__ISCT_COMPANION_TOOLS__;
     },
   };
@@ -216,6 +218,8 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
     if (!query || typeof query !== "object") return null;
     const kind = (query as { kind?: string }).kind;
     if (!kind) return null;
+    if (kind === "announcements" && !options.queries?.announcements)
+      return { active: [], pending: [] };
     if (kind === "records" && !options.queries?.records)
       return records((query as { fields: string[] }).fields);
     const entry =
@@ -276,12 +280,21 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
         }
         return core.commit();
       }
-      case "schedule_query":
+      case "schedule_query": {
+        const queries = args.queries as Array<{ kind: string }>;
+        const reads = new Set<WorkspaceChange>();
+        for (const query of queries) {
+          for (const change of query.kind === "announcements"
+            ? (["announcements", "settings"] as const)
+            : SCHEDULE_READS) {
+            reads.add(change);
+          }
+        }
         return {
           revision: core.revision,
-          reads: SCHEDULE_READS,
+          reads: [...reads],
           seq: core.seq,
-          values: (args.queries as unknown[]).map((query) => ({
+          values: queries.map((query) => ({
             // These requests return a normalized value with a different tag,
             // matching WorkspaceQueryResult on the native side.
             kind:
@@ -290,11 +303,11 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
                   validateAcademicProfile: "academicProfile",
                   academicTermForDate: "academicTerm",
                 } as Record<string, string>
-              )[(query as { kind: string }).kind] ??
-              (query as { kind: string }).kind,
+              )[query.kind] ?? query.kind,
             value: answerQuery(query),
           })),
         };
+      }
       case "finder_query":
         return (
           options.finder?.(args.request as Record<string, unknown>, core) ??
@@ -340,6 +353,12 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       currentWindow: { label: "main" },
       currentWebview: { label: "main" },
     },
+  };
+  (
+    window as unknown as Record<string, unknown>
+  ).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+    // The listener stays in Core's event table until plugin:event|unlisten.
+    unregisterListener() {},
   };
   // `@tauri-apps/api/core`'s `isTauri()` reads this, and production code such as
   // the OCR pipeline refuses to run without it.

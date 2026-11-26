@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { desktopBridge } from "./native";
+import { getDesktopBridge } from "./desktop-bridge";
+import { quietly } from "./desktop-bridge/helpers";
 
 let nativeFocus: boolean | undefined;
 const listeners = new Set<() => void>();
@@ -16,7 +17,7 @@ function watch() {
   window.addEventListener("focus", update);
   window.addEventListener("blur", update);
   document.addEventListener("visibilitychange", update);
-  if (desktopBridge) {
+  if (getDesktopBridge()) {
     const windowHandle = getCurrentWindow();
     const focus = (focused: boolean) => {
       if (closed || typeof focused !== "boolean") return;
@@ -26,7 +27,7 @@ function watch() {
     void windowHandle
       .onFocusChanged(({ payload }) => focus(payload))
       .then((unlisten) => {
-        if (closed) return unlisten();
+        if (closed) return quietly(unlisten);
         removeNative = unlisten;
         return windowHandle.isFocused().then(focus);
       })
@@ -35,7 +36,7 @@ function watch() {
   return () => {
     closed = true;
     nativeFocus = undefined;
-    removeNative?.();
+    if (removeNative) quietly(removeNative);
     window.removeEventListener("focus", update);
     window.removeEventListener("blur", update);
     document.removeEventListener("visibilitychange", update);

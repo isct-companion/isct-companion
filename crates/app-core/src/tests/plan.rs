@@ -956,7 +956,19 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     assert_eq!(run.label.key, "sync.run.reference");
 
-    let first = engine.lease_for_test(Lane::IsctData).unwrap();
+    // The independent announcement read may take the same lane first.
+    let mut first = engine.lease_for_test(Lane::IsctData).unwrap();
+    while first.key.dataset != Dataset::Reference {
+        let id = first.run.clone();
+        assert!(engine.snapshot().runs.iter().all(|run| run.run != id));
+        engine
+            .settle_for_test(first, KeyEnd::failed("http-404", crate::announcements::URL))
+            .await;
+        let after = engine.snapshot();
+        assert!(after.attention.problem.is_none());
+        assert!(after.runs.iter().all(|run| run.run != id));
+        first = engine.lease_for_test(Lane::IsctData).unwrap();
+    }
     assert_eq!(first.run, run.run);
     let current = engine.snapshot();
     assert!(reference_runs(&current)[0].current.is_some());

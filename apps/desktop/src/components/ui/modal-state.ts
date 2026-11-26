@@ -1,6 +1,6 @@
 import { useLayoutEffect } from "react";
 import { create } from "zustand";
-import { desktopBridge } from "../../platform/native";
+import { getDesktopBridge } from "../../platform/desktop-bridge";
 
 const useModalCount = create(() => ({ count: 0 }));
 export const useAppModalOpen = () => useModalCount(({ count }) => count > 0);
@@ -18,7 +18,7 @@ export const useNativeModalOpen = () =>
   useNativeModalCount(({ count }) => count > 0);
 
 export function trackNativeModals() {
-  const stop = desktopBridge?.onSchoolNativeModal?.((opened) => {
+  const stop = getDesktopBridge()?.onSchoolNativeModal?.((opened) => {
     useNativeModalCount.setState(({ count }) => ({
       count: Math.max(0, count + (opened ? 1 : -1)),
     }));
