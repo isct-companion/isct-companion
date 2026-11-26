@@ -19,6 +19,7 @@ import { usePanelRef } from "react-resizable-panels";
 import { refresh, syncAvailable } from "../platform/sync-intents";
 import { WorkspaceDialogs } from "./WorkspaceDialogs";
 import { useOpenHint } from "./useOpenHint";
+import { useSync } from "../store/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusDot } from "./SchoolStatus";
 import { useCoreLifecycle } from "./useCoreLifecycle";
@@ -372,6 +373,7 @@ export function WorkspaceApp() {
     });
     if (target) void navigate(target, { replace: true });
   }, [location.pathname, location.search, sourceData?.courses, navigate]);
+  const sync = useSync();
   useCoreLifecycle();
   const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
     useWorkspaceRuntime(sourceData);

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.rounded.GpsFixed
 import kotlin.math.abs
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.LocalReducedMotion
 import android.content.Context
 import android.content.Intent
@@ -431,12 +432,11 @@ fun CampusMapScreen(room: String?) {
             }
         }
         photoCamera.failure?.let { message ->
-            AlertDialog(
-                onDismissRequest = photoCamera.dismissFailure,
-                confirmButton = { TextButton(onClick = photoCamera.dismissFailure) { Text(t("common.ok")) } },
-                title = { Text(t("campusMap.photos.failed")) },
-                text = { Text(message) },
-            )
+            NoticeBanner(Theme.colors.dangerSoft, Modifier.align(Alignment.BottomCenter).padding(Theme.gutter)) {
+                Text(t("campusMap.photos.failed"), style = MaterialTheme.typography.titleSmall)
+                Text(message, color = Theme.colors.ink)
+                TextButton(onClick = photoCamera.dismissFailure) { Text(t("common.close")) }
+            }
         }
     }
     if (position.settingsRequired) {

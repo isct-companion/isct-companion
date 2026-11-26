@@ -307,5 +307,7 @@ export function schoolWebCommands(
       ),
     revealDownload: (path) => booleanCommand("reveal_download", { path }),
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
+    configureSchoolWebPolicy: (policy) =>
+      booleanCommand("configure_school_web_policy", { policy }),
   };
 }

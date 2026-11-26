@@ -1711,14 +1711,17 @@ fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
 
 /// A label no catalog has is shown as the raw key on iOS and Android.
 #[test]
-fn every_dataset_has_its_sync_labels_in_every_catalog() {
+fn every_visible_dataset_has_its_sync_labels_in_every_catalog() {
     for catalog in [
         include_str!("../../../../resources/locales/en.json"),
         include_str!("../../../../resources/locales/ja.json"),
         include_str!("../../../../resources/locales/zh.json"),
     ] {
         let catalog: serde_json::Value = serde_json::from_str(catalog).unwrap();
-        for dataset in Dataset::ALL {
+        for dataset in Dataset::ALL
+            .into_iter()
+            .filter(|dataset| snapshot::shows_run(*dataset))
+        {
             let name = snapshot::label_name(dataset);
             assert!(catalog[format!("sync.run.{name}")].is_string(), "{name}");
             assert_eq!(

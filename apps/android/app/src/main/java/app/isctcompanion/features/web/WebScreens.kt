@@ -1,5 +1,6 @@
 package app.isctcompanion.features.web
 
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.BackButton
 import app.isctcompanion.design.t
 import android.content.ActivityNotFoundException
@@ -74,7 +75,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -336,17 +336,6 @@ private fun problemText(problem: SchoolWebProblem): String = when (problem) {
     SchoolWebProblem.REJECTED -> "web.signIn.rejected"
     SchoolWebProblem.STORAGE -> "web.signIn.storage"
     SchoolWebProblem.STILL_SIGN_IN -> "web.signIn.stillSignIn"
-}
-
-@Composable
-private fun NoticeBanner(text: String, color: Color, actions: @Composable () -> Unit = {}) {
-    Row(
-        Modifier.fillMaxWidth().background(color).padding(start = Theme.space8, end = Theme.space4, top = Theme.space2, bottom = Theme.space2),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).padding(vertical = Theme.space4))
-        actions()
-    }
 }
 
 /** Core's notice in place of a page that did not load: reopen it (a form

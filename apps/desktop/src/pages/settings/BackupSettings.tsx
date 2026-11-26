@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Pagination } from "../../components/ui";
+import { Banner } from "../../components/notifications/Banner";
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { errorText } from "../../lib/error-text";
@@ -46,6 +47,10 @@ export function BackupSettings({
   const locale = data.settings.locale;
   const [sync, setSync] = useState<CloudSyncState | null>(null);
   const [syncError, setSyncError] = useState<string>();
+  const [failure, setFailure] = useState<{
+    message: string;
+    retry: () => void;
+  }>();
   const [busy, setBusy] = useState(false);
   const [versionPage, setVersionPage] = useState(1);
   const bridge = desktopBridge;
@@ -80,10 +85,14 @@ export function BackupSettings({
     formatDay(iso, locale, { hour: "2-digit", minute: "2-digit" });
   const run = async (failure: MessageKey, action: () => Promise<void>) => {
     try {
+      setFailure(undefined);
       setBusy(true);
       await action();
     } catch (error) {
-      notify(errorText(error) ?? t(failure));
+      setFailure({
+        message: errorText(error) ?? t(failure),
+        retry: () => void run(failure, action),
+      });
     } finally {
       setBusy(false);
     }
@@ -132,15 +141,17 @@ export function BackupSettings({
       ))
     )
       return;
+    setFailure(undefined);
     try {
       await workspaceActions.importData(await file.text());
       notify(t("settings.backup.backupRestored"));
     } catch (error) {
-      notify(
-        t("settings.backup.importFailedReason", {
+      setFailure({
+        message: t("settings.backup.importFailedReason", {
           reason: errorText(error) ?? t("common.unknownError"),
         }),
-      );
+        retry: () => void importFile(file),
+      });
     }
   };
   const providers = sync?.providers ?? [];
@@ -184,6 +195,14 @@ export function BackupSettings({
   return (
     <>
       <SettingsHeader title="settings.main.backup" />
+      {failure && (
+        <Banner color="red" role="alert">
+          {failure.message}{" "}
+          <UiButton disabled={busy} onClick={failure.retry}>
+            {t("common.retry")}
+          </UiButton>
+        </Banner>
+      )}
       <SettingsGroup title="settings.backup.sync">
         {(!syncAvailable || syncError) && (
           <Row

@@ -12,13 +12,13 @@ extension CampusMapScreen {
                 }
                 .ignoresSafeArea()
             }
-            .alert(
-                t("campusMap.photos.failed"),
-                isPresented: Binding(get: { photoFailure != nil }, set: { if !$0 { photoFailure = nil } })
-            ) {
-                Button(t("common.ok"), role: .cancel) {}
-            } message: {
-                Text(photoFailure ?? "")
+            .safeAreaInset(edge: .bottom) {
+                if let photoFailure {
+                    ProblemBanner(text: "\(t("campusMap.photos.failed"))\n\(photoFailure)", dismiss: {
+                        self.photoFailure = nil
+                    })
+                    .padding(.horizontal, Theme.gutter)
+                }
             }
     }
 

@@ -96,7 +96,7 @@ import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.MaterialRow
 import app.isctcompanion.design.ActionButton
-import app.isctcompanion.design.ProblemBanner
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.features.schoolstatus.FirstLoadCard
@@ -147,8 +147,11 @@ fun TodayScreen() {
                     PageSubtitle(subtitle(model.today))
                     AnnouncementBanners(model.announcements?.active.orEmpty())
                     val problem = model.syncSnapshot?.problem
-                    if (model.problem != null) {
-                        ProblemBanner(model.problem!!)
+                    val failure = model.problem
+                    if (failure != null) {
+                        NoticeBanner(failure, Theme.colors.dangerSoft) {
+                            TextButton(onClick = model::dismissProblem) { Text(t("common.close")) }
+                        }
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }

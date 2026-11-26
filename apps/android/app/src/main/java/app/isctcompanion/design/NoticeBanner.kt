@@ -3,6 +3,7 @@ package app.isctcompanion.design
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,6 +15,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -32,6 +34,16 @@ fun NoticeBanner(
             .background(color).padding(Theme.space7),
         verticalArrangement = Arrangement.spacedBy(Theme.space3),
     ) { content() }
+}
+
+@Composable
+fun NoticeBanner(text: String, color: Color, actions: @Composable () -> Unit = {}) {
+    NoticeBanner(color) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            actions()
+        }
+    }
 }
 
 @Composable

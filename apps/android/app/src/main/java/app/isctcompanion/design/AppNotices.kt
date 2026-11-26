@@ -70,7 +70,7 @@ class AppNotices {
  * Focus comes from the activity window, including when a native page,
  * permission prompt, sheet or file picker takes it away. */
 @Composable
-fun AppNoticeLayer(snackbar: SnackbarHostState, connect: () -> Unit) {
+fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -> Unit) {
     val model = LocalModel.current
     val notices = model.notices
     val scope = rememberCoroutineScope()
@@ -86,7 +86,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, connect: () -> Unit) {
     val undo = model.undo
     val request = notices.nextRequest
 
-    LaunchedEffect(resumed, interactive, welcome, message, request, undo, Guide.welcome, release, feed) {
+    LaunchedEffect(resumed, interactive, userFlow, welcome, message, request, undo, Guide.welcome, release, feed) {
         val id = message?.announcementId
         if (id != null && feed != null && feed.active.none { it.id == id }) {
             message = null
@@ -97,7 +97,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, connect: () -> Unit) {
             message = notices.takeRequest()
             return@LaunchedEffect
         }
-        if (!interactive || undo != null) return@LaunchedEffect
+        if (!interactive || userFlow || undo != null) return@LaunchedEffect
         if (!Guide.welcome) {
             welcome = true
             return@LaunchedEffect
@@ -138,7 +138,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, connect: () -> Unit) {
         )
     }
     val feedback = notices.feedback
-    val showFeedback = interactive && !welcome && message == null
+    val showFeedback = interactive && !userFlow && !welcome && message == null
     if (undo != null) {
         var remaining by remember(undo.id) { mutableStateOf(4_000L) }
         LaunchedEffect(undo.id, showFeedback) {

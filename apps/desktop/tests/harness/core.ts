@@ -125,6 +125,7 @@ const EVERY_CHANGE: WorkspaceChange[] = [
   "scheduled-tasks",
   "settings",
   "freshness",
+  "announcements",
 ];
 
 let nextCallbackId = 1;

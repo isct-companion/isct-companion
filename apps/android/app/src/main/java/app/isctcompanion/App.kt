@@ -584,7 +584,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             }
             }
         }
-        AppNoticeLayer(snackbar) { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
+        AppNoticeLayer(snackbar, userFlow = SharedInbox.selection != null) { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
     }
 }
 
