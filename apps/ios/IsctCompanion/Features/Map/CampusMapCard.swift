@@ -80,39 +80,45 @@ struct CampusMapCardView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    /// The building (on a room's card) and the maps app, sharing the row.
+    /// The building (on a room's card), the floor photos and the maps app,
+    /// sharing the row while their labels fit, stacked when they do not.
     private var actions: some View {
-        HStack(spacing: Theme.space4) {
-            if let building = card.building {
-                Button {
-                    select(building)
-                } label: {
-                    action(card.buildingName, systemImage: "building.2")
-                }
-                .buttonStyle(CapsuleButtonStyle(level: .secondary))
-                .accessibilityLabel(t("campusMap.showBuilding", ["name": card.buildingName]))
-            }
-            if let photos {
-                // Each tap opens the camera; the label tells how the photos went.
-                Button(action: takePhoto) {
-                    if photos.sending > 0 {
-                        action(t("campusMap.photos.sending"), systemImage: "arrow.up.circle")
-                    } else if photos.sent > 0 {
-                        action(t("campusMap.photos.sent", ["count": String(photos.sent)]), systemImage: "checkmark.circle")
-                    } else {
-                        action(t("campusMap.photos.upload"), systemImage: "camera")
-                    }
-                }
-                .buttonStyle(CapsuleButtonStyle(level: .secondary))
-                .accessibilityHint(t("campusMap.photos.upload"))
-            }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: Theme.space4) { actionButtons }
+            VStack(spacing: Theme.space4) { actionButtons }
+        }
+    }
+
+    @ViewBuilder private var actionButtons: some View {
+        if let building = card.building {
             Button {
-                open(card.mapsUrl)
+                select(building)
             } label: {
-                action(t("campusMap.openInMaps"), systemImage: "arrow.up.forward.app")
+                action(card.buildingName, systemImage: "building.2")
             }
             .buttonStyle(CapsuleButtonStyle(level: .secondary))
+            .accessibilityLabel(t("campusMap.showBuilding", ["name": card.buildingName]))
         }
+        if let photos {
+            // Each tap opens the camera; the label tells how the photos went.
+            Button(action: takePhoto) {
+                if photos.sending > 0 {
+                    action(t("campusMap.photos.sending"), systemImage: "arrow.up.circle")
+                } else if photos.sent > 0 {
+                    action(t("campusMap.photos.sent", ["count": String(photos.sent)]), systemImage: "checkmark.circle")
+                } else {
+                    action(t("campusMap.photos.upload"), systemImage: "camera")
+                }
+            }
+            .buttonStyle(CapsuleButtonStyle(level: .secondary))
+            .accessibilityHint(t("campusMap.photos.upload"))
+        }
+        Button {
+            open(card.mapsUrl)
+        } label: {
+            action(t("campusMap.openInMaps"), systemImage: "arrow.up.forward.app")
+        }
+        .buttonStyle(CapsuleButtonStyle(level: .secondary))
     }
 
     private func action(_ title: String, systemImage: String) -> some View {

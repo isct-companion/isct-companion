@@ -217,7 +217,7 @@ private struct ContentView: View {
         .background {
             if !isAccessory && rendering == .fullColor {
                 RoundedRectangle(cornerRadius: IsctTokens.radiusBlock)
-                    .fill(color(row.color).opacity(0.10))
+                    .fill(color(row.color).opacity(IsctTokens.courseTintSoft))
                     .accessibilityHidden(true)
             }
         }
@@ -248,7 +248,7 @@ private struct ContentView: View {
                             .lineLimit(index == 0 ? 2 : 1)
                         if let title = row.courseTitle {
                             Text(title).font(.caption).lineLimit(1)
-                                .foregroundStyle(rendering == .fullColor ? color(row.color) : .secondary)
+                                .foregroundStyle(rendering == .fullColor ? ink(row.color) : .secondary)
                         }
                         if let deadline = row.dueAt {
                             Text(row.overdue
@@ -295,6 +295,14 @@ private struct ContentView: View {
         formatter.timeZone = entry.zone
         formatter.setLocalizedDateFormatFromTemplate(date ? "MMMdHm" : "Hm")
         return formatter.string(from: at)
+    }
+
+    /// Course-coloured text: the course colour mixed into the theme's ink
+    /// (`courseTintInk`, as the app and desktop draw it), so a light course
+    /// stays readable on a light widget and a dark one on a dark widget.
+    private func ink(_ value: String?) -> Color {
+        let ink = colorScheme == .dark ? IsctTokensDark.colorInk : IsctTokens.colorInk
+        return ink.mix(with: color(value), by: IsctTokens.courseTintInk, in: .device)
     }
 
     private func color(_ value: String?) -> Color {

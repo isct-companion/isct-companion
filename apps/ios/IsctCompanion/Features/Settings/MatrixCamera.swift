@@ -15,7 +15,13 @@ struct MatrixCameraScreen: View {
     @State private var camera: MatrixCameraController?
     @State private var state: MatrixCameraState?
     @State private var error: String?
+    /// Camera access was refused: the way back is the Settings app.
+    @State private var denied = false
+    /// The capture device has a torch, and whether it is on.
+    @State private var hasTorch = false
+    @State private var torch = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ZStack {
@@ -23,14 +29,20 @@ struct MatrixCameraScreen: View {
             if let camera { FrameView(controller: camera).ignoresSafeArea() }
             VStack(spacing: 0) {
                 HStack {
-                    Button { finish(nil) } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 44, height: 44)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
+                    Button { finish(nil) } label: { overlayIcon("xmark") }
                     .accessibilityLabel(t("common.cancel"))
                     Spacer()
+                    // Matrix cards are glossy and often read indoors.
+                    if hasTorch {
+                        Button {
+                            torch.toggle()
+                            camera?.setTorch(torch)
+                        } label: {
+                            overlayIcon(torch ? "flashlight.on.fill" : "flashlight.off.fill")
+                        }
+                        .accessibilityLabel(t("matrixCamera.torch"))
+                        .accessibilityAddTraits(torch ? .isSelected : [])
+                    }
                 }
                 .padding(.horizontal, 16)
                 Spacer(minLength: 16)
@@ -43,6 +55,15 @@ struct MatrixCameraScreen: View {
                         .foregroundStyle(error == nil ? Color.white.opacity(0.85) : Theme.danger)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
+                    if denied, let url = URL(string: UIApplication.openSettingsURLString) {
+                        Button { openURL(url) } label: {
+                            Text(t("settings.main.openSettings"))
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, Theme.space8)
+                                .frame(minHeight: 44)
+                        }
+                        .buttonStyle(CapsuleButtonStyle())
+                    }
                 }
                 .padding(Theme.space7)
                 .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -63,6 +84,14 @@ struct MatrixCameraScreen: View {
         }
     }
 
+    /// A round control over the preview, as in the system camera.
+    private func overlayIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 17, weight: .semibold))
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial, in: Circle())
+    }
+
     private var status: String {
         guard let state, state.phase != .complete, state.readyCells > 0 else {
             return t("settings.matrixCamera.keepTheMatrixFramedAnd")
@@ -72,14 +101,20 @@ struct MatrixCameraScreen: View {
 
     private func start() async {
         guard await AVCaptureDevice.requestAccess(for: .video) else {
+            denied = true
             fail(t("settings.matrixCamera.cameraAccessWasDeniedAllow"))
             return
         }
         let controller = MatrixCameraController(session: session) { update in
             switch update {
+            case let .ready(torch):
+                hasTorch = torch
             case let .state(next):
                 state = next
-                if next.phase == .complete { finish(next.cells) }
+                if next.phase == .complete {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    finish(next.cells)
+                }
             case let .failed(message):
                 fail(message)
             }
@@ -236,6 +271,8 @@ final class FrameLayerView: UIView {
 /// Core analyses the previous one are dropped, as on desktop.
 final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     enum Update {
+        /// The session runs; whether its device has a torch.
+        case ready(torch: Bool)
         case state(MatrixCameraState)
         case failed(String)
     }
@@ -318,6 +355,7 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
                 self?.report(.failed(t("matrixCamera.theCameraDisconnectedOpenIt")))
                 self?.stop()
             }
+            report(.ready(torch: device.hasTorch))
             started = CACurrentMediaTime()
             capture.startRunning()
             // Core's deadline advances even when no frame arrives.
@@ -341,6 +379,16 @@ final class MatrixCameraController: NSObject, AVCaptureVideoDataOutputSampleBuff
                 device.exposurePointOfInterest = point
                 if device.isExposureModeSupported(.continuousAutoExposure) { device.exposureMode = .continuousAutoExposure }
             }
+            device.unlockForConfiguration()
+        }
+    }
+
+    /// Turns the torch on or off; it goes off with the session.
+    func setTorch(_ on: Bool) {
+        queue.async { [self] in
+            guard !stopped, let device = (capture.inputs.first as? AVCaptureDeviceInput)?.device,
+                  device.hasTorch, (try? device.lockForConfiguration()) != nil else { return }
+            device.torchMode = on ? .on : .off
             device.unlockForConfiguration()
         }
     }

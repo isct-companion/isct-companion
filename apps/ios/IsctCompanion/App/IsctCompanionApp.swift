@@ -213,6 +213,7 @@ struct RootView: View {
     var body: some View {
         content
             .environment(\.openCampusMap) { campusMapRequest = CampusMapRequest(room: $0) }
+            .environment(\.exportCalendar, CalendarExportAction { export($0) })
             // Keep the cover independent of list rows and the current window layout.
             .fullScreenCover(item: $campusMapRequest, onDismiss: model.campusMapClose) { request in
                 CampusMapScreen(request: request)
@@ -281,7 +282,7 @@ struct RootView: View {
             InboxSheet(selection: selection)
         }
         .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
-            Button("OK", role: .cancel) {}
+            Button(t("common.ok"), role: .cancel) {}
         }
         .environment(navigator)
         .environment(\.push, PushAction { navigator.push($0) })
@@ -294,7 +295,7 @@ struct RootView: View {
             ShareSheet(url: file.url).presentationDetents([.medium, .large])
         }
         .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button("OK", role: .cancel) {}
+            Button(t("common.ok"), role: .cancel) {}
         }
         .modifier(UpdateOffer(model: model))
     }
@@ -304,6 +305,7 @@ struct RootView: View {
             TabView(selection: selection) {
                 ForEach(tabs, id: \.self) { tab in
                     page(tab)
+                        .undoToast()
                         .tabItem { Label(tab.title, systemImage: tab.symbol) }
                         .tag(tab)
                 }
@@ -410,11 +412,14 @@ struct RootView: View {
             }
             Divider().ignoresSafeArea()
             VStack(spacing: 0) {
-                switch navigator.tab {
-                case .today: TodayWorkbench()
-                case .lectures: LecturesSplit()
-                default: page(navigator.tab)
+                Group {
+                    switch navigator.tab {
+                    case .today: TodayWorkbench()
+                    case .lectures: LecturesSplit()
+                    default: page(navigator.tab)
+                    }
                 }
+                .undoToast()
                 SchoolStatusBar()
             }
         }

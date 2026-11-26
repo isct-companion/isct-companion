@@ -9,8 +9,8 @@ enum SyncText {
     /// A source as Core names it in `SourceView.source`.
     static func source(_ source: String) -> String {
         switch source {
-        case "lms": return "LMS"
-        case "kyomu": return "教務Web"
+        case "lms": return t("syncStatus.source.lms")
+        case "kyomu": return t("syncStatus.source.kyomu")
         case "references": return t("syncStatus.dataset.referenceData")
         case "catalog": return t("syncStatus.dataset.courseCatalog")
         default: return source

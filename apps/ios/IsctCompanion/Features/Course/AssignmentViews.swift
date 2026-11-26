@@ -37,6 +37,19 @@ struct AssignmentScreen: View {
         .background(Theme.bg)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
+        .toolbar {
+            // Pin and hide, as the lists' swipes do, for this quarter's work.
+            if let item = model.board?.record.item(assignmentId) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        AssignmentMarkButtons(item: item, hidden: item.hidden)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel(t("forms.moreOptions"))
+                }
+            }
+        }
         .task(id: "\(assignmentId)-\(model.contentRevision)") {
             let loaded = await model.assignmentDetail(assignmentId)
             guard !Task.isCancelled, let loaded else { return }

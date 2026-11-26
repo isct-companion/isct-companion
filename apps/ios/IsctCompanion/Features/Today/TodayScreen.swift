@@ -49,7 +49,6 @@ struct TodayScreen: View {
         }
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .bottom) { UndoToast() }
         // What the page points at opens beside it on the workstation.
         .environment(\.push, PushAction { navigator.open($0) })
         .onAppear { model.syncHint(.open(view: .today)) }
@@ -806,33 +805,5 @@ private struct ConnectCard: View {
         }
         .padding(Theme.cardPadding)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-    }
-}
-
-struct UndoToast: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        if let undo = model.undo {
-            HStack {
-                Text(t("app.hidTitle", ["title": undo.title])).lineLimit(1)
-                Spacer()
-                Button(t("common.undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
-            }
-            .font(.subheadline)
-            .foregroundStyle(Theme.ink)
-            .tint(Theme.accent)
-            .padding(.horizontal, Theme.space8)
-            .padding(.vertical, Theme.space6)
-            // A floating layer takes the system material, not a black pill.
-            .floatingGlass(in: Capsule())
-            .padding(.horizontal, Theme.gutter)
-            .padding(.bottom, Theme.space4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .task(id: undo) {
-                try? await Task.sleep(for: .seconds(4))
-                model.dismissUndo()
-            }
-        }
     }
 }

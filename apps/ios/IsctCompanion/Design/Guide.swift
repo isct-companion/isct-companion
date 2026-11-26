@@ -31,9 +31,10 @@ enum Guide {
     }
 }
 
+/// The one gesture 時間割 has no button for; weeks and the export are in its
+/// header.
 struct TimetableMarkTip: Tip {
-    var title: Text { Text(t("guide.swipeToChangeWeeks")) }
-    var message: Text? { Text(t("guide.longPressAClassTo")) }
+    var title: Text { Text(t("timetable.longPressAClassTo")) }
     var image: Image? { Image(systemName: "hand.draw") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
@@ -42,20 +43,6 @@ struct LessonMarkTip: Tip {
     var title: Text { Text(t("guide.todaysLesson")) }
     var message: Text? { Text(t("guide.longPressALessonTo")) }
     var image: Image? { Image(systemName: "hand.tap") }
-    var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
-}
-
-struct AssignmentSwipeTip: Tip {
-    var title: Text { Text(t("guide.pinOrHide")) }
-    var message: Text? { Text(t("guide.swipeRightToPinAn")) }
-    var image: Image? { Image(systemName: "hand.draw") }
-    var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
-}
-
-struct WebSitesTip: Tip {
-    var title: Text { Text(t("common.switchSites")) }
-    var message: Text? { Text(t("guide.tapTheTitleOrLong")) }
-    var image: Image? { Image(systemName: "globe") }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 
@@ -90,13 +77,6 @@ struct WelcomeSheet: View {
                     .listRowBackground(Theme.surface)
                 } header: {
                     Text(t("guide.courseAndSyllabusLanguage"))
-                } footer: {
-                    Text(t("guide.canDifferFromTheApp"))
-                }
-                Section {
-                    Label(t("widget.addOnPhone"), systemImage: "square.grid.2x2")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
                 }
                 Section {
                     if model.needsAccount {
