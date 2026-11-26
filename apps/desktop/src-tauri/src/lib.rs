@@ -459,6 +459,7 @@ pub fn run() {
                 app.path().app_data_dir()?.join(secrets::SCHOOL_STATUS_FILE),
             );
             app.manage(std::sync::Arc::new(school_auth));
+            app_core::announcements::set_app_version(&app.package_info().version.to_string());
             app.manage(std::sync::Arc::new(app_core::Core::with_events(
                 app.state::<data::DataStore>().inner().clone(),
                 app.state::<std::sync::Arc<SchoolAuthService>>()

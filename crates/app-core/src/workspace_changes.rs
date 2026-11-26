@@ -48,12 +48,13 @@ pub enum WorkspaceChange {
     Settings,
     /// When each sync key was last read, and 教務 page availability.
     Freshness,
+    Announcements,
 }
 
 use WorkspaceChange::*;
 
 impl WorkspaceChange {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Courses,
         Materials,
         Assignments,
@@ -68,6 +69,7 @@ impl WorkspaceChange {
         ScheduledTasks,
         Settings,
         Freshness,
+        Announcements,
     ];
 
     /// The stable name shells receive, e.g. `scheduled-tasks`.
@@ -87,6 +89,7 @@ impl WorkspaceChange {
             ScheduledTasks => "scheduled-tasks",
             Settings => "settings",
             Freshness => "freshness",
+            Announcements => "announcements",
         }
     }
 
@@ -145,6 +148,7 @@ impl WorkspaceChange {
             Subscriptions => fields(false, &["subscriptions"], &[]),
             ScheduledTasks => fields(false, &["scheduledTasks"], &[]),
             Freshness => fields(false, &[], &["freshness", "pageAvailability"]),
+            Announcements => fields(false, &[], &[]),
             Settings => None,
         }
     }
@@ -159,6 +163,9 @@ pub(crate) fn loaded_fields(
 ) -> BTreeSet<&'static str> {
     let mut loaded = BTreeSet::new();
     for change in changes {
+        if change == Announcements {
+            loaded.insert("announcements");
+        }
         let Some(fields) = change.fields() else {
             continue;
         };
@@ -266,6 +273,7 @@ const TABLES: &[(&str, &[WorkspaceChange], Owner)] = &[
     // change map shells hear.
     #[cfg(feature = "campus-map")]
     ("campus_map", &[], Owner::Cache),
+    ("announcements", &[Announcements], Owner::Cache),
     ("plan_items", &[Plans], Owner::User),
     ("personal_events", &[Events], Owner::User),
     ("subscriptions", &[Subscriptions], Owner::User),

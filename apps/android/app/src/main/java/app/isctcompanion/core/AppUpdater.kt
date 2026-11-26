@@ -66,7 +66,7 @@ class AppUpdater(private val context: Context) {
         if (result == null || !result.checked) return
         available = result.release
         upToDate = manual && result.release == null
-        if (result.prompt) offer = result.release
+        offer = result.release.takeIf { result.prompt }
         prefs.edit()
             .putString("lastChecked", Instant.now().toString())
             .putString("version", result.release?.version)
@@ -75,13 +75,13 @@ class AppUpdater(private val context: Context) {
     }
 
     /** The prompt was answered (or closed): it is not shown again this time. */
-    fun answered() {
-        offer = null
+    fun answered(version: String) {
+        if (offer?.version == version) offer = null
     }
 
     /** Downloads the APK, then opens the system installer on it. */
-    fun install() {
-        val release = available ?: return
+    fun install(release: AppRelease? = available) {
+        release ?: return
         // The system asks once whether this app may install packages.
         if (!context.packageManager.canRequestPackageInstalls()) {
             context.startActivity(

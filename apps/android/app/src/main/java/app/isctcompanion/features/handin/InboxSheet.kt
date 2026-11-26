@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -56,12 +55,12 @@ internal fun InboxSheet() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
-    SharedInbox.error?.let { error ->
-        AlertDialog(
-            onDismissRequest = SharedInbox::dismissError,
-            text = { Text(error) },
-            confirmButton = { TextButton(onClick = SharedInbox::dismissError) { Text(t("common.close")) } },
-        )
+    val inboxError = SharedInbox.error
+    LaunchedEffect(inboxError) {
+        if (inboxError != null) {
+            model.notices.show(inboxError)
+            SharedInbox.dismissError()
+        }
     }
     val selection = SharedInbox.selection ?: return
     var started by remember(selection) { mutableStateOf(false) }

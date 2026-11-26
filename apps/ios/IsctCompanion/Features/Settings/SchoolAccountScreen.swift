@@ -20,7 +20,6 @@ struct AccountScreen: View {
     @State private var saving = false
     @State private var retrying = false
     @State private var removing = false
-    @State private var confirmingRemove = false
     @State private var error: String?
     /// What the last Connect did, shown until the next one.
     @State private var outcome: SchoolConnectOutcome?
@@ -88,17 +87,13 @@ struct AccountScreen: View {
                 if summary?.saved == true || session?.presentation.recovery.contains(.finishSignOut) == true {
                     Section {
                         // Core first stops the account's reads, so this can take a moment.
+                        // Removing cannot be taken back, so it asks once more.
                         Button(role: .destructive) {
-                            confirmingRemove = true
+                            model.notices.confirm(title: removeLabel, action: removeLabel, destructive: true) { remove() }
                         } label: {
                             if removing { ProgressView() } else { Text(removeLabel) }
                         }
                         .disabled(removing)
-                        // Removing cannot be taken back, so it asks once more.
-                        .confirmationDialog(removeLabel, isPresented: $confirmingRemove, titleVisibility: .visible) {
-                            Button(removeLabel, role: .destructive) { remove() }
-                            Button(t("common.cancel"), role: .cancel) {}
-                        }
                     }
                 }
             }

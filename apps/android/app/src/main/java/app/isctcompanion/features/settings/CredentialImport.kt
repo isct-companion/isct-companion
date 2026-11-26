@@ -167,7 +167,6 @@ fun OtpImportField(
     // The app sets OTP up at school ("help"), or an existing setup is
     // imported ("import") from an export QR or a pasted secret (`path`).
     var branch by remember { mutableStateOf("help") }
-    var confirming by remember { mutableStateOf(false) }
     var path by remember { mutableStateOf("export") }
     var copied by remember { mutableStateOf(false) }
     var choices by remember { mutableStateOf<List<OtpImportAccount>>(emptyList()) }
@@ -272,7 +271,10 @@ fun OtpImportField(
     }
     Column(verticalArrangement = Arrangement.spacedBy(Theme.space4)) {
         OtpBranchCard(branch == "help", t("otpEnrollment.help"), t("otpEnrollment.helpHint"), { branch = "help" }) {
-            ActionButton(t("otpEnrollment.start"), { confirming = true }, level = ButtonLevel.Secondary)
+            ActionButton(t("otpEnrollment.start"), {
+                model.notices.confirm(t("otpEnrollment.help"), t("otpEnrollment.start"),
+                    t("otpEnrollment.confirm"), destructive = true, run = openSetup)
+            }, level = ButtonLevel.Secondary)
         }
         OtpBranchCard(branch == "import", t("otpEnrollment.import"), t("otpEnrollment.importHint"), { branch = "import" }) {
             Choices(listOf("export" to t("settings.credentialImport.sourceAuthenticator"), "paste" to t("settings.credentialImport.sourceTitechApp")), path) { path = it }
@@ -331,21 +333,6 @@ fun OtpImportField(
             error = null
             changing = false
         }) { Text(t("settings.credentialImport.keepTheSavedSetup")) }
-    }
-    // Asked once, before the school page opens, whatever the school has:
-    // Core then replaces an existing setup without asking again.
-    if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text(t("otpEnrollment.help")) },
-            text = { Text(t("otpEnrollment.confirm")) },
-            confirmButton = {
-                TextButton(onClick = { confirming = false; openSetup() }) {
-                    Text(t("otpEnrollment.start"), color = Theme.colors.danger)
-                }
-            },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text(t("common.cancel")) } },
-        )
     }
     if (choices.isNotEmpty()) {
         AlertDialog(

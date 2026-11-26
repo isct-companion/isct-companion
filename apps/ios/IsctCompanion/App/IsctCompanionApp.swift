@@ -205,7 +205,6 @@ struct RootView: View {
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
     @State private var campusMapRequest: CampusMapRequest?
-    @State private var exportError: String?
     @State private var widgetURL: URL?
     @Environment(\.openURL) private var openURL
     @Namespace private var zoom
@@ -281,23 +280,25 @@ struct RootView: View {
         ), onDismiss: inbox.refresh) { selection in
             InboxSheet(selection: selection)
         }
-        .alert(inbox.error ?? "", isPresented: Binding(get: { inbox.error != nil }, set: { if !$0 { inbox.error = nil } })) {
-            Button(t("common.ok"), role: .cancel) {}
+        .onChange(of: inbox.error) { _, error in
+            if let error {
+                model.notices.show(error)
+                inbox.error = nil
+            }
         }
         .environment(navigator)
         .environment(\.push, PushAction { navigator.push($0) })
         .environment(\.courseZoom, zoom)
-        .welcomeSheet {
-            navigator.tab = .today
-            navigator.open(SettingsRoute.account(.science))
-        }
         .sheet(item: $calendarFile) { file in
             ShareSheet(url: file.url).presentationDetents([.medium, .large])
         }
-        .alert(exportError ?? "", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
-            Button(t("common.ok"), role: .cancel) {}
-        }
-        .modifier(UpdateOffer(model: model))
+        .modifier(AppNoticeLayer(
+            blocked: inbox.transfer != nil || calendarFile != nil || campusMapRequest != nil || !web.downloads.isEmpty,
+            connect: {
+                navigator.tab = .today
+                navigator.open(SettingsRoute.account(.science))
+            }
+        ))
     }
 
     private func tabs(_ tabs: [AppTab]) -> some View {
@@ -392,7 +393,7 @@ struct RootView: View {
             do {
                 calendarFile = try await QuarterCalendarFile.write(model: model, term: term, pick: pick)
             } catch {
-                exportError = t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)])
+                model.notices.show(t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)]))
             }
         }
     }
@@ -483,28 +484,5 @@ extension View {
         .navigationDestination(for: ExamDocumentRoute.self) { ExamDocumentScreen(route: $0) }
         .navigationDestination(for: ExamRequestRoute.self) { ExamRequestScreen(route: $0) }
         .navigationDestination(for: SettingsRoute.self) { SettingsDestination(route: $0) }
-    }
-}
-
-/// A newer release a check of its own found: the App Store installs it, or
-/// the person skips this version for good. Turning the checks off is in
-/// Settings › About.
-private struct UpdateOffer: ViewModifier {
-    @Environment(\.openURL) private var openURL
-    let model: AppModel
-
-    func body(content: Content) -> some View {
-        content.alert(
-            model.updateOffer.map { t("appUpdate.prompt.available", ["version": $0.version]) } ?? "",
-            isPresented: Binding(get: { model.updateOffer != nil }, set: { if !$0 { model.updateOffer = nil } }),
-            presenting: model.updateOffer
-        ) { release in
-            Button(t("common.later"), role: .cancel) {}
-            Button(t("appUpdate.prompt.skip")) { Task { await model.skipUpdate(release.version) } }
-            if let button = OpenReleaseButton(release: release, openURL: openURL) {
-                // The preferred action: bold, and Return picks it.
-                button.keyboardShortcut(.defaultAction)
-            }
-        }
     }
 }

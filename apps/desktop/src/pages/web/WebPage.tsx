@@ -27,11 +27,13 @@ import { desktopBridge } from "../../platform/native";
 import { official } from "../../lib/school-sites";
 import {
   claimSchoolView,
+  releaseSchoolView,
   schoolWebExit,
 } from "../../platform/school-web-owner";
 import { type Platform } from "../../platform/capabilities";
 import { errorText } from "../../lib/error-text";
 import { withRecords } from "../../platform/records";
+import { useAppModalOpen } from "../../components/ui/modal-state";
 import { TitleRow } from "../../components/TitleRow";
 
 const clamp = (value: number, minimum: number, maximum: number) =>
@@ -109,6 +111,11 @@ function WebBody({
     : undefined;
   const embedded =
     Boolean(desktopBridge?.setSchoolWebBounds) && schoolWebAvailable;
+  const modalOpen = useAppModalOpen();
+  useEffect(() => {
+    if (modalOpen && embedded && active)
+      void releaseSchoolView(owner.current).catch(failed);
+  }, [modalOpen, embedded, active]);
   const page = useSchoolWebPage(embedded ? site : undefined);
   const shownUrl = page?.url;
   const failed = (error: unknown) =>
@@ -144,7 +151,7 @@ function WebBody({
   }, [address]);
 
   useEffect(() => {
-    if (!embedded || !desktopBridge || !active) return;
+    if (!embedded || !desktopBridge || !active || modalOpen) return;
     const target =
       requestedUrl && openedRequest.current !== requestKey
         ? requestedUrl
@@ -175,6 +182,7 @@ function WebBody({
             ? desktopBridge!.resolveSchoolUrl(target, site)
             : Promise.resolve({ site, url: undefined })
         ).then((resolved) => {
+          if (cancelled) return undefined;
           if (resolved.site !== site) {
             setSite(resolved.site);
             return undefined;
@@ -217,7 +225,7 @@ function WebBody({
     };
     // Site changes intentionally reuse the resident view and its shared session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [site, embedded, active, requestKey]);
+  }, [site, embedded, active, requestKey, modalOpen]);
 
   const choose = (next: SchoolSite) => {
     if (schoolWebExit.pending) return;

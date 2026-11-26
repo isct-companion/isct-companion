@@ -28,7 +28,6 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CalendarExportScope
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +45,7 @@ internal fun ExportButton(term: String) {
     fun export(scope0: CalendarExportScope) = scope.launch {
         menu = false
         runCatching { share(context, term, scope0, model.quarterIcs(term, scope0)) }.onFailure {
-            Notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)))
+            model.notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)))
         }
     }
     Box {

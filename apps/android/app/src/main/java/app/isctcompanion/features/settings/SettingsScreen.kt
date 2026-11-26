@@ -18,7 +18,6 @@ import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Widgets
-import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -321,7 +320,7 @@ private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVecto
 private fun LogsRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    fun fail(message: String) = Notices.show(message)
+    val notices = LocalModel.current.notices
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -330,7 +329,7 @@ private fun LogsRow() {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
                     stream.use { it.write(logText(context).toByteArray()) }
                 }
-            }.onFailure { fail(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
+            }.onFailure { notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
         }
     }
     // One row for both log actions, as a menu (iOS's Application logs row).
@@ -355,7 +354,7 @@ private fun LogsRow() {
                     runCatching {
                         context.getSystemService(ClipboardManager::class.java)
                             .setPrimaryClip(ClipData.newPlainText(t("settings.main.applicationLogs"), logText(context)))
-                    }.onFailure { fail(t("settings.otp.copyFailed")) }
+                    }.onFailure { notices.show(t("settings.otp.copyFailed")) }
                 },
             )
         }

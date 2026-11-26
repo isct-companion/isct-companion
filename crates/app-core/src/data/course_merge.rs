@@ -109,8 +109,7 @@ pub(super) fn refresh(transaction: &Transaction<'_>, touched: &[Touched]) -> Res
 /// Merges every course again, e.g. after the caches were emptied.
 pub(super) fn rebuild(transaction: &Transaction<'_>) -> Result<(), DataError> {
     merge(transaction, None)?;
-    // Already at this version: rewriting the row would report a commit to
-    // `merge_state` that changed nothing.
+    // A current marker has no change to publish with the rebuilt rows.
     if built(transaction)? {
         return Ok(());
     }

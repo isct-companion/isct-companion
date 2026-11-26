@@ -50,7 +50,6 @@ struct SettingsScreen: View {
     @AppStorage(SchoolBrowserHost.textScaleKey) private var textScale = 115
     @State private var firstSite = WebRouter.firstSite
     @State private var logFile: ExportFile?
-    @State private var notice: String?
 
     var body: some View {
         List {
@@ -166,9 +165,7 @@ struct SettingsScreen: View {
             document: logFile, contentType: .plainText,
             defaultFilename: "IsctCompanion-logs-\(Self.today).txt"
         ) { _ in logFile = nil }
-        .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button(t("common.ok"), role: .cancel) {}
-        }
+        .appNoticeFlow(logFile != nil)
     }
 
     /// The update check: what it found (opening the App Store), or a check
@@ -236,16 +233,16 @@ struct SettingsScreen: View {
         do {
             logFile = ExportFile(data: Data(try Self.logText().utf8))
         } catch {
-            notice = t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)])
+            model.notices.show(t("settings.main.exportFailedReason", ["reason": AppModel.describe(error)]))
         }
     }
 
     private func copyLogs() {
         do {
             UIPasteboard.general.string = try Self.logText()
-            notice = t("settings.credentialImport.copied")
+            model.notices.show(t("settings.credentialImport.copied"))
         } catch {
-            notice = t("settings.otp.copyFailed")
+            model.notices.show(t("settings.otp.copyFailed"))
         }
     }
 

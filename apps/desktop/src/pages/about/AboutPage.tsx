@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { ComponentProps } from "react";
 import { TitleRow } from "../../components/TitleRow";
-import { Switch, UiButton } from "../../components/ui";
+import { ErrorBanner, Switch, UiButton } from "../../components/ui";
 import { GuideTip, useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../platform/native";
 import { lastInstallText } from "../../lib/app-update-text";
@@ -148,13 +148,16 @@ export function About({
                     {status?.phase === "error" && status.message
                       ? ` · ${status.message}`
                       : ""}
-                    {status?.lastInstall && (
-                      <small>{lastInstallText(status.lastInstall)}</small>
-                    )}
                   </span>
                 </div>
               </div>
             )}
+            {status?.lastInstall &&
+              status.lastInstall.outcome !== "installed" && (
+                <ErrorBanner onRetry={() => void check(true, true)}>
+                  {lastInstallText(status.lastInstall)}
+                </ErrorBanner>
+              )}
             <div className="aboutPrefs">
               {desktopBridge?.checkAppUpdate && (
                 <span data-setting="update-checks">

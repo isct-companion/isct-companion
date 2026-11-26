@@ -46,7 +46,7 @@ struct ExamRequestScreen: View {
                         Task { await setOpen(item, item.status != "open") }
                     }
                     Button(t("common.delete"), role: .destructive) {
-                        page.confirm("examShare.deleteRequest") {
+                        page.confirm("examShare.deleteRequest", notices: model.notices) {
                             if await page.call(model, .deleteRequest(id: item.id, mine: true)) != nil { dismiss() }
                         }
                     }
@@ -64,7 +64,7 @@ struct ExamRequestScreen: View {
         .task { await page.loadSite(model) }
         .sheet(item: $uploadEntry) { entry in
             ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
-                page.notice = outcome.notice
+                model.notices.show(outcome.notice)
                 if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }

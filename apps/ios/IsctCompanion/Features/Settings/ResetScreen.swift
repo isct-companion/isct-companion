@@ -20,18 +20,11 @@ struct ResetScreen: View {
     @State private var deleteDownloads = false
     @State private var restore = true
     @State private var estimate: Estimate = .estimating
-    @State private var confirming = false
     @State private var resetting = false
-    @State private var notice: Notice?
+    @State private var failure: String?
 
     private enum Estimate {
         case estimating, unavailable, bytes(UInt64)
-    }
-
-    private struct Notice: Identifiable {
-        let text: String
-        let leave: Bool
-        var id: String { text }
     }
 
     /// What every reset removes; the item keys live under `settings.reset.item`.
@@ -63,6 +56,7 @@ struct ResetScreen: View {
     var body: some View {
         Form {
             Group {
+                if let failure { ProblemBanner(text: failure) }
                 if !everything {
                     Section {
                         option(t("settings.reset.caches.signOut"), t("settings.reset.caches.signOutHint"), $signOutWeb)
@@ -86,7 +80,16 @@ struct ResetScreen: View {
                 }
                 Section {
                     Button(role: .destructive) {
-                        if everything { confirming = true } else { Task { await reset() } }
+                        if everything {
+                            model.notices.confirm(title: t("settings.reset.full.title"),
+                                                  message: t("settings.reset.full.acknowledge"),
+                                                  action: confirmLabel, destructive: true,
+                                                  cancelLabel: t("settings.reset.cancel")) {
+                                Task { await reset() }
+                            }
+                        } else {
+                            Task { await reset() }
+                        }
                     } label: {
                         if resetting { Text(t("settings.reset.resetting")) } else { Text(confirmLabel) }
                     }
@@ -109,17 +112,7 @@ struct ResetScreen: View {
             guard !Task.isCancelled else { return }
             estimate = preview.map { .bytes($0.freedBytes) } ?? .unavailable
         }
-        .confirmationDialog(
-            t("settings.reset.full.title"), isPresented: $confirming, titleVisibility: .visible
-        ) {
-            Button(confirmLabel, role: .destructive) { Task { await reset() } }
-            Button(t("settings.reset.cancel"), role: .cancel) {}
-        } message: {
-            Text(t("settings.reset.full.acknowledge"))
-        }
-        .alert(item: $notice) { notice in
-            Alert(title: Text(notice.text), dismissButton: .default(Text(t("common.ok"))) { if notice.leave { dismiss() } })
-        }
+        .appNoticeFlow(resetting)
     }
 
     private var freed: String {
@@ -132,23 +125,26 @@ struct ResetScreen: View {
 
     private func reset() async {
         let restoring = everything && cloudOn && restore
+        failure = nil
         resetting = true
         defer { resetting = false }
         do {
             try await model.reset(request)
         } catch {
-            notice = Notice(text: Self.failure(error), leave: false)
+            failure = Self.failure(error)
             return
         }
         if restoring {
             do {
                 try await model.backup.restoreAfterReset()
             } catch {
-                notice = Notice(text: t("settings.reset.full.restoreFailed"), leave: true)
+                model.notices.show(t("settings.reset.full.restoreFailed"))
+                dismiss()
                 return
             }
         }
-        notice = Notice(text: t(everything ? "settings.reset.full.done" : "settings.reset.caches.done"), leave: true)
+        model.notices.show(t(everything ? "settings.reset.full.done" : "settings.reset.caches.done"))
+        dismiss()
     }
 
     private static func failure(_ error: Error) -> String {

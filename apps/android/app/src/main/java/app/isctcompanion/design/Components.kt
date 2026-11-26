@@ -15,8 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -316,6 +316,7 @@ fun MaterialRow(item: MaterialItem) {
             Tag(t("common.addedToday"))
         }
     }
+    opening.Banner()
 }
 
 /** A button's level (slotledger `approach/button-hierarchy`). */
@@ -374,34 +375,6 @@ fun EmptyState(icon: ImageVector, text: String, modifier: Modifier = Modifier, a
         Icon(icon, null, tint = Theme.colors.muted, modifier = Modifier.size(40.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted, textAlign = TextAlign.Center)
         action?.let { (title, run) -> ActionButton(title, run, level = ButtonLevel.Secondary) }
-    }
-}
-
-/** A problem that stops the page: one line on the danger tint at the top,
- * with Retry when the page can try again (slotledger
- * `approach/feedback-banner-toast`). */
-@Composable
-fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
-    val model = LocalModel.current
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(Theme.space5),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(Theme.radiusSurface))
-            .background(Theme.colors.dangerSoft)
-            .padding(start = Theme.space7, top = Theme.space2, bottom = Theme.space2),
-    ) {
-        Icon(Icons.Rounded.ErrorOutline, null, tint = Theme.colors.danger, modifier = Modifier.padding(top = Theme.space5))
-        Text(
-            text, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
-            modifier = Modifier.weight(1f).padding(vertical = Theme.space5),
-        )
-        onRetry?.let { retry ->
-            TextButton(onClick = retry) { Text(t("common.retry"), fontWeight = FontWeight.SemiBold, color = Theme.colors.danger) }
-        }
-        IconButton(onClick = { model.dismissProblem() }) {
-            Icon(Icons.Rounded.Close, t("common.close"), tint = Theme.colors.muted, modifier = Modifier.size(18.dp))
-        }
     }
 }
 

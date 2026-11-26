@@ -29,8 +29,7 @@ import kotlinx.coroutines.launch
  * closing it in any way lets the tips in. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WelcomeSheet(connect: () -> Unit) {
-    if (Guide.welcome) return
+fun WelcomeSheet(onClosed: () -> Unit, connect: () -> Unit) {
     val model = LocalModel.current
     val scope = rememberCoroutineScope()
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -39,10 +38,11 @@ fun WelcomeSheet(connect: () -> Unit) {
     fun close(then: () -> Unit = {}) {
         scope.launch { state.hide() }.invokeOnCompletion {
             Guide.closeWelcome()
+            onClosed()
             then()
         }
     }
-    ModalBottomSheet(onDismissRequest = { Guide.closeWelcome() }, sheetState = state, containerColor = Theme.colors.bg) {
+    ModalBottomSheet(onDismissRequest = { Guide.closeWelcome(); onClosed() }, sheetState = state, containerColor = Theme.colors.bg) {
         Column(
             Modifier.fillMaxWidth().padding(horizontal = Theme.space8).padding(bottom = Theme.space10),
             verticalArrangement = Arrangement.spacedBy(Theme.space4),

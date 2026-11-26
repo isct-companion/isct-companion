@@ -71,7 +71,6 @@ import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.PageSubtitle
 import app.isctcompanion.design.TabPage
-import app.isctcompanion.design.ProblemBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme

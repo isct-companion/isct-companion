@@ -68,8 +68,9 @@ struct TodayScreen: View {
     private func overview(_ now: Date) -> some View {
         Group {
             if !columns { header }
+            AnnouncementBanners(items: model.announcements?.active ?? [])
             if let problem = model.problem {
-                ProblemBanner(text: problem)
+                ProblemBanner(text: problem, dismiss: model.dismissProblem)
             } else if let problem = model.syncSnapshot?.problem {
                 SyncProblemBanner(problem: problem)
             }
@@ -760,28 +761,6 @@ private struct RecentCard: View {
 }
 
 // MARK: Feedback
-
-struct ProblemBanner: View {
-    let text: String
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        // One line and one way out (slotledger `approach/feedback-banner-toast`).
-        HStack(alignment: .firstTextBaseline, spacing: Theme.space5) {
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
-            Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
-            Spacer()
-            Button(t("common.retry")) {
-                model.dismissProblem()
-                model.refreshFromSchool()
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Theme.accent)
-        }
-        .padding(Theme.space7)
-        .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
-    }
-}
 
 /// First launch: the real empty Today with one sign-in card.
 private struct ConnectCard: View {

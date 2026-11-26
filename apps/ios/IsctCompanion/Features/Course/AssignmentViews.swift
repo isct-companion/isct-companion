@@ -254,6 +254,8 @@ final class MaterialOpening {
         fallback = nil
         busy = true
         defer { busy = false }
+        notice = nil
+        retrying = false
         switch await place.model.openMaterial(courseId: course, source: source) {
         // How a file shows is Core's (`file_preview`): Markdown on a page of
         // its own, everything else in Quick Look, which previews what iOS can
@@ -312,18 +314,39 @@ private struct MaterialOpeningPresentation: ViewModifier {
         let place = MaterialPlace(model: model, push: push, openURL: openURL)
         content
             .quickLookPreview($opening.preview)
-            .alert(opening.notice ?? "", isPresented: Binding(get: { opening.notice != nil }, set: { if !$0 { opening.notice = nil } })) {
-                if let page = opening.fallback {
-                    Button(t("common.openInLMS")) { place.show(page, title: opening.title) }
+            .appNoticeFlow(opening.preview != nil)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let text = opening.notice ?? (opening.retrying ? t("lmsFile.theFileCouldNotBe") : nil) {
+                    NoticeBanner(important: true) {
+                        VStack(alignment: .leading, spacing: Theme.space4) {
+                            Text(text).font(.subheadline).foregroundStyle(Theme.ink)
+                            HStack {
+                                if opening.retrying {
+                                    Button(t("common.tryAgain")) {
+                                        opening.retrying = false
+                                        Task { await opening.retry(at: place) }
+                                    }
+                                }
+                                if let page = opening.fallback {
+                                    Button(t("common.openInLMS")) {
+                                        opening.notice = nil
+                                        opening.retrying = false
+                                        place.show(page, title: opening.title)
+                                    }
+                                }
+                                Spacer()
+                                Button {
+                                    opening.notice = nil
+                                    opening.retrying = false
+                                } label: {
+                                    Image(systemName: "xmark").accessibilityLabel(t("common.close"))
+                                }
+                            }
+                            .font(.subheadline)
+                        }
+                    }
+                    .padding(.horizontal, Theme.gutter)
                 }
-                Button(t("common.cancel"), role: .cancel) {}
-            }
-            .alert(t("lmsFile.theFileCouldNotBe"), isPresented: $opening.retrying) {
-                Button(t("common.tryAgain")) { Task { await opening.retry(at: place) } }
-                if let page = opening.fallback {
-                    Button(t("common.openInLMS")) { place.show(page, title: opening.title) }
-                }
-                Button(t("common.cancel"), role: .cancel) {}
             }
     }
 }

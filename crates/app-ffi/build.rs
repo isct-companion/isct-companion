@@ -155,6 +155,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "workspace/mod.rs",
         "exam_share/model.rs",
         "workspace_changes.rs",
+        "announcements.rs",
         "study_profile.rs",
         "schedule/mod.rs",
         "schedule/timing.rs",

@@ -109,6 +109,8 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             )
         })
         .collect();
+    let (key, state) = stored(Dataset::Announcements, "v1", Some(now()), None);
+    all.insert(key, state);
     all.extend(states);
     Inputs {
         states: all,
@@ -954,7 +956,19 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     assert_eq!((run.done, run.total), (0, Some(followed as u32)));
     assert_eq!(run.label.key, "sync.run.reference");
 
-    let first = engine.lease_for_test(Lane::IsctData).unwrap();
+    // The independent announcement read may take the same lane first.
+    let mut first = engine.lease_for_test(Lane::IsctData).unwrap();
+    while first.key.dataset != Dataset::Reference {
+        let id = first.run.clone();
+        assert!(engine.snapshot().runs.iter().all(|run| run.run != id));
+        engine
+            .settle_for_test(first, KeyEnd::failed("http-404", crate::announcements::URL))
+            .await;
+        let after = engine.snapshot();
+        assert!(after.attention.problem.is_none());
+        assert!(after.runs.iter().all(|run| run.run != id));
+        first = engine.lease_for_test(Lane::IsctData).unwrap();
+    }
     assert_eq!(first.run, run.run);
     let current = engine.snapshot();
     assert!(reference_runs(&current)[0].current.is_some());
@@ -1306,7 +1320,14 @@ fn the_next_deadline_includes_keys_that_are_not_due_yet() {
     ]);
     let next = |opens: &[View], facts: &Facts| {
         let plan = plan(&inputs, facts, opens, &[]);
-        planner::next_due(&inputs, &plan, opens, &HashMap::new(), now())
+        planner::next_due(
+            &inputs,
+            facts.foreground,
+            &plan,
+            opens,
+            &HashMap::new(),
+            now(),
+        )
     };
     // The deadlines key goes stale at its two-hour TTL; the enrolment list
     // backs off for twenty minutes, sooner.
@@ -1702,14 +1723,17 @@ fn retry_scopes_cover_failed_keys_without_guessing_from_malformed_scopes() {
 
 /// A label no catalog has is shown as the raw key on iOS and Android.
 #[test]
-fn every_dataset_has_its_sync_labels_in_every_catalog() {
+fn every_visible_dataset_has_its_sync_labels_in_every_catalog() {
     for catalog in [
         include_str!("../../../../resources/locales/en.json"),
         include_str!("../../../../resources/locales/ja.json"),
         include_str!("../../../../resources/locales/zh.json"),
     ] {
         let catalog: serde_json::Value = serde_json::from_str(catalog).unwrap();
-        for dataset in Dataset::ALL {
+        for dataset in Dataset::ALL
+            .into_iter()
+            .filter(|dataset| snapshot::shows_run(*dataset))
+        {
             let name = snapshot::label_name(dataset);
             assert!(catalog[format!("sync.run.{name}")].is_string(), "{name}");
             assert_eq!(
@@ -1719,7 +1743,10 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
             );
         }
         for page in snapshot::KYOMU_PAGES {
-            assert!(catalog[format!("syncStatus.kyomuPage.{page}")].is_string(), "{page}");
+            assert!(
+                catalog[format!("syncStatus.kyomuPage.{page}")].is_string(),
+                "{page}"
+            );
         }
     }
 }

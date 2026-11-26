@@ -296,7 +296,7 @@ an unverified area becomes an assumed-good one.
 | `IOS-IPAD-WORKSTATION` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/App/Workstation.swift<br>apps/ios/IsctCompanion/Features/Today/TodayScreen.swift |
 | `IOS-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/ios/IsctShare/ShareViewController.swift<br>apps/ios/IsctOpen/OpenViewController.swift<br>apps/ios/ExtensionShared/ExtensionInput.swift<br>apps/ios/IsctCompanion/Shared/SharedInbox.swift<br>apps/ios/IsctCompanion/Core/HandIn.swift<br>apps/ios/IsctCompanion/Core/AppModelHandIn.swift<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Features/HandIn/InboxSheet.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInTarget.swift<br>apps/ios/IsctCompanion/Features/HandIn/HandInCard.swift<br>apps/ios/IsctCompanion/Features/Web/WebScreens.swift<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
 | `ANDROID-SHARE-HAND-IN` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/SharedInbox.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/InboxSheet.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/handin/HandInCard.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/WebScreens.kt<br>apps/android/app/src/main/AndroidManifest.xml<br>crates/app-ffi/src/hand_in.rs<br>crates/app-core/src/school_browser/submission.rs<br>crates/adpt-isct/assets/assignment-upload.js |
-| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
+| `ANDROID-APP-UPDATE` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/AppNotices.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt |
 | `APP-UPDATE-PROMPT` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/useDesktopUpdates.ts<br>apps/desktop/src/store/app-update.ts<br>apps/desktop/src/components/confirm.tsx<br>apps/desktop/src-tauri/src/desktop_updates.rs<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift |
 | `ANDROID-CAMPUS-PRINT` | native | 修士課程 1年・前期課程 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/CampusPrintService.kt<br>crates/app-ffi/src/campus_print.rs<br>crates/app-core/src/campus_printer/mod.rs<br>crates/adpt-printer/src/document.rs<br>crates/adpt-printer/src/lpd.rs |
 | `IOS-SETTINGS-PAGES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/NotificationSettings.swift<br>apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/DataUpdatesScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift |
@@ -4530,6 +4530,12 @@ Run the updated signed macOS desktop build with a school account available.
    - *Why:* No HTML overlay draws above the native page. The page must step
      aside while the confirmation asks, or its Delete button sits under
      the LMS page, and come back to the same page after Cancel.
+6. With a native School Web file chooser or page prompt open, wait for
+   a queued app announcement or update. Answer the native prompt, then
+   dismiss the app dialog and download a file from the page.
+   - *Why:* The native request must keep its original recipient and answer.
+     The separate Web view must yield to the app dialog and return to
+     its page and scroll position; the download reveal stays reachable.
 
 **Where to look**
 
@@ -4542,6 +4548,9 @@ The separator follows the pointer until release, holds at the minimum and
 collapses beyond the threshold. The native page stays
 inside its content area and both toolbars remain clickable after resizing.
 The resize cursor appears only on the separator; page cursors stay stable.
+While a native prompt is open it remains usable. When it ends, an
+eligible app dialog may show. The Web page returns at the same scroll
+position; the download banner reveals the saved file.
 
 **Why this is manual**
 
@@ -6631,7 +6640,7 @@ its app_updates suite.
 **Covers**
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt`
-- `apps/android/app/src/main/java/app/isctcompanion/features/settings/UpdatePrompt.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/AppNotices.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt`
 
 **Last recorded** never run

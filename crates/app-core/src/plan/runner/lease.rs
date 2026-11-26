@@ -454,6 +454,7 @@ fn default_source(key: &Key, locator: Option<&str>) -> String {
             crate::catalog::KYOMU_SEARCH_PATH
         ),
         Dataset::Reference => locator.unwrap_or_default().into(),
+        Dataset::Announcements => crate::announcements::URL.into(),
     }
 }
 

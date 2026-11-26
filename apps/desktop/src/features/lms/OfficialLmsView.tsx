@@ -7,7 +7,7 @@ import {
   hideNativeSchoolWeb,
   releaseSchoolView,
 } from "../../platform/school-web-owner";
-import { useConfirmationPending } from "../../components/confirm";
+import { useAppModalOpen } from "../../components/ui/modal-state";
 import { ExternalLink } from "../../components/ExternalLink";
 import { t } from "../../i18n";
 import {
@@ -37,7 +37,7 @@ export function OfficialLmsView({
 }) {
   // The native view draws above every HTML overlay, so it hides while a
   // confirmation asks and returns to the same page afterwards.
-  const confirming = useConfirmationPending();
+  const confirming = useAppModalOpen();
   const active = visible && !confirming;
   const host = useRef<HTMLDivElement>(null);
   const owner = useRef(Symbol("today-lms"));
@@ -46,7 +46,7 @@ export function OfficialLmsView({
   const opened = useRef<string | undefined>(undefined);
   const [status, setStatus] = useState(() => t("lms.openingLMS"));
   const page = useSchoolWebPage(
-    available && active ? "science-lms" : undefined,
+    available && visible ? "science-lms" : undefined,
   );
   const location = page?.url ?? url;
   useEffect(() => {
@@ -127,7 +127,7 @@ export function OfficialLmsView({
           </div>
         </div>
       </ReaderTools>
-      {available && active && (
+      {available && visible && (
         <SchoolWebNotices
           site="science-lms"
           page={page}

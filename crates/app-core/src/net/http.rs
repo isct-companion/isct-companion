@@ -262,7 +262,7 @@ async fn exchange(client: &reqwest::Client, request: NetRequest) -> Result<Respo
 }
 
 /// A typed error without the request URL (it may carry a sesskey or token).
-fn classify(error: reqwest::Error) -> NetError {
+pub(crate) fn classify(error: reqwest::Error) -> NetError {
     let error = error.without_url();
     if error.is_timeout() {
         return NetError::Stalled;

@@ -39,7 +39,6 @@ import {
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import { notify } from "@app/components/notifications/notify";
-import { notifications } from "@app/components/notifications/notifications";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";
@@ -942,73 +941,141 @@ describe("store failures", () => {
     expect(host.querySelector(".pageError")).toBeNull();
   }, 20_000);
 
-  it("offers Retry saving on an error notice and runs the retry it was given", async () => {
+  it("runs the given write retry and keeps Undo tied to its own operation", async () => {
     app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:retry",
-      }),
+      shellOptions({ workspace: workspaceFixture(), revision: "rev:retry" }),
       { route: paths.home() },
     );
     const { core } = app;
     const before = core.commands("workspace_revision").length;
-
+    const action = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent === label,
+      );
     await act(async () => {
-      notify.error(new Error("Disk is full"), () => {
-        void storeModule.workspaceStore.reload();
-      });
+      notify.error(
+        new Error("Disk is full"),
+        () => void storeModule.workspaceStore.reload(),
+      );
     });
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Disk is full",
-      ),
+    const retry = await required(
+      () => action("Retry saving"),
+      "the write's retry",
     );
-    // A migration regression would overwrite the current notice or render two
-    // at once. Queued durable notices must remain available after it closes.
-    await act(async () =>
-      notifications.show({
-        id: "queued-update",
-        message: "Update ready",
-        autoClose: false,
-        withCloseButton: true,
-      }),
-    );
-    expect(document.querySelectorAll(".uiToast")).toHaveLength(1);
-    expect(document.querySelector(".uiToast")?.textContent).toContain(
-      "Disk is full",
-    );
-    // Retry runs the reload it was given and closes the notice, so the
-    // queued one takes its place.
-    const retry = [
-      ...document.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent === "Retry saving");
-    expect(retry).toBeDefined();
     await click(retry);
     await until(() =>
       expect(core.commands("workspace_revision").length).toBeGreaterThan(
         before,
       ),
     );
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Update ready",
-      ),
+
+    const restored: string[] = [];
+    const { confirmAction } = await import("@app/components/confirm");
+    await act(async () => {
+      notify.undoable("Removed the first exam", () => {
+        restored.push("first");
+      });
+      notify.undoable("Removed the second exam", () => {
+        restored.push("second");
+      });
+      notify.info("Another operation finished");
+    });
+    await required(() => action("Undo"), "the first undo");
+    // A user confirmation pauses and hides Undo until the dialog closes.
+    let confirmed: Promise<boolean> | undefined;
+    await act(async () => {
+      confirmed = confirmAction("Delete this item?", "Delete");
+    });
+    const cancel = await required(
+      () => action("Cancel"),
+      "confirmation cancel",
     );
-    await act(async () =>
-      notifications.show({
-        id: "queued-update",
-        message: "Update installed",
-        autoClose: false,
-        withCloseButton: true,
+    expect(action("Undo")).toBeUndefined();
+    await click(cancel);
+    expect(await confirmed).toBe(false);
+    await click(await required(() => action("Undo"), "the first undo"));
+    await click(await required(() => action("Undo"), "the second undo"));
+    expect(restored).toEqual(["first", "second"]);
+  }, 20_000);
+
+  it("keeps an open announcement intact when another arrives, records only explicit answers, and closes withdrawn ones", async () => {
+    const notice = (id: string, title: string) => ({
+      id,
+      level: "info" as const,
+      title,
+      body: `${title} body`,
+      link: null,
+    });
+    const first = notice("a", "First announcement");
+    const second = notice("b", "Second announcement");
+    const third = notice("c", "Withdrawn announcement");
+    let feed = { active: [first], pending: [first] };
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:announcements",
+        queries: {
+          ...shellQueries(),
+          announcements: () => feed,
+        },
+      }),
+      { route: paths.home() },
+    );
+    const { core, host } = app;
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    const publishFeed = async (next: typeof feed) => {
+      feed = next;
+      await act(async () => {
+        core.emit("workspace-changed", {
+          seq: core.commit().seq,
+          source: "reference-pull",
+          changes: ["announcements"],
+        });
+      });
+    };
+
+    await until(() =>
+      expect(dialog()?.textContent).toContain("First announcement"),
+    );
+    expect(host.textContent).toContain("First announcement");
+
+    // A newer announcement arriving does not replace the open one.
+    await publishFeed({ active: [second, first], pending: [second, first] });
+    await advance(50);
+    expect(dialog()?.textContent).toContain("First announcement");
+
+    // Closing without an explicit choice records no receipt, then opens B.
+    await act(async () => {
+      dialog()!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await until(() =>
+      expect(dialog()?.textContent).toContain("Second announcement"),
+    );
+    expect(core.mutations).toEqual([]);
+
+    const ack = [...dialog()!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Got it",
+    );
+    await click(ack);
+    await until(() =>
+      expect(core.mutations.map((entry) => entry.intent)).toContainEqual({
+        kind: "answerAnnouncement",
+        id: "b",
       }),
     );
+
+    // A withdrawn announcement closes itself without recording an answer.
+    await publishFeed({ active: [third], pending: [third] });
     await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Update installed",
-      ),
+      expect(dialog()?.textContent).toContain("Withdrawn announcement"),
     );
-    await click(document.querySelector('.uiToast button[aria-label="Close"]'));
-    await until(() => expect(document.querySelector(".uiToast")).toBeNull());
+    await publishFeed({ active: [], pending: [] });
+    await until(() => expect(dialog()).toBeNull());
+    expect(core.mutations.map((entry) => entry.intent)).toEqual([
+      { kind: "answerAnnouncement", id: "b" },
+    ]);
   }, 20_000);
 });
 
@@ -1687,6 +1754,28 @@ describe("First school connection", () => {
       expect(app!.core.workspace.settings.dataNoticeAcknowledgedAt).toEqual(
         expect.any(String),
       ),
+    );
+
+    // "Show welcome and tips again" reopens the live welcome sheet directly.
+    await app.go(paths.about());
+    const resetGuide = await required(
+      () =>
+        app!.host.querySelector<HTMLButtonElement>('[data-setting="guide"]'),
+      "the welcome reset button",
+    );
+    await click(resetGuide);
+    const reopened = await until(() => {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+      expect(dialog?.textContent).toContain("IsctCompanion へようこそ");
+      return dialog!;
+    });
+    await click(
+      [...reopened.querySelectorAll("button")].find(
+        (button) => button.textContent === "あとで",
+      ),
+    );
+    await until(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeNull(),
     );
   });
 

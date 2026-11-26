@@ -178,6 +178,7 @@ struct ExamUploadSheet: View {
                 }
                 .ignoresSafeArea()
             }
+            .appNoticeFlow()
             .sheet(isPresented: $choosingSubject) {
                 ExamUploadSubjectPicker(selected: Set(form?.draft.subjectCodes ?? []), limit: choices?.limits.searchQuery) { subject in
                     try await edit(.addSubject(code: subject.code))

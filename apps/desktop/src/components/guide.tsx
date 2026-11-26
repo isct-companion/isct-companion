@@ -91,7 +91,8 @@ const ISSUES_URL = "https://github.com/isct-companion/Isct-Data/issues";
 
 /** The data notice in one line, with the full text one click away. Closing
  * the sheet that shows it is the acknowledgement, as it always was. */
-function DataNoticeLine() {
+/** The data notice in one line, its full text behind "View details". */
+export function DataNoticeLine() {
   const [details, setDetails] = useState(false);
   return (
     <div className="dataNotice">
@@ -127,31 +128,33 @@ function DataNoticeLine() {
  * not acknowledged the notice (it is stored with the workspace, so a reset
  * clears it) gets the notice alone.
  */
+export function useWelcome() {
+  const [guide, setGuide] = useGuide();
+  return [
+    guide.welcome !== true,
+    () => setGuide((current) => ({ ...current, welcome: true })),
+  ] as const;
+}
+
 export function WelcomeSheet({
   settings,
   update,
   connected,
   noticeNeeded,
-  acknowledgeNotice,
+  close,
   openAccounts,
   openAgents,
 }: {
   settings: Workspace["settings"];
   update: (f: (d: Workspace) => Workspace) => void;
   connected: boolean;
-  /** The data notice has not been acknowledged in this workspace. */
+  /** The data notice has not been acknowledged: the sheet carries it, and
+   * closing the sheet acknowledges it. */
   noticeNeeded: boolean;
-  /** Stores the acknowledgement (`dataNoticeAcknowledgedAt`). */
-  acknowledgeNotice: () => void;
+  close: () => void;
   openAccounts: () => void;
   openAgents: () => void;
 }) {
-  const [guide, setGuide] = useGuide();
-  const welcome = guide.welcome !== true;
-  const close = () => {
-    if (noticeNeeded) acknowledgeNotice();
-    setGuide((current) => ({ ...current, welcome: true }));
-  };
   const set = <K extends "locale" | "contentLanguage">(
     key: K,
     value: Workspace["settings"][K],
@@ -160,25 +163,6 @@ export function WelcomeSheet({
       draft.settings[key] = value;
       return draft;
     });
-  if (!welcome)
-    return (
-      <Modal
-        opened={noticeNeeded}
-        onClose={acknowledgeNotice}
-        closeOnClickOutside={false}
-        title={t("dataNotice.beforeYouRelyOnThis")}
-        centered
-      >
-        <Stack gap="space-6">
-          <DataNoticeLine />
-          <Group justify="flex-end">
-            <Button onClick={acknowledgeNotice}>
-              {t("dataNotice.iUnderstand")}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-    );
   return (
     <Modal
       opened

@@ -1,90 +1,35 @@
 import { useEffect } from "react";
-import { notifications } from "../components/notifications/notifications";
+import { notify } from "../components/notifications/notify";
 import { desktopBridge } from "../platform/native";
-import { chooseAction } from "../components/confirm";
+import type { NoticeDialog } from "../components/confirm";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { t } from "../i18n";
 import type { AppUpdateStatus } from "../platform/desktop-bridge";
 import { useAppUpdate } from "../store/app-update";
 import { lastInstallText } from "../lib/app-update-text";
 
-let lastInstallShown = false;
-function announceLastInstall(status?: AppUpdateStatus) {
-  const last = status?.lastInstall;
-  if (!last || lastInstallShown) return;
-  lastInstallShown = true;
-  notifications.show({
-    id: "app-update-result",
-    message: lastInstallText(last),
-    color: last.outcome === "installed" ? undefined : "red",
-    autoClose: last.outcome === "installed" ? 4000 : false,
-    withCloseButton: true,
-  });
-}
+let installReported = false;
 
-/** Downloads the version on offer if needed, then installs it and quits. */
-async function installNow(status: AppUpdateStatus) {
-  if (status.phase !== "ready") {
-    if (!status.signedUpdates) {
-      void desktopBridge?.openExternal(status.releaseUrl);
-      return;
-    }
-    await useAppUpdate.getState().check(true, true);
-    if (useAppUpdate.getState().status?.phase !== "ready") return;
+async function install(status: AppUpdateStatus, version: string) {
+  if (!status.signedUpdates) {
+    await desktopBridge?.openExternal(status.releaseUrl);
+    return;
   }
+  if (status.phase !== "ready")
+    await useAppUpdate.getState().check(true, true, version);
+  const current = useAppUpdate.getState().status;
+  if (current?.version !== version || current.phase !== "ready") return;
   await workspaceStore.flush();
-  await desktopBridge?.installAppUpdate?.();
+  await desktopBridge?.installAppUpdate?.(version);
 }
 
-// Each version is offered once per launch; skipping it lasts (Core).
-const offered = new Set<string>();
-/** The update prompt, when Core offers the version a check found: before the
- * download, or once it is ready when automatic updates fetched it. */
-async function offerUpdate(
-  status: AppUpdateStatus | undefined,
-  automatic: boolean,
-) {
-  const version = status?.version;
-  if (!status?.prompt || !version || offered.has(version)) return;
-  const ready = status.phase === "ready";
-  if (!ready && (status.phase !== "available" || automatic)) return;
-  offered.add(version);
-  const choice = await chooseAction(
-    t(ready ? "appUpdate.prompt.ready" : "appUpdate.prompt.available", {
-      version,
-    }),
-    [
-      { id: "off", label: t("appUpdate.prompt.turnOff") },
-      { id: "skip", label: t("appUpdate.prompt.skip") },
-      {
-        id: "update",
-        label: t(
-          ready ? "settings.about.installAndQuit" : "appUpdate.prompt.update",
-        ),
-      },
-    ],
-    { title: t("appUpdate.prompt.title") },
-  );
-  if (choice === "update") await installNow(status);
-  if (choice === "skip" || choice === "off")
-    await workspaceActions.updateSettings((draft) => {
-      if (choice === "skip") draft.settings.skippedAppVersion = version;
-      else draft.settings.appUpdateChecks = false;
-      return draft;
-    });
-}
-
-export function useDesktopUpdates(ready: boolean, automatic = false) {
+export function useDesktopUpdates(
+  ready: boolean,
+  automatic = false,
+): NoticeDialog | undefined {
   const status = useAppUpdate((state) => state.status);
   useEffect(() => {
-    if (ready) void offerUpdate(status, automatic).catch(console.error);
-  }, [ready, status, automatic]);
-  useEffect(() => {
     if (!ready || !desktopBridge?.checkAppUpdate) return;
-    void desktopBridge
-      .appUpdateState?.()
-      .then(announceLastInstall)
-      .catch(() => undefined);
     void useAppUpdate.getState().check();
     // The shell supplies a wakeup; Core decides whether a check is due.
     const timer = window.setInterval(
@@ -93,4 +38,47 @@ export function useDesktopUpdates(ready: boolean, automatic = false) {
     );
     return () => window.clearInterval(timer);
   }, [ready, automatic]);
+
+  useEffect(() => {
+    if (status?.lastInstall?.outcome !== "installed" || installReported) return;
+    installReported = true;
+    notify.info(lastInstallText(status.lastInstall));
+  }, [status?.lastInstall]);
+
+  const version = status?.version;
+  if (!ready || !status?.prompt || !version) return;
+  const downloaded = status.phase === "ready";
+  if (!downloaded && (status.phase !== "available" || automatic)) return;
+  return {
+    id: `update:${version}`,
+    title: t("appUpdate.prompt.title"),
+    message: t(
+      downloaded ? "appUpdate.prompt.ready" : "appUpdate.prompt.available",
+      { version },
+    ),
+    choices: [
+      { id: "off", label: t("appUpdate.prompt.turnOff") },
+      { id: "skip", label: t("appUpdate.prompt.skip") },
+      {
+        id: "update",
+        label: t(
+          downloaded
+            ? "settings.about.installAndQuit"
+            : "appUpdate.prompt.update",
+        ),
+      },
+    ],
+    onChoice: (choice) => {
+      if (choice === "update")
+        void install(status, version).catch(notify.error);
+      if (choice === "skip" || choice === "off")
+        void workspaceActions
+          .updateSettings((draft) => {
+            if (choice === "skip") draft.settings.skippedAppVersion = version;
+            else draft.settings.appUpdateChecks = false;
+            return draft;
+          })
+          .catch(notify.error);
+    },
+  };
 }

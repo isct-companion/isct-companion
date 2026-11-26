@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -37,10 +36,10 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.ResetRequest
 import app.isctcompanion.design.Card
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import kotlinx.coroutines.launch
 
@@ -66,7 +65,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
     var signOutWeb by remember { mutableStateOf(false) }
     var deleteDownloads by remember { mutableStateOf(false) }
     var acknowledged by remember { mutableStateOf(false) }
-    var confirming by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<String?>(null) }
     var resetting by remember { mutableStateOf(false) }
     LaunchedEffect(resetting) { onBusy(resetting) }
     DisposableEffect(Unit) { onDispose { onBusy(false) } }
@@ -97,6 +96,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
     val confirmLabel = t(if (everything) "settings.reset.full.confirm" else "settings.reset.caches.confirm")
     fun reset() = scope.launch {
         val restoring = if (everything && restore) cloudOn else emptyList()
+        failure = null
         resetting = true
         val message = try {
             model.reset(if (everything) ResetRequest.Everything else ResetRequest.SchoolCaches(signOutWeb, deleteDownloads))
@@ -106,13 +106,16 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
                 t("settings.reset.full.restoreFailed")
             }
         } catch (error: Exception) {
-            AppModel.describe(error).ifEmpty { t("settings.reset.failed") }.also { resetting = false }
+            failure = AppModel.describe(error).ifEmpty { t("settings.reset.failed") }
+            resetting = false
+            return@launch
         }
-        Notices.show(message)
+        model.notices.show(message)
         if (resetting) done()
     }
 
     Page {
+        failure?.let { NoticeBanner(Theme.colors.dangerSoft) { Text(it, color = Theme.colors.danger) } }
         Footer(t(if (everything) "settings.reset.full.hint" else "settings.reset.caches.hint"))
         if (!everything) {
             Card {
@@ -170,26 +173,19 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
             }
         }
         Button(
-            onClick = { if (everything) confirming = true else reset() },
+            onClick = {
+                if (everything) model.notices.confirm(
+                    t("settings.reset.full.title"), confirmLabel, t("settings.reset.full.acknowledge"),
+                    destructive = true, cancelLabel = t("settings.reset.cancel"),
+                ) { reset() }
+                else reset()
+            },
             enabled = !resetting && (!everything || acknowledged),
             colors = ButtonDefaults.buttonColors(containerColor = Theme.colors.danger),
             modifier = Modifier.fillMaxWidth().padding(top = Theme.space4),
         ) { Text(if (resetting) t("settings.reset.resetting") else confirmLabel) }
     }
-    if (confirming) {
-        AlertDialog(
-            onDismissRequest = { confirming = false },
-            title = { Text(t("settings.reset.full.title")) },
-            text = { Text(t("settings.reset.full.acknowledge")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirming = false
-                    reset()
-                }) { Text(confirmLabel, color = Theme.colors.danger) }
-            },
-            dismissButton = { TextButton(onClick = { confirming = false }) { Text(t("settings.reset.cancel")) } },
-        )
-    }
+
 }
 
 @Composable

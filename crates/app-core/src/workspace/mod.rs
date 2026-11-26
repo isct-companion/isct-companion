@@ -282,6 +282,10 @@ pub enum WorkspaceIntent {
         semester: String,
         group: Option<ClassGroup>,
     },
+    /// Records an explicit answer on this device.
+    AnswerAnnouncement {
+        id: String,
+    },
     /// The desktop window's close prompt remembered the user's choice.
     SetCloseWindow {
         #[cfg_attr(feature = "ts", ts(type = "\"ask\" | \"quit\" | \"background\""))]
@@ -713,6 +717,7 @@ fn apply_intent(
                 [(crate::schedule::recent_key(list, &id), version)],
             )
         }
+        WorkspaceIntent::AnswerAnnouncement { id } => write.answer_announcement(&id),
         WorkspaceIntent::MarkAllRecentSeen => {
             let now = crate::clock::now().fixed_offset();
             save_recent_seen(write, current, crate::schedule::unseen_recent(current, now))

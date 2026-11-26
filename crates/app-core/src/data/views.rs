@@ -261,6 +261,19 @@ impl DataStore {
             SchoolReads {
                 catalog,
                 exams: exams.timetable.clone(),
+                answered_announcements: if fields.contains("announcements") {
+                    read_setting(connection, crate::announcements::ANSWERED)?
+                        .map(serde_json::from_value)
+                        .transpose()?
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
+                announcements: if fields.contains("announcements") {
+                    crate::announcements::stored(connection)?
+                } else {
+                    Vec::new()
+                },
             },
         ))
     }

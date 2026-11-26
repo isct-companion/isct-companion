@@ -42,6 +42,8 @@ export function installWindowGlobals(window: Window & typeof globalThis): void {
     removeListener() {},
     dispatchEvent: () => false,
   });
+  // The scripted app runs in a front window.
+  window.document.hasFocus = () => true;
   // jsdom leaves scrollIntoView undefined; several views call it on reveal.
   if (window.HTMLElement) {
     // jsdom has no pointer-capture implementation; Radix uses it on selects.
