@@ -1,3 +1,4 @@
+import { Banner } from "../../components/notifications/Banner";
 import {
   GitBranch,
   Globe,
@@ -148,13 +149,19 @@ export function About({
                     {status?.phase === "error" && status.message
                       ? ` · ${status.message}`
                       : ""}
-                    {status?.lastInstall && (
-                      <small>{lastInstallText(status.lastInstall)}</small>
-                    )}
                   </span>
                 </div>
               </div>
             )}
+            {status?.lastInstall &&
+              status.lastInstall.outcome !== "installed" && (
+                <Banner role="alert" color="red">
+                  {lastInstallText(status.lastInstall)}{" "}
+                  <UiButton onClick={() => void check(true, true)}>
+                    {t("common.retry")}
+                  </UiButton>
+                </Banner>
+              )}
             <div className="aboutPrefs">
               {desktopBridge?.checkAppUpdate && (
                 <span data-setting="update-checks">

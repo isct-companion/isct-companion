@@ -15,13 +15,7 @@ export type DownloadEvent = {
   path?: string;
 };
 /** One extractor result from LMS or one 教務Web page. */
-type SchoolIngestOutcome = {
-  site: SchoolSite;
-  kind: string;
-  state: "ok" | "unavailable" | "maintenance" | "reconnect-required" | "error";
-  changed: number;
-  message: string;
-};
+
 type KyomuGuideItem = {
   offeringId: string;
   code: string;
@@ -213,14 +207,13 @@ export interface SchoolWebBridge {
     callback: (page: SchoolWebPage) => void,
   ): Promise<() => void>;
   /** A one-time note about the page the person is looking at. */
+  onSchoolNativeModal?(callback: (opened: boolean) => void): () => void;
   onSchoolWebNotice?(callback: (notice: SchoolWebNotice) => void): () => void;
   onSchoolDownload?(callback: (event: SchoolDownloadEvent) => void): () => void;
   /** Locates a file saved to Downloads this session; false for unknown or moved files. */
   revealDownload?(path: string): Promise<boolean>;
   /** Shows (or clears, with `[]`) the registration queue on 教務Web pages. */
   setKyomuGuide?(items: KyomuGuideItem[]): Promise<boolean>;
-  /** An extractor finished while the person browsed LMS / 教務Web. */
-  onSchoolIngest?(callback: (outcome: SchoolIngestOutcome) => void): () => void;
 }
 
 export function schoolWebCommands(
@@ -271,12 +264,22 @@ export function schoolWebCommands(
       booleanCommand("close_school_web_popup", { site }),
     setSchoolWebZoom: (site, scale) =>
       booleanCommand("set_school_web_zoom", { site, scale }),
+    onSchoolNativeModal: (callback) =>
+      subscribe<boolean>(
+        listen,
+        "school-native-modal",
+        (value) => (typeof value === "boolean" ? value : undefined),
+        callback,
+      ),
     onSchoolWebNotice: (callback) =>
       subscribe<SchoolWebNotice>(
         listen,
         "school-web-notice",
-        (payload) => payload && typeof payload.site === "string" &&
-          payload.kind === "reopened" && typeof payload.url === "string"
+        (payload) =>
+          payload &&
+          typeof payload.site === "string" &&
+          payload.kind === "reopened" &&
+          typeof payload.url === "string"
             ? payload
             : undefined,
         callback,
@@ -304,15 +307,5 @@ export function schoolWebCommands(
       ),
     revealDownload: (path) => booleanCommand("reveal_download", { path }),
     setKyomuGuide: (items) => booleanCommand("set_kyomu_guide", { items }),
-    onSchoolIngest: (callback) =>
-      subscribe<SchoolIngestOutcome>(
-        listen,
-        "school-ingest",
-        (payload) =>
-          payload && typeof payload.state === "string" ? payload : undefined,
-        callback,
-      ),
-    configureSchoolWebPolicy: (policy) =>
-      booleanCommand("configure_school_web_policy", { policy }),
   };
 }

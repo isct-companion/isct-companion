@@ -245,8 +245,7 @@ export interface DesktopBridge
     SchoolSessionBridge,
     SchoolWebBridge,
     CampusToolsBridge,
-    CloudSyncBridge
-{
+    CloudSyncBridge {
   applicationLogs?(after?: number): Promise<ApplicationLogSnapshot>;
   /** The retained log as plain text for a bug report. */
   exportApplicationLogs?(): Promise<string>;
@@ -256,9 +255,10 @@ export interface DesktopBridge
   checkAppUpdate?(
     manual: boolean,
     download?: boolean,
+    version?: string,
   ): Promise<AppUpdateStatus>;
   appUpdateState?(): Promise<AppUpdateStatus>;
-  installAppUpdate?(): Promise<void>;
+  installAppUpdate?(version?: string): Promise<void>;
   /** The revision the next intent is made against. */
   workspaceRevision(): Promise<string>;
   /** Commits one intent; answers what it changed and the next revision. */
@@ -313,8 +313,12 @@ export function createTauriDesktopBridge(
   return {
     runtime: "tauri",
     os: nativeOs(),
-    checkAppUpdate: (manual: boolean, download = false) =>
-      result<AppUpdateStatus>("check_app_update", { manual, download }),
+    checkAppUpdate: (manual: boolean, download = false, version?: string) =>
+      result<AppUpdateStatus>("check_app_update", {
+        manual,
+        download,
+        version,
+      }),
     applicationLogs: (after) => result("application_logs", { after }),
     exportApplicationLogs: async () =>
       requireString(
@@ -325,7 +329,8 @@ export function createTauriDesktopBridge(
     recordApplicationError: (message) =>
       result("application_error", { message }),
     appUpdateState: () => result<AppUpdateStatus>("app_update_state"),
-    installAppUpdate: () => invokeCommand<void>("install_app_update"),
+    installAppUpdate: (version) =>
+      invokeCommand<void>("install_app_update", { version }),
     workspaceRevision: async () => {
       const revision = await invokeCommand("workspace_revision");
       if (typeof revision !== "string")

@@ -39,7 +39,6 @@ import {
 } from "@tests/harness";
 import { paths } from "@app/app/routes";
 import { notify } from "@app/components/notifications/notify";
-import { notifications } from "@app/components/notifications/notifications";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";
@@ -941,73 +940,47 @@ describe("store failures", () => {
     expect(host.querySelector(".pageError")).toBeNull();
   }, 20_000);
 
-  it("offers Retry saving on an error notice and runs the retry it was given", async () => {
+  it("runs the given write retry and keeps Undo tied to its own operation", async () => {
     app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:retry",
-      }),
+      shellOptions({ workspace: workspaceFixture(), revision: "rev:retry" }),
       { route: paths.home() },
     );
     const { core } = app;
     const before = core.commands("workspace_revision").length;
-
+    const action = (label: string) =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+        (button) => button.textContent === label,
+      );
     await act(async () => {
-      notify.error(new Error("Disk is full"), () => {
-        void storeModule.workspaceStore.reload();
-      });
+      notify.error(
+        new Error("Disk is full"),
+        () => void storeModule.workspaceStore.reload(),
+      );
     });
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Disk is full",
-      ),
+    const retry = await required(
+      () => action("Retry saving"),
+      "the write's retry",
     );
-    // A migration regression would overwrite the current notice or render two
-    // at once. Queued durable notices must remain available after it closes.
-    await act(async () =>
-      notifications.show({
-        id: "queued-update",
-        message: "Update ready",
-        autoClose: false,
-        withCloseButton: true,
-      }),
-    );
-    expect(document.querySelectorAll(".uiToast")).toHaveLength(1);
-    expect(document.querySelector(".uiToast")?.textContent).toContain(
-      "Disk is full",
-    );
-    // Retry runs the reload it was given and closes the notice, so the
-    // queued one takes its place.
-    const retry = [
-      ...document.querySelectorAll<HTMLButtonElement>("button"),
-    ].find((button) => button.textContent === "Retry saving");
-    expect(retry).toBeDefined();
     await click(retry);
     await until(() =>
       expect(core.commands("workspace_revision").length).toBeGreaterThan(
         before,
       ),
     );
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Update ready",
-      ),
-    );
-    await act(async () =>
-      notifications.show({
-        id: "queued-update",
-        message: "Update installed",
-        autoClose: false,
-        withCloseButton: true,
-      }),
-    );
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Update installed",
-      ),
-    );
-    await click(document.querySelector('.uiToast button[aria-label="Close"]'));
-    await until(() => expect(document.querySelector(".uiToast")).toBeNull());
+
+    const restored: string[] = [];
+    await act(async () => {
+      notify.undoable("Removed the first exam", () => {
+        restored.push("first");
+      });
+      notify.undoable("Removed the second exam", () => {
+        restored.push("second");
+      });
+      notify.info("Another operation finished");
+    });
+    await click(await required(() => action("Undo"), "the first undo"));
+    await click(await required(() => action("Undo"), "the second undo"));
+    expect(restored).toEqual(["first", "second"]);
   }, 20_000);
 });
 

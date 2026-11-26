@@ -18,11 +18,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,6 +78,7 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.TabPage
 import app.isctcompanion.design.Tag
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.lookup
 import app.isctcompanion.design.t
@@ -115,9 +114,6 @@ internal val Enum<*>.wire: String
 internal object ExamViews {
     /** Requests listed on a board, read by the request page. */
     val requests = mutableMapOf<String, ExamRequest>()
-    /** The last thing done (posted, reported, uploaded), shown briefly on
-     * whichever page is in front. */
-    var notice by mutableStateOf<String?>(null)
 
     fun board(page: ExamRequestPage) {
         page.items.forEach { requests[it.id] = it }
@@ -180,54 +176,20 @@ internal fun rememberExamSite(calls: ExamCalls): State<ExamSitePages?> {
     }
 }
 
-/** A past-exams page with its failure or notice floating above the foot. */
+/** The failure stays on its own page until dismissed or tried again. */
 @Composable
 internal fun ExamFrame(calls: ExamCalls, content: @Composable () -> Unit) {
-    Box(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        content()
-        Feedback(calls, Modifier.align(Alignment.BottomCenter))
-    }
-}
-
-/** The page's failure or the shared notice, briefly, above the page's foot. */
-@Composable
-private fun Feedback(calls: ExamCalls, modifier: Modifier) {
     val account = LocalModel.current.examAccount
-    // The unsupported status already says why the call failed.
     val problem = calls.error?.takeIf { account?.status != ExamAccountStatus.UNSUPPORTED }
-    val message = problem ?: ExamViews.notice ?: return
-    LaunchedEffect(message) {
-        delay(4_000)
-        calls.error = null
-        ExamViews.notice = null
-    }
-    Text(
-        message,
-        color = if (problem != null) Theme.colors.danger else Theme.colors.ink,
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = modifier
-            .padding(Theme.gutter)
-            .fillMaxWidth()
-            .background(Theme.colors.surface, RoundedCornerShape(Theme.radiusPanel))
-            .clickable { calls.error = null; ExamViews.notice = null }
-            .padding(horizontal = Theme.space7, vertical = Theme.space5),
-    )
-}
-
-@Composable
-internal fun ConfirmDialog(confirmation: Confirmation, dismiss: () -> Unit, confirm: (ExamAction) -> Unit) {
-    AlertDialog(
-        onDismissRequest = dismiss,
-        title = { Text(t(confirmation.key)) },
-        // A long explanation scrolls on a small screen or with large text.
-        text = confirmation.body?.let { body -> { Text(t(body), Modifier.verticalScroll(rememberScrollState())) } },
-        confirmButton = {
-            TextButton(onClick = { dismiss(); confirm(confirmation.action) }) {
-                Text(t(confirmation.confirmKey), color = Theme.colors.danger)
+    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
+        problem?.let {
+            NoticeBanner(Theme.colors.dangerSoft) {
+                Text(it, color = Theme.colors.danger)
+                TextButton(onClick = { calls.error = null }) { Text(t("common.close")) }
             }
-        },
-        dismissButton = { TextButton(onClick = dismiss) { Text(t("common.cancel")) } },
-    )
+        }
+        Box(Modifier.weight(1f)) { content() }
+    }
 }
 
 /**
@@ -289,7 +251,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                                 TextButton(enabled = !calls.busy, onClick = {
                                     scope.launch {
                                         (calls.call(ExamAction.RecoverUpload) as? ExamAnswer.Uploaded)?.let { answer ->
-                                            ExamViews.notice = t("examShare.upload.uploaded")
+                                            model.notices.show(t("examShare.upload.uploaded"))
                                             answer.v1?.let(navigator::openExamDocument)
                                         }
                                     }
@@ -601,8 +563,24 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     var library by remember { mutableStateOf<ExamLibrary?>(null) }
-    var confirm by remember { mutableStateOf<Confirmation?>(null) }
     suspend fun load() { (calls.call(ExamAction.Library) as? ExamAnswer.Library)?.v1?.let { library = it } }
+    fun confirm(request: Confirmation) {
+        model.notices.confirm(t(request.key), t(request.confirmKey), request.body?.let { t(it) }, destructive = true) {
+            scope.launch {
+                when (val action = request.action) {
+                    ExamAction.Disconnect -> reload(action)
+                    ExamAction.DeleteAccount -> {
+                        if (reload(action) != null) model.notices.show(t("examShare.accountDeleted"))
+                    }
+                    else -> when (val answer = calls.call(action)) {
+                        is ExamAnswer.Library -> { library = answer.v1 }
+                        null -> Unit
+                        else -> load()
+                    }
+                }
+            }
+        }
+    }
     LifecycleResumeEffect(Unit) {
         val refresh = scope.launch { load() }
         onPauseOrDispose { refresh.cancel() }
@@ -633,11 +611,11 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
                         trailing = removal?.let { key ->
                             {
                                 TextButton(enabled = !calls.busy, onClick = {
-                                    confirm = Confirmation(
+                                    confirm(Confirmation(
                                         key,
                                         if (key == "examShare.removeDownload") ExamAction.RemoveDownload(document.id)
                                         else ExamAction.DeleteSubmission(document.id),
-                                    )
+                                    ))
                                 }) { Text(t("common.delete"), color = Theme.colors.danger) }
                             }
                         },
@@ -651,17 +629,17 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
                 model.examAccount?.email?.let { ExamRow(it, null, onClick = null) }
                 TextButton(
                     enabled = !calls.busy,
-                    onClick = { confirm = Confirmation("examShare.disconnectHint", ExamAction.Disconnect) },
+                    onClick = { confirm(Confirmation("examShare.disconnectHint", ExamAction.Disconnect)) },
                     modifier = Modifier.padding(horizontal = Theme.space2),
                 ) { Text(t("examShare.disconnect"), color = Theme.colors.danger) }
                 // Not while an upload runs: it would lose the account mid-transfer.
                 TextButton(
                     enabled = !calls.busy && model.examAccount?.upload?.phase?.let { it in uploadRunning } != true,
                     onClick = {
-                        confirm = Confirmation(
+                        confirm(Confirmation(
                             "examShare.deleteAccountTitle", ExamAction.DeleteAccount,
                             body = "examShare.deleteAccountBody", confirmKey = "examShare.deleteAccount",
-                        )
+                        ))
                     },
                     modifier = Modifier.padding(horizontal = Theme.space2),
                 ) { Text(t("examShare.deleteAccount"), color = Theme.colors.danger) }
@@ -669,19 +647,5 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
             ExamCredit()
         }
     }
-    confirm?.let {
-        ConfirmDialog(it, { confirm = null }) { action ->
-            scope.launch {
-                // Leaving the account reloads the page into its signed-out state.
-                if (action == ExamAction.Disconnect) reload(action)
-                else if (action == ExamAction.DeleteAccount) {
-                    if (reload(action) != null) ExamViews.notice = t("examShare.accountDeleted")
-                } else when (val answer = calls.call(action)) {
-                    is ExamAnswer.Library -> { library = answer.v1 }
-                    null -> Unit
-                    else -> load()
-                }
-            }
-        }
-    }
+
 }

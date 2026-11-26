@@ -1,8 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
+import { useAppModalOpen, useNativeModalOpen } from "./ui/modal-state";
+import { useWindowActive } from "../platform/use-window-active";
+import { useUndoAvailable } from "./notifications/notifications";
 
 /** One button of a dialog; the last one is the primary action. */
 export type Choice<T extends string> = {
@@ -56,13 +59,34 @@ export function chooseAction<T extends string>(
     })),
   );
 }
-/** True while a confirmation is open; a native view over the page steps
- * aside, since no HTML overlay can draw above it. */
-export const useConfirmationPending = () =>
-  useConfirmations((state) => state.queue.length > 0);
-export function ConfirmDialogs() {
+export type AutomaticDialog = {
+  id: string;
+  render: (dismiss: () => void) => ReactNode;
+  /** Forms keep reading their controls while the host owns presentation. */
+  live?: boolean;
+  repeat?: boolean;
+  announcementId?: string;
+};
+
+/** The shell supplies eligibility in presentation order. Once open, a message
+ * and its answers belong to that presentation, even if the candidates change. */
+export function ConfirmDialogs({
+  automatic = [],
+  activeAnnouncements,
+  blocked = false,
+}: {
+  automatic?: readonly AutomaticDialog[];
+  activeAnnouncements?: ReadonlySet<string>;
+  blocked?: boolean;
+}) {
   useTranslation();
   const request = useConfirmations((state) => state.queue[0]);
+  const [open, setOpen] = useState<AutomaticDialog>();
+  const [offered, setOffered] = useState<ReadonlySet<string>>(() => new Set());
+  const modal = useAppModalOpen();
+  const nativeModal = useNativeModalOpen();
+  const foreground = useWindowActive();
+  const undo = useUndoAvailable();
   useEffect(
     () => () => {
       const queue = useConfirmations.getState().queue;
@@ -71,13 +95,66 @@ export function ConfirmDialogs() {
     },
     [],
   );
+  const next = automatic.find((item) => item.repeat || !offered.has(item.id));
+  useEffect(() => {
+    if (
+      open?.announcementId &&
+      activeAnnouncements &&
+      !activeAnnouncements.has(open.announcementId)
+    ) {
+      setOpen(undefined);
+    } else if (
+      !open &&
+      !request &&
+      foreground &&
+      !blocked &&
+      !undo &&
+      !modal &&
+      !nativeModal &&
+      next
+    ) {
+      setOpen(next);
+      if (!next.repeat) setOffered((old) => new Set(old).add(next.id));
+    }
+  }, [
+    open,
+    request,
+    foreground,
+    blocked,
+    undo,
+    modal,
+    nativeModal,
+    next,
+    activeAnnouncements,
+  ]);
+
+  if (open) {
+    const current = open.live
+      ? (automatic.find((item) => item.id === open.id) ?? open)
+      : open;
+    return current.render(() => setOpen(undefined));
+  }
   if (!request) return null;
-  const finish = (choice: string | null) => {
-    useConfirmations.setState(({ queue }) => ({
-      queue: queue.filter((item) => item !== request),
-    }));
-    request.resolve(choice);
-  };
+  return (
+    <MessageDialog
+      request={request}
+      finish={(choice) => {
+        useConfirmations.setState(({ queue }) => ({
+          queue: queue.filter((item) => item !== request),
+        }));
+        request.resolve(choice);
+      }}
+    />
+  );
+}
+
+export function MessageDialog<T extends string>({
+  request,
+  finish,
+}: {
+  request: { message: string; title?: string; choices: Choice<T>[] };
+  finish: (choice: T | null) => void;
+}) {
   const last = request.choices.length - 1;
   return (
     <Modal
@@ -88,7 +165,9 @@ export function ConfirmDialogs() {
       centered
     >
       <Stack>
-        <Text size="sm">{request.message}</Text>
+        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+          {request.message}
+        </Text>
         <Group justify="flex-end">
           {request.choices.map((choice, index) => (
             <Button

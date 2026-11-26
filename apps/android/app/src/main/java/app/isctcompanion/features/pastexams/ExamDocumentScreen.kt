@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
@@ -46,6 +47,7 @@ fun ExamDocumentScreen(id: String) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
+    val model = LocalModel.current
     val calls = rememberExamCalls()
     var file by remember(id) { mutableStateOf<ExamLocalDocument?>(null) }
     var menu by remember { mutableStateOf(false) }
@@ -55,7 +57,7 @@ fun ExamDocumentScreen(id: String) {
     suspend fun open(download: Boolean = false) {
         (calls.call(ExamAction.Open(id, download)) as? ExamAnswer.Document)?.v1?.let {
             file = it
-            if (download) ExamViews.notice = t("examShare.downloaded")
+            if (download) model.notices.show(t("examShare.downloaded"))
         }
     }
     LaunchedEffect(id) { open() }
@@ -129,7 +131,7 @@ fun ExamDocumentScreen(id: String) {
             scope.launch {
                 if (calls.call(ExamAction.Report(id, reason, detail)) != null) {
                     reporting = null
-                    ExamViews.notice = t("examShare.reported")
+                    model.notices.show(t("examShare.reported"))
                 }
             }
         }

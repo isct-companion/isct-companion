@@ -94,7 +94,6 @@ struct OtpImportField: View {
     let openSetup: () -> Void
     @State private var changing = false
     @State private var branch = Branch.help
-    @State private var confirming = false
     @State private var path = Path.export
     @State private var scanning = false
     @State private var photo: PhotosPickerItem?
@@ -135,13 +134,10 @@ struct OtpImportField: View {
                 // Asked once, before the school page opens, whatever the
                 // school has: Core then replaces an existing setup.
                 case .help:
-                    Button(t("otpEnrollment.start")) { confirming = true }
-                        .alert(t("otpEnrollment.help"), isPresented: $confirming) {
-                            Button(t("otpEnrollment.start"), role: .destructive, action: openSetup)
-                            Button(t("common.cancel"), role: .cancel) {}
-                        } message: {
-                            Text(t("otpEnrollment.confirm"))
-                        }
+                    Button(t("otpEnrollment.start")) {
+                        model.notices.confirm(title: t("otpEnrollment.help"), message: t("otpEnrollment.confirm"),
+                                              action: t("otpEnrollment.start"), destructive: true, run: openSetup)
+                    }
                 case .existing: importing
                 }
                 leaveChange
@@ -197,6 +193,7 @@ struct OtpImportField: View {
     /// Form every view is its own row, and a sheet on each would compete.
     private func presenters<V: View>(_ row: V) -> some View {
         row
+            .appNoticeFlow(scanning || !choices.isEmpty)
             .sheet(isPresented: $scanning) {
                 QRScanner { payload in
                     scanning = false
@@ -464,6 +461,7 @@ struct MatrixImportSection: View {
                 }
             }
             .disabled(reading)
+            .appNoticeFlow(choosingImage || pickingPhoto || takingPhoto)
             // Presentation lives on one row: modifiers on a Section repeat on
             // every row, and several covers presenting at once tear down the
             // settings sheet.

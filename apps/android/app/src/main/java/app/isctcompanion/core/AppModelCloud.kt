@@ -9,8 +9,9 @@ import kotlinx.coroutines.CancellationException
 internal class CloudBackup(
     private val session: () -> Session?,
     private val refreshWorkspace: suspend () -> Unit,
-    private val reportFailure: (Throwable) -> Unit,
 ) {
+    var failure: String? by mutableStateOf(null)
+        private set
     var state: SyncState? by mutableStateOf(null)
         private set
 
@@ -34,17 +35,20 @@ internal class CloudBackup(
 
     /** Restores a cloud version or a local recovery file, on every connected device. */
     suspend fun restore(id: String) {
-        cloudOperation { it.restoreCloud(id) }
+        val session = session() ?: throw SdkException.Closed()
+        session.restoreCloud(id).value()
+        refresh()
         refreshWorkspace()
     }
 
     /** The current workspace as a backup file (the desktop's Export…). */
     suspend fun export(): String? {
         val session = session() ?: return null
+        failure = null
         return try {
             (session.exportBackup().value() as? OperationResult.Text)?.value
         } catch (error: Exception) {
-            reportFailure(error)
+            failure = AppModel.describe(error)
             null
         }
     }
@@ -91,10 +95,11 @@ internal class CloudBackup(
 
     private suspend fun cloudOperation(start: (Session) -> Operation) {
         val session = session() ?: return
+        failure = null
         try {
             (start(session).value() as? OperationResult.Cloud)?.let { state = it.state }
         } catch (error: Exception) {
-            reportFailure(error)
+            failure = AppModel.describe(error)
             refresh()
         }
     }

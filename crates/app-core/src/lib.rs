@@ -13,6 +13,7 @@
 
 #[cfg(feature = "agent")]
 pub mod agent;
+pub mod announcements;
 pub mod app_updates;
 pub mod backup;
 #[cfg(feature = "campus-map")]

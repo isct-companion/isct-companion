@@ -174,7 +174,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
     upload?.let { (form, choices) ->
         UploadSheet(form, choices, dismiss = { upload = null }) {
             upload = null
-            ExamViews.notice = t("examShare.upload.uploaded")
+            model.notices.show(t("examShare.upload.uploaded"))
             scope.launch { load() }
         }
     }
@@ -184,7 +184,7 @@ fun ExamSubjectScreen(entry: ExamSubjectEntry) {
             scope.launch {
                 if (calls.call(ExamAction.CreateRequest(draft)) != null) {
                     requesting = null
-                    ExamViews.notice = t("examShare.requestCreated")
+                    model.notices.show(t("examShare.requestCreated"))
                 }
             }
         }

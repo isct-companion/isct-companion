@@ -109,6 +109,8 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
             )
         })
         .collect();
+    let (key, state) = stored(Dataset::Announcements, "v1", Some(now()), None);
+    all.insert(key, state);
     all.extend(states);
     Inputs {
         states: all,
@@ -1306,7 +1308,14 @@ fn the_next_deadline_includes_keys_that_are_not_due_yet() {
     ]);
     let next = |opens: &[View], facts: &Facts| {
         let plan = plan(&inputs, facts, opens, &[]);
-        planner::next_due(&inputs, &plan, opens, &HashMap::new(), now())
+        planner::next_due(
+            &inputs,
+            facts.foreground,
+            &plan,
+            opens,
+            &HashMap::new(),
+            now(),
+        )
     };
     // The deadlines key goes stale at its two-hour TTL; the enrolment list
     // backs off for twenty minutes, sooner.
@@ -1719,7 +1728,10 @@ fn every_dataset_has_its_sync_labels_in_every_catalog() {
             );
         }
         for page in snapshot::KYOMU_PAGES {
-            assert!(catalog[format!("syncStatus.kyomuPage.{page}")].is_string(), "{page}");
+            assert!(
+                catalog[format!("syncStatus.kyomuPage.{page}")].is_string(),
+                "{page}"
+            );
         }
     }
 }

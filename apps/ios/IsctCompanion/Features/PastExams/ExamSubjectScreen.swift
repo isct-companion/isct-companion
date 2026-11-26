@@ -91,7 +91,7 @@ struct ExamSubjectScreen: View {
                 ExamRequestForm(subject: subject, choices: choices, busy: page.busy, problem: page.problem) { draft in
                     if await page.call(model, .createRequest(draft: draft)) != nil {
                         showsRequest = false
-                        page.notice = t("examShare.requestCreated")
+                        model.notices.show(t("examShare.requestCreated"))
                     }
                 }
             }
@@ -99,7 +99,7 @@ struct ExamSubjectScreen: View {
         .sheet(item: $uploadEntry) { entry in
             ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
                 await load()
-                page.notice = outcome.notice
+                model.notices.show(outcome.notice)
                 if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }

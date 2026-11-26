@@ -16,13 +16,19 @@ import {
   type TaskView,
 } from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
-import type { ExamView, TodayView } from "../../generated/persistence";
+import { AnnouncementBanners } from "../../components/notifications/AnnouncementBanners";
+import type {
+  AnnouncementView,
+  ExamView,
+  TodayView,
+} from "../../generated/persistence";
 import { TodayAssignments } from "./TodayAssignments";
 import { TodayAgenda } from "./TodayAgenda";
 
 export function Today({
   data,
   term,
+  announcements,
   open,
   openExam,
   openEvent,
@@ -36,6 +42,7 @@ export function Today({
 }: {
   data: Workspace;
   term: TermId;
+  announcements?: readonly AnnouncementView[];
   open: (
     courseId: string,
     tab?: "assignments",
@@ -110,6 +117,7 @@ export function Today({
       </TitleRow>
 
       <div className="todayFlow">
+        <AnnouncementBanners items={announcements} />
         {importantDates.length > 0 && (
           <aside
             className="importantDates"

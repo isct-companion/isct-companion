@@ -132,7 +132,9 @@ impl SchoolUiDelegate {
         };
         let focus = field.clone();
         let web_view = Weak::new(web_view);
+        let closed = self.ivars().host.dialog_opened();
         let done = RcBlock::new(move |response: NSModalResponse| {
+            closed();
             // A view closed or detached meanwhile has no page left to answer.
             let attached = web_view.load().is_some_and(|view| view.window().is_some());
             if response != NSAlertFirstButtonReturn || !attached {
@@ -180,7 +182,9 @@ impl SchoolUiDelegate {
         FILE_PANELS.with_borrow_mut(|panels| panels.push((view, panel.clone())));
         let shown = Weak::new(&*panel);
         let web_view = Weak::new(web_view);
+        let closed = self.ivars().host.dialog_opened();
         let done = RcBlock::new(move |response: NSModalResponse| {
+            closed();
             let panel = shown.load();
             if let Some(panel) = &panel {
                 FILE_PANELS.with_borrow_mut(|panels| {

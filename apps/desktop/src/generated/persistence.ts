@@ -2193,6 +2193,23 @@ export type TodayView = {
   nextBoundary: string | null;
 };
 
+export type AnnouncementLevel = "info" | "important";
+
+export type AnnouncementLink = { url: string; label: string };
+
+export type AnnouncementView = {
+  id: string;
+  level: AnnouncementLevel;
+  title: string;
+  body: string;
+  link: AnnouncementLink | null;
+};
+
+export type AnnouncementsView = {
+  active: Array<AnnouncementView>;
+  pending: Array<AnnouncementView>;
+};
+
 export type DeadlineGroups = {
   pinned: Array<DeadlineItem>;
   dueThisWeek: Array<DeadlineItem>;
@@ -2320,6 +2337,7 @@ export type ScheduleView = {
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
+  | { kind: "announcements" }
   | { kind: "teachingPeriods" }
   | { kind: "timetableAxis"; earliest: string | null; latest: string | null }
   | { kind: "workspaceOverview"; term: string }
@@ -2396,6 +2414,7 @@ export type WorkspaceQueryResult =
   | { kind: "taskView"; value: TaskView }
   | { kind: "deadlineDisplay"; value: TaskDeadlineView }
   | { kind: "today"; value: TodayView }
+  | { kind: "announcements"; value: AnnouncementsView }
   | { kind: "upcomingExams"; value: Array<ExamView> }
   | { kind: "calendarRange"; value: Array<DatedAgenda> }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
@@ -2526,6 +2545,7 @@ export type WorkspaceIntent =
   | { kind: "markRecentSeen"; list: RecentKind; id: string }
   | { kind: "markAllRecentSeen" }
   | { kind: "setClassGroup"; semester: string; group: ClassGroup | null }
+  | { kind: "answerAnnouncement"; id: string }
   | { kind: "setCloseWindow"; action: "ask" | "quit" | "background" };
 
 export type CourseBatchChanges = {
@@ -2548,7 +2568,8 @@ export type WorkspaceChange =
   | "subscriptions"
   | "scheduled-tasks"
   | "settings"
-  | "freshness";
+  | "freshness"
+  | "announcements";
 
 export type TimeValue = { day?: number; from?: number; to?: number };
 

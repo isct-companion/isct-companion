@@ -253,7 +253,10 @@ pub(crate) fn token_functions(dataset: Dataset) -> &'static [MoodleFunction] {
             F::QuizGetUserBestGrade,
         ],
         Dataset::LmsHistory => &[F::SiteInfo, F::CalendarMonthlyView],
-        Dataset::KyomuPage | Dataset::CatalogOfficial | Dataset::Reference => &[],
+        Dataset::KyomuPage
+        | Dataset::CatalogOfficial
+        | Dataset::Reference
+        | Dataset::Announcements => &[],
     }
 }
 

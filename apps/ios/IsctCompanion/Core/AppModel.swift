@@ -19,6 +19,9 @@ final class AppModel {
 
     private(set) var status: Status = .opening
     private(set) var today: TodayView?
+    let notices = AppNotices()
+    private(set) var announcements: AnnouncementsView?
+    private let announcementReads = ScheduleReads()
     private(set) var board: AssignmentBoard?
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
@@ -47,8 +50,7 @@ final class AppModel {
         session: { [weak self] in self?.session },
         refreshWorkspace: { [weak self] in
             await self?.refresh()
-        },
-        reportFailure: { [weak self] error in self?.problem = AppModel.describe(error) }
+        }
     )
     /// A newer release on the App Store, shown in Settings.
     private(set) var availableUpdate: AppRelease?
@@ -81,6 +83,7 @@ final class AppModel {
 
     init() {
         web = WebRouter(browser: browser)
+        browser.onNativeDialog = { [weak notices] id, open in notices?.setFlow(id, open) }
         Self.shared = self
     }
 
@@ -166,6 +169,7 @@ final class AppModel {
             // The web screen reads page snapshots only once events stream.
             web.session = session
             await refresh()
+            await refreshAnnouncements()?.value
             await refreshAccounts()
             await refreshSyncSnapshot()
             await backup.refresh()
@@ -209,6 +213,7 @@ final class AppModel {
             syncHint(.foreground)
             armDeadline()
             scheduleRefresh(force: true)
+            refreshAnnouncements(force: true)
             Task { await checkForUpdate() }
         case .background:
             deadlineTask?.cancel()
@@ -384,11 +389,13 @@ final class AppModel {
                     case "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
+                        refreshAnnouncements()
                         scheduleRefresh()
                     default:
                         break
                     }
                 case .snapshotRequired:
+                    refreshAnnouncements(force: true)
                     try? session?.refreshWidgets()
                     scheduleRefresh(force: true)
                     if let next = try? session?.wakeDirective() { apply(next) }
@@ -669,25 +676,45 @@ final class AppModel {
     }
 
 
+    @discardableResult
+    private func refreshAnnouncements(force: Bool = false) -> Task<Void, Never>? {
+        guard let session else { return nil }
+        if force { announcementReads.invalidate() }
+        return announcementReads.refresh(session, read: { generation in
+            guard case let .schedule(snapshot) = try await session.scheduleQuery(queries: [.announcements]).value(),
+                  case let .announcements(view)? = snapshot.values.first
+            else { throw SdkError.Unavailable(detail: "announcements") }
+            if try self.announcementReads.accept(snapshot, started: generation, session: session) {
+                self.announcements = view
+            }
+        }, failed: { NSLog("Announcements read: %@", Self.describe($0)) })
+    }
+
+    func answerAnnouncement(_ id: String) async {
+        if await editWorkspace(.answerAnnouncement(id: id)) { await refreshAnnouncements()?.value }
+    }
+
     // MARK: Intents
 
     func setHidden(_ item: DeadlineItem, _ hidden: Bool) async {
-        // Offered at once: the re-read that follows can take a moment.
-        undo = hidden ? UndoAction(title: item.title, assignmentId: item.assignmentId) : nil
-        await mark(item.assignmentId, hidden: hidden, pinned: nil)
+        if await mark(item.assignmentId, hidden: hidden, pinned: nil), hidden {
+            undo = UndoAction(title: item.title, assignmentId: item.assignmentId)
+        }
     }
 
     func setPinned(_ item: DeadlineItem, _ pinned: Bool) async {
         await mark(item.assignmentId, hidden: nil, pinned: pinned)
     }
 
-    func undoHide() async {
-        guard let undo else { return }
-        self.undo = nil
-        await mark(undo.assignmentId, hidden: false, pinned: nil)
+    func undoHide(_ operation: UndoAction) async {
+        guard undo == operation else { return }
+        undo = nil
+        await mark(operation.assignmentId, hidden: false, pinned: nil)
     }
 
-    func dismissUndo() { undo = nil }
+    func dismissUndo(_ operation: UndoAction) {
+        if undo == operation { undo = nil }
+    }
     func dismissProblem() { problem = nil }
 
     /// Route a committed intent through the same pending read as its event.
@@ -712,7 +739,8 @@ final class AppModel {
         catch { problem = Self.describe(error); return false }
     }
 
-    private func mark(_ id: String, hidden: Bool?, pinned: Bool?) async {
+    @discardableResult
+    private func mark(_ id: String, hidden: Bool?, pinned: Bool?) async -> Bool {
         await editWorkspace(.setAssignmentMark(assignmentId: id, hidden: hidden, pinned: pinned, completedAt: nil))
     }
 
@@ -746,12 +774,16 @@ final class AppModel {
         defaults.set(AppClock.now.formatted(.iso8601), forKey: Self.lastUpdateCheck)
         availableUpdate = release
         upToDate = manual && release == nil
-        if prompt { updateOffer = release }
+        updateOffer = prompt ? release : nil
     }
 
     /// This device stops offering `version`; Core skips it in later checks.
+    func closeUpdate(_ version: String) {
+        if updateOffer?.version == version { updateOffer = nil }
+    }
+
     func skipUpdate(_ version: String) async {
-        updateOffer = nil
+        closeUpdate(version)
         await updateSettings { $0["skippedAppVersion"] = version }
     }
 
@@ -850,6 +882,7 @@ final class AppModel {
 }
 
 struct UndoAction: Equatable {
+    let id = UUID()
     let title: String
     let assignmentId: String
 }

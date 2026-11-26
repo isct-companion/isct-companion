@@ -115,6 +115,7 @@ pub struct Request {
 pub trait Host {
     /// Whether this is the school view the person is looking at.
     fn foreground(&self) -> bool;
+    fn dialog_opened(&self) -> Box<dyn Fn()>;
     fn navigation(&self, view: BrowserId, request: Request) -> NavigationDecision;
     fn new_window(
         &self,
@@ -1065,7 +1066,9 @@ impl SchoolNavigationDelegate {
         alert.setAccessoryView(Some(&fields));
         let web_view = Weak::new(web_view);
         let (typed_user, typed_password) = (user.clone(), password.clone());
+        let closed = self.ivars().host.dialog_opened();
         let done = RcBlock::new(move |response: NSModalResponse| {
+            closed();
             // A view closed or detached meanwhile has no page left to answer.
             let attached = web_view.load().is_some_and(|view| view.window().is_some());
             if response != NSAlertFirstButtonReturn || !attached {

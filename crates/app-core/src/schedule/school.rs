@@ -67,6 +67,8 @@ pub struct SchoolReads {
     /// Shared by every view until the exams change: no user intent changes
     /// it.
     pub(crate) exams: Arc<ExamTimetable>,
+    pub(crate) announcements: Vec<crate::announcements::Announcement>,
+    pub(crate) answered_announcements: Vec<String>,
 }
 
 impl SchoolReads {
@@ -94,6 +96,8 @@ impl SchoolReads {
                     )
                 })
                 .collect(),
+            announcements: Vec::new(),
+            answered_announcements: Vec::new(),
             exams: Arc::new(ExamTimetable::new(
                 super::array(workspace, "exams").to_vec(),
             )),

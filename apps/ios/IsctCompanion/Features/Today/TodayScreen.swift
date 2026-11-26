@@ -49,7 +49,6 @@ struct TodayScreen: View {
         }
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
-        .safeAreaInset(edge: .bottom) { UndoToast() }
         // What the page points at opens beside it on the workstation.
         .environment(\.push, PushAction { navigator.open($0) })
         .onAppear { model.syncHint(.open(view: .today)) }
@@ -69,8 +68,9 @@ struct TodayScreen: View {
     private func overview(_ now: Date) -> some View {
         Group {
             if !columns { header }
+            AnnouncementBanners(items: model.announcements?.active ?? [])
             if let problem = model.problem {
-                ProblemBanner(text: problem)
+                ProblemBanner(text: problem, dismiss: model.dismissProblem)
             } else if let problem = model.syncSnapshot?.problem {
                 SyncProblemBanner(problem: problem)
             }
@@ -762,28 +762,6 @@ private struct RecentCard: View {
 
 // MARK: Feedback
 
-struct ProblemBanner: View {
-    let text: String
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        // One line and one way out (slotledger `approach/feedback-banner-toast`).
-        HStack(alignment: .firstTextBaseline, spacing: Theme.space5) {
-            Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Theme.danger)
-            Text(text).font(.subheadline).foregroundStyle(Theme.ink).lineLimit(2)
-            Spacer()
-            Button(t("common.retry")) {
-                model.dismissProblem()
-                model.refreshFromSchool()
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Theme.accent)
-        }
-        .padding(Theme.space7)
-        .background(Theme.dangerSoft, in: RoundedRectangle(cornerRadius: Theme.radiusSurface, style: .continuous))
-    }
-}
-
 /// First launch: the real empty Today with one sign-in card.
 private struct ConnectCard: View {
     @Environment(\.push) private var push
@@ -806,33 +784,5 @@ private struct ConnectCard: View {
         }
         .padding(Theme.cardPadding)
         .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-    }
-}
-
-struct UndoToast: View {
-    @Environment(AppModel.self) private var model
-
-    var body: some View {
-        if let undo = model.undo {
-            HStack {
-                Text(t("app.hidTitle", ["title": undo.title])).lineLimit(1)
-                Spacer()
-                Button(t("common.undo")) { Task { await model.undoHide() } }.fontWeight(.semibold)
-            }
-            .font(.subheadline)
-            .foregroundStyle(Theme.ink)
-            .tint(Theme.accent)
-            .padding(.horizontal, Theme.space8)
-            .padding(.vertical, Theme.space6)
-            // A floating layer takes the system material, not a black pill.
-            .floatingGlass(in: Capsule())
-            .padding(.horizontal, Theme.gutter)
-            .padding(.bottom, Theme.space4)
-            .transition(.move(edge: .bottom).combined(with: .opacity))
-            .task(id: undo) {
-                try? await Task.sleep(for: .seconds(4))
-                model.dismissUndo()
-            }
-        }
     }
 }

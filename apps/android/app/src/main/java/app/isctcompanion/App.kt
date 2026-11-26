@@ -1,5 +1,6 @@
 package app.isctcompanion
 
+import app.isctcompanion.design.AppNoticeLayer
 import app.isctcompanion.design.CollapsingBar
 import app.isctcompanion.design.reducedMotion
 import app.isctcompanion.design.LocalReducedMotion
@@ -45,13 +46,10 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -115,8 +113,6 @@ import app.isctcompanion.features.pastexams.ExamSubjectScreen
 import app.isctcompanion.features.pastexams.PastExamsScreen
 import app.isctcompanion.features.map.CampusMapScreen
 import app.isctcompanion.features.settings.SettingsScreen
-import app.isctcompanion.features.settings.UpdatePrompt
-import app.isctcompanion.features.settings.WelcomeSheet
 import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
 import app.isctcompanion.features.web.WebPageScreen
@@ -388,7 +384,6 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     } != true
     val snackbar = remember { SnackbarHostState() }
     val model = LocalModel.current
-    val scope = rememberCoroutineScope()
     // A file a school page handed over opens in the app's viewer for it,
     // as a browser opens what it downloaded (WebView shows no PDF).
     val viewing = model.web.viewing
@@ -431,16 +426,6 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
         } else {
             navigator.openTab(tab.route)
         }
-    }
-    // Hiding offers its undo in the platform snackbar, above the navigation bar.
-    LaunchedEffect(model.undo) {
-        val undo = model.undo ?: return@LaunchedEffect
-        val result = snackbar.showSnackbar(
-            t("app.hidTitle", "title" to undo.title), actionLabel = t("common.undo"), duration = SnackbarDuration.Short,
-        )
-        // undoHide clears `undo`, which restarts this effect; run it outside so
-        // the restart cannot cancel the mutation.
-        if (result == SnackbarResult.ActionPerformed) scope.launch { model.undoHide() } else model.dismissUndo()
     }
     CompositionLocalProvider(LocalNavigator provides navigator) {
         Scaffold(
@@ -599,8 +584,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
             }
             }
         }
-        WelcomeSheet { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
-        UpdatePrompt()
+        AppNoticeLayer(snackbar) { navigator.openSettings(SchoolAuthProfile.SCIENCE) }
     }
 }
 

@@ -91,6 +91,7 @@ fun CourseArchiveScreen(courseId: String, source: String, title: String) {
         val listed = files
         when {
             listed != null -> LazyColumn(Modifier.fillMaxSize()) {
+                item { opening.Banner() }
                 items(listed, key = { it.url }) { entry ->
                     val name = entry.name.substringAfterLast('/')
                     val folder = entry.name.substringBeforeLast('/', "")

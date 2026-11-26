@@ -316,6 +316,7 @@ fun MaterialRow(item: MaterialItem) {
             Tag(t("common.addedToday"))
         }
     }
+    opening.Banner()
 }
 
 /** A button's level (slotledger `approach/button-hierarchy`). */

@@ -238,12 +238,22 @@ async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u
 }
 
 #[cfg(feature = "demo")]
-pub async fn check(app: AppHandle, _manual: bool, _download: bool) -> Result<UpdateStatus, String> {
+pub async fn check(
+    app: AppHandle,
+    _manual: bool,
+    _download: bool,
+    _requested: Option<String>,
+) -> Result<UpdateStatus, String> {
     snapshot(&app)
 }
 
 #[cfg(not(feature = "demo"))]
-pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<UpdateStatus, String> {
+pub async fn check(
+    app: AppHandle,
+    manual: bool,
+    download: bool,
+    requested: Option<String>,
+) -> Result<UpdateStatus, String> {
     let updates = app.state::<DesktopUpdates>();
     if updates
         .busy
@@ -319,6 +329,9 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .map_err(|_| "Update state is unavailable.")?
             .status
             .prompt = app_core::app_updates::prompts(&workspace, &version, asked);
+        if requested.as_ref().is_some_and(|wanted| wanted != &version) {
+            return snapshot(&app);
+        }
         let Some(public_key) = public_key(&app) else {
             return snapshot(&app);
         };
@@ -337,6 +350,9 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
             .await
             .map_err(|e| e.to_string())?
             .ok_or("The signed update manifest is not available.")?;
+        if update.version != version.trim_start_matches('v') {
+            return Err("The signed manifest is for a different version.".into());
+        }
         if !source.approves(&update.download_url) {
             return Err("The update download source is not approved.".into());
         }
@@ -363,13 +379,15 @@ pub async fn check(app: AppHandle, manual: bool, download: bool) -> Result<Updat
     }
 }
 
-pub fn request_install(app: &AppHandle) -> Result<(), String> {
+pub fn request_install(app: &AppHandle, version: Option<&str>) -> Result<(), String> {
     let updates = app.state::<DesktopUpdates>();
     let mut state = updates
         .state
         .lock()
         .map_err(|_| "Update state is unavailable.")?;
-    if state.pending.is_none() {
+    if state.pending.is_none()
+        || version.is_some_and(|version| state.status.version.as_deref() != Some(version))
+    {
         return Err("No verified update is ready.".into());
     }
     state.install_requested = true;

@@ -9,26 +9,22 @@ import {
   SlidersHorizontal,
   Wrench,
 } from "lucide-react";
-import { useDesktopUpdates } from "./useDesktopUpdates";
 import { CalendarView } from "../pages/today/CalendarView";
-import { DataNotice } from "../components/DataNotice";
 import {
   ResizableWorkspace,
   WorkspaceSidebarToggle,
 } from "../components/ResizableWorkspace";
 import { TitlebarNav } from "../components/TitleRow";
 import { usePanelRef } from "react-resizable-panels";
-import { WelcomeSheet } from "../components/guide";
 import { refresh, syncAvailable } from "../platform/sync-intents";
+import { WorkspaceDialogs } from "./WorkspaceDialogs";
 import { useOpenHint } from "./useOpenHint";
-import { useSync } from "../store/sync";
 import { useAnimatedNavigate } from "./navigation";
 import { SchoolStatusDot } from "./SchoolStatus";
 import { useCoreLifecycle } from "./useCoreLifecycle";
 import { useWorkspaceRuntime } from "./useWorkspaceRuntime";
 import { useAppearance } from "./useAppearance";
 import {
-  scheduleQuery,
   useScheduleQuery,
   type WorkspaceOverview,
 } from "../platform/core-query";
@@ -50,7 +46,6 @@ import {
 } from "./routes";
 import { notify } from "../components/notifications/notify";
 import { UiButton } from "../components/ui";
-import { ConfirmDialogs } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge } from "../platform/native";
@@ -79,17 +74,17 @@ import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
 import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
 import { useSchoolSession } from "../platform/school-session";
-import type { SchoolProfileSession } from "../generated/persistence";
+import type {
+  AnnouncementsView,
+  SchoolProfileSession,
+} from "../generated/persistence";
 import { onWidgetRoute } from "../platform/widget-links";
 import { performAction } from "../platform/actions";
 import { PageErrorBoundary } from "./PageErrorBoundary";
 import { KeptPage } from "./KeptPage";
 import { traceRouter } from "./interaction-trace";
-import type { ClassGroupChoice, TermId, Workspace } from "../lib/model";
-import { tokyoDate } from "../lib/civil-date";
-import { wallNow } from "../platform/use-clock";
+import type { TermId, Workspace } from "../lib/model";
 import { useRecords } from "../platform/records";
-import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
 
 /** Credentials are saved and the school has not turned them down. */
@@ -149,9 +144,9 @@ export function WorkspaceApp() {
   const storeError = useWorkspace((state) => state.error);
   const data = useRecords(SHELL_RECORDS, storeReady);
   const sourceData = data;
-  useDesktopUpdates(
-    Boolean(sourceData),
-    sourceData?.settings.automaticAppUpdates,
+  const { value: announcements } = useScheduleQuery<AnnouncementsView>(
+    { kind: "announcements" },
+    Boolean(desktopBridge && sourceData),
   );
   const overview = useScheduleQuery<WorkspaceOverview>(
     { kind: "workspaceOverview", term: "" },
@@ -377,28 +372,7 @@ export function WorkspaceApp() {
     });
     if (target) void navigate(target, { replace: true });
   }, [location.pathname, location.search, sourceData?.courses, navigate]);
-  const sync = useSync();
   useCoreLifecycle();
-  const [groupPrompt, setGroupPrompt] = useState<ClassGroupChoice | null>(null);
-  /** After a pull settles the timetable, ask once for the physics group of
-   * a current or later semester that has none. */
-  const askClassGroup = async () => {
-    // The question is a convenience; a failed read must not fail the pull.
-    const choices = await scheduleQuery<ClassGroupChoice[]>({
-      kind: "classGroups",
-      today: tokyoDate(new Date(wallNow())),
-    }).catch(() => []);
-    setGroupPrompt(choices.find((choice) => choice.needsChoice) ?? null);
-  };
-  // The ingest's commit patches the records through `workspace-changed`.
-  useEffect(
-    () =>
-      desktopBridge?.onSchoolIngest?.((outcome) => {
-        if (outcome.site === "science-lms" && outcome.state === "ok")
-          notify.updated(outcome.changed);
-      }),
-    [],
-  );
   const { schedulerState, nativeCapabilities, nativeCapabilitiesReady } =
     useWorkspaceRuntime(sourceData);
   useAppearance(data);
@@ -431,22 +405,6 @@ export function WorkspaceApp() {
   useOpenHint(lectureOpenView(page === "lectures", lectureEntry, sourceData));
   useOpenHint(page === "timetable" ? { kind: "timetable" } : null);
   useOpenHint(page === "timetable" ? { kind: "grades" } : null);
-  // A 教務Web read that lands may settle a semester's physics group.
-  const kyomuUpdated =
-    sync.sources.find((source) => source.source === "kyomu")?.lastUpdated ??
-    null;
-  const seenKyomu = useRef<string | null | undefined>(undefined);
-  useEffect(() => {
-    if (!sync.sources.length) return;
-    if (
-      seenKyomu.current !== undefined &&
-      kyomuUpdated &&
-      kyomuUpdated !== seenKyomu.current
-    )
-      void askClassGroup();
-    seenKyomu.current = kyomuUpdated;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kyomuUpdated, sync.sources.length]);
   const workspaceView = planningTerm.workspaceView;
   if (!data || !overview.value || !workspaceView)
     return (
@@ -640,6 +598,7 @@ export function WorkspaceApp() {
             sidebar={todayFolded ? undefined : todayToggle}
             active={page === "home" && !todayFolded}
             term={todayTerm}
+            announcements={announcements?.active}
             openExam={openExam}
             open={(courseId, _tab, context) => openLecture(courseId, context)}
             openEvent={(event) =>
@@ -772,42 +731,17 @@ export function WorkspaceApp() {
   );
   const overlays = (
     <>
-      <WelcomeSheet
+      <WorkspaceDialogs
         settings={data.settings}
         update={update}
+        readOnly={readOnly}
         connected={
           connectedSession(scienceSession) || connectedSession(tokyoTechSession)
         }
-        held={!readOnly && !data.settings.dataNoticeAcknowledgedAt}
-        openAccounts={() => void navigate(paths.settings("accounts"))}
+        openAccounts={openAccounts}
         openAgents={() => void navigate(paths.settings("agent"))}
+        announcements={announcements ?? undefined}
       />
-      {!readOnly && !data.settings.dataNoticeAcknowledgedAt && (
-        <DataNotice
-          acknowledge={() =>
-            update((draft) => ({
-              ...draft,
-              settings: {
-                ...draft.settings,
-                dataNoticeAcknowledgedAt: new Date().toISOString(),
-              },
-            }))
-          }
-        />
-      )}
-      {/* Editors show a failed submission inline and stay open. */}
-      {groupPrompt && (
-        <ClassGroupPrompt
-          choice={groupPrompt}
-          later={() => setGroupPrompt(null)}
-          choose={(group) => {
-            setGroupPrompt(null);
-            void workspaceActions
-              .setClassGroup(groupPrompt.semester, group)
-              .catch(notify.error);
-          }}
-        />
-      )}
       <CourseEditors
         data={data}
         workspaceView={workspaceView}
@@ -917,7 +851,6 @@ export default function App({
   return (
     <>
       <Notifications />
-      <ConfirmDialogs />
       <RouterProvider router={router} />
     </>
   );

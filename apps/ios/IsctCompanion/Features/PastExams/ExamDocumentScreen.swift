@@ -65,7 +65,7 @@ struct ExamDocumentScreen: View {
                                busy: page.busy, problem: page.problem) { reason, detail in
                     if await page.call(model, .report(id: file.document.id, reason: reason, detail: detail)) != nil {
                         showsReport = false
-                        page.notice = t("examShare.reported")
+                        model.notices.show(t("examShare.reported"))
                     }
                 }
             }
@@ -120,7 +120,7 @@ struct ExamDocumentScreen: View {
             .disabled(file.offline)
             if let removal {
                 Button(t(removal.key), systemImage: "trash", role: .destructive) {
-                    page.confirm(removal.key) {
+                    page.confirm(removal.key, notices: model.notices) {
                         if await page.call(model, removal.action(file.document.id)) != nil { dismiss() }
                     }
                 }
@@ -140,7 +140,7 @@ struct ExamDocumentScreen: View {
         failed = false
         if case let .document(value)? = await page.call(model, .open(id: route.id, download: download)) {
             file = value
-            if download { page.notice = t("examShare.downloadedNotice") }
+            if download { model.notices.show(t("examShare.downloadedNotice")) }
         } else {
             failed = file == nil
         }

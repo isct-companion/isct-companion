@@ -3874,6 +3874,14 @@ checks:
           No HTML overlay draws above the native page. The page must step
           aside while the confirmation asks, or its Delete button sits under
           the LMS page, and come back to the same page after Cancel.
+      - action: |
+          With a native School Web file chooser or page prompt open, wait for
+          a queued app announcement or update. Answer the native prompt, then
+          dismiss the app dialog and download a file from the page.
+        reason: |
+          The native request must keep its original recipient and answer.
+          The separate Web view must yield to the app dialog and return to
+          its page and scroll position; the download reveal stays reachable.
     observe: |
       The native page edges, workspace separator, Web service header and
       the document tool panel in the lecture reader.
@@ -3882,6 +3890,9 @@ checks:
       collapses beyond the threshold. The native page stays
       inside its content area and both toolbars remain clickable after resizing.
       The resize cursor appears only on the separator; page cursors stay stable.
+      While a native prompt is open it remains usable. When it ends, an
+      eligible app dialog may show. The Web page returns at the same scroll
+      position; the download banner reveals the saved file.
     why_manual: |
       Requires a signed native shell and a real WKWebView over authenticated
       school content; jsdom and the browser preview render only the DOM host.

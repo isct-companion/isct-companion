@@ -1,6 +1,7 @@
 package app.isctcompanion.features.today
 
 import app.isctcompanion.shared.rememberNow
+import app.isctcompanion.design.AnnouncementBanners
 import app.isctcompanion.design.SkeletonRows
 import app.isctcompanion.design.Skeleton
 import app.isctcompanion.design.Motion
@@ -144,9 +145,10 @@ fun TodayScreen() {
             item(key = "today") {
                 Column(verticalArrangement = Arrangement.spacedBy(Theme.space6)) {
                     PageSubtitle(subtitle(model.today))
+                    AnnouncementBanners(model.announcements?.active.orEmpty())
                     val problem = model.syncSnapshot?.problem
                     if (model.problem != null) {
-                        ProblemBanner(model.problem!!) { model.refreshFromSchool() }
+                        ProblemBanner(model.problem!!)
                     } else if (problem != null) {
                         SyncProblemBanner(problem)
                     }

@@ -29,11 +29,12 @@ pub(super) const READABLE_USER_VERSIONS: std::ops::RangeInclusive<i64> =
 /// table more, `campus_map`, so its format is one more; every other build
 /// never creates that table. A store belongs to one build, and a store of
 /// another format has its cache rebuilt like any format change. A change to
-/// the school tables raises both.
+/// the school tables raises both by two, so one build's format is never one
+/// the other build used.
 #[cfg(not(feature = "campus-map"))]
-pub const SCHOOL_SCHEMA_VERSION: i64 = 1;
+pub const SCHOOL_SCHEMA_VERSION: i64 = 3;
 #[cfg(feature = "campus-map")]
-pub const SCHOOL_SCHEMA_VERSION: i64 = 2;
+pub const SCHOOL_SCHEMA_VERSION: i64 = 4;
 pub(super) const STORE_VERSION: i64 = store_version(USER_SCHEMA_VERSION, SCHOOL_SCHEMA_VERSION);
 
 /// `PRAGMA user_version` of a store: its user and school formats, which change
@@ -93,6 +94,7 @@ pub(crate) const CACHE_TABLES: &[&str] = &[
     "merge_state",
     #[cfg(feature = "campus-map")]
     "campus_map",
+    "announcements",
 ];
 
 /// Cache tables derived from the others (`data::course_merge`): a reset
@@ -298,6 +300,9 @@ CREATE TABLE class_schedules (
   id TEXT PRIMARY KEY, value TEXT NOT NULL, hash TEXT NOT NULL,
   updated_at TEXT NOT NULL, updated_by TEXT NOT NULL, rev INTEGER NOT NULL,
   source TEXT, deleted_at TEXT, last_seen_at TEXT, missing_since TEXT
+);
+CREATE TABLE announcements (
+  format INTEGER PRIMARY KEY, data TEXT NOT NULL
 );
 "#;
 

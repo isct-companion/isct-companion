@@ -85,7 +85,14 @@ fn failure_reason(kind: &str) -> Label {
 
 /// The 教務Web pages Core reads, by `Key::key`; each has a name in the
 /// catalogs, so a page in progress never shows its identifier.
-pub(super) const KYOMU_PAGES: [&str; 6] = ["profile", "registrations", "declared", "grades", "requirements", "gpa"];
+pub(super) const KYOMU_PAGES: [&str; 6] = [
+    "profile",
+    "registrations",
+    "declared",
+    "grades",
+    "requirements",
+    "gpa",
+];
 
 /// What a run is reading now. The catalogs print `title`; a 教務Web page has
 /// none and is named by its page key, and any other key without a title is
@@ -496,8 +503,19 @@ fn attention(parts: &Parts<'_>, runs: &[RunView], sources: &[SourceView]) -> Syn
     }
 }
 
+/// Announcement reads have per-key diagnostics and retry state, but their
+/// progress does not belong in the school sync snapshot.
+pub(super) fn shows_run(dataset: Dataset) -> bool {
+    dataset != Dataset::Announcements
+}
+
 pub(super) fn build(parts: Parts<'_>) -> SyncSnapshot {
-    let runs: Vec<_> = parts.batches.iter().map(run_view).collect();
+    let runs: Vec<_> = parts
+        .batches
+        .iter()
+        .filter(|batch| shows_run(batch.group.dataset))
+        .map(run_view)
+        .collect();
     let sources: Vec<_> = SOURCES
         .iter()
         .map(|source| source_view(source, &parts))
