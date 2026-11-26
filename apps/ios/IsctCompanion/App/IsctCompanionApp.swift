@@ -306,7 +306,6 @@ struct RootView: View {
             TabView(selection: selection) {
                 ForEach(tabs, id: \.self) { tab in
                     page(tab)
-                        .undoToast()
                         .tabItem { Label(tab.title, systemImage: tab.symbol) }
                         .tag(tab)
                 }
@@ -420,7 +419,6 @@ struct RootView: View {
                     default: page(navigator.tab)
                     }
                 }
-                .undoToast()
                 SchoolStatusBar()
             }
         }
