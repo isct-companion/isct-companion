@@ -52,10 +52,7 @@ class AppNotices {
     val nextRequest get() = requests.firstOrNull()
 
     fun show(text: String) { feedback = Feedback(text) }
-
-    fun expire(id: UUID) {
-        if (feedback?.id == id) feedback = null
-    }
+    fun expire(id: UUID) { if (feedback?.id == id) feedback = null }
 
     fun confirm(title: String, action: String, body: String? = null, destructive: Boolean = false,
                 cancelLabel: String = t("common.cancel"), run: () -> Unit) {
@@ -63,7 +60,7 @@ class AppNotices {
             primary = Action(action, run), secondary = listOf(Action(cancelLabel) {}), destructive = destructive)
     }
 
-    fun takeRequest(): Message? = requests.firstOrNull()?.also { requests.removeAt(0) }
+    fun takeRequest(): Message? = requests.removeFirstOrNull()
 }
 
 /** Automatic messages share the same presentation as user confirmations.
@@ -75,8 +72,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
     val notices = model.notices
     val scope = rememberCoroutineScope()
     val uriHandler = LocalUriHandler.current
-    val lifecycle = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value
-    val resumed = lifecycle.isAtLeast(Lifecycle.State.RESUMED)
+    val resumed = LocalLifecycleOwner.current.lifecycle.currentStateAsState().value.isAtLeast(Lifecycle.State.RESUMED)
     val interactive = resumed && LocalWindowInfo.current.isWindowFocused
     var welcome by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<AppNotices.Message?>(null) }
@@ -108,10 +104,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
             message = AppNotices.Message(
                 id = "update:${release.version}",
                 title = t("appUpdate.prompt.available", "version" to release.version),
-                primary = AppNotices.Action(t("appUpdate.prompt.update")) {
-                    close()
-                    model.updater.install(release)
-                },
+                primary = AppNotices.Action(t("appUpdate.prompt.update")) { close(); model.updater.install(release) },
                 secondary = listOf(
                     AppNotices.Action(t("common.later"), close),
                     AppNotices.Action(t("appUpdate.prompt.skip")) {
@@ -132,13 +125,11 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
             id = key, title = item.title, body = item.body, announcementId = item.id,
             primary = AppNotices.Action(t("announcements.acknowledge")) { answer() },
             secondary = listOfNotNull(item.link?.let { link ->
-                AppNotices.Action(link.label) {
-                    answer()
-                    uriHandler.openUri(link.url)
-                }
+                AppNotices.Action(link.label) { answer(); uriHandler.openUri(link.url) }
             }),
         )
     }
+
     val feedback = notices.feedback
     val showFeedback = interactive && !userFlow && !welcome && message == null
     if (undo != null) {
@@ -169,9 +160,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
         }
     }
 
-    if (welcome) {
-        WelcomeSheet(onClosed = { welcome = false }, connect = connect)
-    }
+    if (welcome) WelcomeSheet(onClosed = { welcome = false }, connect = connect)
     message?.let { shown ->
         fun close(action: () -> Unit) {
             if (message?.id != shown.id) return
@@ -183,14 +172,11 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
             title = { Text(shown.title) },
             text = shown.body?.let { body -> { Text(body, Modifier.verticalScroll(rememberScrollState())) } },
             confirmButton = {
-                if (shown.destructive) {
-                    Button(onClick = { close(shown.primary.run) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Theme.colors.danger)) {
-                        Text(shown.primary.label)
-                    }
-                } else {
-                    Button(onClick = { close(shown.primary.run) }) { Text(shown.primary.label) }
-                }
+                Button(
+                    onClick = { close(shown.primary.run) },
+                    colors = if (shown.destructive) ButtonDefaults.buttonColors(containerColor = Theme.colors.danger)
+                    else ButtonDefaults.buttonColors(),
+                ) { Text(shown.primary.label) }
             },
             dismissButton = {
                 Row {

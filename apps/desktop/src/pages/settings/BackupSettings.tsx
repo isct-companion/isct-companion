@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { Pagination } from "../../components/ui";
-import { Banner } from "../../components/notifications/Banner";
+import {
+  ErrorBanner,
+  Pagination,
+  UiButton,
+  UiInput,
+} from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import type { Workspace } from "../../lib/model";
 import { errorText } from "../../lib/error-text";
@@ -13,7 +17,6 @@ import type {
   CloudSyncState,
   CloudSyncVersion,
 } from "../../platform/desktop-bridge";
-import { UiButton, UiInput } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import {
   Row,
@@ -196,12 +199,9 @@ export function BackupSettings({
     <>
       <SettingsHeader title="settings.main.backup" />
       {failure && (
-        <Banner color="red" role="alert">
-          {failure.message}{" "}
-          <UiButton disabled={busy} onClick={failure.retry}>
-            {t("common.retry")}
-          </UiButton>
-        </Banner>
+        <ErrorBanner onRetry={busy ? undefined : failure.retry}>
+          {failure.message}
+        </ErrorBanner>
       )}
       <SettingsGroup title="settings.backup.sync">
         {(!syncAvailable || syncError) && (

@@ -8,7 +8,6 @@ import {
   type SavedDownload,
 } from "../platform/desktop-bridge";
 import { UiButton } from "./ui";
-import { Banner } from "./notifications/Banner";
 
 const messages: Record<DownloadEvent["state"], MessageKey> = {
   started: "web.downloadingName",
@@ -61,7 +60,7 @@ export function DownloadNotice({
   const missing = unavailable === download;
   const notice = feedback(download, onError, () => setUnavailable(download));
   return (
-    <Banner
+    <div
       className={`webNotice${download.state === "failed" ? " warning" : ""}`}
       role="status"
       aria-busy={download.state === "started"}
@@ -72,6 +71,6 @@ export function DownloadNotice({
           {notice.action.label}
         </UiButton>
       )}
-    </Banner>
+    </div>
   );
 }

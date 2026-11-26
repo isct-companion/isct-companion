@@ -4322,7 +4322,7 @@ checks:
     covers:
       - apps/desktop/src-tauri/src/desktop_updates.rs
       - apps/desktop/src-tauri/src/lib.rs
-      - apps/desktop/src/app/useDesktopUpdates.tsx
+      - apps/desktop/src/app/useDesktopUpdates.ts
       - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/pages/about/AboutPage.tsx
       - crates/app-core/src/app_updates.rs
@@ -5811,7 +5811,7 @@ checks:
       glance. Which version is offered is Core's, covered by its app_updates
       suite.
     covers:
-      - apps/desktop/src/app/useDesktopUpdates.tsx
+      - apps/desktop/src/app/useDesktopUpdates.ts
       - apps/desktop/src/store/app-update.ts
       - apps/desktop/src/components/confirm.tsx
       - apps/desktop/src-tauri/src/desktop_updates.rs

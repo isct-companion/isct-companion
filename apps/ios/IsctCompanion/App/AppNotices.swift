@@ -28,10 +28,7 @@ final class AppNotices {
     private(set) var flows: Set<UUID> = []
 
     func show(_ text: String) { feedback = Feedback(text: text) }
-
-    func expire(_ id: UUID) {
-        if feedback?.id == id { feedback = nil }
-    }
+    func expire(_ id: UUID) { if feedback?.id == id { feedback = nil } }
 
     func confirm(title: String, message: String? = nil, action: String, destructive: Bool = false,
                  cancelLabel: String = t("common.cancel"), run: @escaping @MainActor () -> Void) {
@@ -42,9 +39,7 @@ final class AppNotices {
     }
 
     func takeRequest() -> Dialog? { requests.isEmpty ? nil : requests.removeFirst() }
-    func setFlow(_ id: UUID, _ open: Bool) {
-        if open { flows.insert(id) } else { flows.remove(id) }
-    }
+    func setFlow(_ id: UUID, _ open: Bool) { if open { flows.insert(id) } else { flows.remove(id) } }
 }
 
 extension View {
@@ -79,7 +74,6 @@ struct AppNoticeLayer: ViewModifier {
     private var busy: Bool { blocked || !model.notices.flows.isEmpty || welcome }
     private var interactive: Bool { scenePhase == .active }
     private var activeIds: [String] { model.announcements?.active.map(\.id) ?? [] }
-
     private var updateCandidate: AppRelease? {
         (model.records.settings["appUpdateChecks"] as? Bool ?? true) ? model.updateOffer : nil
     }
@@ -88,46 +82,34 @@ struct AppNoticeLayer: ViewModifier {
     }
 
     private struct Eligibility: Equatable {
-        let interactive: Bool
-        let busy: Bool
+        let interactive, busy, welcomed: Bool
         let undo: UUID?
-        let current: String?
-        let user: String?
-        let welcome: Bool
-        let update: String?
-        let active: [String]
-        let pending: [String]
+        let current, user, update: String?
+        let active, pending: [String]
     }
 
     private var eligibility: Eligibility {
         Eligibility(
-            interactive: interactive, busy: busy, undo: model.undo?.id, current: dialog?.id,
-            user: model.notices.requests.first?.id, welcome: welcomed,
-            update: updateCandidate?.version, active: activeIds,
-            pending: pendingAnnouncements.map(\.id)
+            interactive: interactive, busy: busy, welcomed: welcomed, undo: model.undo?.id,
+            current: dialog?.id, user: model.notices.requests.first?.id,
+            update: updateCandidate?.version, active: activeIds, pending: pendingAnnouncements.map(\.id)
         )
     }
 
     func body(content: Content) -> some View {
+        let showFeedback = interactive && !busy && dialog == nil
         content
-            .sheet(isPresented: Binding(
-                get: { welcome },
-                set: { shown in
-                    if !shown {
-                        welcomed = true
-                        Guide.welcomed = true
-                    }
-                    welcome = shown
-                }
-            )) { WelcomeSheet(connect: connect) }
+            .sheet(isPresented: $welcome, onDismiss: {
+                welcomed = true
+                Guide.welcomed = true
+            }) { WelcomeSheet(connect: connect) }
             .alert(dialog?.title ?? "", isPresented: Binding(
                 get: { dialog != nil },
-                set: { shown in if !shown { dialog = nil } }
+                set: { if !$0 { dialog = nil } }
             ), presenting: dialog) { shown in
                 ForEach(Array(shown.actions.enumerated()), id: \.offset) { _, action in
                     if action.preferred {
-                        Button(action.label, role: action.role, action: action.run)
-                            .keyboardShortcut(.defaultAction)
+                        Button(action.label, role: action.role, action: action.run).keyboardShortcut(.defaultAction)
                     } else {
                         Button(action.label, role: action.role, action: action.run)
                     }
@@ -139,15 +121,16 @@ struct AppNoticeLayer: ViewModifier {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let undo = model.undo {
                     FeedbackCapsule(
-                        interactive: interactive && !busy && dialog == nil,
+                        interactive: showFeedback,
                         text: t("app.hidTitle", ["title": undo.title]),
                         undo: { Task { await model.undoHide(undo) } },
                         expire: { model.dismissUndo(undo) }
                     ).id(undo.id)
                 } else if let feedback = model.notices.feedback {
                     FeedbackCapsule(
-                        interactive: interactive && !busy && dialog == nil,
-                        text: feedback.text, expire: { model.notices.expire(feedback.id) }
+                        interactive: showFeedback,
+                        text: feedback.text,
+                        expire: { model.notices.expire(feedback.id) }
                     ).id(feedback.id)
                 }
             }
@@ -158,12 +141,12 @@ struct AppNoticeLayer: ViewModifier {
             dialog = nil
             return
         }
-        guard interactive, dialog == nil else { return }
-        if !busy, let requested = model.notices.takeRequest() {
+        guard interactive, dialog == nil, !busy else { return }
+        if let requested = model.notices.takeRequest() {
             dialog = requested
             return
         }
-        guard !busy, model.undo == nil else { return }
+        guard model.undo == nil else { return }
         if !welcomed {
             welcome = true
             return
@@ -175,29 +158,25 @@ struct AppNoticeLayer: ViewModifier {
                 .init(label: t("appUpdate.prompt.skip"), run: { Task { await model.skipUpdate(release.version) } }),
             ]
             if let url = URL(string: release.url) {
-                actions.append(.init(label: t("appUpdate.openAppStore"), preferred: true, run: {
-                    done()
-                    openURL(url)
-                }))
+                actions.append(.init(label: t("appUpdate.openAppStore"), preferred: true, run: { done(); openURL(url) }))
             }
-            dialog = .init(id: "update:\(release.version)",
-                           title: t("appUpdate.prompt.available", ["version": release.version]), actions: actions)
+            dialog = .init(
+                id: "update:\(release.version)",
+                title: t("appUpdate.prompt.available", ["version": release.version]),
+                actions: actions
+            )
             return
         }
         guard let item = pendingAnnouncements.first(where: { !offered.contains("announcement:\($0.id)") })
         else { return }
         let id = "announcement:\(item.id)"
         offered.insert(id)
+        let answer = { Task { await model.answerAnnouncement(item.id) } }
         var actions: [AppNotices.Dialog.Action] = [
-            .init(label: t("announcements.acknowledge"), preferred: true, run: {
-                Task { await model.answerAnnouncement(item.id) }
-            }),
+            .init(label: t("announcements.acknowledge"), preferred: true, run: { _ = answer() }),
         ]
         if let link = item.link, let url = URL(string: link.url) {
-            actions.append(.init(label: link.label, run: {
-                Task { await model.answerAnnouncement(item.id) }
-                openURL(url)
-            }))
+            actions.append(.init(label: link.label, run: { _ = answer(); openURL(url) }))
         }
         dialog = .init(id: id, title: item.title, message: item.body, announcementId: item.id, actions: actions)
     }

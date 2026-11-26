@@ -55,7 +55,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         private set
     var announcementsReady by mutableStateOf(false)
         private set
-    private val announcementReads = ScheduleReads()
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
@@ -171,7 +170,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             // The web screen reads page snapshots only once events stream.
             web.session = session
             refresh()
-            refreshAnnouncements()?.join()
             refreshAccounts()
             readSync()
             backup.refresh()
@@ -211,7 +209,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             hint(Hint.Foreground)
             armDeadline()
             scheduleRefresh(force = true)
-            refreshAnnouncements(force = true)
             scope.launch { checkForUpdate() }
         } else {
             announcementsReady = false
@@ -380,14 +377,10 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                     // No screen here lists finder results; the catalog
                     // changes once per department while it downloads.
                     "school-download", "catalog-changed" -> Unit
-                    "workspace-changed" -> {
-                        refreshAnnouncements()
-                        scheduleRefresh()
-                    }
+                    "workspace-changed" -> scheduleRefresh()
                     else -> Unit
                 }
                 is StreamUpdate.SnapshotRequired -> {
-                    refreshAnnouncements(force = true)
                     runCatching { session?.refreshWidgets() }
                     scheduleRefresh(force = true)
                     session?.let { runCatching { it.wakeDirective() }.onSuccess(::applyDirective) }
@@ -404,6 +397,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     private fun scheduleRefresh(force: Boolean = false): Job? {
         val session = session ?: return null
         if (force) {
+            announcementsReady = false
             dashboardReads.invalidate()
             timetableWeeks.invalidate()
         } else {
@@ -423,7 +417,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         val queries = listOf(
             WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
             WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14)), now),
-            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
+            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods, WorkspaceQuery.Announcements,
         )
         val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
         val overview = try {
@@ -449,6 +443,10 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                 is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
                 is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
                 is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
+                is WorkspaceQueryResult.Announcements -> {
+                    announcements = value.v1
+                    announcementsReady = true
+                }
                 else -> Unit
             }
         }
@@ -630,25 +628,8 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         return (result as? OperationResult.Schedule)?.snapshot
     }
 
-    private fun refreshAnnouncements(force: Boolean = false): Job? {
-        val session = session ?: return null
-        if (force) {
-            announcementsReady = false
-            announcementReads.invalidate()
-        }
-        return announcementReads.refresh(scope, session, { generation ->
-            val snapshot = (session.scheduleQuery(listOf(WorkspaceQuery.Announcements)).value()
-                as OperationResult.Schedule).snapshot
-            val view = (snapshot.values.single() as WorkspaceQueryResult.Announcements).v1
-            if (announcementReads.accept(snapshot, generation, session)) {
-                announcements = view
-                announcementsReady = true
-            }
-        }, { Log.w("isct", "announcements", it) })
-    }
-
     suspend fun answerAnnouncement(id: String) {
-        if (commit(WorkspaceIntent.AnswerAnnouncement(id))) refreshAnnouncements()?.join()
+        commit(WorkspaceIntent.AnswerAnnouncement(id))
     }
 
     // Intents

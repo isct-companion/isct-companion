@@ -1,14 +1,14 @@
 import type { AnnouncementView } from "../../generated/persistence";
 import { t } from "../../i18n";
 import { ExternalLink } from "../ExternalLink";
-import { Stack, Text } from "../ui";
-import { Banner } from "./Banner";
+import { Alert, Stack, Text } from "../ui";
 import "./announcement-banners.css";
 
 function AnnouncementBanner({ item }: { item: AnnouncementView }) {
   return (
-    <Banner
+    <Alert
       className="announcementBanner"
+      role="status"
       color={item.level === "important" ? "red" : undefined}
     >
       <Stack gap="space-3">
@@ -20,7 +20,7 @@ function AnnouncementBanner({ item }: { item: AnnouncementView }) {
           <ExternalLink href={item.link.url}>{item.link.label}</ExternalLink>
         )}
       </Stack>
-    </Banner>
+    </Alert>
   );
 }
 

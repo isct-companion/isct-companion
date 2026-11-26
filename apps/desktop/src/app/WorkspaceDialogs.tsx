@@ -3,11 +3,13 @@ import { DataNotice } from "../components/DataNotice";
 import { useWelcome, WelcomeSheet } from "../components/guide";
 import {
   ConfirmDialogs,
-  MessageDialog,
-  type AutomaticDialog,
+  useConfirmationPending,
+  type NoticeDialog,
 } from "../components/confirm";
 import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import { notify } from "../components/notifications/notify";
+import { useUndoAvailable } from "../components/notifications/notifications";
+import { useSurfaceBlocked } from "../components/ui/modal-state";
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { useSync } from "../store/sync";
 import { workspaceActions } from "../store/workspace";
@@ -16,8 +18,32 @@ import { openExternalUrl } from "../platform/external-url";
 import { tokyoDate } from "../lib/civil-date";
 import { wallNow } from "../platform/use-clock";
 import type { ClassGroupChoice, Workspace } from "../lib/model";
-import type { AnnouncementsView } from "../generated/persistence";
+import type {
+  AnnouncementsView,
+  AnnouncementView,
+} from "../generated/persistence";
 import { t } from "../i18n";
+
+function announcementDialog(item: AnnouncementView): NoticeDialog {
+  return {
+    id: `announcement:${item.id}`,
+    announcementId: item.id,
+    title: item.title,
+    message: item.body,
+    choices: [
+      ...(item.link ? [{ id: "details", label: item.link.label }] : []),
+      { id: "acknowledge", label: t("announcements.acknowledge") },
+    ],
+    onChoice: (choice) => {
+      if (!choice) return;
+      void workspaceActions
+        .mutate({ kind: "answerAnnouncement", id: item.id })
+        .catch(notify.error);
+      if (choice === "details" && item.link)
+        void openExternalUrl(item.link.url).catch(notify.error);
+    },
+  };
+}
 
 export function WorkspaceDialogs({
   settings,
@@ -38,9 +64,15 @@ export function WorkspaceDialogs({
   announcements?: AnnouncementsView;
   readingAnnouncements: boolean;
 }) {
+  const needsDataNotice = !readOnly && !settings.dataNoticeAcknowledgedAt;
   const [needsWelcome, finishWelcome] = useWelcome();
   const offer = useDesktopUpdates(!readOnly, settings.automaticAppUpdates);
+  const blocked = useSurfaceBlocked();
+  const undo = useUndoAvailable();
+  const confirming = useConfirmationPending();
   const [group, setGroup] = useState<ClassGroupChoice>();
+  const [showGroup, setShowGroup] = useState(false);
+  const askedSemesters = useRef(new Set<string>());
   const sources = useSync().sources;
   const kyomu =
     sources.find((source) => source.source === "kyomu")?.lastUpdated ?? null;
@@ -56,7 +88,12 @@ export function WorkspaceDialogs({
       today: tokyoDate(new Date(wallNow())),
     })
       .then((choices) => {
-        if (!cancelled) setGroup(choices.find((choice) => choice.needsChoice));
+        if (cancelled) return;
+        const next = choices.find(
+          (choice) =>
+            choice.needsChoice && !askedSemesters.current.has(choice.semester),
+        );
+        if (next) setGroup(next);
       })
       .catch(() => undefined);
     return () => {
@@ -64,103 +101,73 @@ export function WorkspaceDialogs({
     };
   }, [readOnly, kyomu, sources.length]);
 
-  const candidates: AutomaticDialog[] = [];
-  if (!readOnly && !settings.dataNoticeAcknowledgedAt) {
-    candidates.push({
-      id: "data-notice",
-      render: (dismiss) => (
+  const readyForGroup =
+    Boolean(group) &&
+    !showGroup &&
+    !needsDataNotice &&
+    !needsWelcome &&
+    !blocked &&
+    !undo &&
+    !confirming;
+  useEffect(() => {
+    if (!readyForGroup || !group) return;
+    askedSemesters.current.add(group.semester);
+    setShowGroup(true);
+  }, [readyForGroup, group]);
+
+  const automatic: NoticeDialog[] =
+    needsDataNotice || needsWelcome || group
+      ? []
+      : [
+          ...(offer && settings.appUpdateChecks !== false ? [offer] : []),
+          ...(readingAnnouncements
+            ? []
+            : (announcements?.pending ?? []).map(announcementDialog)),
+        ];
+
+  const closeGroup = () => {
+    setGroup(undefined);
+    setShowGroup(false);
+  };
+  return (
+    <>
+      {needsDataNotice && (
         <DataNotice
-          acknowledge={() => {
+          acknowledge={() =>
             update((draft) => {
               draft.settings.dataNoticeAcknowledgedAt =
                 new Date().toISOString();
               return draft;
-            });
-            dismiss();
-          }}
+            })
+          }
         />
-      ),
-    });
-  }
-  if (needsWelcome) {
-    candidates.push({
-      id: "welcome",
-      live: true,
-      repeat: true,
-      render: (dismiss) => (
+      )}
+      {!needsDataNotice && needsWelcome && (
         <WelcomeSheet
           settings={settings}
           update={update}
           connected={connected}
           openAccounts={openAccounts}
           openAgents={openAgents}
-          close={() => {
-            finishWelcome();
-            dismiss();
-          }}
+          close={finishWelcome}
         />
-      ),
-    });
-  }
-  if (group) {
-    candidates.push({
-      id: `physics:${group.semester}`,
-      render: (dismiss) => (
+      )}
+      {group && showGroup && (
         <ClassGroupPrompt
           choice={group}
-          later={() => {
-            setGroup(undefined);
-            dismiss();
-          }}
+          later={closeGroup}
           choose={(value) => {
-            setGroup(undefined);
-            dismiss();
+            closeGroup();
             void workspaceActions
               .setClassGroup(group.semester, value)
               .catch(notify.error);
           }}
         />
-      ),
-    });
-  }
-  if (offer && settings.appUpdateChecks !== false) candidates.push(offer);
-  for (const item of readingAnnouncements
-    ? []
-    : (announcements?.pending ?? [])) {
-    const link = item.link;
-    const request = {
-      title: item.title,
-      message: item.body,
-      choices: [
-        ...(link ? [{ id: "details", label: link.label }] : []),
-        { id: "acknowledge", label: t("announcements.acknowledge") },
-      ],
-    };
-    candidates.push({
-      id: `announcement:${item.id}`,
-      announcementId: item.id,
-      render: (dismiss) => (
-        <MessageDialog
-          request={request}
-          finish={(choice) => {
-            dismiss();
-            if (!choice) return;
-            void workspaceActions
-              .mutate({ kind: "answerAnnouncement", id: item.id })
-              .catch(notify.error);
-            if (choice === "details" && link)
-              void openExternalUrl(link.url).catch(notify.error);
-          }}
-        />
-      ),
-    });
-  }
-  return (
-    <ConfirmDialogs
-      automatic={candidates}
-      activeAnnouncements={
-        announcements && new Set(announcements.active.map((item) => item.id))
-      }
-    />
+      )}
+      <ConfirmDialogs
+        automatic={automatic}
+        activeAnnouncements={announcements?.active}
+      />
+    </>
   );
 }

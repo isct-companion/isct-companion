@@ -1,10 +1,9 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
-import { useAppModalOpen, useNativeModalOpen } from "./ui/modal-state";
-import { useWindowActive } from "../platform/use-window-active";
+import { useSurfaceBlocked } from "./ui/modal-state";
 import { useUndoAvailable } from "./notifications/notifications";
 
 /** One button of a dialog; the last one is the primary action. */
@@ -19,9 +18,20 @@ type Confirmation = {
   choices: Choice<string>[];
   resolve: (choice: string | null) => void;
 };
+export type NoticeDialog = {
+  id: string;
+  message: string;
+  title?: string;
+  choices: Choice<string>[];
+  announcementId?: string;
+  onChoice: (choice: string | null) => void;
+};
 const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
   queue: [],
 }));
+export const useConfirmationPending = () =>
+  useConfirmations((state) => state.queue.length > 0);
+
 /** In-app Radix Dialog: only the confirm button resolves true. Never use
  * window.confirm: the native shell replaces it with an asynchronous API. */
 export function confirmAction(
@@ -59,33 +69,22 @@ export function chooseAction<T extends string>(
     })),
   );
 }
-export type AutomaticDialog = {
-  id: string;
-  render: (dismiss: () => void) => ReactNode;
-  /** Forms keep reading their controls while the host owns presentation. */
-  live?: boolean;
-  repeat?: boolean;
-  announcementId?: string;
-};
 
-/** The shell supplies eligibility in presentation order. Once open, a message
- * and its answers belong to that presentation, even if the candidates change. */
+/** User confirmations come first. Automatic offers (updates, announcements) are
+ * snapshotted on open so later arrivals never replace them, and an open
+ * announcement closes if Core withdraws or expires it. */
 export function ConfirmDialogs({
   automatic = [],
   activeAnnouncements,
-  blocked = false,
 }: {
-  automatic?: readonly AutomaticDialog[];
-  activeAnnouncements?: ReadonlySet<string>;
-  blocked?: boolean;
+  automatic?: readonly NoticeDialog[];
+  activeAnnouncements?: readonly { id: string }[];
 }) {
   useTranslation();
   const request = useConfirmations((state) => state.queue[0]);
-  const [open, setOpen] = useState<AutomaticDialog>();
+  const [open, setOpen] = useState<NoticeDialog>();
   const [offered, setOffered] = useState<ReadonlySet<string>>(() => new Set());
-  const modal = useAppModalOpen();
-  const nativeModal = useNativeModalOpen();
-  const foreground = useWindowActive();
+  const blocked = useSurfaceBlocked();
   const undo = useUndoAvailable();
   useEffect(
     () => () => {
@@ -95,81 +94,48 @@ export function ConfirmDialogs({
     },
     [],
   );
-  const next = automatic.find((item) => item.repeat || !offered.has(item.id));
+  const next = automatic.find((item) => !offered.has(item.id));
   useEffect(() => {
     if (
       open?.announcementId &&
       activeAnnouncements &&
-      !activeAnnouncements.has(open.announcementId)
+      !activeAnnouncements.some((item) => item.id === open.announcementId)
     ) {
       setOpen(undefined);
-    } else if (
-      !open &&
-      !request &&
-      foreground &&
-      !blocked &&
-      !undo &&
-      !modal &&
-      !nativeModal &&
-      next
-    ) {
+    } else if (!open && !request && !blocked && !undo && next) {
       setOpen(next);
-      if (!next.repeat) setOffered((old) => new Set(old).add(next.id));
+      setOffered((old) => new Set(old).add(next.id));
     }
-  }, [
-    open,
-    request,
-    foreground,
-    blocked,
-    undo,
-    modal,
-    nativeModal,
-    next,
-    activeAnnouncements,
-  ]);
+  }, [open, request, blocked, undo, next, activeAnnouncements]);
 
-  if (open) {
-    const current = open.live
-      ? (automatic.find((item) => item.id === open.id) ?? open)
-      : open;
-    return current.render(() => setOpen(undefined));
-  }
-  if (!request) return null;
-  return (
-    <MessageDialog
-      request={request}
-      finish={(choice) => {
-        useConfirmations.setState(({ queue }) => ({
-          queue: queue.filter((item) => item !== request),
-        }));
-        request.resolve(choice);
-      }}
-    />
-  );
-}
-
-export function MessageDialog<T extends string>({
-  request,
-  finish,
-}: {
-  request: { message: string; title?: string; choices: Choice<T>[] };
-  finish: (choice: T | null) => void;
-}) {
-  const last = request.choices.length - 1;
+  const shown = open ?? request;
+  if (!shown) return null;
+  const finish = (choice: string | null) => {
+    if (open) {
+      setOpen(undefined);
+      open.onChoice(choice);
+    } else if (request) {
+      useConfirmations.setState(({ queue }) => ({
+        queue: queue.filter((item) => item !== request),
+      }));
+      request.resolve(choice);
+    }
+  };
+  const last = shown.choices.length - 1;
   return (
     <Modal
       opened
       onClose={() => finish(null)}
-      title={request.title}
+      title={shown.title}
       withCloseButton={false}
       centered
     >
       <Stack>
         <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-          {request.message}
+          {shown.message}
         </Text>
         <Group justify="flex-end">
-          {request.choices.map((choice, index) => (
+          {shown.choices.map((choice, index) => (
             <Button
               key={choice.id}
               variant={index === last ? undefined : "default"}

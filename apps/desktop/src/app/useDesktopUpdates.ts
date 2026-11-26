@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { notify } from "../components/notifications/notify";
 import { desktopBridge } from "../platform/native";
-import { MessageDialog, type AutomaticDialog } from "../components/confirm";
+import type { NoticeDialog } from "../components/confirm";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { t } from "../i18n";
 import type { AppUpdateStatus } from "../platform/desktop-bridge";
@@ -26,7 +26,7 @@ async function install(status: AppUpdateStatus, version: string) {
 export function useDesktopUpdates(
   ready: boolean,
   automatic = false,
-): AutomaticDialog | undefined {
+): NoticeDialog | undefined {
   const status = useAppUpdate((state) => state.status);
   useEffect(() => {
     if (!ready || !desktopBridge?.checkAppUpdate) return;
@@ -49,7 +49,8 @@ export function useDesktopUpdates(
   if (!ready || !status?.prompt || !version) return;
   const downloaded = status.phase === "ready";
   if (!downloaded && (status.phase !== "available" || automatic)) return;
-  const request = {
+  return {
+    id: `update:${version}`,
     title: t("appUpdate.prompt.title"),
     message: t(
       downloaded ? "appUpdate.prompt.ready" : "appUpdate.prompt.available",
@@ -67,27 +68,17 @@ export function useDesktopUpdates(
         ),
       },
     ],
-  };
-  return {
-    id: `update:${version}`,
-    render: (dismiss) => (
-      <MessageDialog
-        request={request}
-        finish={(choice) => {
-          dismiss();
-          if (choice === "update")
-            void install(status, version).catch(notify.error);
-          if (choice === "skip" || choice === "off")
-            void workspaceActions
-              .updateSettings((draft) => {
-                if (choice === "skip")
-                  draft.settings.skippedAppVersion = version;
-                else draft.settings.appUpdateChecks = false;
-                return draft;
-              })
-              .catch(notify.error);
-        }}
-      />
-    ),
+    onChoice: (choice) => {
+      if (choice === "update")
+        void install(status, version).catch(notify.error);
+      if (choice === "skip" || choice === "off")
+        void workspaceActions
+          .updateSettings((draft) => {
+            if (choice === "skip") draft.settings.skippedAppVersion = version;
+            else draft.settings.appUpdateChecks = false;
+            return draft;
+          })
+          .catch(notify.error);
+    },
   };
 }

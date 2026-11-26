@@ -969,6 +969,7 @@ describe("store failures", () => {
     );
 
     const restored: string[] = [];
+    const { confirmAction } = await import("@app/components/confirm");
     await act(async () => {
       notify.undoable("Removed the first exam", () => {
         restored.push("first");
@@ -978,9 +979,100 @@ describe("store failures", () => {
       });
       notify.info("Another operation finished");
     });
+    await required(() => action("Undo"), "the first undo");
+    // A user confirmation pauses and hides Undo until the dialog closes.
+    let confirmed: Promise<boolean> | undefined;
+    await act(async () => {
+      confirmed = confirmAction("Delete this item?", "Delete");
+    });
+    const cancel = await required(
+      () => action("Cancel"),
+      "confirmation cancel",
+    );
+    expect(action("Undo")).toBeUndefined();
+    await click(cancel);
+    expect(await confirmed).toBe(false);
     await click(await required(() => action("Undo"), "the first undo"));
     await click(await required(() => action("Undo"), "the second undo"));
     expect(restored).toEqual(["first", "second"]);
+  }, 20_000);
+
+  it("keeps an open announcement intact when another arrives, records only explicit answers, and closes withdrawn ones", async () => {
+    const notice = (id: string, title: string) => ({
+      id,
+      level: "info" as const,
+      title,
+      body: `${title} body`,
+      link: null,
+    });
+    const first = notice("a", "First announcement");
+    const second = notice("b", "Second announcement");
+    const third = notice("c", "Withdrawn announcement");
+    let feed = { active: [first], pending: [first] };
+    app = await mountShell(
+      shellOptions({
+        workspace: workspaceFixture(),
+        revision: "rev:announcements",
+        queries: {
+          ...shellQueries(),
+          announcements: () => feed,
+        },
+      }),
+      { route: paths.home() },
+    );
+    const { core, host } = app;
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    const publishFeed = async (next: typeof feed) => {
+      feed = next;
+      await act(async () => {
+        core.emit("workspace-changed", {
+          seq: core.commit().seq,
+          source: "reference-pull",
+          changes: ["announcements"],
+        });
+      });
+    };
+
+    await until(() =>
+      expect(dialog()?.textContent).toContain("First announcement"),
+    );
+    expect(host.textContent).toContain("First announcement");
+
+    // A newer announcement arriving does not replace the open one.
+    await publishFeed({ active: [second, first], pending: [second, first] });
+    await advance(50);
+    expect(dialog()?.textContent).toContain("First announcement");
+
+    // Closing without an explicit choice records no receipt, then opens B.
+    await act(async () => {
+      dialog()!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      );
+    });
+    await until(() =>
+      expect(dialog()?.textContent).toContain("Second announcement"),
+    );
+    expect(core.mutations).toEqual([]);
+
+    const ack = [...dialog()!.querySelectorAll("button")].find(
+      (button) => button.textContent === "Got it",
+    );
+    await click(ack);
+    await until(() =>
+      expect(core.mutations).toContainEqual({
+        kind: "answerAnnouncement",
+        id: "b",
+      }),
+    );
+
+    // A withdrawn announcement closes itself without recording an answer.
+    await publishFeed({ active: [third], pending: [third] });
+    await until(() =>
+      expect(dialog()?.textContent).toContain("Withdrawn announcement"),
+    );
+    await publishFeed({ active: [], pending: [] });
+    await until(() => expect(dialog()).toBeNull());
+    expect(core.mutations).toEqual([{ kind: "answerAnnouncement", id: "b" }]);
   }, 20_000);
 });
 
@@ -1655,6 +1747,28 @@ describe("First school connection", () => {
     // The next window on this device opens straight to the page.
     const stored = localStorage.getItem("isct-companion-guide");
     expect(JSON.parse(stored ?? "{}")).toMatchObject({ welcome: true });
+
+    // "Show welcome and tips again" reopens the live welcome sheet directly.
+    await app.go(paths.about());
+    const resetGuide = await required(
+      () =>
+        app!.host.querySelector<HTMLButtonElement>('[data-setting="guide"]'),
+      "the welcome reset button",
+    );
+    await click(resetGuide);
+    const reopened = await until(() => {
+      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+      expect(dialog?.textContent).toContain("IsctCompanion へようこそ");
+      return dialog!;
+    });
+    await click(
+      [...reopened.querySelectorAll("button")].find(
+        (button) => button.textContent === "あとで",
+      ),
+    );
+    await until(() =>
+      expect(document.querySelector('[role="dialog"]')).toBeNull(),
+    );
   });
 
   it("keeps the setup prompt out of an existing timetable", async () => {

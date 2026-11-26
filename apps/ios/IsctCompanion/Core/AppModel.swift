@@ -22,7 +22,6 @@ final class AppModel {
     let notices = AppNotices()
     private(set) var announcements: AnnouncementsView?
     private(set) var announcementsReady = false
-    private let announcementReads = ScheduleReads()
     private(set) var board: AssignmentBoard?
     private(set) var periods: [TeachingPeriod] = []
     /// Course id → Core's display colour, identical on every surface.
@@ -170,7 +169,6 @@ final class AppModel {
             // The web screen reads page snapshots only once events stream.
             web.session = session
             await refresh()
-            await refreshAnnouncements()?.value
             await refreshAccounts()
             await refreshSyncSnapshot()
             await backup.refresh()
@@ -214,7 +212,6 @@ final class AppModel {
             syncHint(.foreground)
             armDeadline()
             scheduleRefresh(force: true)
-            refreshAnnouncements(force: true)
             Task { await checkForUpdate() }
         case .background:
             announcementsReady = false
@@ -391,13 +388,11 @@ final class AppModel {
                     case "school-download", "catalog-changed":
                         break
                     case "workspace-changed":
-                        refreshAnnouncements()
                         scheduleRefresh()
                     default:
                         break
                     }
                 case .snapshotRequired:
-                    refreshAnnouncements(force: true)
                     try? session?.refreshWidgets()
                     scheduleRefresh(force: true)
                     if let next = try? session?.wakeDirective() { apply(next) }
@@ -419,6 +414,7 @@ final class AppModel {
     private func scheduleRefresh(force: Bool = false) -> Task<Void, Never>? {
         guard let session else { return nil }
         if force {
+            announcementsReady = false
             dashboardReads.invalidate()
             timetableWeeks.invalidate()
         } else {
@@ -441,7 +437,7 @@ final class AppModel {
               case var .schedule(result) = try await session.scheduleQuery(queries: [
                 .records(fields: ["courses", "assignments"]), .today(now: now),
                 .upcomingExams(from: from, to: last, now: now),
-                .assignmentBoard(now: now, term: nil), .teachingPeriods,
+                .assignmentBoard(now: now, term: nil), .teachingPeriods, .announcements,
               ]).value() else { throw SdkError.Unavailable(detail: "dashboard") }
 
         // A new install may have no term for an overview yet.
@@ -467,6 +463,9 @@ final class AppModel {
             case let .upcomingExams(exams): upcomingExams = exams
             case let .assignmentBoard(value): board = value; writeShareChoices(value)
             case let .teachingPeriods(value): periods = value
+            case let .announcements(view):
+                announcements = view
+                announcementsReady = true
             default: break
             }
         }
@@ -678,26 +677,8 @@ final class AppModel {
     }
 
 
-    @discardableResult
-    private func refreshAnnouncements(force: Bool = false) -> Task<Void, Never>? {
-        guard let session else { return nil }
-        if force {
-            announcementsReady = false
-            announcementReads.invalidate()
-        }
-        return announcementReads.refresh(session, read: { generation in
-            guard case let .schedule(snapshot) = try await session.scheduleQuery(queries: [.announcements]).value(),
-                  case let .announcements(view)? = snapshot.values.first
-            else { throw SdkError.Unavailable(detail: "announcements") }
-            if try self.announcementReads.accept(snapshot, started: generation, session: session) {
-                self.announcements = view
-                self.announcementsReady = true
-            }
-        }, failed: { NSLog("Announcements read: %@", Self.describe($0)) })
-    }
-
     func answerAnnouncement(_ id: String) async {
-        if await editWorkspace(.answerAnnouncement(id: id)) { await refreshAnnouncements()?.value }
+        await editWorkspace(.answerAnnouncement(id: id))
     }
 
     // MARK: Intents

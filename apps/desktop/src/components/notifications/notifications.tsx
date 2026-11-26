@@ -3,12 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { useTranslation } from "react-i18next";
 import { t } from "../../i18n";
-import { useWindowActive } from "../../platform/use-window-active";
-import {
-  trackNativeModals,
-  useAppModalOpen,
-  useNativeModalOpen,
-} from "../ui/modal-state";
+import { trackNativeModals, useSurfaceBlocked } from "../ui/modal-state";
 
 type Notice = {
   id: string;
@@ -41,7 +36,8 @@ function close(notice: Notice) {
 export const useUndoAvailable = () =>
   useNotices(({ items }) => items.some((item) => item.undo));
 
-/** An undo stays attached to its operation and only counts down while usable. */
+/** Keeps a single remaining-time countdown across hover/focus and modal/window
+ * blocks, so Undo (and feedback) only consume time while visible and usable. */
 function NoticeToast({
   notice,
   blocked,
@@ -56,7 +52,7 @@ function NoticeToast({
       setPaused(false);
       return;
     }
-    if (!notice.undo || paused) return;
+    if (paused) return;
     const start = performance.now();
     const timer = window.setTimeout(() => close(notice), remaining.current);
     return () => {
@@ -71,7 +67,7 @@ function NoticeToast({
   return (
     <Toast.Root
       className="uiToast"
-      duration={notice.undo ? Infinity : DURATION}
+      duration={Infinity}
       onPause={() => setPaused(true)}
       onResume={() => setPaused(false)}
       onOpenChange={(open) => {
@@ -99,19 +95,13 @@ export function Notifications() {
   const notice = useNotices(
     ({ items }) => items.find((item) => item.undo) ?? items[0],
   );
-  const modal = useAppModalOpen();
-  const nativeModal = useNativeModalOpen();
+  const blocked = useSurfaceBlocked();
   useEffect(trackNativeModals, []);
-  const active = useWindowActive();
   useEffect(() => () => useNotices.setState({ items: [] }), []);
   return (
     <Toast.Provider swipeDirection="right" label={t("common.notifications")}>
       {notice && (
-        <NoticeToast
-          key={notice.revision}
-          notice={notice}
-          blocked={modal || nativeModal || !active}
-        />
+        <NoticeToast key={notice.revision} notice={notice} blocked={blocked} />
       )}
       <Toast.Viewport
         className="appNotifications"

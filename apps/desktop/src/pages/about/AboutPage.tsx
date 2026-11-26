@@ -1,4 +1,3 @@
-import { Banner } from "../../components/notifications/Banner";
 import {
   GitBranch,
   Globe,
@@ -9,7 +8,7 @@ import {
 } from "lucide-react";
 import type { ComponentProps } from "react";
 import { TitleRow } from "../../components/TitleRow";
-import { Switch, UiButton } from "../../components/ui";
+import { ErrorBanner, Switch, UiButton } from "../../components/ui";
 import { GuideTip, useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../platform/native";
 import { lastInstallText } from "../../lib/app-update-text";
@@ -155,12 +154,9 @@ export function About({
             )}
             {status?.lastInstall &&
               status.lastInstall.outcome !== "installed" && (
-                <Banner role="alert" color="red">
-                  {lastInstallText(status.lastInstall)}{" "}
-                  <UiButton onClick={() => void check(true, true)}>
-                    {t("common.retry")}
-                  </UiButton>
-                </Banner>
+                <ErrorBanner onRetry={() => void check(true, true)}>
+                  {lastInstallText(status.lastInstall)}
+                </ErrorBanner>
               )}
             <div className="aboutPrefs">
               {desktopBridge?.checkAppUpdate && (
