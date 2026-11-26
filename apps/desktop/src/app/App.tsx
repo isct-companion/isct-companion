@@ -145,10 +145,11 @@ export function WorkspaceApp() {
   const storeError = useWorkspace((state) => state.error);
   const data = useRecords(SHELL_RECORDS, storeReady);
   const sourceData = data;
-  const { value: announcements } = useScheduleQuery<AnnouncementsView>(
-    { kind: "announcements" },
-    Boolean(desktopBridge && sourceData),
-  );
+  const { value: announcements, pending: readingAnnouncements } =
+    useScheduleQuery<AnnouncementsView>(
+      { kind: "announcements" },
+      Boolean(desktopBridge && sourceData),
+    );
   const overview = useScheduleQuery<WorkspaceOverview>(
     { kind: "workspaceOverview", term: "" },
     Boolean(sourceData),
@@ -743,6 +744,7 @@ export function WorkspaceApp() {
         openAccounts={openAccounts}
         openAgents={() => void navigate(paths.settings("agent"))}
         announcements={announcements ?? undefined}
+        readingAnnouncements={readingAnnouncements}
       />
       <CourseEditors
         data={data}

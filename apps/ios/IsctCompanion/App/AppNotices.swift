@@ -80,6 +80,13 @@ struct AppNoticeLayer: ViewModifier {
     private var interactive: Bool { scenePhase == .active }
     private var activeIds: [String] { model.announcements?.active.map(\.id) ?? [] }
 
+    private var updateCandidate: AppRelease? {
+        (model.records.settings["appUpdateChecks"] as? Bool ?? true) ? model.updateOffer : nil
+    }
+    private var pendingAnnouncements: [AnnouncementView] {
+        model.announcementsReady ? model.announcements?.pending ?? [] : []
+    }
+
     private struct Eligibility: Equatable {
         let interactive: Bool
         let busy: Bool
@@ -96,8 +103,8 @@ struct AppNoticeLayer: ViewModifier {
         Eligibility(
             interactive: interactive, busy: busy, undo: model.undo?.id, current: dialog?.id,
             user: model.notices.requests.first?.id, welcome: welcomed,
-            update: model.updateOffer?.version, active: activeIds,
-            pending: model.announcements?.pending.map(\.id) ?? []
+            update: updateCandidate?.version, active: activeIds,
+            pending: pendingAnnouncements.map(\.id)
         )
     }
 
@@ -161,7 +168,7 @@ struct AppNoticeLayer: ViewModifier {
             welcome = true
             return
         }
-        if let release = model.updateOffer, offered.insert("update:\(release.version)").inserted {
+        if let release = updateCandidate, offered.insert("update:\(release.version)").inserted {
             let done = { model.closeUpdate(release.version) }
             var actions: [AppNotices.Dialog.Action] = [
                 .init(label: t("common.later"), role: .cancel, run: done),
@@ -177,7 +184,7 @@ struct AppNoticeLayer: ViewModifier {
                            title: t("appUpdate.prompt.available", ["version": release.version]), actions: actions)
             return
         }
-        guard let item = model.announcements?.pending.first(where: { !offered.contains("announcement:\($0.id)") })
+        guard let item = pendingAnnouncements.first(where: { !offered.contains("announcement:\($0.id)") })
         else { return }
         let id = "announcement:\(item.id)"
         offered.insert(id)

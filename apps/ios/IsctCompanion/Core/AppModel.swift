@@ -21,6 +21,7 @@ final class AppModel {
     private(set) var today: TodayView?
     let notices = AppNotices()
     private(set) var announcements: AnnouncementsView?
+    private(set) var announcementsReady = false
     private let announcementReads = ScheduleReads()
     private(set) var board: AssignmentBoard?
     private(set) var periods: [TeachingPeriod] = []
@@ -216,6 +217,7 @@ final class AppModel {
             refreshAnnouncements(force: true)
             Task { await checkForUpdate() }
         case .background:
+            announcementsReady = false
             deadlineTask?.cancel()
             deadlineTask = nil
             syncHint(.background)
@@ -679,13 +681,17 @@ final class AppModel {
     @discardableResult
     private func refreshAnnouncements(force: Bool = false) -> Task<Void, Never>? {
         guard let session else { return nil }
-        if force { announcementReads.invalidate() }
+        if force {
+            announcementsReady = false
+            announcementReads.invalidate()
+        }
         return announcementReads.refresh(session, read: { generation in
             guard case let .schedule(snapshot) = try await session.scheduleQuery(queries: [.announcements]).value(),
                   case let .announcements(view)? = snapshot.values.first
             else { throw SdkError.Unavailable(detail: "announcements") }
             if try self.announcementReads.accept(snapshot, started: generation, session: session) {
                 self.announcements = view
+                self.announcementsReady = true
             }
         }, failed: { NSLog("Announcements read: %@", Self.describe($0)) })
     }

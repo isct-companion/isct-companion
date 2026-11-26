@@ -53,6 +53,8 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     val notices = app.isctcompanion.design.AppNotices()
     var announcements: AnnouncementsView? by mutableStateOf(null)
         private set
+    var announcementsReady by mutableStateOf(false)
+        private set
     private val announcementReads = ScheduleReads()
     var today: TodayView? by mutableStateOf(null)
         private set
@@ -212,6 +214,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             refreshAnnouncements(force = true)
             scope.launch { checkForUpdate() }
         } else {
+            announcementsReady = false
             deadlineJob?.cancel()
             deadlineJob = null
             hint(Hint.Background)
@@ -629,12 +632,18 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
 
     private fun refreshAnnouncements(force: Boolean = false): Job? {
         val session = session ?: return null
-        if (force) announcementReads.invalidate()
+        if (force) {
+            announcementsReady = false
+            announcementReads.invalidate()
+        }
         return announcementReads.refresh(scope, session, { generation ->
             val snapshot = (session.scheduleQuery(listOf(WorkspaceQuery.Announcements)).value()
                 as OperationResult.Schedule).snapshot
             val view = (snapshot.values.single() as WorkspaceQueryResult.Announcements).v1
-            if (announcementReads.accept(snapshot, generation, session)) announcements = view
+            if (announcementReads.accept(snapshot, generation, session)) {
+                announcements = view
+                announcementsReady = true
+            }
         }, { Log.w("isct", "announcements", it) })
     }
 

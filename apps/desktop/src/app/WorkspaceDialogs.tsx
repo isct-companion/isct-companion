@@ -27,6 +27,7 @@ export function WorkspaceDialogs({
   openAccounts,
   openAgents,
   announcements,
+  readingAnnouncements,
 }: {
   settings: Workspace["settings"];
   update: (edit: (draft: Workspace) => Workspace) => void;
@@ -35,6 +36,7 @@ export function WorkspaceDialogs({
   openAccounts: () => void;
   openAgents: () => void;
   announcements?: AnnouncementsView;
+  readingAnnouncements: boolean;
 }) {
   const [needsWelcome, finishWelcome] = useWelcome();
   const offer = useDesktopUpdates(!readOnly, settings.automaticAppUpdates);
@@ -121,8 +123,10 @@ export function WorkspaceDialogs({
       ),
     });
   }
-  if (offer) candidates.push(offer);
-  for (const item of announcements?.pending ?? []) {
+  if (offer && settings.appUpdateChecks !== false) candidates.push(offer);
+  for (const item of readingAnnouncements
+    ? []
+    : (announcements?.pending ?? [])) {
     const link = item.link;
     const request = {
       title: item.title,

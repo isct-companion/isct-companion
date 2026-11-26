@@ -81,12 +81,13 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
     var welcome by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<AppNotices.Message?>(null) }
     val offered = remember { mutableSetOf<String>() }
-    val release = model.updater.offer
+    val release = model.updater.offer.takeIf { model.records.settings.optBoolean("appUpdateChecks", true) }
     val feed = model.announcements
+    val announcementsReady = model.announcementsReady
     val undo = model.undo
     val request = notices.nextRequest
 
-    LaunchedEffect(resumed, interactive, userFlow, welcome, message, request, undo, Guide.welcome, release, feed) {
+    LaunchedEffect(resumed, interactive, userFlow, welcome, message, request, undo, Guide.welcome, release, feed, announcementsReady) {
         val id = message?.announcementId
         if (id != null && feed != null && feed.active.none { it.id == id }) {
             message = null
@@ -122,6 +123,7 @@ fun AppNoticeLayer(snackbar: SnackbarHostState, userFlow: Boolean, connect: () -
             )
             return@LaunchedEffect
         }
+        if (!announcementsReady) return@LaunchedEffect
         val item = feed?.pending?.firstOrNull { "announcement:${it.id}" !in offered } ?: return@LaunchedEffect
         val key = "announcement:${item.id}"
         offered.add(key)
