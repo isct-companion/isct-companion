@@ -565,7 +565,7 @@ describe("the lecture desk", () => {
     expect(items.map((item) => item.textContent?.trim())).toEqual([
       "Mark as exam",
       "Mark as quiz",
-      "Mark as cancelled",
+      "Mark as canceled",
     ]);
     // A running class carries no mark.
     expect(items.some((item) => item.textContent?.includes("✓"))).toBe(false);

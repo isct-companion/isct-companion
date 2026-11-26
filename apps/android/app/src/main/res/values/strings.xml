@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">IsctCompanion</string>
-    <string name="reminders">授業と課題のリマインダー</string>
+    <string name="reminders">Class and assignment reminders</string>
 </resources>

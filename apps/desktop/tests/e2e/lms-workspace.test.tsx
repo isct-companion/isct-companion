@@ -1257,7 +1257,7 @@ describe("the LMS reading workspace", () => {
       await waitFor(() =>
         expect(host.querySelector(".lmsWorkspaceCard")).not.toBeNull(),
       );
-      await click(buttonByText(host, "Prepare in LMS"));
+      await click(buttonByText(host, "Upload to LMS draft"));
       expect(
         core.commands("prepare_workspace_submission")[0].args,
       ).toMatchObject({

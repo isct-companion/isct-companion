@@ -279,7 +279,7 @@ describe("School accounts", () => {
         }),
       );
       await clickButton(science, "Change");
-      await chooseOtpPath(science, "Import existing setup");
+      await chooseOtpPath(science, "Import existing OTP");
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -320,7 +320,7 @@ describe("School accounts", () => {
           }),
       );
       const mounted = await mountAccounts();
-      await chooseOtpPath(account(mounted, "science"), "Import existing setup");
+      await chooseOtpPath(account(mounted, "science"), "Import existing OTP");
       await clickButton(account(mounted, "science"), "Scan QR");
       await wait(() => expect(qrVideo).toHaveBeenCalled());
       const close = document.querySelector<HTMLButtonElement>(
@@ -336,7 +336,7 @@ describe("School accounts", () => {
   );
 
   it(
-    "offers Connect and Forget on a saved portal and labels each card by Core's session",
+    "offers Connect and Remove on a saved portal and labels each card by Core's session",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
@@ -357,7 +357,7 @@ describe("School accounts", () => {
       const science = account(mounted, "science");
       expect(
         cardButtons(science.querySelector(".schoolAccountActions")!),
-      ).toEqual(["Connect", "Forget"]);
+      ).toEqual(["Connect", "Remove"]);
       // No label until Core's first snapshot lands.
       expect(science.querySelector(".uiTag")).toBeNull();
       await wait(() => expect(answer).toBeDefined());
@@ -382,7 +382,7 @@ describe("School accounts", () => {
       expect(tokyoTech.querySelector(".uiTag")?.textContent).toBe(
         "Not connected",
       );
-      expect(cardButtons(tokyoTech)).not.toContain("Forget");
+      expect(cardButtons(tokyoTech)).not.toContain("Remove");
     },
     TIMEOUT,
   );
@@ -622,17 +622,17 @@ describe("School accounts", () => {
         },
       });
 
-      await clickButton(account(mounted, "science"), "Forget");
+      await clickButton(account(mounted, "science"), "Remove");
       const confirm = await wait(() => openDialog());
       expect(confirm.textContent).toContain(
-        "Forget saved Science Tokyo Portal credentials on this device?",
+        "Remove saved Science Tokyo Portal credentials from this device?",
       );
       // Asking is not doing.
       expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
         0,
       );
 
-      await clickButton(confirm, "Forget");
+      await clickButton(confirm, "Remove");
       await wait(() =>
         expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
           1,
@@ -1622,7 +1622,7 @@ function studyWorkspace(): Workspace {
 
 const stageSelect = (pane: HTMLElement) =>
   pane.querySelector<HTMLInputElement>(
-    '[role="combobox"][aria-label="Degree programme"]',
+    '[role="combobox"][aria-label="Degree program"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>

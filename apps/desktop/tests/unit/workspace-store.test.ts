@@ -87,9 +87,9 @@ describe("queries without a native host", () => {
   it("refuses schedule and finder reads instead of inventing data", async () => {
     await expect(
       scheduleQuery({ kind: "declaredCredits", term: "2026-3Q" }),
-    ).rejects.toThrow("native Core");
+    ).rejects.toThrow("only in the IsctCompanion app");
     await expect(finderQuery({ year: 2026, term: "2026-3Q" })).rejects.toThrow(
-      "native Core",
+      "only in the IsctCompanion app",
     );
   });
 });
