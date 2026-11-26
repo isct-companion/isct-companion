@@ -410,7 +410,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         val current = (session.workspaceRevision().value() as OperationResult.Text).value
         val queries = listOf(
             WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
-            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14))),
+            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14)), now),
             WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
         )
         val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot

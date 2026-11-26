@@ -89,10 +89,13 @@ export function Today({
     { kind: "calendarRange", from: weekStart, to: addDays(weekStart, 6) },
     active,
   );
+  // Today reads at this minute; another day reads from its start, so a past
+  // day still lists what was ahead of it.
+  const viewNow = isToday ? nowIso : `${viewIso}T00:00:00+09:00`;
   const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
     [
-      { kind: "upcomingExams", from: viewIso, to: null },
-      { kind: "today", now: isToday ? nowIso : `${viewIso}T00:00:00+09:00` },
+      { kind: "upcomingExams", from: viewIso, to: null, now: viewNow },
+      { kind: "today", now: viewNow },
       { kind: "taskView", now: nowIso },
     ],
     active,

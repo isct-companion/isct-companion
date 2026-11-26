@@ -176,10 +176,12 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
-    /// Upcoming exams in this inclusive range of civil dates.
+    /// Upcoming exams in this inclusive range of civil dates, without those
+    /// already over at `now`.
     UpcomingExams {
         from: String,
         to: Option<String>,
+        now: String,
     },
     /// All visible items in an inclusive civil-date range, across terms.
     CalendarRange {
@@ -684,12 +686,16 @@ pub fn query(
         WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
             calendar_between(workspace, school, &from, &to)?,
         )),
-        WorkspaceQuery::UpcomingExams { from, to } => Ok(WorkspaceQueryResult::UpcomingExams(
-            exams::upcoming_exams(workspace, school, &from)
-                .into_iter()
-                .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
-                .collect(),
-        )),
+        WorkspaceQuery::UpcomingExams { from, to, now } => {
+            let now = parse_timestamp(&now)?;
+            Ok(WorkspaceQueryResult::UpcomingExams(
+                exams::upcoming_exams(workspace, school, &from)
+                    .into_iter()
+                    .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
+                    .filter(|exam| !exam.ended(now))
+                    .collect(),
+            ))
+        }
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
             Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(

@@ -2596,6 +2596,30 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
             .collect::<Vec<_>>(),
         ["final", "monday-exam", "edited-monday-exam"]
     );
+    // Today's upcoming exams drop one the moment it ends.
+    let upcoming_at = |now: &str| {
+        let WorkspaceQueryResult::UpcomingExams(exams) = query(
+            &data,
+            &SchoolReads::fixture(&data),
+            WorkspaceQuery::UpcomingExams {
+                from: "2026-04-13".into(),
+                to: None,
+                now: now.into(),
+            },
+        )
+        .unwrap() else {
+            panic!("upcoming exams expected")
+        };
+        exams.into_iter().map(|view| view.id).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        upcoming_at("2026-04-13T15:09:00+09:00"),
+        ["final", "monday-exam", "edited-monday-exam"]
+    );
+    assert_eq!(
+        upcoming_at("2026-04-13T15:10:00+09:00"),
+        ["monday-exam", "edited-monday-exam"]
+    );
     assert!(exam_association(
         &data,
         &SchoolReads::fixture(&data),

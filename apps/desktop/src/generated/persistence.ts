@@ -2328,7 +2328,7 @@ export type WorkspaceQuery =
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
-  | { kind: "upcomingExams"; from: string; to: string | null }
+  | { kind: "upcomingExams"; from: string; to: string | null; now: string }
   | { kind: "calendarRange"; from: string; to: string }
   | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string; now: string }
