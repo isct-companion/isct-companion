@@ -143,13 +143,23 @@ private struct ExamPageFeedback: ViewModifier {
         content
             .safeAreaInset(edge: .bottom) {
                 if let message = page.problem ?? page.notice {
-                    Text(message)
+                    let failed = page.problem != nil
+                    // A failure on the danger fill with its mark; a notice on
+                    // the floating material, so neither melts into the page.
+                    Label(message, systemImage: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(page.problem == nil ? Theme.ink : Theme.danger)
+                        .foregroundStyle(failed ? Theme.danger : Theme.ink)
                         .padding(.horizontal, Theme.space7)
                         .padding(.vertical, Theme.space5)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
+                        .background {
+                            let shape = RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous)
+                            if failed {
+                                shape.fill(Theme.dangerSoft)
+                            } else {
+                                Color.clear.floatingGlass(in: shape)
+                            }
+                        }
                         .padding(.horizontal, Theme.gutter)
                         .padding(.bottom, Theme.space4)
                         .onTapGesture { page.problem = nil; page.notice = nil }
@@ -357,13 +367,12 @@ struct PastExamsScreen: View {
         let requests = requestPages[mine]
         return List {
             Section {
+                // A menu row, not a second segmented control under the tabs.
                 Picker(t("examShare.requests"), selection: $mine) {
                     Text(t("examShare.openRequests")).tag(false)
                     Text(t("examShare.myRequests")).tag(true)
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                .pickerStyle(.menu)
                 .onChange(of: mine) { Task { await loadVisible(reload: false) } }
             }
             if let requests {

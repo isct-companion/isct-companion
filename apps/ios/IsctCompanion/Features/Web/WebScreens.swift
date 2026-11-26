@@ -1,6 +1,5 @@
 import IsctCore
 import SwiftUI
-import TipKit
 import WebKit
 
 /// Hosts a site's resident WKWebView while on screen and parks it afterwards,
@@ -38,19 +37,42 @@ private struct ResidentWebView: UIViewRepresentable {
         var site: SchoolSite?
         var refresh: (() -> Void)?
         /// One per container: the resident view carries it while held here.
+        /// The spinner stays until the reloaded page has loaded.
         private lazy var refreshControl: UIRefreshControl = {
             let control = UIRefreshControl()
-            control.addAction(UIAction { [weak self, weak control] _ in
-                self?.refresh?()
-                // The page shows its own progress; the spinner only answers the pull.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { control?.endRefreshing() }
+            control.addAction(UIAction { [weak self] _ in
+                guard let self else { return }
+                refresh?()
+                awaitingLoad = true
+                // Core may answer the pull without loading (signing the view
+                // in first, or nothing to reload); a load that never starts
+                // must not leave the spinner up.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                    guard let self, awaitingLoad, held?.isLoading != true else { return }
+                    finishRefresh()
+                }
             }, for: .valueChanged)
             return control
         }()
+        /// A pull is waiting for its load to finish.
+        private var awaitingLoad = false
+        /// WebKit's own progress for the held page, along the top edge.
+        private let progress: UIProgressView = {
+            let bar = UIProgressView(progressViewStyle: .bar)
+            bar.trackTintColor = .clear
+            bar.progressTintColor = UIColor(Theme.accent)
+            bar.alpha = 0
+            return bar
+        }()
+        private var observations: [NSKeyValueObservation] = []
+        private var held: WKWebView? { subviews.lazy.compactMap { $0 as? WKWebView }.first }
 
         init(host: SchoolBrowserHost) {
             self.host = host
             super.init(frame: .zero)
+            progress.frame = CGRect(x: 0, y: 0, width: bounds.width, height: progress.intrinsicContentSize.height)
+            progress.autoresizingMask = [.flexibleWidth]
+            addSubview(progress)
         }
 
         @available(*, unavailable)
@@ -74,12 +96,51 @@ private struct ResidentWebView: UIViewRepresentable {
             webView.frame = bounds
             webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             if refresh != nil { webView.scrollView.refreshControl = refreshControl }
-            addSubview(webView)
+            insertSubview(webView, belowSubview: progress)
+            observe(webView)
             host.arrangePopups(site)
+        }
+
+        /// Follows the held view's loading: the bar shows its progress, and a
+        /// pull's spinner ends when the load does.
+        private func observe(_ webView: WKWebView) {
+            observations = [
+                webView.observe(\.estimatedProgress, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated { self?.showProgress(view) }
+                },
+                webView.observe(\.isLoading, options: [.initial, .new]) { [weak self] view, _ in
+                    MainActor.assumeIsolated {
+                        self?.showProgress(view)
+                        if !view.isLoading, self?.awaitingLoad == true { self?.finishRefresh() }
+                    }
+                },
+            ]
+        }
+
+        private func showProgress(_ view: WKWebView) {
+            let loading = view.isLoading && view.estimatedProgress < 1
+            if loading {
+                progress.setProgress(Float(view.estimatedProgress), animated: progress.alpha > 0)
+                UIView.animate(withDuration: Theme.motionBase) { self.progress.alpha = 1 }
+            } else if progress.alpha > 0 {
+                // Full, then fades; the next load starts from empty.
+                progress.setProgress(1, animated: true)
+                UIView.animate(withDuration: Theme.motionBase) { self.progress.alpha = 0 } completion: { _ in
+                    self.progress.setProgress(0, animated: false)
+                }
+            }
+        }
+
+        private func finishRefresh() {
+            awaitingLoad = false
+            refreshControl.endRefreshing()
         }
 
         /// Returns whatever view it holds to the parking window.
         func release() {
+            observations = []
+            if awaitingLoad { finishRefresh() }
+            progress.alpha = 0
             for case let held as WKWebView in subviews {
                 if held.scrollView.refreshControl === refreshControl { held.scrollView.refreshControl = nil }
                 host.park(held)
@@ -114,11 +175,6 @@ struct WebTabScreen: View {
             if let error = web.error {
                 ProblemNote(text: error).padding(.top, Theme.space6).frame(maxHeight: .infinity, alignment: .top)
             }
-            // The one thing drawn over the page, once: how to reach the
-            // other sites.
-            TipView(WebSitesTip())
-                .padding(Theme.space6)
-                .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .safeAreaInset(edge: .top, spacing: 0) { PageBars(site: web.tabSite) }
         .background(Theme.bg)
@@ -239,8 +295,8 @@ struct SitePickerRows: View {
 typealias SitePickerPress = TabItemPress<SitePick>
 
 /// A school page pushed from a course or assignment, with the system back
-/// button and title; back, forward, share and Safari sit in the bottom
-/// toolbar as in Safari, and a pull reloads.
+/// button and title; back and forward sit in the bottom toolbar, share and
+/// Safari in the page menu as on the ウェブ tab, and a pull reloads.
 struct WebPageScreen: View {
     let page: WebRouter.PushedPage
     @Environment(WebRouter.self) private var web
@@ -283,13 +339,6 @@ struct WebPageScreen: View {
                 Button { web.forward(page.site) } label: { Image(systemName: "chevron.forward") }
                     .accessibilityLabel(t("common.nextPage"))
                     .disabled(off(web.pages[page.site]?.forward))
-                Spacer()
-                if let url = web.url(page.site) {
-                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
-                    Spacer()
-                    Link(destination: url) { Image(systemName: "safari") }
-                        .accessibilityLabel(t("common.openInBrowser"))
-                }
             }
         }
         .onAppear {
