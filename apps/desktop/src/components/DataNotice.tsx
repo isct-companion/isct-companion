@@ -4,9 +4,12 @@ import { t } from "../i18n";
 const ISSUES_URL = "https://github.com/isct-companion/Isct-Data/issues";
 
 /** Shown once, before the user relies on collected school data. */
-export function dataNoticeDialog(acknowledge: () => void): NoticeDialog {
+export function dataNoticeDialog(
+  attempt: number,
+  acknowledge: () => void,
+): NoticeDialog {
   return {
-    id: "data-notice",
+    id: `data-notice:${attempt}`,
     title: t("dataNotice.beforeYouRelyOnThis"),
     closeOnClickOutside: false,
     message: (

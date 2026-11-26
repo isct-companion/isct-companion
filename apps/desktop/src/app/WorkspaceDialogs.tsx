@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { dataNoticeDialog } from "../components/DataNotice";
 import { useWelcome, WelcomeSheet } from "../components/guide";
-import { ConfirmDialogs, type NoticeDialog } from "../components/confirm";
+import {
+  ConfirmDialogs,
+  useConfirmationPending,
+  type NoticeDialog,
+} from "../components/confirm";
 import { classGroupDialog } from "../pages/courses/ClassGroupPicker";
 import { notify } from "../components/notifications/notify";
+import { useUndoAvailable } from "../components/notifications/notifications";
+import { useSurfaceBlocked } from "../components/ui/modal-state";
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { useSync } from "../store/sync";
 import { workspaceActions } from "../store/workspace";
@@ -59,8 +65,13 @@ export function WorkspaceDialogs({
   readingAnnouncements: boolean;
 }) {
   const needsDataNotice = !readOnly && !settings.dataNoticeAcknowledgedAt;
+  const [dataNoticeAttempt, setDataNoticeAttempt] = useState(0);
   const [needsWelcome, finishWelcome] = useWelcome();
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const offer = useDesktopUpdates(!readOnly, settings.automaticAppUpdates);
+  const blocked = useSurfaceBlocked();
+  const undo = useUndoAvailable();
+  const confirming = useConfirmationPending();
   const [group, setGroup] = useState<ClassGroupChoice>();
   const sources = useSync().sources;
   const kyomu =
@@ -85,16 +96,37 @@ export function WorkspaceDialogs({
     };
   }, [readOnly, kyomu, sources.length]);
 
+  useEffect(() => {
+    if (
+      !needsDataNotice &&
+      needsWelcome &&
+      !welcomeOpen &&
+      !blocked &&
+      !undo &&
+      !confirming
+    ) {
+      setWelcomeOpen(true);
+    }
+  }, [needsDataNotice, needsWelcome, welcomeOpen, blocked, undo, confirming]);
+
   const automatic: NoticeDialog[] = needsDataNotice
     ? [
-        dataNoticeDialog(() =>
-          update((draft) => {
-            draft.settings.dataNoticeAcknowledgedAt = new Date().toISOString();
-            return draft;
-          }),
+        dataNoticeDialog(
+          dataNoticeAttempt,
+          () =>
+            void workspaceActions
+              .updateSettings((draft) => {
+                draft.settings.dataNoticeAcknowledgedAt =
+                  new Date().toISOString();
+                return draft;
+              })
+              .catch((error) => {
+                notify.error(error);
+                setDataNoticeAttempt((attempt) => attempt + 1);
+              }),
         ),
       ]
-    : needsWelcome
+    : needsWelcome || welcomeOpen
       ? []
       : [
           ...(group
@@ -119,14 +151,17 @@ export function WorkspaceDialogs({
 
   return (
     <>
-      {!needsDataNotice && needsWelcome && (
+      {welcomeOpen && (
         <WelcomeSheet
           settings={settings}
           update={update}
           connected={connected}
           openAccounts={openAccounts}
           openAgents={openAgents}
-          close={finishWelcome}
+          close={() => {
+            finishWelcome();
+            setWelcomeOpen(false);
+          }}
         />
       )}
       <ConfirmDialogs

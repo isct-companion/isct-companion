@@ -31,6 +31,8 @@ export type NoticeDialog = {
 const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
   queue: [],
 }));
+export const useConfirmationPending = () =>
+  useConfirmations((state) => state.queue.length > 0);
 
 /** In-app Radix Dialog: only the confirm button resolves true. Never use
  * window.confirm: the native shell replaces it with an asynchronous API. */

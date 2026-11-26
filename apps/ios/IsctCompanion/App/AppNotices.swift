@@ -99,10 +99,16 @@ struct AppNoticeLayer: ViewModifier {
     func body(content: Content) -> some View {
         let showFeedback = interactive && !busy && dialog == nil
         content
-            .sheet(isPresented: $welcome, onDismiss: {
-                welcomed = true
-                Guide.welcomed = true
-            }) { WelcomeSheet(connect: connect) }
+            .sheet(isPresented: Binding(
+                get: { welcome },
+                set: { shown in
+                    if !shown {
+                        welcomed = true
+                        Guide.welcomed = true
+                    }
+                    welcome = shown
+                }
+            )) { WelcomeSheet(connect: connect) }
             .alert(dialog?.title ?? "", isPresented: Binding(
                 get: { dialog != nil },
                 set: { if !$0 { dialog = nil } }
