@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
@@ -6,11 +6,12 @@ import { useTranslation } from "react-i18next";
 import { useSurfaceBlocked } from "./ui/modal-state";
 import { useUndoAvailable } from "./notifications/notifications";
 
-/** One button of a dialog; the last one is the primary action. */
+/** One button of a dialog; the last one is the primary action unless styled. */
 export type Choice<T extends string> = {
   id: T;
   label: string;
   danger?: boolean;
+  variant?: "filled" | "default" | "subtle" | "light";
 };
 type Confirmation = {
   message: string;
@@ -20,17 +21,16 @@ type Confirmation = {
 };
 export type NoticeDialog = {
   id: string;
-  message: string;
+  message: ReactNode;
   title?: string;
   choices: Choice<string>[];
   announcementId?: string;
+  closeOnClickOutside?: boolean;
   onChoice: (choice: string | null) => void;
 };
 const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
   queue: [],
 }));
-export const useConfirmationPending = () =>
-  useConfirmations((state) => state.queue.length > 0);
 
 /** In-app Radix Dialog: only the confirm button resolves true. Never use
  * window.confirm: the native shell replaces it with an asynchronous API. */
@@ -70,9 +70,9 @@ export function chooseAction<T extends string>(
   );
 }
 
-/** User confirmations come first. Automatic offers (updates, announcements) are
- * snapshotted on open so later arrivals never replace them, and an open
- * announcement closes if Core withdraws or expires it. */
+/** User confirmations come first. Automatic offers (data notice, physics group,
+ * updates, announcements) are snapshotted on open so later arrivals never
+ * replace them, and an open announcement closes if Core withdraws or expires it. */
 export function ConfirmDialogs({
   automatic = [],
   activeAnnouncements,
@@ -126,19 +126,26 @@ export function ConfirmDialogs({
     <Modal
       opened
       onClose={() => finish(null)}
+      closeOnClickOutside={open?.closeOnClickOutside}
       title={shown.title}
       withCloseButton={false}
       centered
     >
       <Stack>
-        <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
-          {shown.message}
-        </Text>
+        {typeof shown.message === "string" ? (
+          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+            {shown.message}
+          </Text>
+        ) : (
+          shown.message
+        )}
         <Group justify="flex-end">
           {shown.choices.map((choice, index) => (
             <Button
               key={choice.id}
-              variant={index === last ? undefined : "default"}
+              variant={
+                choice.variant ?? (index === last ? undefined : "default")
+              }
               color={choice.danger ? "red" : undefined}
               onClick={() => finish(choice.id)}
             >

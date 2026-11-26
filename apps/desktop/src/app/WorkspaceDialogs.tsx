@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { DataNotice } from "../components/DataNotice";
+import { dataNoticeDialog } from "../components/DataNotice";
 import { useWelcome, WelcomeSheet } from "../components/guide";
-import {
-  ConfirmDialogs,
-  useConfirmationPending,
-  type NoticeDialog,
-} from "../components/confirm";
-import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
+import { ConfirmDialogs, type NoticeDialog } from "../components/confirm";
+import { classGroupDialog } from "../pages/courses/ClassGroupPicker";
 import { notify } from "../components/notifications/notify";
-import { useUndoAvailable } from "../components/notifications/notifications";
-import { useSurfaceBlocked } from "../components/ui/modal-state";
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { useSync } from "../store/sync";
 import { workspaceActions } from "../store/workspace";
@@ -67,12 +61,7 @@ export function WorkspaceDialogs({
   const needsDataNotice = !readOnly && !settings.dataNoticeAcknowledgedAt;
   const [needsWelcome, finishWelcome] = useWelcome();
   const offer = useDesktopUpdates(!readOnly, settings.automaticAppUpdates);
-  const blocked = useSurfaceBlocked();
-  const undo = useUndoAvailable();
-  const confirming = useConfirmationPending();
   const [group, setGroup] = useState<ClassGroupChoice>();
-  const [showGroup, setShowGroup] = useState(false);
-  const askedSemesters = useRef(new Set<string>());
   const sources = useSync().sources;
   const kyomu =
     sources.find((source) => source.source === "kyomu")?.lastUpdated ?? null;
@@ -88,12 +77,7 @@ export function WorkspaceDialogs({
       today: tokyoDate(new Date(wallNow())),
     })
       .then((choices) => {
-        if (cancelled) return;
-        const next = choices.find(
-          (choice) =>
-            choice.needsChoice && !askedSemesters.current.has(choice.semester),
-        );
-        if (next) setGroup(next);
+        if (!cancelled) setGroup(choices.find((choice) => choice.needsChoice));
       })
       .catch(() => undefined);
     return () => {
@@ -101,47 +85,40 @@ export function WorkspaceDialogs({
     };
   }, [readOnly, kyomu, sources.length]);
 
-  const readyForGroup =
-    Boolean(group) &&
-    !showGroup &&
-    !needsDataNotice &&
-    !needsWelcome &&
-    !blocked &&
-    !undo &&
-    !confirming;
-  useEffect(() => {
-    if (!readyForGroup || !group) return;
-    askedSemesters.current.add(group.semester);
-    setShowGroup(true);
-  }, [readyForGroup, group]);
-
-  const automatic: NoticeDialog[] =
-    needsDataNotice || needsWelcome || group
+  const automatic: NoticeDialog[] = needsDataNotice
+    ? [
+        dataNoticeDialog(() =>
+          update((draft) => {
+            draft.settings.dataNoticeAcknowledgedAt = new Date().toISOString();
+            return draft;
+          }),
+        ),
+      ]
+    : needsWelcome
       ? []
       : [
+          ...(group
+            ? [
+                classGroupDialog(
+                  group,
+                  (value) => {
+                    setGroup(undefined);
+                    void workspaceActions
+                      .setClassGroup(group.semester, value)
+                      .catch(notify.error);
+                  },
+                  () => setGroup(undefined),
+                ),
+              ]
+            : []),
           ...(offer && settings.appUpdateChecks !== false ? [offer] : []),
           ...(readingAnnouncements
             ? []
             : (announcements?.pending ?? []).map(announcementDialog)),
         ];
 
-  const closeGroup = () => {
-    setGroup(undefined);
-    setShowGroup(false);
-  };
   return (
     <>
-      {needsDataNotice && (
-        <DataNotice
-          acknowledge={() =>
-            update((draft) => {
-              draft.settings.dataNoticeAcknowledgedAt =
-                new Date().toISOString();
-              return draft;
-            })
-          }
-        />
-      )}
       {!needsDataNotice && needsWelcome && (
         <WelcomeSheet
           settings={settings}
@@ -150,18 +127,6 @@ export function WorkspaceDialogs({
           openAccounts={openAccounts}
           openAgents={openAgents}
           close={finishWelcome}
-        />
-      )}
-      {group && showGroup && (
-        <ClassGroupPrompt
-          choice={group}
-          later={closeGroup}
-          choose={(value) => {
-            closeGroup();
-            void workspaceActions
-              .setClassGroup(group.semester, value)
-              .catch(notify.error);
-          }}
         />
       )}
       <ConfirmDialogs

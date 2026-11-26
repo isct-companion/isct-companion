@@ -1,18 +1,15 @@
-import { Button, Modal } from "./ui";
+import type { NoticeDialog } from "./confirm";
 import { t } from "../i18n";
 
 const ISSUES_URL = "https://github.com/isct-companion/Isct-Data/issues";
 
 /** Shown once, before the user relies on collected school data. */
-export function DataNotice({ acknowledge }: { acknowledge: () => void }) {
-  return (
-    <Modal
-      opened
-      onClose={acknowledge}
-      closeOnClickOutside={false}
-      title={t("dataNotice.beforeYouRelyOnThis")}
-      centered
-    >
+export function dataNoticeDialog(acknowledge: () => void): NoticeDialog {
+  return {
+    id: "data-notice",
+    title: t("dataNotice.beforeYouRelyOnThis"),
+    closeOnClickOutside: false,
+    message: (
       <div className="dataNotice">
         <p>{t("dataNotice.isctcompanionCollectsCalendarsExamTimetables")}</p>
         <p>{t("dataNotice.muchOfThisDataIs")}</p>
@@ -23,8 +20,9 @@ export function DataNotice({ acknowledge }: { acknowledge: () => void }) {
           </a>
         </p>
         <p>{t("dataNotice.isctcompanionIsNotResponsibleFor")}</p>
-        <Button onClick={acknowledge}>{t("dataNotice.iUnderstand")}</Button>
       </div>
-    </Modal>
-  );
+    ),
+    choices: [{ id: "acknowledge", label: t("dataNotice.iUnderstand") }],
+    onChoice: () => acknowledge(),
+  };
 }

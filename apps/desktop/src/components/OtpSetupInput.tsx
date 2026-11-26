@@ -23,6 +23,7 @@ import {
   type OtpImportAccount,
 } from "../platform/otp-import";
 import { NativeError } from "../platform/native-error";
+import { confirmAction } from "./confirm";
 import { OtpGuideButton } from "./OtpGuide";
 import { SchoolOtpCodeButton } from "./SchoolOtpCode";
 import { QrCamera } from "./QrCamera";
@@ -130,7 +131,6 @@ export function OtpSetupInput({
   const [changing, setChanging] = useState(false);
   const [branch, setBranch] = useState<OtpBranch>("help");
   const [source, setSource] = useState<OtpSource>("export");
-  const [confirm, setConfirm] = useState(false);
   // A newly saved setup closes the chooser again.
   useEffect(() => setChanging(false), [saved]);
   const generation = useRef(0);
@@ -285,10 +285,20 @@ export function OtpSetupInput({
             title={t("otpEnrollment.help")}
             hint={t("otpEnrollment.helpHint")}
           >
+            {/* Asked once, before the school page opens, whatever the school
+                has: Core then replaces an existing setup without asking again. */}
             <Button
               variant="default"
               disabled={busy}
-              onClick={() => setConfirm(true)}
+              onClick={() =>
+                void confirmAction(
+                  t("otpEnrollment.confirm"),
+                  t("otpEnrollment.start"),
+                  { title: t("otpEnrollment.help") },
+                ).then((confirmed) => {
+                  if (confirmed) openSetup();
+                })
+              }
             >
               {t("otpEnrollment.start")}
             </Button>
@@ -441,32 +451,6 @@ export function OtpSetupInput({
           {error}
         </Alert>
       )}
-      {/* Asked once, before the school page opens, whatever the school
-          has: Core then replaces an existing setup without asking again. */}
-      <Modal
-        opened={confirm}
-        onClose={() => setConfirm(false)}
-        title={t("otpEnrollment.help")}
-        centered
-      >
-        <Stack gap="space-5">
-          <Text size="sm">{t("otpEnrollment.confirm")}</Text>
-          <Group justify="end">
-            <Button variant="default" onClick={() => setConfirm(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button
-              color="red"
-              onClick={() => {
-                setConfirm(false);
-                openSetup();
-              }}
-            >
-              {t("otpEnrollment.start")}
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
       {camera && (
         <QrCamera
           onClose={() => setCamera(false)}
