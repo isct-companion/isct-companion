@@ -141,10 +141,12 @@ fun CampusMapScreen(room: String?) {
     val scope = rememberCoroutineScope()
     val reduceMotion = LocalReducedMotion.current
     var load by remember { mutableStateOf<MapLoad>(MapLoad.Loading) }
-    // The map is one of Core's reference files: asked for here, it opens
-    // once the downloaded data lands.
+    // The map is one of Core's reference files: asked for here, the page
+    // looks again each time the data or a sync run changes.
     var downloading by remember { mutableStateOf(false) }
-    LaunchedEffect(model.contentRevision) { if (downloading && load == MapLoad.Missing) load = MapLoad.Loading }
+    LaunchedEffect(model.contentRevision, model.syncSnapshot) {
+        if (downloading && load == MapLoad.Missing) load = MapLoad.Loading
+    }
     // Intents reach Core one after another, in the order sent.
     val intents = remember { Channel<CampusMapIntent>(Channel.UNLIMITED) }
     val search = rememberTextFieldState()
@@ -388,7 +390,7 @@ fun CampusMapScreen(room: String?) {
                     }
                     MapLoad.Missing -> Notice(
                         t("campusMap.unavailable"), t(if (downloading) "common.downloading" else "campusMap.notDownloaded"),
-                        t("campusMap.download").takeIf { !downloading },
+                        t("campusMap.download"),
                     ) {
                         downloading = true
                         model.refresh(SyncScope.References)
