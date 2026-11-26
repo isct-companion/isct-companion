@@ -94,7 +94,7 @@ fun HandInCard(assignment: AssignmentDetail) {
             modifier = Modifier.fillMaxWidth().clickable { documents.launch(arrayOf("*/*")) }.padding(vertical = Theme.space8),
         ) {
             Icon(Icons.Rounded.UploadFile, null, tint = Theme.colors.accent)
-            Text(t("handIn.dropFilesHereOrTap"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
+            Text(t("handIn.tapToChoose"), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
             Text(t("handIn.upTo32Files20"), style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
         }
         TextButton(

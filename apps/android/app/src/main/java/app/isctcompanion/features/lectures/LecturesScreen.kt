@@ -52,7 +52,7 @@ fun LecturesScreen() {
     var lectures by remember { mutableStateOf<LectureList?>(null) }
     val term = model.today?.term
     LaunchedEffect(term, model.contentRevision) { term?.let { lectures = model.lectureList(it) } }
-    TabPage(t("common.courses")) {
+    TabPage(t("common.courses"), onRefresh = { model.refreshFromSchool() }) {
         val courses = lectures?.courses.orEmpty()
         Loading(
             lectures != null,

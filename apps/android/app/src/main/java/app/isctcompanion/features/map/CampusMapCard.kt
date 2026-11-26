@@ -119,14 +119,14 @@ internal fun CardDetails(
 
 /** A state the map cannot be drawn in, with at most one way on. */
 @Composable
-internal fun Notice(title: String, detail: String, retry: (() -> Unit)? = null) {
+internal fun Notice(title: String, detail: String, actionLabel: String? = null, action: () -> Unit = {}) {
     Column(
         Modifier.padding(start = Theme.cardPadding, end = Theme.cardPadding, bottom = Theme.cardPadding),
         verticalArrangement = Arrangement.spacedBy(Theme.space3),
     ) {
         Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
         Text(detail, style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
-        if (retry != null) ActionButton(t("common.retry"), onClick = retry, level = ButtonLevel.Secondary)
+        if (actionLabel != null) ActionButton(actionLabel, onClick = action, level = ButtonLevel.Secondary)
     }
 }
 

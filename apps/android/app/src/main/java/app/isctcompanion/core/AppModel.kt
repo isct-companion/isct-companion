@@ -135,36 +135,18 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
 
     // Lifecycle
 
-    /** Opens the session once for the activity, background work or printing.
+    /** Whether the session was opened running rather than suspended. */
+    private var openedInFront = false
+
+    /** Opens the session once for the activity, background work or printing,
+     * and again after a failed start (the Retry of the failure screen).
      * Other system entry points can run without loading the SDK. */
     suspend fun start() = opening.withLock {
-        if (session != null) return@withLock
+        if (status == Status.Ready) return@withLock
+        status = Status.Opening
         try {
-            TlsVerifier.install(context)
-            val data = File(context.filesDir, "core").apply { mkdirs() }
-            val files = File(context.filesDir, "files").apply { mkdirs() }
-            // Google Drive is Android's provider; Core reads whether it was
-            // connected and owns every Drive request.
-            val inFront = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
-            val config = SessionConfig(
-                dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
-                appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
-                initialNetwork = SyncNetwork.UNKNOWN, startSuspended = !inFront, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
-                authorizedCloudProviders = emptyList(),
-            )
-            val session = Session.open(
-                config, KeystoreVault(context), browser, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
-            )
-            session.attachWidgets(WidgetStorage(context))
-            val model = java.lang.ref.WeakReference(this)
-            session.attachReminderPort(NotificationScheduler(context) { needed ->
-                model.get()?.notificationsBlocked = needed
-            })
-            this.session = session
-            val stream = session.subscribe()
-            scope.launch { listen(stream) }
-            // The web screen reads page snapshots only once events stream.
-            web.session = session
+            // A retry after a failure past this point keeps the open session.
+            val session = session ?: openSession()
             refresh()
             refreshAccounts()
             readSync()
@@ -176,14 +158,46 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             val foreground = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
             hint(if (foreground) Hint.Foreground else Hint.Background)
             runCatching { session.wakeDirective() }.onSuccess(::applyDirective)
-            if (foreground && !inFront) runCatching { session.resume() }
-            if (!foreground && inFront) runCatching { session.suspend() }
+            if (foreground && !openedInFront) runCatching { session.resume() }
+            if (!foreground && openedInFront) runCatching { session.suspend() }
             // The launch's first foreground came before the session opened, so
             // its update check never ran.
             if (foreground) scope.launch { updater.check(session, launch = true) }
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
+    }
+
+    /** Opens Core's session and starts listening to it; [start] runs the
+     * reads that follow. */
+    private suspend fun openSession(): Session {
+        TlsVerifier.install(context)
+        val data = File(context.filesDir, "core").apply { mkdirs() }
+        val files = File(context.filesDir, "files").apply { mkdirs() }
+        // Google Drive is Android's provider; Core reads whether it was
+        // connected and owns every Drive request.
+        val inFront = ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        openedInFront = inFront
+        val config = SessionConfig(
+            dataDirectory = data.absolutePath, filesDirectory = files.absolutePath,
+            appVersion = context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty(),
+            initialNetwork = SyncNetwork.UNKNOWN, startSuspended = !inFront, cloudProviders = listOf(CloudProvider.GOOGLE_DRIVE),
+            authorizedCloudProviders = emptyList(),
+        )
+        val session = Session.open(
+            config, KeystoreVault(context), browser, null, WebCookieSeed(), null, null, ExamBrowserOpener(context), drive,
+        )
+        session.attachWidgets(WidgetStorage(context))
+        val model = java.lang.ref.WeakReference(this)
+        session.attachReminderPort(NotificationScheduler(context) { needed ->
+            model.get()?.notificationsBlocked = needed
+        })
+        this.session = session
+        val stream = session.subscribe()
+        scope.launch { listen(stream) }
+        // The web screen reads page snapshots only once events stream.
+        web.session = session
+        return session
     }
 
     suspend fun widgetRoute(url: String): WidgetRoute? {

@@ -1,7 +1,6 @@
 package app.isctcompanion.features.settings
 
 import android.text.format.Formatter
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,6 +40,7 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import kotlinx.coroutines.launch
 
@@ -108,7 +108,7 @@ internal fun ResetPage(kind: ResetKind, onBusy: (Boolean) -> Unit, done: () -> U
         } catch (error: Exception) {
             AppModel.describe(error).ifEmpty { t("settings.reset.failed") }.also { resetting = false }
         }
-        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        Notices.show(message)
         if (resetting) done()
     }
 

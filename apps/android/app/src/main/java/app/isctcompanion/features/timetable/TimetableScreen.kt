@@ -34,7 +34,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -77,6 +81,7 @@ import app.isctcompanion.design.ActionButton
 import app.isctcompanion.design.ButtonLevel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
+import app.isctcompanion.design.RefreshBox
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseMix
@@ -181,6 +186,7 @@ fun TimetableScreen() {
     // The shown week's quarter, or this quarter between quarters.
     val term = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }?.term ?: week?.term ?: model.today?.term
 
+    RefreshBox({ model.refreshFromSchool() }) {
     Column(
         Modifier
             .fillMaxSize()
@@ -193,8 +199,13 @@ fun TimetableScreen() {
             .padding(bottom = Theme.space4),
         verticalArrangement = Arrangement.spacedBy(Theme.space6),
     ) {
-        Header(monday, chip(year, monday), term, openPicker = { picker = true }) { go(thisWeek(), slow = false) }
-        GuideTip("timetable-marks", "guide.swipeToChangeWeeks", "timetable.longPressAClassTo")
+        Header(
+            monday, chip(year, monday), term, openPicker = { picker = true },
+            step = { weeks -> go(monday.plusWeeks(weeks), slow = false) },
+        ) { go(thisWeek(), slow = false) }
+        // One line, so the grid keeps its height; the week buttons above say
+        // how to change weeks.
+        GuideTip("timetable-marks", "timetable.longPressAClassTo")
         // Period rows share the height the screen leaves, so the week fits
         // without scrolling; past the floor (a tablet on its side, split
         // screen) the grid scrolls instead of cutting off the last periods.
@@ -252,6 +263,7 @@ fun TimetableScreen() {
             }
         }
     }
+    }
     if (picker) {
         WeekPicker(year, monday, dismiss = { picker = false }) { picked ->
             picker = false
@@ -264,9 +276,12 @@ private val Occurrence.isBlock: Boolean
     get() = kind == OccurrenceKind.COURSE || kind == OccurrenceKind.EXAM
 
 /** The week chip on its own row, free to take the full width; below it the
- * date range, the quarter export and 今日. Weeks change by swiping the grid. */
+ * date range between the previous and next week buttons, the quarter export
+ * and 今日. Swiping the grid also changes weeks. */
 @Composable
-private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, toToday: () -> Unit) {
+private fun Header(
+    monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, step: (Long) -> Unit, toToday: () -> Unit,
+) {
     Column(Modifier.padding(top = Theme.space6, start = Theme.space2, end = Theme.space2), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
         // The way into the week picker, a secondary button.
         ActionButton(
@@ -276,6 +291,9 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
         )
         Row(verticalAlignment = Alignment.CenterVertically) {
             val friday = monday.plusDays(4)
+            IconButton(onClick = { step(-1) }) {
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("today.previousWeek"), tint = Theme.colors.accent)
+            }
             Box(Modifier.weight(1f)) {
                 CountingText(
                     "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}",
@@ -283,6 +301,9 @@ private fun Header(monday: LocalDate, chip: String, term: String?, openPicker: (
                     style = MaterialTheme.typography.headlineLarge.tabular(), fontWeight = FontWeight.Bold,
                     color = Theme.colors.ink, countsDown = false,
                 )
+            }
+            IconButton(onClick = { step(1) }) {
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("today.nextWeek"), tint = Theme.colors.accent)
             }
             term?.let { ExportButton(it) }
             // 今日 rests while this week is shown, which doubles as "you are here".

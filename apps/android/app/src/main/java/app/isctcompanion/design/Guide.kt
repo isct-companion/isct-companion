@@ -5,9 +5,14 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * First-run guidance, as desktop's `components/guide.tsx`: one welcome sheet,
@@ -63,10 +69,31 @@ object Guide {
 }
 
 /** Shows `title` (and `text`, if any) once, after the welcome sheet is done, until
- * "Got it". Strings are iOS `Design/Guide.swift`'s, so all shells share them. */
+ * "Got it". Strings are iOS `Design/Guide.swift`'s, so all shells share them.
+ * A tip with no `text` is one line with a close button, for a page whose
+ * content needs the height (the timetable). */
 @Composable
 fun GuideTip(id: String, title: String, text: String? = null, modifier: Modifier = Modifier) {
     if (!Guide.shows(id)) return
+    if (text == null) {
+        Row(
+            modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(Theme.radiusSurface))
+                .background(Theme.colors.surface)
+                .padding(start = Theme.space8),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                t(title), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.ink,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = { Guide.dismiss(id) }) {
+                Icon(Icons.Rounded.Close, t("common.close"), tint = Theme.colors.muted)
+            }
+        }
+        return
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -76,7 +103,7 @@ fun GuideTip(id: String, title: String, text: String? = null, modifier: Modifier
         verticalArrangement = Arrangement.spacedBy(Theme.space1),
     ) {
         Text(t(title), fontWeight = FontWeight.SemiBold, color = Theme.colors.ink)
-        text?.let { Text(t(it), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted) }
+        Text(t(text), style = MaterialTheme.typography.bodyMedium, color = Theme.colors.muted)
         TextButton(onClick = { Guide.dismiss(id) }, modifier = Modifier.align(Alignment.End)) { Text(t("guide.gotIt")) }
     }
 }

@@ -6,7 +6,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -93,5 +92,5 @@ class SchoolDownloads(private val context: Context) {
         }
     }
 
-    private fun notice(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+    private fun notice(text: String) = app.isctcompanion.design.Notices.show(text)
 }

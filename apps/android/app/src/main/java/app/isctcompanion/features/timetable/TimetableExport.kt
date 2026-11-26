@@ -2,13 +2,12 @@ package app.isctcompanion.features.timetable
 
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.EditCalendar
-import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -29,6 +28,7 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CalendarExportScope
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -46,11 +46,11 @@ internal fun ExportButton(term: String) {
     fun export(scope0: CalendarExportScope) = scope.launch {
         menu = false
         runCatching { share(context, term, scope0, model.quarterIcs(term, scope0)) }.onFailure {
-            Toast.makeText(context, t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)), Toast.LENGTH_LONG).show()
+            Notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)))
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("common.exportICS"), tint = Theme.colors.accent) }
+        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Share, t("common.exportICS"), tint = Theme.colors.accent) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
                 t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
