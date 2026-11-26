@@ -101,6 +101,7 @@ import app.isctcompanion.design.LocalDestinationScope
 import app.isctcompanion.design.LocalSharedTransition
 import app.isctcompanion.design.courseZoomDestination
 import app.isctcompanion.design.Localizer
+import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import app.isctcompanion.design.Theme
 import app.isctcompanion.features.assignments.AssignmentListScreen
@@ -431,6 +432,9 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
         } else {
             navigator.openTab(tab.route)
         }
+    }
+    LaunchedEffect(Unit) {
+        Notices.messages.collect { snackbar.showSnackbar(it, withDismissAction = true) }
     }
     // Hiding offers its undo in the platform snackbar, above the navigation bar.
     LaunchedEffect(model.undo) {

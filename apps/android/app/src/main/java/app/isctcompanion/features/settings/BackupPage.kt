@@ -1,6 +1,5 @@
 package app.isctcompanion.features.settings
 
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +36,7 @@ import app.isctcompanion.design.Format
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +57,7 @@ internal fun BackupPage() {
     var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
     val state = model.backup.state
     val locked = busy || state?.syncing == true
-    fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    fun toast(message: String) = Notices.show(message)
     fun run(work: suspend () -> Unit) {
         scope.launch {
             busy = true

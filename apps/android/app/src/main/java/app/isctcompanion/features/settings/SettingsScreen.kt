@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
+import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -28,7 +29,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -323,7 +323,7 @@ private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVecto
 private fun LogsRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    fun fail(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    fun fail(message: String) = Notices.show(message)
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {

@@ -79,7 +79,7 @@ import org.json.JSONObject
 /** A source as Core names it in `SourceView.source`. */
 fun sourceName(source: String): String = when (source) {
     "lms" -> "LMS"
-    "kyomu" -> "教務Web"
+    "kyomu" -> t("syncStatus.source.kyomu")
     "references" -> t("syncStatus.dataset.referenceData")
     "catalog" -> t("syncStatus.dataset.courseCatalog")
     else -> source

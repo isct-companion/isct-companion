@@ -83,15 +83,18 @@ import kotlinx.coroutines.launch
  * timeline (`AssignmentBoard.today`), as items of 今日's list. Swipe right
  * pins, swipe left hides; every assignment, submitted and hidden included,
  * sits behind すべて. */
-fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, openRecord: () -> Unit) {
+fun LazyListScope.todayAssignments(board: AssignmentBoard?, now: Instant, titled: Boolean = true, openRecord: () -> Unit) {
     board ?: return
     item(key = "assignments-header") {
         Row(
             verticalAlignment = Alignment.Bottom,
             horizontalArrangement = Arrangement.spacedBy(Theme.space4),
-            modifier = Modifier.fillMaxWidth().padding(top = Theme.space9, start = Theme.space2),
+            modifier = Modifier.fillMaxWidth().padding(top = if (titled) Theme.space9 else 0.dp, start = Theme.space2),
         ) {
-            Text(t("common.assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+            // On its own page the top bar already names the list.
+            if (titled) {
+                Text(t("common.assignments"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Theme.colors.ink)
+            }
             Text(
                 t("assignments.quarterUnsubmittedOnly", "quarter" to Format.quarter(board.term)),
                 style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted,
@@ -244,16 +247,13 @@ fun AssignmentListScreen() {
     val navigator = LocalNavigator.current
     val now = rememberNow(60)
     LaunchedEffect(Unit) { model.open(SyncView.Assignments) }
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        TopAppBar(
-            title = { Text(t("widget.assignments")) },
-            navigationIcon = {
-                BackButton { navigator.back() }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
-        )
+    TabPage(
+        t("widget.assignments"),
+        navigationIcon = { BackButton { navigator.back() } },
+        onRefresh = { model.refreshFromSchool() },
+    ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
-            todayAssignments(model.board, now, navigator::openRecord)
+            todayAssignments(model.board, now, titled = false, openRecord = navigator::openRecord)
         }
     }
 }
@@ -269,14 +269,11 @@ fun RecordScreen() {
     var unfolded by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { model.open(SyncView.Assignments) }
     val record = model.board?.record
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg)) {
-        TopAppBar(
-            title = { Text(t("common.allAssignments")) },
-            navigationIcon = {
-                BackButton { navigator.back() }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = Theme.colors.bg),
-        )
+    TabPage(
+        t("common.allAssignments"),
+        navigationIcon = { BackButton { navigator.back() } },
+        onRefresh = { model.refreshFromSchool() },
+    ) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = Theme.gutter, end = Theme.gutter, bottom = Theme.space10)) {
             if (record != null) {
                 group(t("common.pinned"), record.pinned, now)
