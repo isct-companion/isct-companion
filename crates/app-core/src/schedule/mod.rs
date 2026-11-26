@@ -60,6 +60,8 @@ pub(crate) use course_detail::files_of;
 pub use course_detail::{
     assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
 };
+pub(crate) use course_scope::placement_terms;
+pub use course_scope::{course_terms, term_courses};
 pub use credits::declared_term_credits;
 pub use exam_courses::{ExamCourse, ExamCourseList};
 pub(crate) use exams::{
@@ -71,13 +73,11 @@ pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
 pub use lecture_list::{LectureCourse, LectureExamGroups, LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
-pub(crate) use course_scope::placement_terms;
-pub use course_scope::{course_terms, term_courses};
 pub use occurrence::{
-    course_timeline, intensive_days, planning_week, resolve_day_agenda,
-    schedule_problems, scheduled_courses, validate_academic_profile, AgendaOptions,
-    CourseConflict, CourseTimeline, EventCarryOver, GridSlot, Occurrence, OccurrenceKind,
-    PlanningDay, PlanningWeek, ScheduleProblem, ScheduleProblemKind, SessionMark,
+    course_timeline, intensive_days, planning_week, resolve_day_agenda, schedule_problems,
+    scheduled_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
+    EventCarryOver, GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek,
+    ScheduleProblem, ScheduleProblemKind, SessionMark,
 };
 pub use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
@@ -149,6 +149,7 @@ pub struct AgendaRequestOptions {
     rename_all_fields = "camelCase"
 )]
 pub enum WorkspaceQuery {
+    Announcements,
     TeachingPeriods,
     /// The equal-row axis timetables place times on, widened to the week's
     /// earliest start and latest end when those leave the teaching day.
@@ -303,6 +304,7 @@ pub enum WorkspaceQuery {
     },
 }
 
+use crate::announcements::AnnouncementsView;
 use crate::workspace_changes::WorkspaceChange::{self, *};
 
 /// Dated agendas: courses and everything else placed on a day.
@@ -408,6 +410,7 @@ impl WorkspaceQuery {
                 Settings,
             ],
             Self::DeadlineDisplay { .. } => &[],
+            Self::Announcements => &[Announcements, Settings],
             Self::AssignmentDetail { .. } => &[
                 Courses,
                 Registrations,
@@ -502,7 +505,9 @@ pub struct ScheduleView {
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CourseTimetableControl {
-    Manual { visible: bool },
+    Manual {
+        visible: bool,
+    },
     Lms {
         visible: bool,
         #[serde(rename = "canRestore")]
@@ -566,6 +571,7 @@ pub enum WorkspaceQueryResult {
     TaskView(TaskView),
     DeadlineDisplay(TaskDeadlineView),
     Today(TodayView),
+    Announcements(AnnouncementsView),
     UpcomingExams(Vec<ExamView>),
     CalendarRange(Vec<DatedAgenda>),
     AssignmentBoard(AssignmentBoard),
@@ -678,6 +684,14 @@ pub fn query(
                 years,
             }))
         }
+        WorkspaceQuery::Announcements => Ok(WorkspaceQueryResult::Announcements(
+            crate::announcements::view(
+                &school.announcements,
+                workspace,
+                &school.answered_announcements,
+                crate::clock::now(),
+            ),
+        )),
         WorkspaceQuery::Today { now } => Ok(WorkspaceQueryResult::Today(today_view(
             workspace,
             school,
@@ -917,7 +931,11 @@ fn workspace_terms(
     } else {
         current
     };
-    let shown = if requested.is_empty() { planning } else { requested };
+    let shown = if requested.is_empty() {
+        planning
+    } else {
+        requested
+    };
     Ok(WorkspaceTerms {
         current: current_term,
         selected: selected.into(),
@@ -1148,6 +1166,10 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         RecentItem::decl(cfg),
         RecentKind::decl(cfg),
         TodayView::decl(cfg),
+        crate::announcements::AnnouncementLevel::decl(cfg),
+        crate::announcements::AnnouncementLink::decl(cfg),
+        crate::announcements::AnnouncementView::decl(cfg),
+        crate::announcements::AnnouncementsView::decl(cfg),
         DeadlineGroups::decl(cfg),
         AssignmentBoard::decl(cfg),
         AcademicYearIndex::decl(cfg),

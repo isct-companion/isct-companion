@@ -9,16 +9,14 @@ final class CloudBackup {
     private(set) var state: SyncState?
     private let session: @MainActor () -> Session?
     private let refreshWorkspace: @MainActor () async -> Void
-    private let reportFailure: @MainActor (Error) -> Void
+    private(set) var failure: String?
 
     init(
         session: @escaping @MainActor () -> Session?,
-        refreshWorkspace: @escaping @MainActor () async -> Void,
-        reportFailure: @escaping @MainActor (Error) -> Void
+        refreshWorkspace: @escaping @MainActor () async -> Void
     ) {
         self.session = session
         self.refreshWorkspace = refreshWorkspace
-        self.reportFailure = reportFailure
     }
 
     func refresh() async {
@@ -44,19 +42,22 @@ final class CloudBackup {
     }
 
     /// Restores a cloud version or a local recovery file, on every connected device.
-    func restore(_ id: String) async {
-        await cloudOperation { try $0.restoreCloud(id: id) }
+    func restore(_ id: String) async throws {
+        guard let session = session() else { throw SdkError.Closed }
+        _ = try await session.restoreCloud(id: id).value()
+        await refresh()
         await refreshWorkspace()
     }
 
     /// The current workspace as a backup file (the desktop's Export…).
     func export() async -> String? {
         guard let session = session() else { return nil }
+        failure = nil
         do {
             guard case let .text(value) = try await session.exportBackup().value() else { return nil }
             return value
         } catch {
-            reportFailure(error)
+            failure = AppModel.describe(error)
             return nil
         }
     }
@@ -73,12 +74,13 @@ final class CloudBackup {
 
     private func cloudOperation(_ start: (Session) throws -> IsctCore.Operation) async {
         guard let session = session() else { return }
+        failure = nil
         do {
             if case let .cloud(snapshot) = try await start(session).value() {
                 state = snapshot
             }
         } catch {
-            reportFailure(error)
+            failure = AppModel.describe(error)
             await refresh()
         }
     }

@@ -30,10 +30,13 @@ pub enum Dataset {
     CatalogOfficial,
     /// One Isct-Data file. Key: `{kind}/{year}`.
     Reference,
+    /// The in-app announcements file Isct-Data serves outside its index.
+    /// Key: its format (`v1`).
+    Announcements,
 }
 
 impl Dataset {
-    pub const ALL: [Dataset; 8] = [
+    pub const ALL: [Dataset; 9] = [
         Self::LmsEnrolment,
         Self::LmsDeadlines,
         Self::LmsCourse,
@@ -42,6 +45,7 @@ impl Dataset {
         Self::KyomuPage,
         Self::CatalogOfficial,
         Self::Reference,
+        Self::Announcements,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -54,6 +58,7 @@ impl Dataset {
             Self::KyomuPage => "kyomu.page",
             Self::CatalogOfficial => "catalog.official",
             Self::Reference => "reference",
+            Self::Announcements => "announcements",
         }
     }
 
@@ -90,6 +95,9 @@ pub fn ttl(dataset: Dataset, term: Term) -> Option<Duration> {
         (Dataset::LmsHistory, _) => DAY,
         (Dataset::KyomuPage | Dataset::CatalogOfficial, _) => 7 * DAY,
         (Dataset::Reference, _) => DAY,
+        // Checked while the app is in the foreground only
+        // (`plan::planner::automatic_keys`).
+        (Dataset::Announcements, _) => 55 * 60,
     };
     Some(Duration::seconds(seconds))
 }

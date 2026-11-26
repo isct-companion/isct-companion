@@ -867,6 +867,19 @@ impl crate::school_webkit::Host for WebKitHost {
         })
     }
 
+    fn dialog_opened(&self) -> Box<dyn Fn()> {
+        use tauri::Emitter;
+        let app = self.native.upgrade().and_then(|native| native.app().ok());
+        if let Some(app) = &app {
+            let _ = app.emit_to("main", "school-native-modal", true);
+        }
+        Box::new(move || {
+            if let Some(app) = &app {
+                let _ = app.emit_to("main", "school-native-modal", false);
+            }
+        })
+    }
+
     fn navigation(
         &self,
         view: BrowserId,

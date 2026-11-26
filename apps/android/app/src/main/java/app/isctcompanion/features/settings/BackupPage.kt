@@ -1,6 +1,5 @@
 package app.isctcompanion.features.settings
 
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -34,6 +32,7 @@ import app.isctcompanion.core.Direction
 import app.isctcompanion.core.ProviderState
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
+import app.isctcompanion.design.NoticeBanner
 import app.isctcompanion.design.RowDivider
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
@@ -54,12 +53,12 @@ internal fun BackupPage() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
-    var confirm by remember { mutableStateOf<Pair<String, suspend () -> Unit>?>(null) }
+    var failure by remember { mutableStateOf<String?>(null) }
     val state = model.backup.state
     val locked = busy || state?.syncing == true
-    fun toast(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
     fun run(work: suspend () -> Unit) {
         scope.launch {
+            failure = null
             busy = true
             try { work() } finally { busy = false }
         }
@@ -75,24 +74,27 @@ internal fun BackupPage() {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
                     stream.use { it.write(text.toByteArray()) }
                 }
-            }.onFailure { toast(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
+            }.onFailure { failure = t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)) }
         }
     }
     val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        confirm = t("settings.backup.restoreThisFileOnAll") to {
-            runCatching {
-                val text = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(uri)?.use { String(it.readBytes()) }
-                        ?: throw IOException("No input stream")
-                }
-                model.backup.importBackup(text)
-            }.onSuccess { toast(t("settings.backup.backupRestored")) }
-                .onFailure { toast(t("settings.backup.importFailedReason", "reason" to AppModel.describe(it))) }
+        model.notices.confirm(t("settings.backup.restoreThisFileOnAll"), t("common.restore"), destructive = true) {
+            run {
+                runCatching {
+                    val text = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { String(it.readBytes()) }
+                            ?: throw IOException("No input stream")
+                    }
+                    model.backup.importBackup(text)
+                }.onSuccess { model.notices.show(t("settings.backup.backupRestored")) }
+                    .onFailure { failure = t("settings.backup.importFailedReason", "reason" to AppModel.describe(it)) }
+            }
         }
     }
 
     Page {
+        (failure ?: model.backup.failure)?.let { NoticeBanner(Theme.colors.dangerSoft) { Text(it, color = Theme.colors.danger) } }
         SectionLabel(t("settings.backup.sync"))
         Card {
             val providers = state?.providers.orEmpty()
@@ -141,7 +143,7 @@ internal fun BackupPage() {
         // encrypted file (Android has no iCloud Keychain).
         if (state?.providers.orEmpty().any { it.provider == CloudProvider.GOOGLE_DRIVE && it.enabled }) {
             Spacer(Modifier.height(Theme.space4))
-            BackupCredentials(::toast)
+            BackupCredentials { failure = it }
         }
         val versions = state?.versions.orEmpty().sortedByDescending { it.savedAt }
         if (versions.isNotEmpty()) {
@@ -151,12 +153,16 @@ internal fun BackupPage() {
                 versions.forEachIndexed { index, version ->
                     if (index > 0) RowDivider(inset = Theme.rowX)
                     RestoreRow(Format.due(version.savedAt), version.device, !locked) {
-                        confirm = t(
-                            "settings.backup.restoreTheVersionFromDate",
-                            "date" to Format.due(version.savedAt),
-                        ) to {
-                            model.backup.restore(version.id)
-                            toast(t("settings.backup.restoredTheEarlierVersion"))
+                        model.notices.confirm(
+                            t("settings.backup.restoreTheVersionFromDate", "date" to Format.due(version.savedAt)),
+                            t("common.restore"),
+                            destructive = true,
+                        ) {
+                            run {
+                                runCatching { model.backup.restore(version.id) }
+                                    .onSuccess { model.notices.show(t("settings.backup.restoredTheEarlierVersion")) }
+                                    .onFailure { failure = AppModel.describe(it) }
+                            }
                         }
                     }
                 }
@@ -172,19 +178,7 @@ internal fun BackupPage() {
         }
     }
 
-    confirm?.let { (message, action) ->
-        AlertDialog(
-            onDismissRequest = { confirm = null },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirm = null
-                    run { action() }
-                }) { Text(t("common.restore"), color = Theme.colors.danger) }
-            },
-            dismissButton = { TextButton(onClick = { confirm = null }) { Text(t("common.cancel")) } },
-        )
-    }
+
 }
 
 internal fun providerName(provider: CloudProvider) = when (provider) {

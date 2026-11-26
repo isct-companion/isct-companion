@@ -11,10 +11,9 @@ import UniformTypeIdentifiers
 struct BackupScreen: View {
     @Environment(AppModel.self) private var model
     @State private var busy = false
-    @State private var confirm: Confirmation?
     @State private var exporting: ExportFile?
     @State private var importing = false
-    @State private var notice: String?
+    @State private var failure: String?
 
     private var state: SyncState? { model.backup.state }
     private var providers: [ProviderState] { state?.providers ?? [] }
@@ -23,6 +22,9 @@ struct BackupScreen: View {
     var body: some View {
         Form {
             Group {
+                if let message = failure ?? model.backup.failure {
+                    ProblemBanner(text: message)
+                }
                 syncSection
                 if let versions = state?.versions, !versions.isEmpty {
                     Section {
@@ -51,25 +53,18 @@ struct BackupScreen: View {
         .navigationBarTitleDisplayMode(.inline)
         .disabled(busy)
         .task { await model.backup.refresh() }
-        .confirmationDialog(
-            confirm?.message ?? "", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }),
-            titleVisibility: .visible, presenting: confirm
-        ) { confirmation in
-            Button(t("common.restore"), role: .destructive) { Task { await confirmation.action() } }
-        }
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),
             document: exporting, contentType: .json, defaultFilename: "IsctCompanion.json"
         ) { _ in exporting = nil }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case let .success(url) = result else { return }
-            confirm = Confirmation(
-                message: t("settings.backup.restoreThisFileOnAll")
-            ) { await importFile(url) }
+            model.notices.confirm(title: t("settings.backup.restoreThisFileOnAll"),
+                                  action: t("common.restore"), destructive: true) {
+                Task { await importFile(url) }
+            }
         }
-        .alert(notice ?? "", isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("OK", role: .cancel) {}
-        }
+        .appNoticeFlow(busy || importing || exporting != nil)
     }
 
     @ViewBuilder private var syncSection: some View {
@@ -149,12 +144,16 @@ struct BackupScreen: View {
             }
             Spacer()
             Button(t("common.restore")) {
-                confirm = Confirmation(message: t(
-                    "settings.backup.restoreTheVersionFromDate",
-                    ["date": Format.due(savedAt)])
+                model.notices.confirm(
+                    title: t("settings.backup.restoreTheVersionFromDate", ["date": Format.due(savedAt)]),
+                    action: t("common.restore"), destructive: true
                 ) {
-                    await model.backup.restore(id)
-                    notice = t("settings.backup.restoredTheEarlierVersion")
+                    run {
+                        do {
+                            try await model.backup.restore(id)
+                            model.notices.show(t("settings.backup.restoredTheEarlierVersion"))
+                        } catch { failure = AppModel.describe(error) }
+                    }
                 }
             }
             .buttonStyle(.borderless)
@@ -165,6 +164,7 @@ struct BackupScreen: View {
 
     private func run(_ work: @escaping () async -> Void) {
         Task {
+            failure = nil
             busy = true
             await work()
             busy = false
@@ -177,22 +177,18 @@ struct BackupScreen: View {
     }
 
     private func importFile(_ url: URL) async {
+        failure = nil
         busy = true
         defer { busy = false }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
             try await model.backup.importBackup(try Data(contentsOf: url))
-            notice = t("settings.backup.backupRestored")
+            model.notices.show(t("settings.backup.backupRestored"))
         } catch {
-            notice = t("settings.backup.importFailedReason", ["reason": AppModel.describe(error)])
+            failure = t("settings.backup.importFailedReason", ["reason": AppModel.describe(error)])
         }
     }
-}
-
-private struct Confirmation {
-    let message: String
-    let action: () async -> Void
 }
 
 /// An exported file (workspace backup, application logs), handed to the

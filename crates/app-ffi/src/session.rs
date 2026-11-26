@@ -847,6 +847,7 @@ async fn initialize(
     .await
     .map_err(app_core::runtime_tasks::RuntimeTaskError::from)??;
     let events = Events::new();
+    app_core::announcements::set_app_version(&config.app_version);
     let core = Arc::new(Core::with_events(store, auth, events.clone()));
     #[cfg(not(feature = "demo"))]
     core.open_exam_share(exam_vault, exam_sign_in, config.app_version.clone());

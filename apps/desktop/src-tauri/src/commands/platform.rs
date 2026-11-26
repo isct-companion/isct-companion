@@ -67,10 +67,16 @@ pub(crate) async fn check_app_update(
     app: tauri::AppHandle,
     manual: bool,
     download: bool,
+    version: Option<String>,
 ) -> Result<crate::desktop_updates::UpdateStatus, CommandError> {
     crate::require_local_main(&webview)?;
     Ok(crate::core_ports::runtime(&app)
-        .run(crate::desktop_updates::check(app.clone(), manual, download))
+        .run(crate::desktop_updates::check(
+            app.clone(),
+            manual,
+            download,
+            version,
+        ))
         .await
         .map_err(coded)??)
 }
@@ -86,9 +92,13 @@ pub(crate) fn app_update_state(
 pub(crate) fn install_app_update(
     webview: tauri::Webview,
     app: tauri::AppHandle,
+    version: Option<String>,
 ) -> Result<(), CommandError> {
     crate::require_local_main(&webview)?;
-    Ok(crate::desktop_updates::request_install(&app)?)
+    Ok(crate::desktop_updates::request_install(
+        &app,
+        version.as_deref(),
+    )?)
 }
 
 #[tauri::command]

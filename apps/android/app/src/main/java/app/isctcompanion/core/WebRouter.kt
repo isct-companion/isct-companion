@@ -21,7 +21,7 @@ import org.json.JSONObject
  * (`schoolBrowsing`), which publishes that site's page. What the screen says
  * about the page (address, popups, Back and Forward, a failed load) is Core's
  * `SchoolWebPage`, never read from the views. */
-class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context) {
+class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScope, context: Context, feedback: (String) -> Unit) {
     /** The site the ウェブ tab opens on at launch, kept on this device (設定 › ウェブ). */
     private val preferences = context.getSharedPreferences("web", Context.MODE_PRIVATE)
     var firstSite: SchoolSite by mutableStateOf(
@@ -56,7 +56,7 @@ class WebRouter(val browser: SchoolBrowserHost, private val scope: CoroutineScop
     var session: Session? = null
     private val opened = mutableSetOf<SchoolSite>()
 
-    private val downloads = SchoolDownloads(context)
+    private val downloads = SchoolDownloads(context, feedback)
 
     /** A file a school page handed over that the app shows itself; the
      * screen on top opens it and clears this. */

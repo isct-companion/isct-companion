@@ -6,7 +6,6 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -22,7 +21,7 @@ import java.io.File
  * Android kills the app mid-download, the file is lost and the person taps
  * the link again. Accepted so that no third network stack reaches the school
  * hosts. */
-class SchoolDownloads(private val context: Context) {
+class SchoolDownloads(private val context: Context, private val feedback: (String) -> Unit) {
     /** Core's staging folder; whatever it holds is moved out at once. */
     private val staging = File(context.cacheDir, "school-downloads")
     /** The last school file opened in the app's viewer. */
@@ -37,12 +36,11 @@ class SchoolDownloads(private val context: Context) {
         openExternal: (Uri) -> Unit,
         openInApp: (File, String, Viewer) -> Unit,
     ) {
-        notice(t("common.downloading"))
         val file = try {
             val result = session.saveSchoolFile(url, referer, contentDisposition, mimeType, staging.absolutePath).value()
             (result as? OperationResult.SchoolFile)?.file
         } catch (failure: SdkException.Authentication) {
-            return notice(t("failure.signInToYourSchool"))
+            return feedback(t("failure.signInToYourSchool"))
         } catch (failure: SdkException) {
             null
         }
@@ -53,11 +51,11 @@ class SchoolDownloads(private val context: Context) {
                 // from a copy of its own, as a browser opens what it saved.
                 val shown = if (showsInApp(file.viewer)) withContext(Dispatchers.IO) { keepForViewing(staged, file.name) } else null
                 val saved = withContext(Dispatchers.IO) { publish(staged, file.name, file.mimeType) }
-                notice(if (saved) t("app.savedName", "name" to file.name) else t("lmsFile.theFileCouldNotBeDownloaded"))
+                feedback(if (saved) t("app.savedName", "name" to file.name) else t("lmsFile.theFileCouldNotBeDownloaded"))
                 shown?.let { openInApp(it, file.name, file.viewer) }
             }
             is SchoolFile.External -> openExternal(Uri.parse(file.url))
-            null -> notice(t("lmsFile.theFileCouldNotBeDownloaded"))
+            null -> feedback(t("lmsFile.theFileCouldNotBeDownloaded"))
         }
     }
 
@@ -93,5 +91,4 @@ class SchoolDownloads(private val context: Context) {
         }
     }
 
-    private fun notice(text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 }

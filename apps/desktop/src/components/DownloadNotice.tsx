@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type HTMLAttributes } from "react";
 import { desktopBridge } from "../platform/native";
 import { notify } from "./notifications/notify";
 import { t, type MessageKey } from "../i18n";
@@ -8,6 +8,21 @@ import {
   type SavedDownload,
 } from "../platform/desktop-bridge";
 import { UiButton } from "./ui";
+
+/** Shared inline status/warning bar rendered above the native school WebView. */
+export function WebNotice({
+  warning,
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { warning?: boolean }) {
+  return (
+    <div
+      role={warning ? "alert" : "status"}
+      {...props}
+      className={`webNotice${warning ? " warning" : ""}${className ? ` ${className}` : ""}`}
+    />
+  );
+}
 
 const messages: Record<DownloadEvent["state"], MessageKey> = {
   started: "web.downloadingName",
@@ -60,8 +75,8 @@ export function DownloadNotice({
   const missing = unavailable === download;
   const notice = feedback(download, onError, () => setUnavailable(download));
   return (
-    <div
-      className={`webNotice${download.state === "failed" ? " warning" : ""}`}
+    <WebNotice
+      warning={download.state === "failed"}
       role="status"
       aria-busy={download.state === "started"}
     >
@@ -71,6 +86,6 @@ export function DownloadNotice({
           {notice.action.label}
         </UiButton>
       )}
-    </div>
+    </WebNotice>
   );
 }

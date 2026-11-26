@@ -41,7 +41,7 @@ impl Lane {
             | Dataset::LmsAssign
             | Dataset::LmsHistory => Self::Moodle,
             Dataset::KyomuPage | Dataset::CatalogOfficial => Self::Kyomu,
-            Dataset::Reference => Self::IsctData,
+            Dataset::Reference | Dataset::Announcements => Self::IsctData,
         }
     }
 
@@ -222,7 +222,7 @@ pub(crate) fn credential_path(key: &Key, depth: Depth) -> &'static [Credential] 
             &[Credential::Site(Site::KyomuEnglish)]
         }
         Dataset::CatalogOfficial => &[Credential::Site(Site::Kyomu)],
-        Dataset::Reference => &[],
+        Dataset::Reference | Dataset::Announcements => &[],
     }
 }
 
@@ -470,7 +470,8 @@ pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
         | Dataset::LmsDeadlines
         | Dataset::LmsHistory
         | Dataset::KyomuPage
-        | Dataset::Reference => None,
+        | Dataset::Reference
+        | Dataset::Announcements => None,
     }
 }
 
@@ -543,6 +544,7 @@ pub(crate) fn scope_keys(
             keys.extend(current_course_keys(inputs, now));
             keys.extend(kyomu_keys());
             keys.extend(inputs.references.iter().map(|watch| watch.key.clone()));
+            keys.push(crate::announcements::key());
             unscoped(keys)
         }
         Scope::Site {
@@ -563,6 +565,7 @@ pub(crate) fn scope_keys(
                 .references
                 .iter()
                 .map(|watch| watch.key.clone())
+                .chain(std::iter::once(crate::announcements::key()))
                 .collect(),
         ),
         Scope::Catalog { year } => catalog_keys(*year, inputs.english),
@@ -700,15 +703,20 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
             watch.due = Some(reference.due);
             watch.title = Some(key.key.clone());
         }
-        Dataset::LmsEnrolment | Dataset::LmsDeadlines => {}
+        Dataset::LmsEnrolment | Dataset::LmsDeadlines | Dataset::Announcements => {}
     }
     Some(watch)
 }
 
 /// Keys Core keeps current without being asked, with their priority: an
-/// account's once its credentials are saved.
-fn automatic_keys(inputs: &Inputs, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
+/// account's once its credentials are saved, the reference files, and the
+/// announcements while the app is in the foreground: they are only ever
+/// shown there, so a background opportunity never reads them.
+fn automatic_keys(inputs: &Inputs, foreground: bool, now: DateTime<Utc>) -> Vec<(Key, Priority)> {
     let mut keys = Vec::new();
+    if foreground {
+        keys.push((crate::announcements::key(), Priority::Visible));
+    }
     if inputs.configured(SchoolAuthProfile::Science) {
         keys.extend(lms_all().map(|key| (key, Priority::Visible)));
         let current = current_lms_term(now);
@@ -820,6 +828,10 @@ fn evaluate(
     }
 }
 
+pub(super) fn can_run_in_background(dataset: Dataset) -> bool {
+    dataset != Dataset::Announcements
+}
+
 /// Why a due key may not be leased now, most fundamental reason first.
 /// `plan` and the runner's lease both ask it, the lease with the facts as
 /// they are at that moment.
@@ -849,14 +861,16 @@ pub(crate) fn hold(
     if let Some(held) = credential_hold(key, depth, facts, credentials, now) {
         return Some(held);
     }
-    if facts.suspended {
+    if facts.suspended || (!facts.foreground && !can_run_in_background(dataset)) {
         return Some(Held::Background);
     }
     if priority < Priority::Interactive {
-        // The campus map uses cellular too, as its owner asked.
+        // The campus map and the announcements use cellular too, as their
+        // owner asked.
         if facts.network == Network::Cellular
             && !inputs.allow_cellular
             && !crate::reference_refresh::raised(key)
+            && dataset != Dataset::Announcements
         {
             return Some(Held::Cellular);
         }
@@ -872,12 +886,13 @@ pub(crate) fn hold(
 /// pages, refresh presses and the prerequisites they pull forward.
 fn watched(
     inputs: &Inputs,
+    foreground: bool,
     opens: &[View],
     manual: &HashMap<Key, Option<String>>,
     now: DateTime<Utc>,
 ) -> BTreeMap<Key, Watch> {
     let mut watched = BTreeMap::new();
-    for (key, priority) in automatic_keys(inputs, now) {
+    for (key, priority) in automatic_keys(inputs, foreground, now) {
         want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
     }
     for view in opens {
@@ -929,7 +944,7 @@ pub(crate) fn plan(
     leased: &HashSet<Key>,
     now: DateTime<Utc>,
 ) -> Vec<Candidate> {
-    let watched = watched(inputs, opens, manual, now);
+    let watched = watched(inputs, facts.foreground, opens, manual, now);
     let mut candidates: Vec<Candidate> = watched
         .into_iter()
         .filter(|(key, _)| !leased.contains(key))
@@ -979,12 +994,13 @@ pub(crate) fn plan(
 /// waits for a fact (the network, the person) has no time.
 pub(crate) fn next_due(
     inputs: &Inputs,
+    foreground: bool,
     plan: &[Candidate],
     opens: &[View],
     manual: &HashMap<Key, Option<String>>,
     now: DateTime<Utc>,
 ) -> Option<DateTime<Utc>> {
-    let watched = watched(inputs, opens, manual, now);
+    let watched = watched(inputs, foreground, opens, manual, now);
     let fresh = watched.iter().filter_map(|(key, watch)| {
         if watch.rule == Rule::Manual {
             return None;
@@ -1012,14 +1028,17 @@ pub(crate) fn next_due(
         };
         Some(fetched + window).filter(|at| *at > now)
     });
-    let held = plan.iter().filter_map(|candidate| match &candidate.held {
-        Some(Held::Backoff { until })
-        | Some(Held::HostPaused { until, .. })
-        | Some(Held::Account {
-            wait: AccountWait::Paused { until },
-            ..
-        }) => Some(*until),
-        _ => None,
-    });
+    let held = plan
+        .iter()
+        .filter(|candidate| foreground || can_run_in_background(candidate.key.dataset))
+        .filter_map(|candidate| match &candidate.held {
+            Some(Held::Backoff { until })
+            | Some(Held::HostPaused { until, .. })
+            | Some(Held::Account {
+                wait: AccountWait::Paused { until },
+                ..
+            }) => Some(*until),
+            _ => None,
+        });
     fresh.chain(held).min()
 }

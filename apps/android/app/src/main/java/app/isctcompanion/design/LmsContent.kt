@@ -2,7 +2,6 @@ package app.isctcompanion.design
 
 import app.isctcompanion.core.openInAnotherApp
 import app.isctcompanion.core.showsInApp
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import android.content.Intent
 import android.text.format.Formatter
@@ -87,6 +86,7 @@ fun HtmlText(html: String, courseId: String, modifier: Modifier = Modifier, orig
         SelectionContainer {
             Text(text, style = MaterialTheme.typography.bodyLarge, color = Theme.colors.ink)
         }
+        opening.Banner()
     }
 }
 
@@ -114,6 +114,7 @@ fun MaterialButton(title: String, kind: LessonItemKind, source: String?, courseI
         Text(title, color = Theme.colors.ink, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         if (opening.busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
     }
+    opening.Banner()
 }
 
 fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
@@ -125,12 +126,16 @@ fun materialIcon(kind: LessonItemKind): ImageVector = when (kind) {
 }
 
 /** Opens a course item or link; `busy` while Core answers. */
-class MaterialOpening(val busy: Boolean, val open: (courseId: String, source: String, title: String) -> Unit)
+class MaterialOpening(
+    val busy: Boolean,
+    val open: (courseId: String, source: String, title: String) -> Unit,
+    val Banner: @Composable () -> Unit,
+)
 
 /** Opens an item or link as Core decides (`open_material`): a file Core
  * fetches with the signed-in LMS session (or from the course folder) shows
  * as its viewer says, a ZIP as a folder of its files, a school page opens in its in-app view, any other page
- * in the browser. When the file is not shown, the dialog offers the LMS page
+ * in the browser. When the file is not shown, the banner offers the LMS page
  * Core names for it. A download that only failed this time asks instead of
  * showing the LMS page: silently doing so made Share hand out a link where it
  * had handed out the file. */
@@ -150,6 +155,8 @@ fun rememberMaterialOpening(): MaterialOpening {
     open = { courseId, source, title ->
         scope.launch {
             busy = true
+            retry = null
+            notice = null
             fallback = null
             fun offer(page: SchoolWebTarget?) {
                 fallback = page?.let { WebRouter.PushedPage(it.site, it.url, title) }
@@ -194,42 +201,25 @@ fun rememberMaterialOpening(): MaterialOpening {
             }
         }
     }
-    retry?.let { (courseId, source, title) ->
-        AlertDialog(
-            onDismissRequest = { retry = null },
-            text = { Text(t("lmsFile.theFileCouldNotBe")) },
-            confirmButton = {
-                TextButton(onClick = {
-                    retry = null
-                    open(courseId, source, title)
-                }) { Text(t("common.tryAgain")) }
-            },
-            dismissButton = {
-                fallback?.let { page ->
-                    TextButton(onClick = {
-                        retry = null
-                        navigator.openPage(page)
-                    }) { Text(t("common.openInLMS")) }
+    return MaterialOpening(busy, open) {
+        val message = notice ?: retry?.let { t("lmsFile.theFileCouldNotBe") }
+        if (message != null) {
+            NoticeBanner(Theme.colors.dangerSoft) {
+                Text(message, color = Theme.colors.ink)
+                Row {
+                    retry?.let { (courseId, source, title) ->
+                        TextButton(onClick = { open(courseId, source, title) }) { Text(t("common.tryAgain")) }
+                    }
+                    fallback?.let { page ->
+                        TextButton(onClick = {
+                            notice = null
+                            retry = null
+                            navigator.openPage(page)
+                        }) { Text(t("common.openInLMS")) }
+                    }
+                    TextButton(onClick = { notice = null; retry = null }) { Text(t("common.close")) }
                 }
-            },
-        )
+            }
+        }
     }
-    notice?.let { text ->
-        AlertDialog(
-            onDismissRequest = { notice = null },
-            text = { Text(text) },
-            confirmButton = {
-                fallback?.let { page ->
-                    TextButton(onClick = {
-                        notice = null
-                        navigator.openPage(page)
-                    }) { Text(t("common.openInLMS")) }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { notice = null }) { Text(t("common.cancel")) }
-            },
-        )
-    }
-    return MaterialOpening(busy, open)
 }

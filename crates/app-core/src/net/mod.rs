@@ -11,6 +11,7 @@ pub mod moodle;
 pub mod redact;
 mod tls;
 
+pub(crate) use http::classify;
 pub use http::Http;
 
 use std::{future::Future, pin::Pin, time::Duration};

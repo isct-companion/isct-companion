@@ -196,6 +196,10 @@ struct State {
     published: Option<SyncSnapshot>,
     /// When the plan next changes by time alone (`planner::next_due`).
     plan_next: Option<DateTime<Utc>>,
+    /// When an OS background opportunity would next find a key due: the
+    /// plan out of front, without the keys only the foreground reads.
+    background_next: Option<DateTime<Utc>>,
+    announcement_boundary: Option<DateTime<Utc>>,
     duties: Vec<Slot>,
     /// One-off reads waiting for a slot of their lane.
     reads: VecDeque<Pending>,
@@ -244,6 +248,13 @@ impl PlanHints {
     pub fn send(&self, hint: Hint) {
         if let Some(shared) = self.0.upgrade() {
             PlanEngine(shared).hint(hint);
+        }
+    }
+
+    pub(crate) fn announcements_changed(&self) {
+        if let Some(engine) = self.engine() {
+            guard(&engine.0.state).evaluate = true;
+            engine.0.wake.notify_one();
         }
     }
 
@@ -337,6 +348,8 @@ impl PlanEngine {
                 last_evaluated: None,
                 published: None,
                 plan_next: None,
+                background_next: None,
+                announcement_boundary: None,
                 duties: Vec::new(),
                 reads: VecDeque::new(),
                 answers: HashMap::new(),
@@ -374,7 +387,9 @@ impl PlanEngine {
             let mut state = guard(&self.0.state);
             if state
                 .plan_next
-                .is_some_and(|at| at <= crate::clock::now() + chrono::Duration::seconds(1))
+                .into_iter()
+                .chain(state.announcement_boundary)
+                .any(|at| at <= crate::clock::now())
             {
                 state.evaluate = true;
             }
@@ -670,6 +685,11 @@ impl PlanEngine {
                 }
                 Hint::Background => {
                     state.facts.foreground = false;
+                    for (key, lease) in &state.leases {
+                        if !planner::can_run_in_background(key.dataset) {
+                            lease.cancel.cancel();
+                        }
+                    }
                     true
                 }
                 Hint::Suspend => {
@@ -965,15 +985,35 @@ impl PlanEngine {
                     crate::diagnostics::report("sync", &error);
                 }
             }
-            load_inputs(&store, &auth, crate::clock::now())
+            let now = crate::clock::now();
+            let boundary = store.next_announcement_boundary(now);
+            (load_inputs(&store, &auth, now), boundary, now)
         })
         .await;
-        let inputs = match loaded {
-            Ok(Ok(inputs)) => inputs,
-            Ok(Err(error)) => {
+        let (inputs, boundary, read_at) = match loaded {
+            Ok(result) => result,
+            Err(error) => {
                 crate::diagnostics::report("sync", &error);
                 return;
             }
+        };
+        let boundary = boundary.unwrap_or_else(|error| {
+            crate::diagnostics::report("announcements", &error);
+            None
+        });
+        {
+            let crossed = {
+                let mut state = guard(&self.0.state);
+                let crossed = state.announcement_boundary.is_some_and(|at| at <= read_at);
+                state.announcement_boundary = boundary;
+                crossed
+            };
+            if crossed {
+                self.0.store.announcement_boundary_reached();
+            }
+        }
+        let inputs = match inputs {
+            Ok(inputs) => inputs,
             Err(error) => {
                 crate::diagnostics::report("sync", &error);
                 return;
@@ -1038,7 +1078,21 @@ impl PlanEngine {
             &leased,
             now,
         );
-        state.plan_next = planner::next_due(&inputs, &state.plan, &opens, &manual, now);
+        state.plan_next = planner::next_due(
+            &inputs,
+            state.facts.foreground,
+            &state.plan,
+            &opens,
+            &manual,
+            now,
+        );
+        // The shell hands the OS the directive it holds when it leaves the
+        // front, before Core hears of it.
+        state.background_next = if state.facts.foreground {
+            planner::next_due(&inputs, false, &state.plan, &opens, &manual, now)
+        } else {
+            state.plan_next
+        };
         state.inputs = inputs;
         update_batches(&mut state, instant, now);
     }
@@ -1293,6 +1347,7 @@ impl PlanEngine {
             Dataset::Reference => {
                 crate::reference_refresh::read_reference(lease, &self.0.probes).await
             }
+            Dataset::Announcements => crate::announcements::read(lease).await,
             _ => KeyEnd::failed("unsupported", ""),
         }
     }
@@ -1352,7 +1407,7 @@ impl PlanEngine {
     /// background opportunity would find due, sent when it changed.
     fn publish_directive(&self) {
         let now = crate::clock::now();
-        let (plan, waiting, duties, failures) = {
+        let (plan, background_plan, waiting, duties, failures, announcement) = {
             let state = guard(&self.0.state);
             let instant = Instant::now();
             // A failed run without a retry time leaves the snapshot then.
@@ -1360,7 +1415,8 @@ impl PlanEngine {
                 .batches
                 .iter()
                 .filter(|batch| {
-                    batch.idle()
+                    snapshot::shows_run(batch.group.dataset)
+                        && batch.idle()
                         && batch.failed.values().all(|failed| failed.retry.is_none())
                         && !batch.failed.is_empty()
                 })
@@ -1372,28 +1428,45 @@ impl PlanEngine {
                     .unwrap_or_default()
                 })
                 .min();
-            let waiting = state.plan.iter().any(|candidate| candidate.held.is_none())
-                || !state.reads.is_empty();
+            let waiting = state.plan.iter().any(|candidate| {
+                candidate.held.is_none() && planner::can_run_in_background(candidate.key.dataset)
+            }) || !state.reads.is_empty();
             let duties = state
                 .duties
                 .iter()
                 .map(|slot| (slot.duty.clone(), slot.running))
                 .collect::<Vec<_>>();
-            (state.plan_next, waiting, duties, failures)
+            let announcement = state
+                .announcement_boundary
+                .filter(|_| state.facts.foreground);
+            (
+                state.plan_next,
+                state.background_next,
+                waiting,
+                duties,
+                failures,
+                announcement,
+            )
         };
         // Work waiting only for a lane slot needs no timer (a read ending
         // wakes the engine), but an OS opportunity would find it due.
         let mut network = plan;
+        let mut background_network = background_plan;
         let mut local: Option<DateTime<Utc>> = None;
+        let earliest = |slot: &mut Option<DateTime<Utc>>, at: DateTime<Utc>| {
+            *slot = Some(slot.map_or(at, |current| current.min(at)));
+        };
         for (duty, running) in duties {
             let Some(at) = (!running).then(|| duty.next_due()).flatten() else {
                 continue;
             };
-            let slot = match duty.work() {
-                BackgroundWork::Network => &mut network,
-                BackgroundWork::Local => &mut local,
-            };
-            *slot = Some(slot.map_or(at, |current| current.min(at)));
+            match duty.work() {
+                BackgroundWork::Network => {
+                    earliest(&mut network, at);
+                    earliest(&mut background_network, at);
+                }
+                BackgroundWork::Local => earliest(&mut local, at),
+            }
         }
         // Whole seconds, rounded up: every shell parses them, and a timer
         // never fires before the work is due.
@@ -1405,15 +1478,21 @@ impl PlanEngine {
             .unwrap_or(at)
         };
         let network = network.map(second);
+        let background_network = background_network.map(second);
         let local = local.map(second);
-        let at = [network, local, failures.map(second)]
-            .into_iter()
-            .flatten()
-            .min();
+        let at = [
+            network,
+            local,
+            failures.map(second),
+            announcement.map(second),
+        ]
+        .into_iter()
+        .flatten()
+        .min();
         let background = [
             (
                 BackgroundWork::Network,
-                network
+                background_network
                     .into_iter()
                     .chain(waiting.then(|| second(now)))
                     .min(),

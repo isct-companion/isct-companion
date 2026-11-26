@@ -15,6 +15,7 @@ import {
   type ReactNode,
 } from "react";
 import { usePageLayer, useTopPageLayer } from "./page-layer";
+import { useAppModalLayer } from "./modal-state";
 import { t } from "../../i18n";
 import { cx, spacing, type Size } from "./layout";
 import { CloseButton } from "./controls";
@@ -59,6 +60,7 @@ function DialogSurface({
   // A modal covers the whole window, so it never mounts in a pane's nested
   // layer, whose ancestors may confine and clip it.
   const layer = useTopPageLayer();
+  useAppModalLayer(opened);
   // Where focus returns on close, read while rendering the open state: a field
   // with autoFocus takes focus as the dialog commits, before Radix's focus
   // scope looks, and Radix then skips onOpenAutoFocus.

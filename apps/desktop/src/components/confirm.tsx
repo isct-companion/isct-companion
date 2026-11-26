@@ -1,14 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { Button, Group, Modal, Stack, Text } from "./ui";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
+import { useSurfaceBlocked } from "./ui/modal-state";
+import { useUndoAvailable } from "./notifications/notifications";
 
-/** One button of a dialog; the last one is the primary action. */
+/** One button of a dialog; the last one is the primary action unless styled. */
 export type Choice<T extends string> = {
   id: T;
   label: string;
   danger?: boolean;
+  variant?: "filled" | "default" | "subtle" | "light";
 };
 type Confirmation = {
   message: string;
@@ -16,9 +19,21 @@ type Confirmation = {
   choices: Choice<string>[];
   resolve: (choice: string | null) => void;
 };
+export type NoticeDialog = {
+  id: string;
+  message: ReactNode;
+  title?: string;
+  choices: Choice<string>[];
+  announcementId?: string;
+  closeOnClickOutside?: boolean;
+  onChoice: (choice: string | null) => void;
+};
 const useConfirmations = create<{ queue: Confirmation[] }>(() => ({
   queue: [],
 }));
+export const useConfirmationPending = () =>
+  useConfirmations((state) => state.queue.length > 0);
+
 /** In-app Radix Dialog: only the confirm button resolves true. Never use
  * window.confirm: the native shell replaces it with an asynchronous API. */
 export function confirmAction(
@@ -56,13 +71,23 @@ export function chooseAction<T extends string>(
     })),
   );
 }
-/** True while a confirmation is open; a native view over the page steps
- * aside, since no HTML overlay can draw above it. */
-export const useConfirmationPending = () =>
-  useConfirmations((state) => state.queue.length > 0);
-export function ConfirmDialogs() {
+
+/** User confirmations come first. Automatic offers (data notice, physics group,
+ * updates, announcements) are snapshotted on open so later arrivals never
+ * replace them, and an open announcement closes if Core withdraws or expires it. */
+export function ConfirmDialogs({
+  automatic = [],
+  activeAnnouncements,
+}: {
+  automatic?: readonly NoticeDialog[];
+  activeAnnouncements?: readonly { id: string }[];
+}) {
   useTranslation();
   const request = useConfirmations((state) => state.queue[0]);
+  const [open, setOpen] = useState<NoticeDialog>();
+  const [offered, setOffered] = useState<ReadonlySet<string>>(() => new Set());
+  const blocked = useSurfaceBlocked();
+  const undo = useUndoAvailable();
   useEffect(
     () => () => {
       const queue = useConfirmations.getState().queue;
@@ -71,29 +96,58 @@ export function ConfirmDialogs() {
     },
     [],
   );
-  if (!request) return null;
+  const next = automatic.find((item) => !offered.has(item.id));
+  useEffect(() => {
+    if (
+      open?.announcementId &&
+      activeAnnouncements &&
+      !activeAnnouncements.some((item) => item.id === open.announcementId)
+    ) {
+      setOpen(undefined);
+    } else if (!open && !request && !blocked && !undo && next) {
+      setOpen(next);
+      setOffered((old) => new Set(old).add(next.id));
+    }
+  }, [open, request, blocked, undo, next, activeAnnouncements]);
+
+  const shown = open ?? request;
+  if (!shown) return null;
   const finish = (choice: string | null) => {
-    useConfirmations.setState(({ queue }) => ({
-      queue: queue.filter((item) => item !== request),
-    }));
-    request.resolve(choice);
+    if (open) {
+      setOpen(undefined);
+      open.onChoice(choice);
+    } else if (request) {
+      useConfirmations.setState(({ queue }) => ({
+        queue: queue.filter((item) => item !== request),
+      }));
+      request.resolve(choice);
+    }
   };
-  const last = request.choices.length - 1;
+  const last = shown.choices.length - 1;
   return (
     <Modal
       opened
       onClose={() => finish(null)}
-      title={request.title}
+      closeOnClickOutside={open?.closeOnClickOutside}
+      title={shown.title}
       withCloseButton={false}
       centered
     >
       <Stack>
-        <Text size="sm">{request.message}</Text>
+        {typeof shown.message === "string" ? (
+          <Text size="sm" style={{ whiteSpace: "pre-wrap" }}>
+            {shown.message}
+          </Text>
+        ) : (
+          shown.message
+        )}
         <Group justify="flex-end">
-          {request.choices.map((choice, index) => (
+          {shown.choices.map((choice, index) => (
             <Button
               key={choice.id}
-              variant={index === last ? undefined : "default"}
+              variant={
+                choice.variant ?? (index === last ? undefined : "default")
+              }
               color={choice.danger ? "red" : undefined}
               onClick={() => finish(choice.id)}
             >

@@ -152,6 +152,9 @@ impl CommitObserver for StoreChanges {
                 self.plan.duties_changed();
             }
         }
+        if tables.contains("announcements") && source != WorkspaceChangeSource::Scheduler {
+            self.plan.announcements_changed();
+        }
         let changes = workspace_changes::changes_for(tables);
         if changes
             .iter()

@@ -3041,10 +3041,6 @@ summary,
 .dataNotice p {
   margin: 0;
 }
-.dataNotice button {
-  justify-self: end;
-  margin-top: var(--space-3);
-}
 
 .row > .actions.reverse,
 .actions.reverse {
@@ -3502,7 +3498,8 @@ textarea.codeArea {
 }
 /* A group of related controls: one rounded pill, icon buttons inside. */
 .toolPill,
-.paneToolbar :is(.lmsFileActions, .lmsPdfPagination, .lmsPdfZoom, .lmsImageZoom) {
+.paneToolbar
+  :is(.lmsFileActions, .lmsPdfPagination, .lmsPdfZoom, .lmsImageZoom) {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -3529,7 +3526,9 @@ textarea.codeArea {
   color: var(--muted) !important;
 }
 .toolPill > button:hover:not(:disabled),
-.paneToolbar :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom) > :is(button, a):hover:not(:disabled),
+.paneToolbar
+  :is(.lmsFileActions, .lmsPdfZoom, .lmsImageZoom)
+  > :is(button, a):hover:not(:disabled),
 .paneToolbar .lmsPdfFindToggle:hover {
   background: color-mix(in srgb, var(--ink) 8%, transparent) !important;
   color: var(--ink) !important;

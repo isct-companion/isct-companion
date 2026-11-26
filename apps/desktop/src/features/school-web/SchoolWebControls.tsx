@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { DownloadNotice } from "../../components/DownloadNotice";
+import { DownloadNotice, WebNotice } from "../../components/DownloadNotice";
 import { UiButton } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
@@ -103,7 +103,7 @@ export function SchoolWebNotices({
         />
       )}
       {access?.kind === "signing-in" && (
-        <div className="webNotice" role="status" aria-busy="true">
+        <WebNotice aria-busy="true">
           <span>{t("web.signIn.signingIn")}</span>
           <UiButton
             type="button"
@@ -113,18 +113,18 @@ export function SchoolWebNotices({
           >
             {t("web.signIn.cancel")}
           </UiButton>
-        </div>
+        </WebNotice>
       )}
       {access?.kind === "problem" && (
-        <div className="webNotice" role="status">
+        <WebNotice>
           <span>{t(problemText[access.problem])}</span>
           {access.problem === "rejected" && openAccounts && (
             <OpenAccounts openAccounts={openAccounts} />
           )}
-        </div>
+        </WebNotice>
       )}
       {page?.signIn && (
-        <div className="webNotice" role="status">
+        <WebNotice>
           <span>{t("web.signIn.asks")}</span>
           <UiButton
             type="button"
@@ -134,10 +134,10 @@ export function SchoolWebNotices({
           >
             {t("web.signIn.useSaved")}
           </UiButton>
-        </div>
+        </WebNotice>
       )}
       {page && page.popups > 0 && (
-        <div className="webNotice" role="status">
+        <WebNotice>
           <span>{t("web.popupWindow")}</span>
           <UiButton
             type="button"
@@ -147,10 +147,10 @@ export function SchoolWebNotices({
           >
             {t("web.closeWindow")}
           </UiButton>
-        </div>
+        </WebNotice>
       )}
       {failure && (
-        <div className="webNotice warning" role="alert">
+        <WebNotice warning>
           <span>{t(failureText[failure.reason])}</span>
           {failure.url && failure.reason !== "cleartext" && (
             <UiButton
@@ -174,12 +174,12 @@ export function SchoolWebNotices({
               {t("common.openInBrowser")}
             </UiButton>
           )}
-        </div>
+        </WebNotice>
       )}
       {notice && (
-        <div className="webNotice" role="status">
+        <WebNotice>
           <span>{t(noticeText[notice])}</span>
-        </div>
+        </WebNotice>
       )}
       {download && <DownloadNotice download={download} onError={onError} />}
     </>
@@ -211,7 +211,7 @@ function OtpNotice({
     desktopBridge?.schoolOtpIntent?.(otp.id, intent).catch(onError);
   const active = ["sign-in", "checking", "setting-up"].includes(otp.stage);
   return (
-    <div className="webNotice otpEnrollmentNotice" role="status">
+    <WebNotice className="otpEnrollmentNotice">
       <span>{t(otpMessages[otp.stage], { account: otp.owner ?? "" })}</span>
       {openAccounts && otp.stage === "complete" && (
         <OpenAccounts
@@ -229,7 +229,7 @@ function OtpNotice({
           {t(active ? "common.cancel" : "common.done")}
         </UiButton>
       )}
-    </div>
+    </WebNotice>
   );
 }
 

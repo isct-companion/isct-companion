@@ -149,6 +149,7 @@ const INTENT_SETTINGS: &[&str] = &[
     "cloud",
     "importStatus",
     "recentSeen",
+    crate::announcements::ANSWERED,
 ];
 
 /// Fingerprint of the user-owned state intents are checked against. School
@@ -569,6 +570,17 @@ impl WorkspaceWrite<'_, '_> {
         read_rows(self.transaction, table)
     }
 
+    pub(crate) fn answer_announcement(&self, id: &str) -> Result<(), DataError> {
+        let key = crate::announcements::ANSWERED;
+        let current = read_setting(self.transaction, key)?.unwrap_or(Value::Null);
+        if let Some(answered) =
+            crate::announcements::answering(self.transaction, &current, id, crate::clock::now())?
+        {
+            self.save_setting(key, &answered)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn catalog_row(&self, id: &str) -> Result<Option<Value>, DataError> {
         catalog_offering_in(self.transaction, id)
     }
@@ -585,6 +597,7 @@ impl WorkspaceWrite<'_, '_> {
                 | "cloud"
                 | "importStatus"
                 | "recentSeen"
+                | crate::announcements::ANSWERED
                 | "syncStatus"
                 | "logs"
         ) {
@@ -813,6 +826,26 @@ impl DataStore {
     /// A pooled read-only connection.
     fn open(&self) -> Result<connection::Reader<'_>, DataError> {
         self.connections.reader()
+    }
+
+    pub(crate) fn next_announcement_boundary(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, DataError> {
+        let connection = self.open()?;
+        let feed = crate::announcements::stored(&connection)?;
+        Ok(crate::announcements::next_boundary(&feed, now))
+    }
+
+    /// The feed did not change, but a temporal read of it did.
+    pub(crate) fn announcement_boundary_reached(&self) {
+        let writer = self.connections.writer();
+        let tables = BTreeSet::from(["announcements".to_owned()]);
+        self.committed_tables(&tables);
+        let seq = self.commit_seq();
+        drop(writer);
+        self.observer
+            .committed(WorkspaceChangeSource::Scheduler, None, seq, &tables);
     }
 
     /// Core installs the one observer every clone of this store reports to.

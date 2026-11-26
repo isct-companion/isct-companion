@@ -141,24 +141,3 @@ struct WelcomeSheet: View {
         )
     }
 }
-
-extension View {
-    /// Shows the welcome sheet once per device; closing it lets the tips in.
-    func welcomeSheet(connect: @escaping () -> Void) -> some View {
-        modifier(WelcomePresenter(connect: connect))
-    }
-}
-
-private struct WelcomePresenter: ViewModifier {
-    let connect: () -> Void
-    @AppStorage(Guide.welcomeKey) private var welcomed = false
-
-    func body(content: Content) -> some View {
-        content.sheet(
-            isPresented: Binding(get: { !welcomed }, set: { if !$0 { welcomed = true } }),
-            onDismiss: { Guide.welcomed = true }
-        ) {
-            WelcomeSheet(connect: connect)
-        }
-    }
-}

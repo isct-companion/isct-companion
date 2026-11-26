@@ -89,24 +89,29 @@ export function GuideTip({
  * The first window: the two language choices people did not know existed,
  * then one way on to the school accounts and one to AI agents.
  */
+export function useWelcome() {
+  const [guide, setGuide] = useGuide();
+  return [
+    guide.welcome !== true,
+    () => setGuide((current) => ({ ...current, welcome: true })),
+  ] as const;
+}
+
 export function WelcomeSheet({
   settings,
   update,
   connected,
-  held = false,
+  close,
   openAccounts,
   openAgents,
 }: {
   settings: Workspace["settings"];
-  /** Another first-run dialog (the data notice) comes first. */
-  held?: boolean;
+  close: () => void;
   update: (f: (d: Workspace) => Workspace) => void;
   connected: boolean;
   openAccounts: () => void;
   openAgents: () => void;
 }) {
-  const [guide, setGuide] = useGuide();
-  const close = () => setGuide((current) => ({ ...current, welcome: true }));
   const set = <K extends "locale" | "contentLanguage">(
     key: K,
     value: Workspace["settings"][K],
@@ -117,7 +122,7 @@ export function WelcomeSheet({
     });
   return (
     <Modal
-      opened={guide.welcome !== true && !held}
+      opened
       onClose={close}
       title={t("common.welcomeToIsctCompanion")}
       // Top-anchored: the language rows rewrap when the language changes,

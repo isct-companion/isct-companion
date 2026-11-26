@@ -1,0 +1,3 @@
+.announcementBanner:not([data-color]) {
+  background: var(--surface);
+}

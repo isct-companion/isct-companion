@@ -6,10 +6,14 @@ import type { AppUpdateStatus } from "../platform/desktop-bridge";
 export const useAppUpdate = create<{
   status?: AppUpdateStatus;
   pending: boolean;
-  check: (manual?: boolean, download?: boolean) => Promise<void>;
+  check: (
+    manual?: boolean,
+    download?: boolean,
+    version?: string,
+  ) => Promise<void>;
 }>((set, get) => ({
   pending: false,
-  check: async (manual = false, download = false) => {
+  check: async (manual = false, download = false, version) => {
     if (!desktopBridge?.checkAppUpdate || get().pending) return;
     set({ pending: true });
     // The command resolves only after the download; read the native phase and
@@ -23,7 +27,9 @@ export const useAppUpdate = create<{
         .catch(() => undefined);
     }, 500);
     try {
-      set({ status: await desktopBridge.checkAppUpdate(manual, download) });
+      set({
+        status: await desktopBridge.checkAppUpdate(manual, download, version),
+      });
     } catch (error) {
       const status = await desktopBridge
         .appUpdateState?.()

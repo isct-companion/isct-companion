@@ -50,6 +50,11 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
 
     var status: Status by mutableStateOf(Status.Opening)
         private set
+    val notices = app.isctcompanion.design.AppNotices()
+    var announcements: AnnouncementsView? by mutableStateOf(null)
+        private set
+    var announcementsReady by mutableStateOf(false)
+        private set
     var today: TodayView? by mutableStateOf(null)
         private set
     var board: AssignmentBoard? by mutableStateOf(null)
@@ -104,13 +109,12 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     val browser = SchoolBrowserHost(context)
     /** Google Drive sign-in; the activity in front attaches its consent screen. */
     val drive = DriveTokens(context)
-    val web = WebRouter(browser, scope, context)
+    val web = WebRouter(browser, scope, context, notices::show)
     internal var session: Session? = null
         private set
     internal val backup = CloudBackup(
         session = { session },
         refreshWorkspace = { refresh() },
-        reportFailure = { problem = describe(it) },
     )
     private var revision = ""
     private val dashboardReads = ScheduleReads()
@@ -207,6 +211,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             scheduleRefresh(force = true)
             scope.launch { checkForUpdate() }
         } else {
+            announcementsReady = false
             deadlineJob?.cancel()
             deadlineJob = null
             hint(Hint.Background)
@@ -392,6 +397,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     private fun scheduleRefresh(force: Boolean = false): Job? {
         val session = session ?: return null
         if (force) {
+            announcementsReady = false
             dashboardReads.invalidate()
             timetableWeeks.invalidate()
         } else {
@@ -411,7 +417,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         val queries = listOf(
             WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
             WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14)), now),
-            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
+            WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods, WorkspaceQuery.Announcements,
         )
         val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
         val overview = try {
@@ -437,6 +443,10 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
                 is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
                 is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
                 is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
+                is WorkspaceQueryResult.Announcements -> {
+                    announcements = value.v1
+                    announcementsReady = true
+                }
                 else -> Unit
             }
         }
@@ -618,35 +628,38 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         return (result as? OperationResult.Schedule)?.snapshot
     }
 
+    suspend fun answerAnnouncement(id: String) {
+        commit(WorkspaceIntent.AnswerAnnouncement(id))
+    }
+
     // Intents
 
     suspend fun setHidden(item: DeadlineItem, hidden: Boolean) {
-        // Offered at once: the re-read that follows can take a moment.
-        undo = if (hidden) UndoAction(item.title, item.assignmentId) else null
-        mark(item.assignmentId, hidden = hidden, pinned = null)
+        if (mark(item.assignmentId, hidden = hidden, pinned = null) && hidden) {
+            undo = UndoAction(item.title, item.assignmentId)
+        }
     }
 
     suspend fun setPinned(item: DeadlineItem, pinned: Boolean) {
         mark(item.assignmentId, hidden = null, pinned = pinned)
     }
 
-    suspend fun undoHide() {
-        val undo = undo ?: return
-        this.undo = null
-        mark(undo.assignmentId, hidden = false, pinned = null)
+    suspend fun undoHide(operation: UndoAction) {
+        if (undo != operation) return
+        undo = null
+        mark(operation.assignmentId, hidden = false, pinned = null)
     }
 
-    fun dismissUndo() {
-        undo = null
+    fun dismissUndo(operation: UndoAction) {
+        if (undo == operation) undo = null
     }
 
     fun dismissProblem() {
         problem = null
     }
 
-    private suspend fun mark(id: String, hidden: Boolean?, pinned: Boolean?) {
+    private suspend fun mark(id: String, hidden: Boolean?, pinned: Boolean?) =
         commit(WorkspaceIntent.SetAssignmentMark(id, hidden, pinned, null))
-    }
 
     /** Opening an item of 今日's 新着: Core stops listing it until it changes. */
     suspend fun markRecentSeen(list: RecentKind, id: String) {
@@ -848,7 +861,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     }
 }
 
-data class UndoAction(val title: String, val assignmentId: String)
+data class UndoAction(val title: String, val assignmentId: String, val id: java.util.UUID = java.util.UUID.randomUUID())
 
 /** What opening Core's campus map page answered. */
 sealed interface CampusMapOpening {

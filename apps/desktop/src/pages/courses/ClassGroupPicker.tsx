@@ -1,11 +1,5 @@
-import {
-  Button,
-  Group,
-  Modal,
-  SegmentedControl,
-  Stack,
-  Text,
-} from "../../components/ui";
+import { SegmentedControl, Stack, Text } from "../../components/ui";
+import type { NoticeDialog } from "../../components/confirm";
 import { t } from "../../i18n";
 import { classGroupLabel, semesterLabel } from "../../lib/alternation";
 import type { ClassGroup, ClassGroupChoice } from "../../lib/model";
@@ -58,22 +52,16 @@ export function ClassGroupSwitch({
 }
 
 /** Asked once after an LMS pull adds 物理学演習・実験 without a chosen group. */
-export function ClassGroupPrompt({
-  choice,
-  choose,
-  later,
-}: {
-  choice: ClassGroupChoice;
-  choose: (group: ClassGroup) => void;
-  later: () => void;
-}) {
+export function classGroupDialog(
+  choice: ClassGroupChoice,
+  choose: (group: ClassGroup) => void,
+  later: () => void,
+): NoticeDialog {
   const hint = nextHint(choice);
-  return (
-    <Modal
-      opened
-      onClose={later}
-      title={`${t("courses.physicsGroup")} · ${semesterLabel(choice.terms)}`}
-    >
+  return {
+    id: `physics:${choice.semester}`,
+    title: `${t("courses.physicsGroup")} · ${semesterLabel(choice.terms)}`,
+    message: (
       <Stack gap="space-5">
         <Text size="sm">{t("courses.andMeetEveryOtherWeek")}</Text>
         <Text size="sm" fw={600}>
@@ -88,17 +76,19 @@ export function ClassGroupPrompt({
         <Text size="xs" c="dimmed">
           {t("courses.youCanChangeThisLater")}
         </Text>
-        <Group justify="flex-end" gap="space-4">
-          <Button variant="subtle" onClick={later}>
-            {t("common.later")}
-          </Button>
-          {(["red", "white"] as const).map((group) => (
-            <Button key={group} variant="light" onClick={() => choose(group)}>
-              {classGroupLabel(group)}
-            </Button>
-          ))}
-        </Group>
       </Stack>
-    </Modal>
-  );
+    ),
+    choices: [
+      { id: "later", label: t("common.later"), variant: "subtle" },
+      ...(["red", "white"] as const).map((group) => ({
+        id: group,
+        label: classGroupLabel(group),
+        variant: "light" as const,
+      })),
+    ],
+    onChoice: (picked) => {
+      if (picked === "red" || picked === "white") choose(picked);
+      else later();
+    },
+  };
 }

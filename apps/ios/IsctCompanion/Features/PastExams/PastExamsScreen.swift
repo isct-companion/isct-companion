@@ -67,22 +67,15 @@ struct ExamRequestRoute: Hashable {
 }
 
 /// The one Core call path each past-exams page owns: whether a call is
-/// running, its failure or notice, a pending confirmation, the website's
+/// running, its failure, the website's
 /// pages and the forms' choices.
 @MainActor
 @Observable
 final class ExamPage {
-    struct Confirmation {
-        let key: String
-        let work: () async -> Void
-    }
-
     private var running = 0
     /// Signing in runs; only then does the sign-in gate show it.
     private(set) var connecting = false
     var problem: String?
-    var notice: String?
-    var confirmation: Confirmation?
     private(set) var site: ExamSitePages?
     private(set) var choices: ExamChoices?
 
@@ -123,52 +116,20 @@ final class ExamPage {
         return true
     }
 
-    func confirm(_ key: String, work: @escaping () async -> Void) {
-        confirmation = Confirmation(key: key, work: work)
+    func confirm(_ key: String, notices: AppNotices, work: @escaping @MainActor () async -> Void) {
+        notices.confirm(title: t(key), action: t("common.ok"), destructive: true) { Task { await work() } }
     }
 }
 
 extension View {
-    /// A past-exams page's failure or notice above the bottom edge, and its
-    /// confirmations.
+    /// A failure stays with the operation's page until another attempt or dismissal.
     func examPageFeedback(_ page: ExamPage) -> some View {
-        modifier(ExamPageFeedback(page: page))
-    }
-}
-
-private struct ExamPageFeedback: ViewModifier {
-    let page: ExamPage
-
-    func body(content: Content) -> some View {
-        content
-            .safeAreaInset(edge: .bottom) {
-                if let message = page.problem ?? page.notice {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(page.problem == nil ? Theme.ink : Theme.danger)
-                        .padding(.horizontal, Theme.space7)
-                        .padding(.vertical, Theme.space5)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusPanel, style: .continuous))
-                        .padding(.horizontal, Theme.gutter)
-                        .padding(.bottom, Theme.space4)
-                        .onTapGesture { page.problem = nil; page.notice = nil }
-                        .task(id: message) {
-                            try? await Task.sleep(for: .seconds(4))
-                            guard !Task.isCancelled else { return }
-                            if page.problem == message { page.problem = nil }
-                            if page.notice == message { page.notice = nil }
-                        }
-                }
+        safeAreaInset(edge: .top, spacing: 0) {
+            if let problem = page.problem {
+                ProblemBanner(text: problem, dismiss: { page.problem = nil })
+                    .padding(.horizontal, Theme.gutter)
             }
-            .confirmationDialog(
-                page.confirmation.map { t($0.key) } ?? "",
-                isPresented: Binding(get: { page.confirmation != nil }, set: { if !$0 { page.confirmation = nil } }),
-                titleVisibility: .visible,
-                presenting: page.confirmation
-            ) { confirmed in
-                Button(t("common.ok"), role: .destructive) { Task { await confirmed.work() } }
-            }
+        }
     }
 }
 
@@ -191,7 +152,6 @@ struct PastExamsScreen: View {
     @State private var coursesFailed = false
     @State private var coursesRetry = 0
     @State private var uploadEntry: ExamUploadEntry?
-    @State private var deletingAccount = false
 
     init(courseId: String? = nil) { self.courseId = courseId }
 
@@ -267,7 +227,6 @@ struct PastExamsScreen: View {
         .onAppear { Task { await loadVisible(reload: true, onlyLoaded: true) } }
         .onChange(of: tab) {
             page.problem = nil
-            page.notice = nil
             Task { await loadVisible(reload: false) }
         }
         .onChange(of: account?.status) { _, status in
@@ -277,14 +236,13 @@ struct PastExamsScreen: View {
             requestPages.removeAll()
             library = nil
             uploadEntry = nil
-            if status == .unsupported { page.confirmation = nil }
         }
         .sheet(item: $uploadEntry) { entry in
             ExamUploadSheet(entry: entry, choices: page.choices) { outcome in
                 requestPages.removeAll()
                 library = nil
                 await loadVisible(reload: true)
-                page.notice = outcome.notice
+                model.notices.show(outcome.notice)
                 if let id = outcome.documentId { push(ExamDocumentRoute(id: id)) }
             }
         }
@@ -423,9 +381,18 @@ struct PastExamsScreen: View {
                     LabeledContent(t("examShare.account"), value: email)
                 }
                 Button(t("examShare.disconnect"), role: .destructive) {
-                    page.confirm("examShare.disconnectHint") { await accountAction(.disconnect) }
+                    page.confirm("examShare.disconnectHint", notices: model.notices) { await accountAction(.disconnect) }
                 }
-                Button(t("examShare.deleteAccount"), role: .destructive) { deletingAccount = true }
+                Button(t("examShare.deleteAccount"), role: .destructive) {
+                    model.notices.confirm(title: t("examShare.deleteAccountTitle"),
+                                          message: t("examShare.deleteAccountBody"),
+                                          action: t("examShare.deleteAccount"), destructive: true) {
+                        Task {
+                            guard await page.call(model, .deleteAccount) != nil else { return }
+                            model.notices.show(t("examShare.accountDeleted"))
+                        }
+                    }
+                }
                     .disabled(uploadRunning)
             } footer: {
                 ExamCredit()
@@ -436,17 +403,6 @@ struct PastExamsScreen: View {
         .pageListMargins()
         .overlay { if library == nil && page.busy { ProgressView() } }
         .refreshable { await refresh() }
-        .alert(t("examShare.deleteAccountTitle"), isPresented: $deletingAccount) {
-            Button(t("examShare.deleteAccount"), role: .destructive) {
-                Task {
-                    guard await page.call(model, .deleteAccount) != nil else { return }
-                    page.notice = t("examShare.accountDeleted")
-                }
-            }
-            Button(t("common.cancel"), role: .cancel) {}
-        } message: {
-            Text(t("examShare.deleteAccountBody"))
-        }
     }
 
     /// An upload Core is sending; the account stays until it ends.
@@ -473,7 +429,7 @@ struct PastExamsScreen: View {
                     .swipeActions {
                         if let removal {
                             Button(t(removal.key), role: .destructive) {
-                                page.confirm(removal.key) {
+                                page.confirm(removal.key, notices: model.notices) {
                                     if case let .library(value)? = await page.call(model, removal.action(item.id)) {
                                         library = value
                                     }

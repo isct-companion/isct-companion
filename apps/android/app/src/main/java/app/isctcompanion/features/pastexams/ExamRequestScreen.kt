@@ -24,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.ExamAction
 import app.isctcompanion.core.ExamAnswer
@@ -45,13 +46,13 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     val links = rememberExamLinks()
+    val model = LocalModel.current
     val calls = rememberExamCalls()
     val site by rememberExamSite(calls)
     var request by remember(id) { mutableStateOf(ExamViews.requests[id]) }
     var missing by remember { mutableStateOf(false) }
     // The open upload form with the choices read as it opened.
     var upload by remember { mutableStateOf<Pair<ExamUploadForm, ExamChoices>?>(null) }
-    var deleting by remember { mutableStateOf(false) }
 
     /** Takes this request from a board Core answered, when it is listed. */
     fun take(answer: ExamAnswer?): Boolean {
@@ -107,7 +108,16 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(t(if (item.status == "open") "examShare.closeRequest" else "examShare.reopenRequest")) }
-                        TextButton(enabled = !calls.busy, onClick = { deleting = true }, modifier = Modifier.fillMaxWidth()) {
+                        TextButton(enabled = !calls.busy, onClick = {
+                            model.notices.confirm(t("examShare.deleteRequest"), t("common.ok"), destructive = true) {
+                                scope.launch {
+                                    if (take(calls.call(ExamAction.DeleteRequest(id, mine)))) {
+                                        ExamViews.requests.remove(id)
+                                        navigator.back()
+                                    }
+                                }
+                            }
+                        }, modifier = Modifier.fillMaxWidth()) {
                             Text(t("common.delete"), color = Theme.colors.danger)
                         }
                     }
@@ -128,20 +138,11 @@ fun ExamRequestScreen(id: String, mine: Boolean) {
     upload?.let { (form, choices) ->
         UploadSheet(form, choices, dismiss = { upload = null }) {
             upload = null
-            ExamViews.notice = t("examShare.upload.uploaded")
+            model.notices.show(t("examShare.upload.uploaded"))
             navigator.back()
         }
     }
-    if (deleting) {
-        ConfirmDialog(Confirmation("examShare.deleteRequest", ExamAction.DeleteRequest(id, mine)), { deleting = false }) { action ->
-            scope.launch {
-                if (take(calls.call(action))) {
-                    ExamViews.requests.remove(id)
-                    navigator.back()
-                }
-            }
-        }
-    }
+
 }
 
 @Composable

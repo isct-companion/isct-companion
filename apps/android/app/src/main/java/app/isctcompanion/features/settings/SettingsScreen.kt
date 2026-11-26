@@ -28,7 +28,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -325,7 +324,7 @@ private fun ResetRow(title: String, hint: String, color: Color, icon: ImageVecto
 private fun LogsRow() {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    fun fail(message: String) = Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    val notices = LocalModel.current.notices
     val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
@@ -334,7 +333,7 @@ private fun LogsRow() {
                     val stream = context.contentResolver.openOutputStream(uri) ?: throw IOException("No output stream")
                     stream.use { it.write(logText(context).toByteArray()) }
                 }
-            }.onFailure { fail(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
+            }.onFailure { notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it))) }
         }
     }
     // One row for both log actions, as a menu (iOS's Application logs row).
@@ -359,7 +358,7 @@ private fun LogsRow() {
                     runCatching {
                         context.getSystemService(ClipboardManager::class.java)
                             .setPrimaryClip(ClipData.newPlainText(t("settings.main.applicationLogs"), logText(context)))
-                    }.onFailure { fail(t("settings.otp.copyFailed")) }
+                    }.onFailure { notices.show(t("settings.otp.copyFailed")) }
                 },
             )
         }
