@@ -1,3 +1,5 @@
+import { primaryModifierName } from "../../lib/shortcuts";
+import { nativeOs } from "../../platform/desktop-bridge";
 import { ChevronDown } from "lucide-react";
 import { TitleRow } from "../../components/TitleRow";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
@@ -316,9 +318,6 @@ function CoursesBody({
         >
           <div className="coursesLeft">
             <Paper component="section" className="ttCard">
-              <div className="timetableViewBar">
-                <b>{t("courses.quarterTemplate")}</b>
-              </div>
               {
                 <div className="intensiveLane">
                   {canEdit && onIntensive ? (
@@ -326,7 +325,10 @@ function CoursesBody({
                       type="button"
                       className={`intensiveToggle${intensiveActive ? " active" : ""}`}
                       aria-pressed={Boolean(intensiveActive)}
-                      title={t("courses.findIntensiveCourses")}
+                      title={`${t("courses.findIntensiveCourses")} · ${t(
+                        "timetable.slotAppendHint",
+                        { modifier: primaryModifierName(nativeOs()) },
+                      )}`}
                       onClick={(event) =>
                         onIntensive(event.metaKey || event.ctrlKey)
                       }

@@ -236,7 +236,8 @@ export function CoursePlanningPage({
             activate={activateFinder}
             year={Number(courseTerm.slice(0, 4))}
             term={courseTerm}
-            summary={`${finderTermCourses.length} ${t("course.status.onTimetable")} · ${termCredits} ${t("common.creditsUnit")}`}
+            // Credits are shown once, in the toolbar's summary.
+            summary={`${finderTermCourses.length} ${t("course.status.onTimetable")}`}
             finder={finder}
             openCourse={(row) => {
               setPanelCourseId(null);

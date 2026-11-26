@@ -38,6 +38,8 @@ export function Today({
   openSchedule,
   focusSection,
   selection,
+  pickedDate,
+  setPickedDate,
   active = true,
 }: {
   data: Workspace;
@@ -57,6 +59,9 @@ export function Today({
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
+  /** The day shown, shared with the week calendar beside it; `null` is today. */
+  pickedDate: string | null;
+  setPickedDate: (date: string | null) => void;
 }) {
   const page = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -69,7 +74,6 @@ export function Today({
   const now = new Date(nowIso);
   const todayIso = tokyoDate(now);
   // Schedule can show another day of the week; assignments stay relative to now.
-  const [pickedDate, setPickedDate] = useState<string | null>(null);
   // -1 / 1 slides the swapped day in from the side it came from.
   const [direction, setDirection] = useState(0);
   const viewIso = pickedDate ?? todayIso;

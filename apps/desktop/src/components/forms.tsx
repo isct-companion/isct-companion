@@ -26,11 +26,14 @@ export function SettingsHeader({
 /** A titled block of rows, like a grouped list in system settings. */
 export function SettingsGroup({
   title,
+  description,
   footer,
   children,
   tone,
 }: {
   title?: MessageKey;
+  /** Under the title, before the rows: how to use what follows. */
+  description?: React.ReactNode;
   footer?: React.ReactNode;
   children: React.ReactNode;
   tone?: "danger";
@@ -38,6 +41,7 @@ export function SettingsGroup({
   return (
     <section className={`settingsGroup${tone ? ` ${tone}` : ""}`}>
       {title && <h3>{t(title)}</h3>}
+      {description && <p className="groupDescription">{description}</p>}
       {children}
       {footer && <p className="groupFooter">{footer}</p>}
     </section>
