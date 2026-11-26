@@ -58,6 +58,7 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.rememberSecretReveal
 import kotlinx.coroutines.launch
 import app.isctcompanion.core.connect
 import app.isctcompanion.core.retrySchool
@@ -335,9 +336,11 @@ private fun Secret(
 ) {
     // Only the login password is offered to password managers; the TOTP secret
     // and matrix are pasted keys and stay out of Autofill.
+    val reveal = rememberSecretReveal()
     OutlinedTextField(
         value, onChange, label = { Text(label) }, singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = reveal.transformation,
+        trailingIcon = { reveal.Toggle() },
         keyboardOptions = KeyboardOptions(
             capitalization = capitalization, autoCorrectEnabled = false,
             keyboardType = if (login) KeyboardType.Password else KeyboardType.Ascii,

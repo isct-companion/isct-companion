@@ -17,13 +17,16 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Widgets
 import app.isctcompanion.design.Notices
 import app.isctcompanion.design.t
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedButton
+import android.appwidget.AppWidgetManager
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -78,6 +81,8 @@ import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
+import app.isctcompanion.widgets.AssignmentsWidgetReceiver
+import app.isctcompanion.widgets.ClassesWidgetReceiver
 import app.isctcompanion.core.feedbackFormUrl
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
@@ -245,6 +250,7 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         LanguageCard()
         // No maps-app choice: Android has no Apple Maps, and Core opens Google Maps.
         WebCard()
+        WidgetCard()
         // As on iOS: About holds the version, the tips and the logs; the
         // destructive Reset group comes last.
         Spacer(Modifier.height(Theme.space4))
@@ -429,6 +435,24 @@ private fun backupSummary(cloud: SyncState?): String {
 }
 
 /** The ウェブ tab's device preferences: page text size and the site it opens on. */
+/** One tap puts a widget on the Home screen, where the launcher supports
+ * asking (`requestPinAppWidget`); otherwise the launcher's own widget list
+ * is the way, and the card stays away. */
+@Composable
+private fun WidgetCard() {
+    val context = LocalContext.current
+    val widgets = context.getSystemService(AppWidgetManager::class.java) ?: return
+    if (!widgets.isRequestPinAppWidgetSupported) return
+    fun pin(receiver: Class<*>) = widgets.requestPinAppWidget(ComponentName(context, receiver), null, null)
+    Spacer(Modifier.height(Theme.space4))
+    SectionLabel(t("widget.pin"))
+    Card {
+        ActionRow(t("widget.courses"), Icons.Rounded.Widgets) { pin(ClassesWidgetReceiver::class.java) }
+        RowDivider(inset = ICON_ROW_INSET)
+        ActionRow(t("widget.assignments"), Icons.Rounded.Widgets) { pin(AssignmentsWidgetReceiver::class.java) }
+    }
+}
+
 @Composable
 private fun WebCard() {
     val web = LocalModel.current.web
