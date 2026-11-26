@@ -78,6 +78,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
+import app.isctcompanion.core.SyncScope
 import app.isctcompanion.core.CampusMapIntent
 import app.isctcompanion.core.CampusMapOpening
 import app.isctcompanion.core.CampusMapScene
@@ -140,6 +141,10 @@ fun CampusMapScreen(room: String?) {
     val scope = rememberCoroutineScope()
     val reduceMotion = LocalReducedMotion.current
     var load by remember { mutableStateOf<MapLoad>(MapLoad.Loading) }
+    // The map is one of Core's reference files: asked for here, it opens
+    // once the downloaded data lands.
+    var downloading by remember { mutableStateOf(false) }
+    LaunchedEffect(model.contentRevision) { if (downloading && load == MapLoad.Missing) load = MapLoad.Loading }
     // Intents reach Core one after another, in the order sent.
     val intents = remember { Channel<CampusMapIntent>(Channel.UNLIMITED) }
     val search = rememberTextFieldState()
@@ -211,6 +216,8 @@ fun CampusMapScreen(room: String?) {
         value = null
         if (query.isNotBlank()) value = model.campusMapSearch(query)
     }
+    // Back closes the open place first, then the page.
+    BackHandler(enabled = showsCard) { send(CampusMapIntent.Clear) }
     BackHandler(enabled = searching) { endSearch() }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Theme.colors.bg)) {
@@ -379,8 +386,14 @@ fun CampusMapScreen(room: String?) {
                     MapLoad.Loading -> Box(Modifier.fillMaxWidth().padding(Theme.cardPadding), Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                     }
-                    MapLoad.Missing -> Notice(t("campusMap.unavailable"), t("campusMap.notDownloaded"))
-                    is MapLoad.Failed -> Notice(t("campusMap.failed"), state.message) { load = MapLoad.Loading }
+                    MapLoad.Missing -> Notice(
+                        t("campusMap.unavailable"), t(if (downloading) "common.downloading" else "campusMap.notDownloaded"),
+                        t("campusMap.download").takeIf { !downloading },
+                    ) {
+                        downloading = true
+                        model.refresh(SyncScope.References)
+                    }
+                    is MapLoad.Failed -> Notice(t("campusMap.failed"), state.message, t("common.retry")) { load = MapLoad.Loading }
                     is MapLoad.Ready -> Unit
                 }
             }
