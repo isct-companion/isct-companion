@@ -1059,7 +1059,7 @@ describe("store failures", () => {
     );
     await click(ack);
     await until(() =>
-      expect(core.mutations).toContainEqual({
+      expect(core.mutations.map((entry) => entry.intent)).toContainEqual({
         kind: "answerAnnouncement",
         id: "b",
       }),
@@ -1072,7 +1072,9 @@ describe("store failures", () => {
     );
     await publishFeed({ active: [], pending: [] });
     await until(() => expect(dialog()).toBeNull());
-    expect(core.mutations).toEqual([{ kind: "answerAnnouncement", id: "b" }]);
+    expect(core.mutations.map((entry) => entry.intent)).toEqual([
+      { kind: "answerAnnouncement", id: "b" },
+    ]);
   }, 20_000);
 });
 
