@@ -85,6 +85,7 @@ pub mod widgets;
 pub mod workspace;
 pub mod workspace_changes;
 
+#[cfg(feature = "campus-vpn")]
 pub mod vpn;
 #[cfg(feature = "desktop-workspaces")]
 pub mod workspaces;

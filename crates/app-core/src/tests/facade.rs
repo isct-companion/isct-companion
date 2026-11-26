@@ -891,7 +891,7 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
         json!({"kind":"today","now":now}),
         json!({"kind":"today","now":"2026-10-14T12:00:00+09:00"}),
         json!({"kind":"assignmentBoard","now":now}),
-        json!({"kind":"courseDetail","courseId":course}),
+        json!({"kind":"courseDetail","courseId":course,"now":now}),
         json!({"kind":"courseContent","courseId":course,"now":now}),
         json!({"kind":"assignmentDetail","assignmentId":"lms-assignment:1001"}),
         json!({"kind":"lectureSearch","term":"2026-3Q","query":"handout"}),
@@ -1017,10 +1017,11 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
     mutate(WorkspaceIntent::ReplaceSettings { settings });
     let first = format!("{course}-weekly-0-2026-04-20");
     let second = format!("{course}-weekly-0-2026-06-08");
-    let detail = || {
+    let detail_at = |now: &str| {
         let answer = core
             .schedule_query(vec![WorkspaceQuery::CourseDetail {
                 course_id: course.clone(),
+                now: now.into(),
             }])
             .unwrap();
         let WorkspaceQueryResult::CourseDetail(view) = &answer.values[0] else {
@@ -1028,6 +1029,8 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
         };
         view.clone()
     };
+    // Before every session the test moves, so none is over.
+    let detail = || detail_at("2026-04-01T00:00:00+09:00");
     // A quiz mark survives schedule edits; clearing a correction follows the
     // source again without turning the quiz back into a normal class.
     let mark = "quiz";
@@ -1074,6 +1077,10 @@ fn marked_exam_edits_keep_identity_across_terms_and_read_models() {
         (mark, "2026-04-20", Some("08:50"), Some("10:30"), "Studio")
     );
     assert!(!exam.edited);
+    // The course page leaves the session out once it ends, not before.
+    let listed = |now: &str| detail_at(now).exams.iter().any(|exam| exam.key == first);
+    assert!(listed("2026-04-20T10:29:00+09:00"));
+    assert!(!listed("2026-04-20T10:30:00+09:00"));
     // Two source quarters move into one reminder window. With no official
     // exams, scanning only the current/selected quarter necessarily misses one.
     for (key, start, end) in [(&first, "08:50", "10:30"), (&second, "10:45", "12:25")] {

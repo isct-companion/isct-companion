@@ -1,20 +1,14 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { TitleRow } from "../../components/TitleRow";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { UiButton, useReveal } from "../../components/ui";
+import { useReveal } from "../../components/ui";
 import {
   type PersonalEvent,
   type TermId,
   type Workspace,
 } from "../../lib/model";
-import {
-  addCivilDays as addDays,
-  civilWeekday,
-  formatJst,
-  tokyoDate,
-} from "../../lib/civil-date";
+import { civilWeekday, formatJst, tokyoDate } from "../../lib/civil-date";
 import {
   useScheduleQueries,
   useScheduleQuery,
@@ -35,11 +29,9 @@ export function Today({
   openTask,
   openAssignments,
   hideAssignment,
-  openSchedule,
   focusSection,
   selection,
-  pickedDate,
-  setPickedDate,
+  sidebar,
   active = true,
 }: {
   data: Workspace;
@@ -55,13 +47,11 @@ export function Today({
   /** Lecture Desk's full list of the quarter's assignments. */
   openAssignments?: () => void;
   hideAssignment: (assignmentId: string) => void;
-  openSchedule: () => void;
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
-  /** The day shown, shared with the week calendar beside it; `null` is today. */
-  pickedDate: string | null;
-  setPickedDate: (date: string | null) => void;
+  /** The button that folds Today away beside the calendar. */
+  sidebar?: ReactNode;
 }) {
   const page = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -73,53 +63,28 @@ export function Today({
   const nowIso = useClock(active);
   const now = new Date(nowIso);
   const todayIso = tokyoDate(now);
-  // Schedule can show another day of the week; assignments stay relative to now.
-  // -1 / 1 slides the swapped day in from the side it came from.
-  const [direction, setDirection] = useState(0);
-  const viewIso = pickedDate ?? todayIso;
-  const pick = (date: string | null) => {
-    const target = date ?? todayIso;
-    if (target === viewIso) return;
-    setDirection(target > viewIso ? 1 : -1);
-    setPickedDate(date);
-  };
-  const swap = { "--swap": direction } as React.CSSProperties;
-  const isToday = viewIso === todayIso;
-  const viewDate = new Date(`${viewIso}T12:00:00+09:00`);
-  const weekStart = addDays(viewIso, 1 - civilWeekday(viewIso));
-  // Apart from the rest: another week's days must not draw under this one,
-  // while the answers below stay on screen when only the minute changes.
-  const weekQuery = useScheduleQuery<DatedAgenda[]>(
-    { kind: "calendarRange", from: weekStart, to: addDays(weekStart, 6) },
+  const viewDate = new Date(`${todayIso}T12:00:00+09:00`);
+  // Apart from the rest: the day's classes stay on screen while the answers
+  // below re-read each minute.
+  const dayQuery = useScheduleQuery<DatedAgenda[]>(
+    { kind: "calendarRange", from: todayIso, to: todayIso },
     active,
   );
   const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
     [
-      { kind: "upcomingExams", from: viewIso, to: null },
-      { kind: "today", now: isToday ? nowIso : `${viewIso}T00:00:00+09:00` },
+      { kind: "upcomingExams", from: todayIso, to: null, now: nowIso },
+      { kind: "today", now: nowIso },
       { kind: "taskView", now: nowIso },
     ],
     active,
   );
-  const agendas = weekQuery.value;
   const [exams, today, taskView] = dashboard.value ?? [];
-  const scheduleLoading = weekQuery.pending && !agendas;
+  const scheduleLoading = dayQuery.pending && !dayQuery.value;
   const scheduleReveal = useReveal(scheduleLoading);
-  const agenda = agendas?.find((day) => day.date === viewIso);
+  const agenda = dayQuery.value?.find((day) => day.date === todayIso);
   const teachingState = agenda?.calendarState;
-  const effectiveDay = civilWeekday(viewIso);
+  const effectiveDay = civilWeekday(todayIso);
   const importantDates = agenda?.importantDates ?? [];
-  const week = Array.from({ length: 7 }, (_, index) => {
-    const date = addDays(weekStart, index);
-    return {
-      date,
-      busy: Boolean(
-        agendas
-          ?.find((day) => day.date === date)
-          ?.occurrences.some((item) => !item.cancelled),
-      ),
-    };
-  });
   const tasksLoading = dashboard.pending && !taskView;
   const tasksReveal = useReveal(tasksLoading);
   const stateLabel =
@@ -128,8 +93,8 @@ export function Today({
 
   return (
     <div className="page todayPage" ref={page}>
-      <TitleRow nav className="todayHeader">
-        <h1 className="daySwap" key={viewIso} style={swap}>
+      <TitleRow nav sidebar={sidebar} className="todayHeader">
+        <h1>
           {formatJst(viewDate, data.settings.locale, {
             day: "numeric",
             month: "long",
@@ -141,59 +106,8 @@ export function Today({
           </span>
         </h1>
         <span className="titleRowSpacer" />
-        <span className="teachingState">
-          {!isToday && (
-            <UiButton className="textButton" onClick={() => pick(null)}>
-              {t("common.today")}
-            </UiButton>
-          )}
-          {stateLabel}
-        </span>
+        <span className="teachingState">{stateLabel}</span>
       </TitleRow>
-      <div className="todayWeek">
-        <div
-          className="weekStrip"
-          role="group"
-          aria-label={t("today.week")}
-          style={
-            {
-              "--day": effectiveDay - 1,
-              "--swap": direction,
-            } as React.CSSProperties
-          }
-        >
-          <UiButton
-            className="weekShift"
-            aria-label={t("today.previousWeek")}
-            onClick={() => pick(addDays(viewIso, -7))}
-          >
-            <ChevronLeft size={14} strokeWidth={1.75} aria-hidden />
-          </UiButton>
-          {week.map(({ date, busy }) => (
-            <UiButton
-              key={date}
-              className={`weekDay${date === viewIso ? " active" : ""}${date === todayIso ? " today" : ""}${busy ? " busy" : ""}`}
-              aria-pressed={date === viewIso}
-              aria-label={date}
-              onClick={() => pick(date === todayIso ? null : date)}
-            >
-              <small>
-                {formatJst(date, data.settings.locale, {
-                  weekday: "narrow",
-                })}
-              </small>
-              <b>{Number(date.slice(8))}</b>
-            </UiButton>
-          ))}
-          <UiButton
-            className="weekShift"
-            aria-label={t("today.nextWeek")}
-            onClick={() => pick(addDays(viewIso, 7))}
-          >
-            <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-          </UiButton>
-        </div>
-      </div>
 
       <div className="todayFlow">
         {importantDates.length > 0 && (
@@ -231,18 +145,15 @@ export function Today({
         <TodayAgenda
           data={data}
           agenda={agenda}
-          today={today?.date === viewIso ? today : undefined}
+          today={today?.date === todayIso ? today : undefined}
           now={now}
-          viewIso={viewIso}
-          isToday={isToday}
-          swap={swap}
+          todayIso={todayIso}
           scheduleLoading={scheduleLoading}
           scheduleReveal={scheduleReveal}
           selection={selection}
           open={open}
           openExam={openExam}
           openEvent={openEvent}
-          openSchedule={openSchedule}
         />
         <TodayAssignments
           data={data}

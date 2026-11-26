@@ -1376,7 +1376,6 @@ summary,
   .otpGuideShot[data-action="screenshot"]::after {
     animation: none !important;
   }
-  .weekStrip::before,
   .lmsRailIndicator,
   .uiProgressIndicator,
   .moreOptions > summary::before {
@@ -1388,11 +1387,6 @@ summary,
     }
   }
   @keyframes todayRise {
-    from {
-      opacity: 0;
-    }
-  }
-  @keyframes daySwap {
     from {
       opacity: 0;
     }
@@ -1480,9 +1474,6 @@ summary,
   flex: 0 0 auto;
   color: var(--muted);
   font-size: calc(var(--type-note-size) * var(--text));
-}
-.todayWeek {
-  padding: var(--space-4) var(--space-5) 0;
 }
 .todayFlow {
   min-height: 0;
@@ -3179,95 +3170,6 @@ textarea.codeArea {
   padding-left: var(--space-1);
 }
 
-/* ---------- today: week strip ---------- */
-.todayWeek {
-  display: grid;
-  justify-items: end;
-  gap: var(--space-3);
-}
-.todayWeek .teachingState {
-  display: flex;
-  align-items: center;
-  gap: var(--space-5);
-  padding-bottom: 0;
-}
-.todayWeek .teachingState .textButton {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--accent);
-  font: inherit;
-  font-weight: 600;
-  cursor: default;
-}
-.weekStrip {
-  display: flex;
-  align-items: stretch;
-  gap: var(--space-1);
-}
-.weekStrip button {
-  border: 0;
-  background: none;
-  cursor: default;
-  color: var(--muted);
-  border-radius: 8px;
-}
-.weekShift {
-  width: 22px;
-  font-size: 16px;
-  line-height: 1;
-}
-.weekShift:hover {
-  color: var(--ink);
-}
-.weekDay {
-  position: relative;
-  width: 34px;
-  padding: 5px 0 9px;
-  display: grid;
-  justify-items: center;
-  gap: 1px;
-}
-.weekDay small {
-  font-size: calc(var(--type-tick-size) * var(--text));
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-.weekDay b {
-  font-size: calc(var(--type-row-size) * var(--text));
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink);
-}
-.weekDay:hover {
-  background: var(--surface-3);
-}
-.weekDay.today b {
-  color: var(--accent);
-}
-.weekDay.active {
-  background: var(--accent);
-}
-.weekDay.active small,
-.weekDay.active b {
-  color: var(--accent-ink);
-}
-.weekDay.busy::after {
-  content: "";
-  position: absolute;
-  bottom: 4px;
-  left: 50%;
-  width: 4px;
-  height: 4px;
-  margin-left: -2px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.55;
-}
-.weekDay.active.busy::after {
-  background: #fff;
-  opacity: 0.85;
-}
 /* ---------- workstation: course finder ---------- */
 .courseFinder {
   position: relative;
@@ -3278,17 +3180,11 @@ textarea.codeArea {
   height: 30px;
   font-size: calc(var(--type-note-size) * var(--text));
 }
-/* Today rises in, and a picked day slides from the side it came from. */
+/* Today rises in. */
 @keyframes todayRise {
   from {
     opacity: 0;
     transform: translate3d(0, 10px, 0);
-  }
-}
-@keyframes daySwap {
-  from {
-    opacity: 0;
-    transform: translate3d(calc(var(--swap, 0) * 14px), 0, 0);
   }
 }
 .todayPage > .todayHeader,
@@ -3304,11 +3200,6 @@ textarea.codeArea {
 }
 .todayPage > .todayFlow > :nth-child(3) {
   animation-delay: 150ms;
-}
-.daySwap,
-.weekDay b {
-  animation: daySwap var(--motion-duration-slow) var(--motion-easing-emphasized)
-    backwards;
 }
 /* Stepping weeks slides the grid in from the arrow's side (approach/
    motion-week-swipe); the first draw and a reload do not move. */
@@ -3328,36 +3219,11 @@ textarea.codeArea {
     transform: translate3d(calc(var(--slide, 0) * 24px), 0, 0);
   }
 }
-/* Sliding highlight behind the picked day. */
-.weekStrip {
-  position: relative;
-}
-.weekStrip::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: calc(24px + var(--day, 0) * 36px);
-  width: 34px;
-  border-radius: 8px;
-  background: var(--accent);
-  transition: left var(--motion-duration-slow) var(--motion-easing-emphasized);
-}
-.weekDay.active {
-  background: none;
-}
-.weekDay {
-  z-index: 1;
-}
-.weekDay.active:hover {
-  background: none;
-}
-
 /* ---------- Home: the day beside the week ---------- */
 .homePage {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
   min-width: 0;
   min-height: 0;
@@ -3387,40 +3253,11 @@ textarea.codeArea {
   min-width: 0;
   min-height: 0;
 }
-/* The week beside the day already shows the days, so the strip and Week link step aside. */
-@media (min-width: 1001px) {
-  .homeDay .weekStrip,
-  .homeDay [data-today-section="classes"] > header > .textButton {
-    display: none;
-  }
-}
-.homeBack {
-  display: none;
-}
 .homePage.planning {
   grid-template-columns: minmax(0, 1fr);
 }
 .homePage.planning .homeDay {
   display: none;
-}
-@media (max-width: 1000px) {
-  .homePage {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .homeDay {
-    padding-right: 0;
-    border-right: 0;
-  }
-  .homePage.day:not(.planning) .homeWeek,
-  .homePage.week .homeDay {
-    display: none;
-  }
-  .homePage.week:not(.planning) .homeBack {
-    display: inline-flex;
-    align-self: flex-start;
-    margin-bottom: var(--space-4);
-    color: var(--accent);
-  }
 }
 
 /* Remaining time before a deadline; tone rises inside three days and one day. */

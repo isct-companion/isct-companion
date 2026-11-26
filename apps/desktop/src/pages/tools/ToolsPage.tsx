@@ -9,12 +9,12 @@ import { availableTools } from "../../platform/available-tools";
 import type { DesktopTool } from "../../platform/desktop-bridge";
 import "./tools.css";
 
-const cards: Record<
-  DesktopTool,
-  ComponentType<{ notify: (message: string) => void }>
+const cards: Partial<
+  Record<DesktopTool, ComponentType<{ notify: (message: string) => void }>>
 > = {
   "campus-wifi": CampusWifi,
-  "campus-vpn": CampusVpn,
+  "campus-vpn":
+    import.meta.env.ISCT_CAMPUS_VPN === false ? undefined : CampusVpn,
   "campus-printer": CampusPrinter,
 };
 
@@ -37,7 +37,7 @@ export function Tools({
       <div className="toolCards pageBody">
         {availableTools(platform).map((tool) => {
           const Card = cards[tool];
-          return <Card key={tool} notify={notify} />;
+          return Card && <Card key={tool} notify={notify} />;
         })}
       </div>
     </div>

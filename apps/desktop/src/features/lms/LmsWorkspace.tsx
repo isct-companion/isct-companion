@@ -143,6 +143,7 @@ export function LmsWorkspaceBody({
   const workspaceSize = useResizeObserver({ ref: workspaceRef });
   const narrow =
     (workspaceSize.width ?? 0) > 0 && (workspaceSize.width ?? 0) < 640;
+  const readerOnly = narrow && viewing;
   const viewerActive = active && (!narrow || viewing);
 
   const limit = downloadLimit(data.settings);
@@ -163,9 +164,11 @@ export function LmsWorkspaceBody({
       ),
     [data.materials, course.id],
   );
+  const timelineNow = useClock(active);
   const courseDetail = useScheduleQuery<CourseDetail>({
     kind: "courseDetail",
     courseId: course.id,
+    now: timelineNow,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
   // Exams first; the timetable's exam-week classes follow as their own group.
@@ -207,7 +210,6 @@ export function LmsWorkspaceBody({
       ),
     [detailState.value],
   );
-  const timelineNow = useClock(active);
   const contentQuery = useScheduleQuery<CourseContent>({
     kind: "courseContent",
     courseId: course.id,
@@ -726,7 +728,7 @@ export function LmsWorkspaceBody({
         >
           <aside className="lmsOutline">
             <TitleRow className="lmsWorkspaceHeader">
-              {headerStart}
+              {!readerOnly && headerStart}
               <div className="lmsCourseIdentity">
                 <h1 title={course.title}>{course.title}</h1>
                 <small>{course.code}</small>
@@ -1026,6 +1028,7 @@ export function LmsWorkspaceBody({
             <LmsReader
               opened={opened}
               shown={shown}
+              titleStart={readerOnly ? headerStart : undefined}
               viewerActive={viewerActive}
               course={course}
               locale={data.settings.locale}

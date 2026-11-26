@@ -424,7 +424,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         val current = (session.workspaceRevision().value() as OperationResult.Text).value
         val queries = listOf(
             WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
-            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14))),
+            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14)), now),
             WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods,
         )
         val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
@@ -534,8 +534,9 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     suspend fun timetableYear(year: Int): TimetableYear? =
         (query(WorkspaceQuery.TimetableYear(year)) as? WorkspaceQueryResult.TimetableYear)?.v1
 
+    /** A course's page as of now: exams already over are left out. */
     suspend fun courseDetail(id: String): CourseDetail? =
-        (query(WorkspaceQuery.CourseDetail(id)) as? WorkspaceQueryResult.CourseDetail)?.v1
+        (query(WorkspaceQuery.CourseDetail(id, Format.timestamp(Instant.now()))) as? WorkspaceQueryResult.CourseDetail)?.v1
 
     /** A course's LMS content lesson by lesson. */
     suspend fun courseContent(id: String): CourseContent? =

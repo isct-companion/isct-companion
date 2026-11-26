@@ -235,7 +235,13 @@ export function planningWeekFor(
 
 export function lectureListFor(workspace: Workspace) {
   const { courses, allTerms } = overviewFor(workspace);
-  return { courses, allTerms, nextByCourse: {}, exams: [] };
+  return {
+    courses,
+    allTerms,
+    nextByCourse: {},
+    exams: [],
+    examGroups: { upcomingKeys: [], classKeys: [], endedKeys: [] },
+  };
 }
 
 export function scheduleViewFor(

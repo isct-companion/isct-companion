@@ -29,6 +29,7 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundleWindows } from "./bundle-vpn-windows.mjs";
+import { hasCampusVpn } from "./desktop-target.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 export const VPN_RESOURCES = path.join(
@@ -277,7 +278,8 @@ function refreshHelper(signing) {
   signMacho(helper, signing);
 }
 
-export function campusVpnBundle({ macOS, packagesApp, signing }) {
+export function campusVpnBundle({ target, macOS, packagesApp, signing }) {
+  if (!hasCampusVpn(target)) return undefined;
   const helper = { darwin: "isct-vpn-helper", win32: "isct-vpn-helper.exe" }[
     process.platform
   ];

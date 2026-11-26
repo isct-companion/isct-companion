@@ -15,16 +15,13 @@ const set = (file, key, value) =>
 // `host` is the containing app's identifier: the extension's identifier and
 // the widget group follow it, so a development bundle never shares the
 // release widgets' data.
-export function macWidgets(root, args, macOS, { version, host, debug }) {
-  const requested =
-    args.find((arg) => arg.startsWith("--target="))?.slice(9) ??
-    args[args.indexOf("--target") + 1];
+export function macWidgets(root, target, macOS, { version, host, debug }) {
   const arch =
     {
       "aarch64-apple-darwin": "arm64",
       "x86_64-apple-darwin": "x86_64",
       "universal-apple-darwin": "arm64 x86_64",
-    }[requested] ?? { arm64: "arm64", x64: "x86_64" }[process.arch];
+    }[target];
   const widgets = path.join(root, "apps/apple-widgets");
   const desktop = path.join(root, "apps/desktop/src-tauri");
   const output = path.join(root, "target/widgets-mac", arch.replace(" ", "-"));

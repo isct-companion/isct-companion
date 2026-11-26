@@ -1,7 +1,6 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { t } from "../../i18n";
-import { UiButton, EmptyState } from "../ui";
+import { UiButton, EmptyState, FoldToggle } from "../ui";
 import type { Assignment } from "../../lib/model";
 import type { AssignmentGroups } from "../../generated/persistence";
 
@@ -113,18 +112,12 @@ export function AssignmentGroupList({
       )}
       {hidden.length > 0 && hiddenRow && (
         <div className="dueGroup hidden">
-          <UiButton
-            className="textButton moreToggle"
-            aria-expanded={showHidden}
-            onClick={() => setShowHidden((value) => !value)}
+          <FoldToggle
+            open={showHidden}
+            onToggle={() => setShowHidden((value) => !value)}
           >
-            {showHidden ? (
-              <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
-            ) : (
-              <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
-            )}{" "}
             {t("assignments.hiddenAssignments")} · {hidden.length}
-          </UiButton>
+          </FoldToggle>
           {showHidden && hidden.map(hiddenRow)}
         </div>
       )}

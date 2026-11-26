@@ -150,6 +150,7 @@ function CoursePanelBody({
   const detail = useScheduleQuery<CourseDetail>({
     kind: "courseDetail",
     courseId: course.id,
+    now,
   }).value;
   const groupChoices = (
     useScheduleQuery<ClassGroupChoice[]>({

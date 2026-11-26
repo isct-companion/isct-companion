@@ -2,7 +2,7 @@ import SwiftUI
 import TipKit
 
 // First-run guidance (slotledger `approach/first-launch`): one welcome sheet,
-// then TipKit's one-time tips beside the gestures nobody can see. TipKit owns
+// then TipKit's one-time tips beside the controls they explain. TipKit owns
 // display frequency and persistence; tips wait until the sheet is closed.
 
 enum Guide {
@@ -43,6 +43,11 @@ struct LessonMarkTip: Tip {
     var title: Text { Text(t("guide.todaysLesson")) }
     var message: Text? { Text(t("guide.longPressALessonTo")) }
     var image: Image? { Image(systemName: "hand.tap") }
+    var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
+}
+
+struct FeedbackTip: Tip {
+    var title: Text { Text(t("guide.feedbackHint")) }
     var rules: [Rule] { #Rule(Guide.$welcomed) { $0 == true } }
 }
 

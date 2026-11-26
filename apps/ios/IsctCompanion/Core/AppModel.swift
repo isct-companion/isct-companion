@@ -431,7 +431,7 @@ final class AppModel {
         guard case let .text(current) = try await session.workspaceRevision().value(),
               case var .schedule(result) = try await session.scheduleQuery(queries: [
                 .records(fields: ["courses", "assignments"]), .today(now: now),
-                .upcomingExams(from: from, to: last),
+                .upcomingExams(from: from, to: last, now: now),
                 .assignmentBoard(now: now, term: nil), .teachingPeriods,
               ]).value() else { throw SdkError.Unavailable(detail: "dashboard") }
 
@@ -657,10 +657,11 @@ final class AppModel {
         return material
     }
 
+    /// A course's page as of now: exams already over are left out.
     func courseDetail(_ id: String) async -> CourseDetail? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .courseDetail(courseId: id)
+                .courseDetail(courseId: id, now: Self.timestamp(Date()))
             ]).value(),
             case let .courseDetail(detail)? = result.values.first
         else { return nil }

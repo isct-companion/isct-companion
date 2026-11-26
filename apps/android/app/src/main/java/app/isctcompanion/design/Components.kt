@@ -40,11 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LargeTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
@@ -406,8 +405,9 @@ fun ProblemBanner(text: String, onRetry: (() -> Unit)? = null) {
     }
 }
 
-/** A tab's page (or a pushed one, with `navigationIcon`): Material's collapsing large title over scrolling content,
- * pull to refresh when `onRefresh` is given. The content scrolls itself. */
+/** A tab's page (or a pushed one, with `navigationIcon`): a one-line title bar over scrolling content, pull to
+ * refresh when `onRefresh` is given. The content scrolls itself. The bar never grows: Material's large title
+ * folded away on scrolling down and opened again at the top, taking the height from the content each time. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TabPage(
@@ -417,17 +417,14 @@ fun TabPage(
     onRefresh: (suspend () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val scroll = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
-        modifier = Modifier.nestedScroll(scroll.nestedScrollConnection),
         containerColor = Theme.colors.bg,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            LargeTopAppBar(
-                title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            TopAppBar(
+                title = { Text(title, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = navigationIcon,
                 actions = actions,
-                scrollBehavior = scroll,
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Theme.colors.bg, scrolledContainerColor = Theme.colors.bg,
                 ),

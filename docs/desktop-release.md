@@ -96,6 +96,7 @@ synchronizable Keychain access in the distributed desktop app.
 
 macOS bundles require Xcode and XcodeGen for the WidgetKit extension.
 The extension is signed before Tauri places it in `Contents/PlugIns`.
+Campus VPN is built for Apple Silicon and Windows x64.
 For a standalone development bundle, run
 `yarn desktop:build --debug --bundles app`. The app and widget use the same
 Apple Development identity as `yarn desktop:dev`. A Mac with one valid

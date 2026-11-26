@@ -169,6 +169,7 @@ pub fn tokyo(html: &str, base: &str) -> TokyoPage {
 /// One step on the way into the campus VPN (the F5 APM). The APM hands the
 /// browser to GetAccess's proxy, which asks for the portal password again;
 /// the account comes from the portal session.
+#[cfg(feature = "campus-vpn")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum VpnPage {
     /// The proxy's form with a single password field and no account field.
@@ -183,6 +184,7 @@ pub enum VpnPage {
 }
 
 /// Reads a page met on the way into the campus VPN, fetched from `base`.
+#[cfg(feature = "campus-vpn")]
 pub fn vpn(html: &str, base: &str) -> VpnPage {
     let document = Html::parse_document(html);
     for form in select(&document, "form") {
@@ -219,6 +221,7 @@ pub fn vpn(html: &str, base: &str) -> VpnPage {
 
 /// The address a page's script gives form `name` before submitting it:
 /// `document.<name>.action = unescape("…")` or `= "…"`.
+#[cfg(feature = "campus-vpn")]
 fn scripted_action(document: &Html, name: Option<&str>) -> Option<String> {
     let name = name?;
     let needle = format!("{name}.action");
@@ -238,6 +241,7 @@ fn scripted_action(document: &Html, name: Option<&str>) -> Option<String> {
 }
 
 /// `unescape`'s `%XX` decoding, enough for an address.
+#[cfg(feature = "campus-vpn")]
 fn percent_decode(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -473,6 +477,6 @@ fn select_in<'a>(root: ElementRef<'a>, raw: &str) -> Vec<ElementRef<'a>> {
         .unwrap_or_default()
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "campus-vpn"))]
 #[path = "tests/login.rs"]
 mod tests;

@@ -6,9 +6,10 @@ import {
   Scale,
   type LucideIcon,
 } from "lucide-react";
+import type { ComponentProps } from "react";
 import { TitleRow } from "../../components/TitleRow";
 import { Switch, UiButton } from "../../components/ui";
-import { useResetGuide } from "../../components/guide";
+import { GuideTip, useResetGuide } from "../../components/guide";
 import { desktopBridge } from "../../platform/native";
 import { lastInstallText } from "../../lib/app-update-text";
 import { useAppUpdate } from "../../store/app-update";
@@ -30,23 +31,15 @@ const browse = (url: string) => () => void desktopBridge?.openExternal(url);
 function LinkChip({
   id,
   label,
-  title,
   icon: Icon,
-  open,
-}: {
+  ...props
+}: ComponentProps<typeof UiButton> & {
   id: string;
   label: string;
-  title?: string;
   icon: LucideIcon;
-  open: () => void;
 }) {
   return (
-    <UiButton
-      className="aboutLink"
-      data-setting={id}
-      title={title}
-      onClick={open}
-    >
+    <UiButton {...props} className="aboutLink" data-setting={id}>
       <Icon aria-hidden strokeWidth={1.9} />
       <span>{label}</span>
     </UiButton>
@@ -224,33 +217,35 @@ export function About({
                 id="website"
                 label={t("about.website")}
                 icon={Globe}
-                open={browse(WEBSITE)}
+                onClick={browse(WEBSITE)}
               />
               <LinkChip
                 id="github"
                 label="GitHub"
                 icon={GitBranch}
-                open={browse(REPOSITORY)}
+                onClick={browse(REPOSITORY)}
               />
               <LinkChip
                 id="license"
                 label="GPL-3.0"
                 title={t("about.license")}
                 icon={Scale}
-                open={browse(LICENSE)}
+                onClick={browse(LICENSE)}
               />
               <LinkChip
                 id="sponsor"
                 label={t("about.sponsor")}
                 icon={Heart}
-                open={browse(SPONSOR)}
+                onClick={browse(SPONSOR)}
               />
-              <LinkChip
-                id="feedback"
-                label={t("about.feedback")}
-                icon={MessageSquareText}
-                open={() => void desktopBridge?.openFeedbackForm()}
-              />
+              <GuideTip id="feedback" text="guide.feedbackHint" position="top">
+                <LinkChip
+                  id="feedback"
+                  label={t("about.feedback")}
+                  icon={MessageSquareText}
+                  onClick={() => void desktopBridge?.openFeedbackForm()}
+                />
+              </GuideTip>
             </nav>
           </section>
           <IconToy className="aboutToy" />

@@ -1,5 +1,5 @@
-# Pull request labels, read by .github/workflows/triage-labels.yml.
-# A moved directory silently stops matching: update these globs with the move.
+# Pull request labels. Match paths that provide evidence of the affected area.
+# Use all-globs-to-all-files for labels that describe the whole change.
 
 area:desktop:
   - changed-files:
@@ -7,26 +7,282 @@ area:desktop:
 
 area:ios:
   - changed-files:
-      - any-glob-to-any-file: [apps/ios/**, bindings/swift/**]
+      - any-glob-to-any-file: apps/ios/**
 
 area:android:
   - changed-files:
-      - any-glob-to-any-file: [apps/android/**, bindings/kotlin/**]
+      - any-glob-to-any-file: apps/android/**
+
+platform:macos:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/desktop/src-tauri/src/**/*_macos.rs
+          - apps/desktop/src-tauri/src/school_webkit/**
+          - apps/desktop/src-tauri/src/plugins/campus_vpn/macos.rs
+          - apps/desktop/src-tauri/{Entitlements,Info}.plist
+          - apps/apple-widgets/macOS/**
+          - scripts/desktop/macos-*.mjs
+          - crates/vpn-helper/src/unix.rs
+
+platform:windows:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/desktop/src-tauri/src/**/*_windows.rs
+          - apps/desktop/src-tauri/src/school_windows.rs
+          - apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs
+          - apps/desktop/src-tauri/tauri.windows.conf.json
+          - scripts/desktop/*-windows.mjs
+          - crates/vpn-helper/src/windows*.rs
 
 area:core:
   - changed-files:
-      - any-glob-to-any-file: crates/**
+      - any-glob-to-any-file: crates/app-core/**
+
+area:native-sdk:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-ffi/**
+          - bindings/{kotlin,swift}/**
+          - scripts/bindings/**
+          - .github/workflows/native-sdk.yml
+
+area:schedule:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'crates/app-core/src/schedule/{agenda_layout,alternation,calendar,ics,range,school,timing,today}.rs'
+          - crates/app-core/src/schedule/occurrence/**
+          - crates/app-core/src/data/schedule_overrides.rs
+          - apps/desktop/src/components/timetable/**
+          - apps/desktop/src/pages/today/{CalendarView,TodayAgenda,TodayPage}.tsx
+          - apps/ios/IsctCompanion/Features/{Timetable,Today}/**
+          - apps/android/app/src/main/java/app/isctcompanion/features/{timetable,today}/**
+
+area:course-catalog:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/course_query/**
+          - crates/app-core/src/{catalog,study_profile,workspace/catalog}.rs
+          - crates/app-core/src/data/{catalog_store,catalog_drafts}.rs
+          - crates/app-core/src/data/catalog_drafts/**
+          - apps/desktop/src/pages/courses/**
+          - apps/ios/IsctCompanion/Features/Settings/StudyProfileScreen.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/settings/StudyProfileScreen.kt
+
+area:exam-schedule:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/schedule/{exam_courses,exams}.rs
+          - apps/desktop/src/components/exams/**
+          - apps/desktop/src/pages/lectures/LectureExams.tsx
+
+area:past-exams:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/exam_share/**
+          - crates/app-ffi/src/exam_share.rs
+          - apps/desktop/src/pages/past-exams/**
+          - apps/desktop/src-tauri/src/{exam_files,exam_share}.rs
+          - apps/ios/IsctCompanion/Features/PastExams/**
+          - apps/android/app/src/main/java/app/isctcompanion/features/pastexams/**
+
+area:assignments:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/{deadlines,lms_ingest,schedule/tasks}.rs
+          - apps/desktop/src/pages/today/TodayAssignments.tsx
+          - apps/desktop/src/pages/lectures/LectureAssignments.tsx
+          - apps/ios/IsctCompanion/Features/{Assignments/**,Course/AssignmentViews.swift}
+          - apps/android/app/src/main/java/app/isctcompanion/features/{assignments/**,course/AssignmentViews.kt}
+
+area:submission:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/submissions/**
+          - crates/adpt-isct/assets/assignment-upload.js
+          - crates/app-ffi/src/hand_in.rs
+          - apps/desktop/src/features/lms/assignment-workspace.ts
+          - apps/ios/IsctCompanion/Features/HandIn/**
+          - apps/ios/IsctCompanion/Core/{AppModelHandIn,HandIn}.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/handin/**
+          - apps/android/app/src/main/java/app/isctcompanion/core/AppModelHandIn.kt
+
+area:course-files:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/{course_materials,school_files,workspaces,workspace_changes}.rs
+          - apps/desktop/src-tauri/src/{lms_files,workspaces}.rs
+          - apps/ios/IsctCompanion/Features/Course/CourseFileScreens.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/course/CourseFileScreens.kt
+
+area:file-preview:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/file_preview/**
+          - apps/desktop/src/{components/files,features/markdown-viewer}/**
+          - apps/desktop/src/features/lms/FilePreview.tsx
+          - apps/ios/IsctCompanion/Design/MarkdownView.swift
+          - apps/android/app/src/main/java/app/isctcompanion/core/FilePreviewPort.kt
+          - apps/android/app/src/main/java/app/isctcompanion/design/{FileViewers,MarkdownView}.kt
+          - resources/markdown-viewer/**
+
+area:school-auth:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/{school_auth,school_session}/**
+          - crates/adpt-isct/src/login.rs
+          - apps/desktop/src-tauri/src/commands/school_auth.rs
+          - apps/desktop/src/pages/settings/SchoolAccounts.tsx
+          - apps/ios/IsctCompanion/Features/Settings/{SchoolAccountScreen,SchoolOtpCode,OtpGuide}.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/settings/{SchoolAccountScreen,SchoolOtpCode,OtpGuide}.kt
+          - resources/otp-guide/**
+
+area:school-web:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/school_browser/**
+          - apps/desktop/src/{features/school-web,pages/web}/**
+          - apps/desktop/src-tauri/src/school_webkit/**
+          - apps/desktop/src-tauri/src/{school_browser_native,school_web,school_windows}.rs
+          - apps/ios/IsctCompanion/Features/Web/**
+          - apps/ios/IsctCompanion/Core/{SchoolBrowserHost,WebRouter}.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/web/**
+          - apps/android/app/src/main/java/app/isctcompanion/core/{SchoolBrowserHost,WebRouter}.kt
+
+area:cloud-sync:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/cloud_sync/**
+          - crates/app-core/src/{cloud_credentials,data/cloud_merge}.rs
+          - apps/desktop/src-tauri/src/{cloud,cloud_sync,icloud,commands/cloud}.rs
+          - apps/ios/IsctCompanion/Core/{AppModelCloud,CloudKitStore}.swift
+          - apps/android/app/src/main/java/app/isctcompanion/core/{AppModelCloud,DriveTokens}.kt
+
+area:backup:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/backup/**
+          - crates/app-core/src/data/backup_store.rs
+          - apps/desktop/src-tauri/src/commands/backup.rs
+          - apps/desktop/src/pages/settings/BackupSettings.tsx
+          - apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/settings/{BackupCredentials,BackupPage}.kt
+
+area:vpn:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/vpn-{helper,protocol}/**
+          - crates/app-core/src/vpn/**
+          - crates/app-core/src/school_session/vpn.rs
+          - apps/desktop/src/pages/tools/{CampusVpn,VpnPublishers}.tsx
+          - apps/desktop/src-tauri/src/plugins/campus_vpn/**
+          - scripts/desktop/bundle-vpn*.mjs
+
+area:campus-printer:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/adpt-printer/**
+          - crates/app-core/src/campus_printer/**
+          - crates/app-ffi/src/campus_print.rs
+          - apps/desktop/src-tauri/src/plugins/campus_printer/**
+          - apps/desktop/src/features/campus-print/**
+          - apps/desktop/src/pages/tools/CampusPrinter.tsx
+          - apps/ios/IsctCompanion/Features/Print/**
+          - apps/android/app/src/main/java/app/isctcompanion/CampusPrint*.kt
+
+area:campus-map:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/campus_map/**
+          - crates/app-core/src/data/campus_map_store.rs
+          - apps/ios/IsctCompanion/Features/Map/**
+          - apps/android/app/src/main/java/app/isctcompanion/features/map/**
+          - .github/workflows/campus-map.yml
+
+area:matrix-ocr:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-ocr{,-adapter}/**
+          - crates/app-core/src/matrix_scan/**
+          - crates/app-ffi/src/matrix.rs
+          - scripts/ocr/**
+          - apps/desktop/src/components/MatrixCamera.tsx
+          - apps/ios/IsctCompanion/Features/Settings/MatrixCamera.swift
+          - apps/android/app/src/main/java/app/isctcompanion/features/settings/MatrixCamera.kt
+
+area:notifications:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/notification.rs
+          - crates/app-core/src/schedule/reminders/**
+          - crates/app-ffi/src/reminders.rs
+          - apps/desktop/src-tauri/src/{commands/notifications,notifications_macos}.rs
+          - apps/desktop/src/pages/settings/NotificationSettings.tsx
+          - apps/ios/IsctCompanion/{Core/NotificationScheduler,Features/Settings/NotificationSettings}.swift
+          - apps/android/app/src/main/java/app/isctcompanion/{core/NotificationScheduler,features/settings/NotificationSettings}.kt
+
+area:widgets:
+  - changed-files:
+      - any-glob-to-any-file:
+          - apps/apple-widgets/**
+          - bindings/apple-widgets/**
+          - crates/app-core/src/{widgets,schedule/widgets}.rs
+          - crates/app-ffi/src/widgets.rs
+          - apps/desktop/src-tauri/src/widgets_macos.rs
+          - apps/ios/IsctCompanion/Core/WidgetStorage.swift
+          - apps/android/app/src/main/java/app/isctcompanion/widgets/**
+
+area:mcp:
+  - changed-files:
+      - any-glob-to-any-file:
+          - crates/app-core/src/agent/**
+          - apps/desktop/src-tauri/src/{agent_server,commands/agent}.rs
+          - apps/desktop/src/pages/settings/AgentSettings.tsx
+          - docs/agent-access.md
+
+area:localization:
+  - changed-files:
+      - any-glob-to-any-file:
+          - resources/locales/**
+          - apps/desktop/src/i18n/**
+          - '**/*.lproj/**'
+          - apps/android/app/src/main/res/values-{ja,zh}/**
+
+area:design-system:
+  - changed-files:
+      - any-glob-to-any-file: [design/**, apps/desktop/src/components/ui/**]
 
 area:ci:
   - changed-files:
-      - any-glob-to-any-file: .github/**
+      - any-glob-to-any-file: ['.github/{actions,workflows}/**', .github/*label*.yml, .github/dependabot.yml, scripts/checks/**]
+
+area:release:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/workflows/{*-release,release-checks,app-store,apple-signing-check}.yml
+          - scripts/{app-store,release}/**
+          - resources/app-store/**
+          - docs/{releases,distribution}/**
+          - docs/{desktop-release,mobile-release}.md
+          - crates/app-core/src/app_updates.rs
+          - apps/desktop/src-tauri/src/desktop_updates.rs
+          - apps/android/app/src/main/java/app/isctcompanion/core/AppUpdater.kt
 
 documentation:
   - changed-files:
-      - any-glob-to-any-file: [docs/**, README*.md, CONTRIBUTING.md]
+      - all-globs-to-all-files: '{docs/**,**/*.md}'
+
+kind:tests:
+  - changed-files:
+      - all-globs-to-all-files: '{**/tests/**,apps/android/app/src/{test,androidTest}/**,apps/ios/**/*Tests/**}'
 
 bug:
   - head-branch: ['^fix/']
 
 enhancement:
-  - head-branch: ['^feat/']
+  - head-branch: ['^(feat|enhance)/']
+
+kind:refactor:
+  - head-branch: ['^refactor/']
+
+kind:release:
+  - head-branch: ['^(land/)?release/']

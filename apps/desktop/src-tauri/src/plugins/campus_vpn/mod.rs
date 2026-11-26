@@ -172,8 +172,7 @@ async fn blocking<T: Send + 'static>(
 async fn status(webview: tauri::Webview, app: tauri::AppHandle) -> Result<VpnStatus, CommandError> {
     require_local_main(&webview)?;
     let status = settled(service(&app), VpnService::refresh).await?;
-    // A build without the payload (Intel Macs) has nothing to offer unless a
-    // helper is already installed.
+    // A development build without a staged payload can still use an installed helper.
     if status.error == Some("helper_not_installed") && !payload(&app)?.exists() {
         return Ok(VpnStatus {
             state: "unavailable",

@@ -32,21 +32,65 @@ impl app_core::ports::SecretVault for NoVault {
 }
 
 /// The queries the desktop pages and the phone send, around 2Q's middle week.
-fn page_queries(course: &str) -> Vec<serde_json::Value> {
+fn page_queries(course: &str) -> Vec<(&'static str, WorkspaceQuery)> {
     let now = "2026-06-01T10:00:00+09:00";
     vec![
-        serde_json::json!({"kind":"workspaceOverview","term":"2026-2Q"}),
-        serde_json::json!({"kind":"planningWeek","term":"2026-2Q"}),
-        serde_json::json!({"kind":"scheduleView","term":"2026-3Q","from":"2026-05-18","to":"2026-07-17","includePersonal":false}),
-        serde_json::json!({"kind":"taskView","now":now}),
-        serde_json::json!({"kind":"today","now":now}),
-        serde_json::json!({"kind":"assignmentBoard","now":now}),
-        serde_json::json!({"kind":"courseDetail","courseId":course}),
-        serde_json::json!({"kind":"courseContent","courseId":course,"now":now}),
-        serde_json::json!({"kind":"lectureSearch","term":"2026-2Q","query":"report"}),
-        serde_json::json!({"kind":"timetableYear","year":2026}),
-        serde_json::json!({"kind":"glance","now":now}),
-        serde_json::json!({"kind":"notificationPlan","now":now,"horizon":"2026-06-08T10:00:00+09:00"}),
+        (
+            "workspaceOverview",
+            WorkspaceQuery::WorkspaceOverview {
+                term: "2026-2Q".into(),
+            },
+        ),
+        (
+            "planningWeek",
+            WorkspaceQuery::PlanningWeek {
+                term: "2026-2Q".into(),
+            },
+        ),
+        ("scheduleView", schedule_view()),
+        ("taskView", WorkspaceQuery::TaskView { now: now.into() }),
+        ("today", WorkspaceQuery::Today { now: now.into() }),
+        (
+            "assignmentBoard",
+            WorkspaceQuery::AssignmentBoard {
+                now: now.into(),
+                term: None,
+            },
+        ),
+        (
+            "courseDetail",
+            WorkspaceQuery::CourseDetail {
+                course_id: course.into(),
+                now: now.into(),
+            },
+        ),
+        (
+            "courseContent",
+            WorkspaceQuery::CourseContent {
+                course_id: course.into(),
+                now: now.into(),
+            },
+        ),
+        (
+            "lectureSearch",
+            WorkspaceQuery::LectureSearch {
+                term: Some("2026-2Q".into()),
+                query: "report".into(),
+            },
+        ),
+        (
+            "timetableYear",
+            WorkspaceQuery::TimetableYear { year: 2026 },
+        ),
+        ("glance", WorkspaceQuery::Glance { now: now.into() }),
+        (
+            "notificationPlan",
+            WorkspaceQuery::NotificationPlan {
+                now: now.into(),
+                horizon: "2026-06-08T10:00:00+09:00".into(),
+                locale: None,
+            },
+        ),
     ]
 }
 
@@ -99,9 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .and_then(|course| course["id"].as_str())
         .unwrap_or_default()
         .to_owned();
-    for raw in page_queries(&course) {
-        let kind = raw["kind"].as_str().unwrap_or_default().to_owned();
-        let request: WorkspaceQuery = serde_json::from_value(raw)?;
+    for (kind, request) in page_queries(&course) {
         let old = serde_json::to_vec(&app_core::schedule::query(
             &whole,
             &school,

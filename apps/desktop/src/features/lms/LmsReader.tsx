@@ -6,7 +6,7 @@ import {
   type FileAccess,
   type LinkedFolders,
 } from "./RichContent";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import type { Course, Material } from "../../lib/model";
 import { t } from "../../i18n";
 import { announcements, formatLmsDate, safeUrl } from "./content";
@@ -24,6 +24,7 @@ const NoteEditor = lazy(() =>
 export function LmsReader({
   opened,
   shown,
+  titleStart,
   viewerActive,
   course,
   locale,
@@ -41,6 +42,7 @@ export function LmsReader({
 }: {
   opened: OpenedContent;
   shown: OpenedContent;
+  titleStart?: ReactNode;
   viewerActive: boolean;
   course: Course;
   locale: string;
@@ -69,7 +71,11 @@ export function LmsReader({
     open,
   } = reader;
   return (
-    <ReaderPane title={shown.title} close={closeContent}>
+    <ReaderPane
+      title={shown.title}
+      titleStart={titleStart}
+      close={closeContent}
+    >
       {/* Hidden readers release their documents; the official view keeps its webview. */}
       {!viewerActive && opened.kind !== "official" ? null : opened.kind ===
         "announcement" ? (

@@ -68,7 +68,7 @@ pub(crate) use exams::{
 };
 pub use exams::{ExamAssociation, ExamConflict, ExamLinkCourse, ExamSchedule, ExamView};
 pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
-pub use lecture_list::{LectureCourse, LectureList, LectureMeeting};
+pub use lecture_list::{LectureCourse, LectureExamGroups, LectureList, LectureMeeting};
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
 pub(crate) use course_scope::placement_terms;
@@ -176,10 +176,12 @@ pub enum WorkspaceQuery {
     Today {
         now: String,
     },
-    /// Upcoming exams in this inclusive range of civil dates.
+    /// Upcoming exams in this inclusive range of civil dates, without those
+    /// already over at `now`.
     UpcomingExams {
         from: String,
         to: Option<String>,
+        now: String,
     },
     /// All visible items in an inclusive civil-date range, across terms.
     CalendarRange {
@@ -193,8 +195,10 @@ pub enum WorkspaceQuery {
         #[serde(default)]
         term: Option<String>,
     },
+    /// A course's page. Exams over at `now` are left out.
     CourseDetail {
         course_id: String,
+        now: String,
     },
     /// A course's LMS content lesson by lesson.
     CourseContent {
@@ -682,12 +686,16 @@ pub fn query(
         WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
             calendar_between(workspace, school, &from, &to)?,
         )),
-        WorkspaceQuery::UpcomingExams { from, to } => Ok(WorkspaceQueryResult::UpcomingExams(
-            exams::upcoming_exams(workspace, school, &from)
-                .into_iter()
-                .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
-                .collect(),
-        )),
+        WorkspaceQuery::UpcomingExams { from, to, now } => {
+            let now = parse_timestamp(&now)?;
+            Ok(WorkspaceQueryResult::UpcomingExams(
+                exams::upcoming_exams(workspace, school, &from)
+                    .into_iter()
+                    .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
+                    .filter(|exam| !exam.ended(now))
+                    .collect(),
+            ))
+        }
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
             Ok(WorkspaceQueryResult::AssignmentBoard(assignment_board(
@@ -696,8 +704,8 @@ pub fn query(
                 term.map(|term| term.to_string()),
             )?))
         }
-        WorkspaceQuery::CourseDetail { course_id } => Ok(WorkspaceQueryResult::CourseDetail(
-            course_detail(workspace, school, &course_id),
+        WorkspaceQuery::CourseDetail { course_id, now } => Ok(WorkspaceQueryResult::CourseDetail(
+            course_detail(workspace, school, &course_id).without_ended(parse_timestamp(&now)?),
         )),
         WorkspaceQuery::CourseContent { course_id, now } => {
             Ok(WorkspaceQueryResult::CourseContent(course_content(
@@ -1150,6 +1158,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         ExamCourseList::decl(cfg),
         LectureCourse::decl(cfg),
         LectureMeeting::decl(cfg),
+        LectureExamGroups::decl(cfg),
         LectureList::decl(cfg),
         ScheduleView::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),

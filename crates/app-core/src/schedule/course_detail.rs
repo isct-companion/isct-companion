@@ -19,9 +19,11 @@ pub struct CourseDetail {
     pub material_ids: Vec<String>,
     pub sections: Vec<i32>,
     pub assignment_ids: Vec<String>,
-    /// The course's exams and quizzes.
+    /// The course's exams and quizzes. The `CourseDetail` query leaves out
+    /// those already over.
     pub exams: Vec<ExamView>,
-    /// The exam timetable's exam-week rows that hold an ordinary class.
+    /// The exam timetable's exam-week rows that hold an ordinary class, also
+    /// without those over in the query.
     pub exam_classes: Vec<ExamView>,
     /// The class format of the catalog offering the course names, when the
     /// catalog holds it.
@@ -36,6 +38,15 @@ pub struct CourseDetail {
     /// filtered to when the person asks for one language.
     #[cfg_attr(feature = "ts", ts(type = "\"ja\" | \"en\""))]
     pub content_language: String,
+}
+
+impl CourseDetail {
+    /// The course page lists only exams and exam-week classes still to come.
+    pub fn without_ended(mut self, now: DateTime<FixedOffset>) -> Self {
+        self.exams.retain(|exam| !exam.ended(now));
+        self.exam_classes.retain(|exam| !exam.ended(now));
+        self
+    }
 }
 
 fn lms_url(workspace: &Value, course: &Value) -> Option<String> {

@@ -127,6 +127,31 @@ export const UiButton = forwardRef<
     />
   );
 });
+/** A text button that folds and unfolds the rows under it. */
+export function FoldToggle({
+  open,
+  onToggle,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <UiButton
+      className="textButton moreToggle"
+      aria-expanded={open}
+      onClick={onToggle}
+    >
+      {open ? (
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
+      ) : (
+        <ChevronRight size={14} strokeWidth={1.75} aria-hidden />
+      )}{" "}
+      {children}
+    </UiButton>
+  );
+}
 export const CloseButton = ({ size, ...props }: ButtonProps) => (
   <Button
     {...props}

@@ -11,10 +11,12 @@ const ToolsHost = createContext<HTMLElement | null>(null);
  * and the reader under that owns scrolling. */
 export function ReaderPane({
   title,
+  titleStart,
   close,
   children,
 }: {
   title: string;
+  titleStart?: ReactNode;
   close: () => void;
   children: ReactNode;
 }) {
@@ -25,6 +27,7 @@ export function ReaderPane({
       aria-label={t("lms.openedContent")}
     >
       <TitleRow className="workspaceToolPanel lmsReaderTools">
+        {titleStart}
         <span className="lmsReaderTitle" title={title}>
           {title}
         </span>

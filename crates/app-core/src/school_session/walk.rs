@@ -7,7 +7,9 @@
 
 use super::{jar::Cookies, Transport, WebCookie};
 use crate::net::{Body, Host, Limits, NetError, NetRequest, Response};
-use reqwest::header::{ACCEPT, COOKIE, ORIGIN, REFERER, USER_AGENT};
+#[cfg(feature = "campus-vpn")]
+use reqwest::header::USER_AGENT;
+use reqwest::header::{ACCEPT, COOKIE, ORIGIN, REFERER};
 use reqwest::Method;
 use std::sync::Mutex;
 use url::Url;
@@ -63,6 +65,7 @@ pub(super) struct Walk<'a> {
     capture: Option<(&'a [Host], &'a Mutex<Vec<WebCookie>>)>,
     /// Sent instead of Core's own agent, for a site that admits browsers
     /// only.
+    #[cfg(feature = "campus-vpn")]
     agent: Option<&'static str>,
 }
 
@@ -72,10 +75,12 @@ impl<'a> Walk<'a> {
             transport,
             cookies,
             capture: None,
+            #[cfg(feature = "campus-vpn")]
             agent: None,
         }
     }
 
+    #[cfg(feature = "campus-vpn")]
     pub(super) fn browser(mut self) -> Self {
         self.agent = Some(crate::net::BROWSER_USER_AGENT);
         self
@@ -185,6 +190,7 @@ impl<'a> Walk<'a> {
         if let Some(referer) = referer {
             headers.push((REFERER, referer.to_string()));
         }
+        #[cfg(feature = "campus-vpn")]
         if let Some(agent) = self.agent {
             headers.push((USER_AGENT, agent.to_owned()));
         }

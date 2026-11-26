@@ -587,7 +587,8 @@ impl VpnService {
     /// starts nor the app's own refreshes wait on a tunnel.
     pub fn standby_bypass_hosts() -> impl Iterator<Item = &'static str> {
         crate::net::Host::ALL
-            .into_iter()
+            .iter()
+            .copied()
             .map(crate::net::Host::name)
     }
 
