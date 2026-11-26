@@ -1,5 +1,5 @@
 import { errorText } from "../../lib/error-text";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { desktopBridge } from "../../platform/native";
 import { t } from "../../i18n";
 import type { StudyEnrollment, Workspace } from "../../lib/model";
@@ -65,13 +65,15 @@ export function StudyProfileSettings({
     admissionYear,
     enrollments: draftEnrollments(studyEnrollments),
   }));
-  const [dirty, setDirty] = useState(false);
+  // A programme chosen before the year waits here for it; every other
+  // choice saves at once, like the department above it.
+  const [pending, setPending] = useState(false);
   const [baselineKey, setBaselineKey] = useState(committedKey);
   const [awaitingKey, setAwaitingKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // The year the school account suggests is offered, never saved unasked.
   const [suggestedYear, setSuggestedYear] = useState<number>();
-  const suggested = useRef(false);
   useEffect(() => {
     let active = true;
     void desktopBridge
@@ -84,26 +86,23 @@ export function StudyProfileSettings({
       active = false;
     };
   }, []);
-  useEffect(() => {
-    if (admissionYear || dirty || !suggestedYear || suggested.current) return;
-    suggested.current = true;
-    setDraft((current) => ({ ...current, admissionYear: suggestedYear }));
-    setDirty(true);
-  }, [admissionYear, dirty, suggestedYear]);
 
-  useEffect(() => {
-    if (dirty) return;
-    // The mutation promise may resolve one render before the parent adopts
-    // its snapshot. Ignore only that exact pre-save baseline. A different
-    // revision is newer external state and must be adopted.
-    if (awaitingKey && committedKey === baselineKey) return;
+  const adopt = () => {
     setDraft({
       admissionYear,
       enrollments: draftEnrollments(studyEnrollments),
     });
     setBaselineKey(committedKey);
     setAwaitingKey(null);
-  }, [committedKey, dirty, awaitingKey, baselineKey]);
+  };
+  useEffect(() => {
+    if (pending || saving) return;
+    // The mutation promise may resolve one render before the parent adopts
+    // its snapshot. Ignore only that exact pre-save baseline. A different
+    // revision is newer external state and must be adopted.
+    if (awaitingKey && committedKey === baselineKey) return;
+    adopt();
+  }, [committedKey, pending, saving, awaitingKey, baselineKey]);
   const yearIndex = useScheduleQuery<AcademicYearIndex>({
     kind: "academicYears",
     date: tokyoDate(new Date(now)),
@@ -116,64 +115,61 @@ export function StudyProfileSettings({
     years.push(draft.admissionYear);
   years.sort((a, b) => b - a);
   const currentEnrollment = draft.enrollments.at(-1);
-  const setDegree = (stage: StudyEnrollment["stage"]) => {
-    setDraft((current) => {
-      const enrollments = structuredClone(current.enrollments);
-      if (enrollments.length) enrollments[enrollments.length - 1].stage = stage;
-      else enrollments.push({ stage, entryKind: "unknown", admittedTerm: "" });
-      return { ...current, enrollments };
-    });
-    setDirty(true);
+  const choose = async (next: typeof draft) => {
+    if (saving) return;
+    setDraft(next);
     setError("");
-  };
-  const cancel = () => {
-    setDraft({
-      admissionYear,
-      enrollments: draftEnrollments(studyEnrollments),
-    });
-    setDirty(false);
-    setBaselineKey(committedKey);
-    setAwaitingKey(null);
-    setError("");
-  };
-  const save = async () => {
-    if (!dirty || saving) return;
-    if (committedKey !== baselineKey) {
+    if (pending && committedKey !== baselineKey) {
+      // The profile changed on another device while a programme waited.
       setError(t("settings.studyProfile.theStudyProfileChangedElsewhere"));
+      setPending(false);
       return;
     }
     if (
-      draft.enrollments.some((enrollment) => !enrollment.admittedTerm) &&
-      !draft.admissionYear
+      next.enrollments.some((enrollment) => !enrollment.admittedTerm) &&
+      !next.admissionYear
     ) {
       setError(t("settings.studyProfile.chooseAnAdmissionYear"));
+      setPending(true);
       return;
     }
+    setPending(false);
     setSaving(true);
-    setError("");
     try {
-      const submitted = draft.enrollments
+      const submitted = next.enrollments
         .map((enrollment) => ({
           ...enrollment,
           admittedTerm: (enrollment.admittedTerm ||
-            `${draft.admissionYear}-1Q`) as StudyEnrollment["admittedTerm"],
+            `${next.admissionYear}-1Q`) as StudyEnrollment["admittedTerm"],
         }))
         .sort((left, right) =>
           left.admittedTerm.localeCompare(right.admittedTerm),
         );
-      await setStudyProfile(draft.admissionYear, submitted);
-      setDraft((current) => ({
-        ...current,
-        enrollments: draftEnrollments(submitted),
-      }));
-      setAwaitingKey(JSON.stringify([draft.admissionYear, submitted]));
-      setDirty(false);
+      await setStudyProfile(next.admissionYear, submitted);
+      setDraft({ ...next, enrollments: draftEnrollments(submitted) });
+      setBaselineKey(committedKey);
+      setAwaitingKey(JSON.stringify([next.admissionYear, submitted]));
     } catch (reason) {
+      // The fields show what is stored; the alert says why the choice did
+      // not stay.
       setError(errorText(reason, { nativeMessage: false }) ?? String(reason));
+      adopt();
     } finally {
       setSaving(false);
     }
   };
+  const chooseYear = (year: number | undefined) =>
+    void choose({ ...draft, admissionYear: year });
+  const chooseDegree = (stage: StudyEnrollment["stage"]) => {
+    const enrollments = structuredClone(draft.enrollments);
+    if (enrollments.length) enrollments[enrollments.length - 1].stage = stage;
+    else enrollments.push({ stage, entryKind: "unknown", admittedTerm: "" });
+    void choose({ ...draft, enrollments });
+  };
+  const offerYear =
+    !draft.admissionYear && suggestedYear && !saving
+      ? suggestedYear
+      : undefined;
 
   return (
     <>
@@ -198,16 +194,30 @@ export function StudyProfileSettings({
             ]}
           />
         </Row>
-        <Row id="admission-year" title="settings.main.admissionYear">
+        <Row
+          id="admission-year"
+          title="settings.main.admissionYear"
+          hint={
+            offerYear && (
+              <UiButton
+                className="textButton"
+                onClick={(event) => {
+                  // Inside the row's label: the click is the button's alone.
+                  event.preventDefault();
+                  chooseYear(offerYear);
+                }}
+              >
+                {t("settings.studyProfile.useDetectedYear", {
+                  year: offerYear,
+                })}
+              </UiButton>
+            )
+          }
+        >
           <UiSelect
             disabled={saving}
             value={draft.admissionYear ?? ""}
-            onChange={(value) => {
-              const year = value ? Number(value) : undefined;
-              setDraft((current) => ({ ...current, admissionYear: year }));
-              setDirty(true);
-              setError("");
-            }}
+            onChange={(value) => chooseYear(value ? Number(value) : undefined)}
             data={[
               { value: "", label: t("settings.studyProfile.notSet") },
               ...years.map((year) => ({
@@ -222,7 +232,9 @@ export function StudyProfileSettings({
             disabled={saving}
             aria-label={t("settings.studyProfile.degreeProgramme")}
             value={currentEnrollment?.stage ?? "unknown"}
-            onChange={(value) => setDegree(value as StudyEnrollment["stage"])}
+            onChange={(value) =>
+              chooseDegree(value as StudyEnrollment["stage"])
+            }
             data={[
               { value: "unknown", label: t("settings.studyProfile.notSet") },
               {
@@ -238,26 +250,6 @@ export function StudyProfileSettings({
             ]}
           />
         </Row>
-        <div className="studyProfileActions">
-          <UiButton
-            type="button"
-            className="button"
-            disabled={!dirty || saving}
-            onClick={cancel}
-          >
-            {t("common.cancel")}
-          </UiButton>
-          <UiButton
-            type="button"
-            className="button primary"
-            disabled={!dirty || saving}
-            onClick={() => void save()}
-          >
-            {saving
-              ? t("settings.studyProfile.saving")
-              : t("settings.studyProfile.saveEnrollmentDetails")}
-          </UiButton>
-        </div>
         {error && (
           <p className="settingsNote studyProfileError" role="alert">
             {error}

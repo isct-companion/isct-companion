@@ -1606,7 +1606,9 @@ describe("First school connection", () => {
       expect(element).not.toBeNull();
       return element!;
     });
-    expect(setup.textContent).toContain(
+    // A single line; the longer reason is its tooltip.
+    expect(setup.textContent).toContain("Connect your school accounts");
+    expect(setup.getAttribute("title")).toContain(
       "Tokyo Tech for your timetable and course search",
     );
     await click(setup.querySelector("button"));
@@ -1637,29 +1639,26 @@ describe("First school connection", () => {
       },
     });
     app = await mountShell(options, { route: paths.home(), guide: true });
-    // The data notice comes first; the welcome sheet waits behind it.
-    const notice = await until(() => {
+    // One sheet: the welcome carries the data notice as a line, so there
+    // is no second dialog to click through.
+    const sheet = await until(() => {
       const dialogs = [
         ...document.querySelectorAll<HTMLElement>('[role="dialog"]'),
       ];
-      expect(dialogs.map((dialog) => dialog.textContent).join()).toContain(
-        "Before you rely on this data",
-      );
-      expect(dialogs.map((dialog) => dialog.textContent).join()).not.toContain(
-        "Welcome to IsctCompanion",
+      expect(dialogs).toHaveLength(1);
+      expect(dialogs[0].textContent).toContain("Welcome to IsctCompanion");
+      expect(dialogs[0].textContent).toContain("can contain mistakes");
+      expect(dialogs[0].textContent).not.toContain(
+        "not responsible for any loss",
       );
       return dialogs[0];
     });
     await click(
-      [...notice.querySelectorAll("button")].find(
-        (button) => button.textContent === "I understand",
+      [...sheet.querySelectorAll("button")].find(
+        (button) => button.textContent === "View details",
       ),
     );
-    const sheet = await until(() => {
-      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-      expect(dialog?.textContent).toContain("Welcome to IsctCompanion");
-      return dialog!;
-    });
+    expect(sheet.textContent).toContain("not responsible for any loss");
     // The school-content language is offered beside the UI language.
     expect(sheet.textContent).toContain("Course and syllabus language");
     const japanese = [...sheet.querySelectorAll("button")].find(
@@ -1684,6 +1683,12 @@ describe("First school connection", () => {
     // The next window on this device opens straight to the page.
     const stored = localStorage.getItem("isct-companion-guide");
     expect(JSON.parse(stored ?? "{}")).toMatchObject({ welcome: true });
+    // Leaving the sheet is the notice's acknowledgement, stored as before.
+    await until(() =>
+      expect(app!.core.workspace.settings.dataNoticeAcknowledgedAt).toEqual(
+        expect.any(String),
+      ),
+    );
   });
 
   it("keeps the setup prompt out of an existing timetable", async () => {

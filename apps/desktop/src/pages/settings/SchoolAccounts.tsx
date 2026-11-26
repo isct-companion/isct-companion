@@ -120,8 +120,12 @@ function MatrixEditor({
   disabled,
   onScanState,
   onCopy,
+  onKeepSaved,
 }: {
   disabled: boolean;
+  /** While a saved Matrix is being replaced: drops the new grid and keeps
+   * the saved one. */
+  onKeepSaved?: () => void;
   onScanState: (scanning: boolean) => void;
   value: string[];
   masked: boolean;
@@ -271,8 +275,19 @@ function MatrixEditor({
             {t("settings.schoolAccounts.copy")}
           </Button>
         )}
+        {onKeepSaved && (
+          <Button
+            variant="subtle"
+            size="compact-xs"
+            disabled={recognizing || disabled || cameraOpen}
+            onClick={onKeepSaved}
+          >
+            {t("settings.schoolAccounts.keepSavedMatrix")}
+          </Button>
+        )}
       </div>
-      {!masked && (
+      {/* The colours explain a scan; typed or pasted letters have none. */}
+      {!masked && confidence.some((level) => level !== undefined) && (
         <div
           className="matrixConfidenceLegend"
           aria-label={t("settings.schoolAccounts.recognitionConfidence")}
@@ -637,6 +652,14 @@ function Account({
           {t("settings.schoolAccounts.theSystemCredentialVaultIs")}
         </Text>
       )}
+      {/* A form, so Enter in any field connects. */}
+      <form
+        className="schoolAccountForm"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!busy && !scanning && !session?.signOutPending) void connect();
+        }}
+      >
       <div className="credentialFields">
         <TextInput
           label={t("settings.schoolAccounts.id")}
@@ -680,13 +703,21 @@ function Account({
           onChange={(matrix) => edit({ ...draft, matrix })}
           notify={notify}
           onCopy={() => void copyMatrix()}
+          onKeepSaved={
+            summary.hasMatrix && matrixReplacing
+              ? () => {
+                  setMatrixReplacing(false);
+                  edit({ ...draft, matrix: emptyDraft().matrix });
+                }
+              : undefined
+          }
         />
       )}
       <div className="actions schoolAccountActions">
         <Button
+          type="submit"
           disabled={busy || scanning || session?.signOutPending}
           loading={busy}
-          onClick={() => void connect()}
         >
           {t("tools.campusWifi.connect")}
         </Button>
@@ -701,6 +732,7 @@ function Account({
           </Button>
         )}
       </div>
+      </form>
       {outcome && (
         <div>
           <Text size="sm" c={OUTCOME_COLOR[outcome.kind]} role="status">
@@ -760,7 +792,7 @@ export function SchoolAccounts({
     <div className="schoolAccounts">
       <Account
         profile="science"
-        title="Science Tokyo Portal"
+        title={t("web.site.sciencePortal")}
         summary={status.science}
         draft={science}
         setDraft={setScience}
@@ -770,7 +802,7 @@ export function SchoolAccounts({
       />
       <Account
         profile="tokyo-tech"
-        title="Tokyo Tech Portal"
+        title={t("webRouter.tokyoTechPortal")}
         summary={status.tokyoTech}
         draft={tokyoTech}
         setDraft={setTokyoTech}

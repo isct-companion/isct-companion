@@ -493,7 +493,14 @@ function DriveCredentialSync({
         title={title}
         hint={t(hint, CREDENTIAL_PASSWORD_LENGTH)}
       >
-        <div className="actions">
+        {/* A form, so Enter in a password field saves. */}
+        <form
+          className="actions"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!busy && valid) void save();
+          }}
+        >
           {showFields && (
             <>
               <UiInput
@@ -529,9 +536,9 @@ function DriveCredentialSync({
                 />
               )}
               <UiButton
+                type="submit"
                 className="button small primary"
                 disabled={busy || !valid}
-                onClick={() => void save()}
               >
                 {t(
                   restoring
@@ -579,7 +586,7 @@ function DriveCredentialSync({
               </UiButton>
             </>
           )}
-        </div>
+        </form>
       </Row>
       {showFields && !restoring && confirmPassword && !matches && (
         <div className="alert" role="alert">

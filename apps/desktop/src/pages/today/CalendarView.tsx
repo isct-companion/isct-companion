@@ -20,13 +20,19 @@ import {
 import type { Workspace } from "../../lib/model";
 import { t } from "../../i18n";
 
-/** Date navigation is independent of the quarter used for course planning. */
+/** Date navigation is independent of the quarter used for course planning;
+ * the date itself is the one Today shows beside it. */
 export function CalendarView({
   data,
   open,
   mark,
+  anchor,
+  setAnchor,
 }: {
   data: Workspace;
+  /** The shown date, shared with Today; `null` follows today. */
+  anchor: string | null;
+  setAnchor: (date: string | null) => void;
   open: (block: Block) => void;
   /** Marks one session; absent when the workspace is read-only. */
   mark?: (block: Block, as: "exam" | "quiz" | "cancelled" | "class") => void;
@@ -56,10 +62,9 @@ export function CalendarView({
   // The today column and the now line come from one clock instant.
   const now = useClock();
   const today = tokyoDate(new Date(now));
-  const [anchor, setAnchor] = useState<string>();
   // Which way the last step went: the grid slides in from that side.
   const [slide, setSlide] = useState(0);
-  const step = (next: string | undefined, direction: number) => {
+  const step = (next: string | null, direction: number) => {
     setSlide(direction);
     setAnchor(next);
   };
@@ -108,7 +113,7 @@ export function CalendarView({
         </div>
         <UiButton
           className="toolPill toolPillButton"
-          onClick={() => step(undefined, Math.sign(today.localeCompare(date)))}
+          onClick={() => step(null, Math.sign(today.localeCompare(date)))}
         >
           {t("common.thisWeek")}
         </UiButton>

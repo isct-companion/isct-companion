@@ -140,9 +140,9 @@ export function OfficialLmsView({
           <EmptyState
             icon={Globe}
             action={
-              <a href={url} target="_blank" rel="noopener noreferrer">
+              <ExternalLink href={url}>
                 {t("lms.openLMSInBrowser")} ↗
-              </a>
+              </ExternalLink>
             }
           >
             {t("lms.theDesktopAppOpensThe")}

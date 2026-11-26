@@ -1062,6 +1062,10 @@ summary,
   padding: var(--space-6) 0 var(--space-8);
   border-bottom: 1px solid var(--line);
 }
+/* The form only gives Enter its submit; the card lays out its fields. */
+.schoolAccountForm {
+  display: contents;
+}
 .schoolAccount > header,
 .matrixTools {
   display: flex;
@@ -3040,19 +3044,16 @@ summary,
   text-overflow: ellipsis;
 }
 /* ---------- settings: lists, configs ---------- */
-/* One-time notice on data accuracy. */
+/* One-time notice on data accuracy, in the first-run sheet. */
 .dataNotice {
   display: grid;
-  gap: var(--space-5);
-  font-size: calc(var(--type-row-size) * var(--text));
+  gap: var(--space-4);
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
   line-height: 1.6;
 }
 .dataNotice p {
   margin: 0;
-}
-.dataNotice button {
-  justify-self: end;
-  margin-top: var(--space-3);
 }
 
 .row > .actions.reverse,
@@ -3380,23 +3381,11 @@ textarea.codeArea {
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: var(--space-8);
-  padding: var(--space-8) var(--space-9);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-surface);
-}
-.homeSetup > div {
-  flex: 1;
-  min-width: 0;
-}
-.homeSetup p {
-  margin: var(--space-2) 0 0;
+  gap: var(--space-5);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font-size: calc(var(--type-row-size) * var(--text));
-}
-.homeSetup > button {
-  flex-shrink: 0;
+  font-size: calc(var(--type-note-size) * var(--text));
 }
 .homeDay {
   display: flex;

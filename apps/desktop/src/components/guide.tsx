@@ -1,6 +1,8 @@
 import { nativeOs } from "../platform/desktop-bridge";
-import { Button, Group, Modal, Popover, Stack, Text } from "./ui";
+import { Button, Group, Modal, Popover, Stack, Text, UiButton } from "./ui";
 import { useLocalStorage } from "usehooks-ts";
+import { useState } from "react";
+import { ExternalLink } from "./ExternalLink";
 import { t, type MessageKey } from "../i18n";
 import type { Workspace } from "../lib/model";
 import { Choice } from "./forms";
@@ -85,28 +87,71 @@ export function GuideTip({
   );
 }
 
+const ISSUES_URL = "https://github.com/isct-companion/Isct-Data/issues";
+
+/** The data notice in one line, with the full text one click away. Closing
+ * the sheet that shows it is the acknowledgement, as it always was. */
+function DataNoticeLine() {
+  const [details, setDetails] = useState(false);
+  return (
+    <div className="dataNotice">
+      <p>
+        {t("dataNotice.summary")}{" "}
+        {!details && (
+          <UiButton className="textButton" onClick={() => setDetails(true)}>
+            {t("dataNotice.viewDetails")}
+          </UiButton>
+        )}
+      </p>
+      {details && (
+        <>
+          <p>{t("dataNotice.isctcompanionCollectsCalendarsExamTimetables")}</p>
+          <p>{t("dataNotice.muchOfThisDataIs")}</p>
+          <p>
+            {t("dataNotice.ifSomethingIsWrongRight")}{" "}
+            <ExternalLink href={ISSUES_URL}>
+              {t("dataNotice.reportADataProblem")}
+            </ExternalLink>
+          </p>
+          <p>{t("dataNotice.isctcompanionIsNotResponsibleFor")}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
- * The first window: the two language choices people did not know existed,
- * then one way on to the school accounts and one to AI agents.
+ * The first window, one sheet: the two language choices people did not know
+ * existed, the data notice in a line, then one way on to the school accounts
+ * and one to AI agents. Someone who has seen the welcome on this device but
+ * not acknowledged the notice (it is stored with the workspace, so a reset
+ * clears it) gets the notice alone.
  */
 export function WelcomeSheet({
   settings,
   update,
   connected,
-  held = false,
+  noticeNeeded,
+  acknowledgeNotice,
   openAccounts,
   openAgents,
 }: {
   settings: Workspace["settings"];
-  /** Another first-run dialog (the data notice) comes first. */
-  held?: boolean;
   update: (f: (d: Workspace) => Workspace) => void;
   connected: boolean;
+  /** The data notice has not been acknowledged in this workspace. */
+  noticeNeeded: boolean;
+  /** Stores the acknowledgement (`dataNoticeAcknowledgedAt`). */
+  acknowledgeNotice: () => void;
   openAccounts: () => void;
   openAgents: () => void;
 }) {
   const [guide, setGuide] = useGuide();
-  const close = () => setGuide((current) => ({ ...current, welcome: true }));
+  const welcome = guide.welcome !== true;
+  const close = () => {
+    if (noticeNeeded) acknowledgeNotice();
+    setGuide((current) => ({ ...current, welcome: true }));
+  };
   const set = <K extends "locale" | "contentLanguage">(
     key: K,
     value: Workspace["settings"][K],
@@ -115,9 +160,28 @@ export function WelcomeSheet({
       draft.settings[key] = value;
       return draft;
     });
+  if (!welcome)
+    return (
+      <Modal
+        opened={noticeNeeded}
+        onClose={acknowledgeNotice}
+        closeOnClickOutside={false}
+        title={t("dataNotice.beforeYouRelyOnThis")}
+        centered
+      >
+        <Stack gap="space-6">
+          <DataNoticeLine />
+          <Group justify="flex-end">
+            <Button onClick={acknowledgeNotice}>
+              {t("dataNotice.iUnderstand")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+    );
   return (
     <Modal
-      opened={guide.welcome !== true && !held}
+      opened
       onClose={close}
       title={t("common.welcomeToIsctCompanion")}
       // Top-anchored: the language rows rewrap when the language changes,
@@ -175,6 +239,7 @@ export function WelcomeSheet({
           <b>{t("guide.useWithClaudeCodexOr")}</b>
           <span>{t("guide.connectAnAIAssistantOver")} →</span>
         </button>
+        {noticeNeeded && <DataNoticeLine />}
         <Group justify="flex-end" gap="space-4">
           {/* Focus starts on the main button, not the close box, so Return
               and Space never dismiss the sheet for good by accident. */}
