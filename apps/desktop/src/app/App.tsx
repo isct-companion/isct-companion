@@ -12,7 +12,12 @@ import {
 import { useDesktopUpdates } from "./useDesktopUpdates";
 import { CalendarView } from "../pages/today/CalendarView";
 import { DataNotice } from "../components/DataNotice";
-import { ResizableWorkspace } from "../components/ResizableWorkspace";
+import {
+  ResizableWorkspace,
+  WorkspaceSidebarToggle,
+} from "../components/ResizableWorkspace";
+import { TitlebarNav } from "../components/TitleRow";
+import { usePanelRef } from "react-resizable-panels";
 import { WelcomeSheet } from "../components/guide";
 import { refresh, syncAvailable } from "../platform/sync-intents";
 import { useOpenHint } from "./useOpenHint";
@@ -133,6 +138,9 @@ const SHELL_RECORDS = [
 
 export function WorkspaceApp() {
   useTranslation();
+  // Today folds away beside the calendar as the lecture list does.
+  const todayPanel = usePanelRef();
+  const [todayFolded, setTodayFolded] = useState(false);
   const scienceSession = useSchoolSession(desktopBridge, "science");
   const tokyoTechSession = useSchoolSession(desktopBridge, "tokyo-tech");
   // The shell reads only the records it renders itself; each page asks
@@ -589,8 +597,18 @@ export function WorkspaceApp() {
     !data.importStatus.timetableReviewedAt &&
     !data.courses.some((course) => !course.deletedAt) &&
     !connectedSession(tokyoTechSession);
+  const todayToggle = (
+    <WorkspaceSidebarToggle
+      panel={todayPanel}
+      collapsed={todayFolded}
+      controls="home-today"
+    />
+  );
   const homePage = (
-    <div className={`homePage${showSchoolSetup ? " needsSetup" : ""}`}>
+    <div
+      className={`homePage${showSchoolSetup ? " needsSetup" : ""}`}
+      data-sidebar-collapsed={todayFolded}
+    >
       {showSchoolSetup && (
         <aside className="homeSetup" aria-label={t("app.schoolAccountSetup")}>
           <div>
@@ -609,13 +627,17 @@ export function WorkspaceApp() {
         id="home"
         enabled
         firstSize={360}
+        firstCollapsible
+        firstPanelRef={todayPanel}
+        onFirstCollapse={setTodayFolded}
         firstMin={240}
         firstMax="50%"
         secondMin="45%"
       >
-        <div className="homeDay">
+        <div className="homeDay" id="home-today" inert={todayFolded}>
           <Today
             data={data}
+            sidebar={todayFolded ? undefined : todayToggle}
             active={page === "home"}
             term={todayTerm}
             openExam={openExam}
@@ -647,6 +669,9 @@ export function WorkspaceApp() {
         <div className="homeWeek">
           <CalendarView
             data={data}
+            titleStart={
+              todayFolded ? <TitlebarNav sidebar={todayToggle} /> : undefined
+            }
             mark={
               readOnly
                 ? undefined

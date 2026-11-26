@@ -1,6 +1,6 @@
 import { TitleRow } from "../../components/TitleRow";
 import { ExamCards } from "../../components/exams/ExamCards";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { t } from "../../i18n";
 import { useReveal } from "../../components/ui";
 import {
@@ -31,6 +31,7 @@ export function Today({
   hideAssignment,
   focusSection,
   selection,
+  sidebar,
   active = true,
 }: {
   data: Workspace;
@@ -49,6 +50,8 @@ export function Today({
   active?: boolean;
   selection?: { courseId: string; assignmentId?: string };
   focusSection?: { section: "classes" | "assignments"; request: number };
+  /** The button that folds Today away beside the calendar. */
+  sidebar?: ReactNode;
 }) {
   const page = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -90,7 +93,7 @@ export function Today({
 
   return (
     <div className="page todayPage" ref={page}>
-      <TitleRow nav className="todayHeader">
+      <TitleRow nav sidebar={sidebar} className="todayHeader">
         <h1>
           {formatJst(viewDate, data.settings.locale, {
             day: "numeric",
