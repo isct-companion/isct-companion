@@ -660,7 +660,7 @@ describe("shell navigation", () => {
  * ------------------------------------------------------------------ */
 
 describe("keyboard shortcuts", () => {
-  it("routes ⌘1–5, replacing the section", async () => {
+  it("routes ⌘1–6 to the rail pages and ⌘, to the section left in Settings", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture({ courses: [placedCourse] }),
@@ -687,13 +687,14 @@ describe("keyboard shortcuts", () => {
       paths.lectures(),
       paths.web(),
       paths.tools(),
-      // ⌘6 returns to the section left above.
+      paths.pastExams(),
+      // ⌘, returns to the section left above.
       paths.settings("study"),
     ].entries()) {
       await act(async () => {
         window.dispatchEvent(
           new KeyboardEvent("keydown", {
-            key: String(index + 1),
+            key: index === 6 ? "," : String(index + 1),
             metaKey: true,
             cancelable: true,
           }),

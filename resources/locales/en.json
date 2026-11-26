@@ -1127,7 +1127,7 @@
   "campusPrint.notice.queueFailed": "A print job didn't reach IsctCompanion. Print it again.",
   "campusPrint.notice.tooLarge": "The document is larger than {{megabytes}} MB, so it was not sent. Print fewer pages at a time.",
   "campusPrint.result.uncertainAfter": "The printer accepted {{printed}} copies. The next one was sent but got no answer, so it may have printed. Check the printer before sending again.",
-  "tools.campusPrinter.checkAgain": "Check again",
+  "tools.checkAgain": "Check again",
   "tools.campusPrinter.connectScienceTokyo": "Can't reach the printer. Join ScienceTokyo Wi-Fi.",
   "tools.campusPrinter.printerRulesWindows": "Prints are billed to the student ID of your Tokyo Tech Portal account.\nIt prints only on ScienceTokyo Wi-Fi; neither ScienceTokyoX nor the campus VPN reaches the printer.\nOnce added, every app can pick it in its print dialog (needs administrator approval once). Keep IsctCompanion running while printing.",
   "tools.campusPrinter.printerRulesMac": "Prints are billed to the student ID of your Tokyo Tech Portal account.\nIt prints only on ScienceTokyo Wi-Fi; neither ScienceTokyoX nor the campus VPN reaches the printer.\nOnce added, every app can pick it in its print dialog (asks for an administrator password once). Remove it in the system's printer settings.",

@@ -50,6 +50,8 @@ import { ConfirmDialogs } from "../components/confirm";
 import { t } from "../i18n";
 import { useTranslation } from "react-i18next";
 import { desktopBridge } from "../platform/native";
+import { nativeOs } from "../platform/desktop-bridge";
+import { railPageOrder, shortcutHint, shortcutPage } from "./shortcuts";
 import { hideNativeSchoolWeb } from "../platform/school-web-owner";
 import { type Page, type Section } from "../lib/route-contract";
 import { Today } from "../pages/today/TodayPage";
@@ -73,7 +75,11 @@ import { availableTools } from "../platform/available-tools";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { workspaceActions, workspaceStore } from "../store/workspace";
 import { useWorkspace } from "../store/useWorkspace";
-import { detectPlatform, resolveCapabilities } from "../platform/capabilities";
+import {
+  detectPlatform,
+  resolveCapabilities,
+  type Platform,
+} from "../platform/capabilities";
 import { useSchoolSession } from "../platform/school-session";
 import type { SchoolProfileSession } from "../generated/persistence";
 import { onWidgetRoute } from "../platform/widget-links";
@@ -89,19 +95,20 @@ import { ClassGroupPrompt } from "../pages/courses/ClassGroupPicker";
 import type { WorkspaceIntent } from "../lib/workspace-intents";
 
 /** Credentials are saved and the school has not turned them down. */
+/** The rail pages this build shows. */
+const railPagesFor = (platform: Platform) =>
+  pages.filter(
+    (p) =>
+      (p !== "tools" || availableTools(platform).length > 0) &&
+      (p !== "pastExams" || desktopBridge !== undefined),
+  );
+
 const connectedSession = (session: SchoolProfileSession | undefined) =>
   session !== undefined &&
   session.state !== "not-configured" &&
   session.state !== "refused";
 
-const pages: Page[] = [
-  "home",
-  "timetable",
-  "lectures",
-  "web",
-  "tools",
-  "pastExams",
-];
+const pages = railPageOrder;
 // Home orients (today and the week); Lectures is where a course is studied.
 const icons: Record<Page, React.ReactElement> = {
   timetable: <CalendarDays aria-hidden strokeWidth={1.75} />,
@@ -411,15 +418,10 @@ export function WorkspaceApp() {
   }, []);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        ["1", "2", "3", "4", "5", "6"].includes(e.key)
-      ) {
-        e.preventDefault();
-        const next: Page =
-          e.key === "6" ? "settings" : pages[Number(e.key) - 1];
-        void navigate(pagePath(next));
-      }
+      const next = shortcutPage(e, nativeOs(), railPagesFor(detectPlatform()));
+      if (!next) return;
+      e.preventDefault();
+      void navigate(pagePath(next));
     };
     addEventListener("keydown", key);
     return () => removeEventListener("keydown", key);
@@ -806,11 +808,7 @@ export function WorkspaceApp() {
       />
     </>
   );
-  const railPages = pages.filter(
-    (p) =>
-      (p !== "tools" || availableTools(platform).length > 0) &&
-      (p !== "pastExams" || desktopBridge !== undefined),
-  );
+  const railPages = railPagesFor(platform);
   return (
     <div className="app" data-density={data.settings.density}>
       <aside className="rail">
@@ -836,7 +834,7 @@ export function WorkspaceApp() {
                   ? () => setLectureRailHovered(false)
                   : undefined
               }
-              title={`${navigation[p]} (⌘${pages.indexOf(p) + 1})`}
+              title={`${navigation[p]} (${shortcutHint(p, nativeOs())})`}
             >
               {icons[p]}
               <span>{navigation[p]}</span>
@@ -849,7 +847,11 @@ export function WorkspaceApp() {
               key={p}
               className={`railUtility${page === p ? " active" : ""}`}
               onClick={() => void navigate(pagePath(p))}
-              title={navigation[p]}
+              title={
+                shortcutHint(p, nativeOs())
+                  ? `${navigation[p]} (${shortcutHint(p, nativeOs())})`
+                  : navigation[p]
+              }
             >
               {icons[p]}
               <span>{navigation[p]}</span>

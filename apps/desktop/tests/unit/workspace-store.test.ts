@@ -8,6 +8,7 @@ import {
   routeRedirect,
   workspaceRoutes,
 } from "@app/app/routes";
+import { railPageOrder, shortcutHint, shortcutPage } from "@app/app/shortcuts";
 import { seedWorkspace, type Workspace } from "@app/lib/model";
 import type {
   CoreWorkspaceCommit,
@@ -37,7 +38,15 @@ import {
   scheduleQuery,
   type ScheduleQuery,
 } from "@app/platform/core-query";
-import { createTauriDesktopBridge, getDesktopBridge, type InvokeNative, type ListenNative, type SchoolDownloadEvent, type SchoolRecords, type WorkspaceChangedEvent } from "@app/platform/desktop-bridge";
+import {
+  createTauriDesktopBridge,
+  getDesktopBridge,
+  type InvokeNative,
+  type ListenNative,
+  type SchoolDownloadEvent,
+  type SchoolRecords,
+  type WorkspaceChangedEvent,
+} from "@app/platform/desktop-bridge";
 import { finderQuery } from "@app/platform/finder-query";
 import {
   changesCommitted,
@@ -46,11 +55,7 @@ import {
   resetQueries,
   type CoreAnswer,
 } from "@app/platform/query-client";
-import {
-  pageProgress,
-  progressLine,
-  runsFor,
-} from "@app/platform/sync";
+import { pageProgress, progressLine, runsFor } from "@app/platform/sync";
 import { LocalRepository, SqliteRepository } from "@app/storage/repository";
 import {
   createBrowserPreviewService,
@@ -653,6 +658,51 @@ describe("shared workspace routes", () => {
     });
   });
 
+  it("maps page shortcuts to the platform's own modifier and skips pages the build lacks", () => {
+    const key = (key: string, mods: Partial<KeyboardEvent> = {}) => ({
+      key,
+      metaKey: false,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      ...mods,
+    });
+    const all = [...railPageOrder];
+    // ⌘6 is the sixth rail page, not Settings; ⌘, is Settings.
+    expect(shortcutPage(key("6", { metaKey: true }), "macos", all)).toBe(
+      "pastExams",
+    );
+    expect(shortcutPage(key(",", { metaKey: true }), "macos", all)).toBe(
+      "settings",
+    );
+    // Ctrl on a Mac and ⌘ (the Windows key) on Windows are not app shortcuts.
+    expect(shortcutPage(key("1", { ctrlKey: true }), "macos", all)).toBe(
+      undefined,
+    );
+    expect(shortcutPage(key("1", { metaKey: true }), "windows", all)).toBe(
+      undefined,
+    );
+    expect(shortcutPage(key("2", { ctrlKey: true }), "windows", all)).toBe(
+      "timetable",
+    );
+    expect(
+      shortcutPage(key("2", { metaKey: true, shiftKey: true }), "macos", all),
+    ).toBe(undefined);
+    // A page this build does not show has no shortcut, and 7 is past the rail.
+    const withoutTools = all.filter((page) => page !== "tools");
+    expect(
+      shortcutPage(key("5", { metaKey: true }), "macos", withoutTools),
+    ).toBe(undefined);
+    expect(shortcutPage(key("7", { metaKey: true }), "macos", all)).toBe(
+      undefined,
+    );
+    // The hints name the same keys.
+    expect(shortcutHint("pastExams", "macos")).toBe("⌘6");
+    expect(shortcutHint("pastExams", "windows")).toBe("Ctrl+6");
+    expect(shortcutHint("settings", "windows")).toBe("Ctrl+,");
+    expect(shortcutHint("about", "macos")).toBe(undefined);
+  });
+
   it("redirects an unknown path to home while keeping the query", () => {
     expect(routeRedirect("/")).toBe(paths.home());
     expect(routeRedirect("/unknown?q=c&view=week")).toBe(
@@ -1172,9 +1222,7 @@ describe("Tauri bridge contract", () => {
     const path = "/Users/student/Downloads/LAIIAssignment1.pdf";
 
     await expect(bridge.revealDownload?.(path)).resolves.toBe(true);
-    expect(calls).toEqual([
-      { command: "reveal_download", payload: { path } },
-    ]);
+    expect(calls).toEqual([{ command: "reveal_download", payload: { path } }]);
 
     const received: SchoolDownloadEvent[] = [];
     const dispose = bridge.onSchoolDownload!((event) => received.push(event));
@@ -1228,9 +1276,9 @@ describe("Tauri bridge contract", () => {
       listenerSeam().listen,
     );
 
-    await expect(selected.examUploadPickFiles!("Choose files")).resolves.toEqual(
-      files,
-    );
+    await expect(
+      selected.examUploadPickFiles!("Choose files"),
+    ).resolves.toEqual(files);
     await expect(
       cancelled.examUploadPickFiles!("Choose files"),
     ).resolves.toBeNull();
@@ -1428,20 +1476,24 @@ describe("sync snapshot surfaces", () => {
     expect(progressLine(syncOf(null))).toEqual({ kind: "idle" });
 
     const background = run({ priority: "background", total: 40 });
-    expect(progressLine(syncOf({ kind: "active", run: background.run }, background)))
-      .toMatchObject({ kind: "background" });
+    expect(
+      progressLine(syncOf({ kind: "active", run: background.run }, background)),
+    ).toMatchObject({ kind: "background" });
 
     const unsized = run({});
-    expect(progressLine(syncOf({ kind: "active", run: unsized.run }, unsized)))
-      .toMatchObject({ kind: "busy" });
+    expect(
+      progressLine(syncOf({ kind: "active", run: unsized.run }, unsized)),
+    ).toMatchObject({ kind: "busy" });
 
     const sized = run({ done: 4, total: 9 });
-    expect(progressLine(syncOf({ kind: "active", run: sized.run }, sized)))
-      .toEqual({ kind: "bar", run: sized, done: 4, total: 9 });
+    expect(
+      progressLine(syncOf({ kind: "active", run: sized.run }, sized)),
+    ).toEqual({ kind: "bar", run: sized, done: 4, total: 9 });
 
     const held = run({ held: { kind: "cellular" } });
-    expect(progressLine(syncOf({ kind: "held", run: held.run }, held)))
-      .toMatchObject({ kind: "held", held: { kind: "cellular" } });
+    expect(
+      progressLine(syncOf({ kind: "held", run: held.run }, held)),
+    ).toMatchObject({ kind: "held", held: { kind: "cellular" } });
   });
 
   it("sums a page's runs by scope, and drops the total when any run's size is unknown", () => {

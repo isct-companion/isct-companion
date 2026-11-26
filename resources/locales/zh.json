@@ -1127,7 +1127,7 @@
   "campusPrint.notice.queueFailed": "打印作业未送达 IsctCompanion，请重新打印。",
   "campusPrint.notice.tooLarge": "文档超过 {{megabytes}} MB，没有发送。请减少每次打印的页数。",
   "campusPrint.result.uncertainAfter": "打印机接收了 {{printed}} 份。下一份已发送但没有应答，可能已经打印。再次发送前请先查看打印机。",
-  "tools.campusPrinter.checkAgain": "重新检查",
+  "tools.checkAgain": "重新检查",
   "tools.campusPrinter.connectScienceTokyo": "连不上打印机，请连接 ScienceTokyo Wi-Fi",
   "tools.campusPrinter.printerRulesWindows": "打印费用记在 Tokyo Tech Portal 账号的学号上。\n只有连着 ScienceTokyo Wi-Fi 时才能打印，ScienceTokyoX 和校园 VPN 都连不到打印机。\n添加后，任何应用都能在打印对话框里选它（需要一次管理员批准）。打印时请保持 IsctCompanion 运行。",
   "tools.campusPrinter.printerRulesMac": "打印费用记在 Tokyo Tech Portal 账号的学号上。\n只有连着 ScienceTokyo Wi-Fi 时才能打印，ScienceTokyoX 和校园 VPN 都连不到打印机。\n添加后，任何应用都能在打印对话框里选它（需要一次管理员密码）。删除请在系统的打印机设置里进行。",

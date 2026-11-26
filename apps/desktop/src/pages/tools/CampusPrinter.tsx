@@ -1,5 +1,5 @@
 import { Printer } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
 import {
@@ -11,6 +11,7 @@ import { accountText } from "../../features/campus-print";
 import { InfoTip, UiButton } from "../../components/ui";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../lib/error-text";
+import { useToolStatus } from "./useToolStatus";
 
 /** What the last Add said, kept as data so it follows a language switch. */
 type Result =
@@ -27,8 +28,8 @@ const resultText = (result: Result) =>
 
 /**
  * The campus printer: Core verifies the Tokyo Tech account and tries the
- * printer once each time the page opens and on Check, never in the
- * background. The system print dialog sends jobs through the queue.
+ * printer each time the page or the window is shown again and on Check,
+ * never in the background. The system print dialog sends jobs through the queue.
  */
 export function CampusPrinter({
   notify,
@@ -36,29 +37,12 @@ export function CampusPrinter({
   notify: (message: string) => void;
 }) {
   const windows = nativeOs() === "windows";
-  const [status, setStatus] = useState<CampusPrinterStatus>();
-  const [checking, setChecking] = useState(true);
+  const { status, setStatus, checking, check } =
+    useToolStatus<CampusPrinterStatus>(async () =>
+      desktopBridge?.campusPrinterStatus?.(),
+    );
   const [adding, setAdding] = useState(false);
   const [result, setResult] = useState<Result>();
-  const latest = useRef(0);
-
-  const check = useCallback(async () => {
-    const call = ++latest.current;
-    setChecking(true);
-    const next = await desktopBridge
-      ?.campusPrinterStatus?.()
-      .catch(() => undefined);
-    if (call !== latest.current) return;
-    setStatus(next);
-    setChecking(false);
-  }, []);
-
-  useEffect(() => {
-    void check();
-    return () => {
-      latest.current++;
-    };
-  }, [check]);
 
   const add = async () => {
     setAdding(true);
@@ -126,10 +110,17 @@ export function CampusPrinter({
       note="tools.campusPrinter.printerHint"
       actions={
         <>
-          {/* The page checks on opening; again is only for after a change. */}
-          {!checking && (!ready || !reachable) && (
-            <UiButton className="button small" onClick={() => void check()}>
-              {t("tools.campusPrinter.checkAgain")}
+          {/* The page checks when shown; this is for a change made since. */}
+          {!adding && (
+            <UiButton
+              className="button small"
+              disabled={checking}
+              onClick={() => {
+                setResult(undefined);
+                void check();
+              }}
+            >
+              {t("tools.checkAgain")}
             </UiButton>
           )}
           {ready && (
