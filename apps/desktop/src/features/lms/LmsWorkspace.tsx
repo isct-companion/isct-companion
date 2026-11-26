@@ -163,9 +163,11 @@ export function LmsWorkspaceBody({
       ),
     [data.materials, course.id],
   );
+  const timelineNow = useClock(active);
   const courseDetail = useScheduleQuery<CourseDetail>({
     kind: "courseDetail",
     courseId: course.id,
+    now: timelineNow,
   }).value;
   const syllabus = courseDetail?.syllabusUrl;
   // Exams first; the timetable's exam-week classes follow as their own group.
@@ -207,7 +209,6 @@ export function LmsWorkspaceBody({
       ),
     [detailState.value],
   );
-  const timelineNow = useClock(active);
   const contentQuery = useScheduleQuery<CourseContent>({
     kind: "courseContent",
     courseId: course.id,

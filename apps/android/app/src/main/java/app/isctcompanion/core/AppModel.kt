@@ -520,8 +520,9 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     suspend fun timetableYear(year: Int): TimetableYear? =
         (query(WorkspaceQuery.TimetableYear(year)) as? WorkspaceQueryResult.TimetableYear)?.v1
 
+    /** A course's page as of now: exams already over are left out. */
     suspend fun courseDetail(id: String): CourseDetail? =
-        (query(WorkspaceQuery.CourseDetail(id)) as? WorkspaceQueryResult.CourseDetail)?.v1
+        (query(WorkspaceQuery.CourseDetail(id, Format.timestamp(Instant.now()))) as? WorkspaceQueryResult.CourseDetail)?.v1
 
     /** A course's LMS content lesson by lesson. */
     suspend fun courseContent(id: String): CourseContent? =

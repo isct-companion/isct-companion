@@ -1847,8 +1847,10 @@ fn course_detail_projects_visible_rows_in_section_and_deadline_order() {
             {"id":"cancelled","courseCode":"CSC.T101","status":"cancelled"}
         ]
     });
-    let request: WorkspaceQuery =
-        serde_json::from_value(json!({"kind":"courseDetail","courseId":"c"})).unwrap();
+    let request: WorkspaceQuery = serde_json::from_value(
+        json!({"kind":"courseDetail","courseId":"c","now":"2026-04-01T00:00:00+09:00"}),
+    )
+    .unwrap();
     let WorkspaceQueryResult::CourseDetail(view) =
         query(&data, &SchoolReads::fixture(&data), request).unwrap()
     else {
@@ -2558,6 +2560,35 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
     assert_eq!(detail.exams.len() + detail.exam_classes.len(), 7);
     assert!(detail.exams.iter().all(|view| view.kind != "class"));
     assert!(detail.exam_classes.iter().all(|view| view.kind == "class"));
+    // Right as the Monday exam ends: what is over leaves the course page, and
+    // the lecture list moves it under the exams and classes still to come,
+    // the latest first.
+    let ended_at = parse_timestamp("2026-04-27T15:10:00+09:00").unwrap();
+    let keys = |views: &[ExamView]| {
+        views
+            .iter()
+            .map(|view| view.key.clone())
+            .collect::<Vec<_>>()
+    };
+    let upcoming = detail.clone().without_ended(ended_at);
+    assert_eq!(keys(&upcoming.exams), ["reference:edited-monday-exam"]);
+    assert_eq!(keys(&upcoming.exam_classes), ["reference:exam-week"]);
+    let groups =
+        super::lecture_list::lecture_list(&data, &SchoolReads::fixture(&data), "2026-1Q", ended_at)
+            .unwrap()
+            .exam_groups;
+    assert_eq!(groups.upcoming_keys, ["reference:edited-monday-exam"]);
+    assert_eq!(groups.class_keys, ["reference:exam-week"]);
+    assert_eq!(
+        groups.ended_keys,
+        [
+            "reference:monday-exam",
+            "reference:kept",
+            "reference:extra",
+            "reference:final",
+            "reference:moved",
+        ]
+    );
     assert_eq!(
         super::exams::upcoming_exams(&data, &SchoolReads::fixture(&data), "2026-04-01")
             .into_iter()
@@ -3606,7 +3637,7 @@ fn every_query_lists_the_changes_its_result_reads() {
         json!({"kind":"taskView","now":now}),
         json!({"kind":"today","now":now}),
         json!({"kind":"assignmentBoard","now":now}),
-        json!({"kind":"courseDetail","courseId":"course"}),
+        json!({"kind":"courseDetail","courseId":"course","now":now}),
         json!({"kind":"courseContent","courseId":"course","now":now}),
         json!({"kind":"lectureSearch","term":"2026-1Q","query":"slides"}),
         json!({"kind":"scheduledCourses","term":"2026-1Q"}),

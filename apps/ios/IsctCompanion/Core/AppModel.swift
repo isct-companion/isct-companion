@@ -657,10 +657,11 @@ final class AppModel {
         return material
     }
 
+    /// A course's page as of now: exams already over are left out.
     func courseDetail(_ id: String) async -> CourseDetail? {
         guard let session,
             case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .courseDetail(courseId: id)
+                .courseDetail(courseId: id, now: Self.timestamp(Date()))
             ]).value(),
             case let .courseDetail(detail)? = result.values.first
         else { return nil }

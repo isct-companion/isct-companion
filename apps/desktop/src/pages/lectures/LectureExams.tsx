@@ -4,7 +4,8 @@ import {
 } from "../../components/exams/ExamCards";
 import { ExamEditor } from "../../components/exams/ExamEditor";
 import { TitleRow } from "../../components/TitleRow";
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { FoldToggle } from "../../components/ui";
 import { t } from "../../i18n";
 import { type LectureList } from "../../platform/core-query";
 import type { LectureSearch } from "../../generated/persistence";
@@ -22,16 +23,42 @@ export function LectureExamList({
   examKey: string | null;
   chooseExam: (key: string, term: string) => void;
 }) {
-  const exams = schedule?.exams ?? [];
+  const [showEnded, setShowEnded] = useState(false);
   const needle = query.trim().toLowerCase();
-  const shown = exams.filter((exam) =>
-    needle
-      ? Boolean(search?.examKeys.includes(exam.key))
-      : Boolean(exam.courseId) || exam.key === examKey,
+  const byKey = new Map(
+    (schedule?.exams ?? []).map((exam) => [exam.key, exam]),
   );
+  const groups = schedule?.examGroups;
+  // Core's groups in their order: exams to come, exam-week classes to come,
+  // then what is over, the latest first.
+  const pick = (keys: string[] | undefined) =>
+    (keys ?? []).flatMap((key) => {
+      const exam = byKey.get(key);
+      const shown =
+        exam &&
+        (needle
+          ? Boolean(search?.examKeys.includes(exam.key))
+          : Boolean(exam.courseId) || exam.key === examKey);
+      return shown ? [exam] : [];
+    });
+  const upcoming = pick(groups?.upcomingKeys);
   // Classes the timetable lists in exam week are not exams.
-  const classes = shown.filter((exam) => exam.kind === "class");
-  const row = (exam: (typeof shown)[number]) => (
+  const classes = pick(groups?.classKeys);
+  const ended = pick(groups?.endedKeys);
+  // An ended exam opened from elsewhere unfolds its group once, so the
+  // selected row shows; the person can fold it again.
+  const [unfoldedFor, setUnfoldedFor] = useState<string | null>(null);
+  if (
+    examKey &&
+    examKey !== unfoldedFor &&
+    ended.some((exam) => exam.key === examKey)
+  ) {
+    setUnfoldedFor(examKey);
+    setShowEnded(true);
+  }
+  // A search shows every match.
+  const endedOpen = showEnded || Boolean(needle);
+  const row = (exam: LectureList["exams"][number]) => (
     <button
       type="button"
       key={exam.key}
@@ -61,13 +88,14 @@ export function LectureExamList({
       )}
     </button>
   );
+  const nothing = !upcoming.length && !classes.length && !ended.length;
   return (
     <>
       <div className="lectureExamScope">
         <small>
           {needle ? t("lectures.searchPublishedExams") : t("lectures.myExams")}
         </small>
-        {!shown.length && (
+        {nothing && (
           <p>
             {t(
               needle
@@ -77,13 +105,30 @@ export function LectureExamList({
           </p>
         )}
       </div>
-      {shown.filter((exam) => exam.kind !== "class").map(row)}
+      {upcoming.map(row)}
       {classes.length > 0 && (
         <div className="lectureExamScope">
           <small>{t("lectures.classesInExamWeek")}</small>
         </div>
       )}
       {classes.map(row)}
+      {ended.length > 0 && (
+        <div className="dueGroup">
+          {needle ? (
+            <small>
+              {t("lectures.endedExams")} · {ended.length}
+            </small>
+          ) : (
+            <FoldToggle
+              open={showEnded}
+              onToggle={() => setShowEnded((value) => !value)}
+            >
+              {t("lectures.endedExams")} · {ended.length}
+            </FoldToggle>
+          )}
+          {endedOpen && ended.map(row)}
+        </div>
+      )}
     </>
   );
 }
