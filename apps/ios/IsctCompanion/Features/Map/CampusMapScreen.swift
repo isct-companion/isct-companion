@@ -57,6 +57,12 @@ struct CampusMapScreen: View {
     @Environment(\.verticalSizeClass) private var verticalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private(set) var load = CampusMapLoad.loading
+    /// The map is one of Core's reference files: asked for here, the page
+    /// looks again as data or sync runs change, and clears the label once the
+    /// sync run settles.
+    @State private var downloading = false
+    @State private var sawSyncChange = false
+    @State private var snapshotAtStart: UInt64?
     @State private var scene: CampusMapScene?
     /// Intents reach Core one after another, in the order sent.
     @State private var sending: Task<Void, Never>?
@@ -171,6 +177,19 @@ struct CampusMapScreen: View {
         .onChange(of: location.allowed) { _, allowed in
             if allowed && location.asked { locates += 1 }
         }
+        .onChange(of: model.contentRevision) { _, _ in
+            if downloading, case .missing = load { Task { await open() } }
+        }
+        .onChange(of: model.syncSnapshot?.generation) { _, generation in
+            guard downloading else { return }
+            let busy = model.syncSnapshot?.attention.busy == true
+            if busy || generation != snapshotAtStart { sawSyncChange = true }
+            if case .missing = load { Task { await open() } }
+            if sawSyncChange && !busy {
+                downloading = false
+                sawSyncChange = false
+            }
+        }
         .alert(t("campusMap.locationAccessTitle"), isPresented: $location.settingsRequired) {
             Button(t("settings.main.openSettings")) {
                 if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
@@ -189,6 +208,8 @@ struct CampusMapScreen: View {
         load = .loading
         switch await model.campusMapOpen(request.room) {
         case let .ready(opened):
+            downloading = false
+            sawSyncChange = false
             scene = opened
             load = .ready
         case .missing:
@@ -498,10 +519,20 @@ struct CampusMapScreen: View {
             glass(ProgressView().frame(maxWidth: .infinity, minHeight: 64))
         case .missing:
             glass(
-                ContentUnavailableView(
-                    t("campusMap.unavailable"), systemImage: "map",
-                    description: Text(t("campusMap.notDownloaded")))
-                    .frame(maxWidth: .infinity, minHeight: 180))
+                ContentUnavailableView {
+                    Label(t("campusMap.unavailable"), systemImage: "map")
+                } description: {
+                    Text(t(downloading ? "common.downloading" : "campusMap.notDownloaded"))
+                } actions: {
+                    Button(t("campusMap.download")) {
+                        downloading = true
+                        sawSyncChange = false
+                        snapshotAtStart = model.syncSnapshot?.generation
+                        model.syncHint(.refresh(scope: .references))
+                    }
+                    .buttonStyle(CapsuleButtonStyle(level: .secondary))
+                }
+                .frame(maxWidth: .infinity, minHeight: 200))
         case let .failed(message):
             glass(
                 ContentUnavailableView {

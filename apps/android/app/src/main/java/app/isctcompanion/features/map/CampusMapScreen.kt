@@ -143,10 +143,20 @@ fun CampusMapScreen(room: String?) {
     val reduceMotion = LocalReducedMotion.current
     var load by remember { mutableStateOf<MapLoad>(MapLoad.Loading) }
     // The map is one of Core's reference files: asked for here, the page
-    // looks again each time the data or a sync run changes.
+    // looks again each time the data or a sync run changes, and clears the
+    // downloading label once the sync run settles.
     var downloading by remember { mutableStateOf(false) }
+    var sawSyncChange by remember { mutableStateOf(false) }
+    var snapshotAtStart by remember { mutableStateOf<Any?>(null) }
+    val syncBusy = model.syncSnapshot?.attention?.busy == true
     LaunchedEffect(model.contentRevision, model.syncSnapshot) {
-        if (downloading && load == MapLoad.Missing) load = MapLoad.Loading
+        if (!downloading) return@LaunchedEffect
+        if (syncBusy || model.syncSnapshot !== snapshotAtStart) sawSyncChange = true
+        if (load == MapLoad.Missing) load = MapLoad.Loading
+        if (sawSyncChange && !syncBusy) {
+            downloading = false
+            sawSyncChange = false
+        }
     }
     // Intents reach Core one after another, in the order sent.
     val intents = remember { Channel<CampusMapIntent>(Channel.UNLIMITED) }
@@ -394,6 +404,8 @@ fun CampusMapScreen(room: String?) {
                         t("campusMap.download"),
                     ) {
                         downloading = true
+                        sawSyncChange = false
+                        snapshotAtStart = model.syncSnapshot
                         model.refresh(SyncScope.References)
                     }
                     is MapLoad.Failed -> Notice(t("campusMap.failed"), state.message, t("common.retry")) { load = MapLoad.Loading }

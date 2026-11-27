@@ -162,7 +162,15 @@ export function StudyProfileSettings({
     void choose({ ...draft, admissionYear: year });
   const chooseDegree = (stage: StudyEnrollment["stage"]) => {
     const enrollments = structuredClone(draft.enrollments);
-    if (enrollments.length) enrollments[enrollments.length - 1].stage = stage;
+    const last = enrollments.at(-1);
+    if (stage === "unknown" && (!last || !last.admittedTerm)) {
+      // Clearing an unsaved programme drops the pending choice without saving.
+      setPending(false);
+      setError("");
+      adopt();
+      return;
+    }
+    if (last) last.stage = stage;
     else enrollments.push({ stage, entryKind: "unknown", admittedTerm: "" });
     void choose({ ...draft, enrollments });
   };

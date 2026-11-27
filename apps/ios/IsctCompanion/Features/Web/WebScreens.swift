@@ -125,7 +125,8 @@ private struct ResidentWebView: UIViewRepresentable {
             } else if progress.alpha > 0 {
                 // Full, then fades; the next load starts from empty.
                 progress.setProgress(1, animated: true)
-                UIView.animate(withDuration: Theme.motionBase) { self.progress.alpha = 0 } completion: { _ in
+                UIView.animate(withDuration: Theme.motionBase) { self.progress.alpha = 0 } completion: { finished in
+                    guard finished else { return }
                     self.progress.setProgress(0, animated: false)
                 }
             }

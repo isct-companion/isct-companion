@@ -536,7 +536,13 @@ internal fun UploadSheet(
             OutlinedTextField(draft.note, { value -> edit { it.copy(note = value.limit(limits.note)) } }, enabled = canEdit,
                 label = { Text(t("examShare.upload.note")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Text(t("examShare.uploadPublic"), color = Theme.colors.muted, style = MaterialTheme.typography.bodySmall)
-            if (!pending && !sending) readiness?.reasonKey?.let { Text(t(it), color = Theme.colors.danger) }
+            // An empty selection is where the sheet starts, not a mistake;
+            // the disabled send button says enough.
+            if (!pending && !sending) {
+                readiness?.reasonKey
+                    ?.takeUnless { files.isEmpty() && it == "error.exam-share-upload-no-files" }
+                    ?.let { Text(t(it), color = Theme.colors.danger) }
+            }
             error?.let { Text(it, color = Theme.colors.danger) }
             when {
                 sending -> ExamUploadProgress(progress, true)

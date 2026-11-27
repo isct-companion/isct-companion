@@ -743,11 +743,17 @@ export function UploadDialog({
           <p className="examQuiet">{t("examShare.uploadPublic")}</p>
           {/* An empty selection is where the dialog starts, not a mistake;
               the disabled send button says enough. */}
-          {readiness?.reasonKey && files.length > 0 && !pending && !running && (
-            <Text size="sm" c="red" role="status">
-              {lookup(readiness.reasonKey)}
-            </Text>
-          )}
+          {readiness?.reasonKey &&
+            !(
+              files.length === 0 &&
+              readiness.reasonKey === "error.exam-share-upload-no-files"
+            ) &&
+            !pending &&
+            !running && (
+              <Text size="sm" c="red" role="status">
+                {lookup(readiness.reasonKey)}
+              </Text>
+            )}
           {running && <UploadProgress status={status} cancel={cancel} />}
           {pending && !running && (
             <UploadRecovery

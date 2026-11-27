@@ -19,7 +19,6 @@ import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Widgets
 import app.isctcompanion.design.t
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedButton
@@ -61,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -175,9 +175,10 @@ internal fun SettingsPageScreen(key: String) {
             // like it stopped while Core carries on.
             var busy by remember { mutableStateOf(false) }
             BackHandler(busy) {}
+            DisposableEffect(Unit) { onDispose { navigator.resetBusy = false } }
             val title = if (page.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
             SettingsFrame(t(title), back = if (busy) null else back) {
-                ResetPage(page.kind, onBusy = { busy = it }, done = back)
+                ResetPage(page.kind, onBusy = { busy = it; navigator.resetBusy = it }, done = back)
             }
         }
         null -> LaunchedEffect(Unit) { navigator.back() }

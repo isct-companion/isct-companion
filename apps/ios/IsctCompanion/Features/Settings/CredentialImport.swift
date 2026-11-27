@@ -696,9 +696,13 @@ private struct MatrixLetterField: UIViewRepresentable {
         let field = Field()
         field.delegate = context.coordinator
         field.textAlignment = .center
-        let size = UIFont.preferredFont(forTextStyle: .callout).pointSize
+        let baseSize = UIFontDescriptor
+            .preferredFontDescriptor(
+                withTextStyle: .callout,
+                compatibleWith: UITraitCollection(preferredContentSizeCategory: .large))
+            .pointSize
         field.font = UIFontMetrics(forTextStyle: .callout)
-            .scaledFont(for: .monospacedSystemFont(ofSize: size, weight: .semibold))
+            .scaledFont(for: .monospacedSystemFont(ofSize: baseSize, weight: .semibold))
         field.adjustsFontForContentSizeCategory = true
         field.textColor = UIColor(Theme.ink)
         field.tintColor = UIColor(Theme.accent)

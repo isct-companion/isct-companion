@@ -186,19 +186,23 @@ fun TimetableScreen() {
     // The shown week's quarter, or this quarter between quarters.
     val term = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }?.term ?: week?.term ?: model.today?.term
 
-    RefreshBox({ model.refreshFromSchool() }) {
-    Column(
+    RefreshBox(
+        { model.refreshFromSchool() },
         Modifier
             .fillMaxSize()
-            // Passing weeks reach the page's edge but never draw over the
-            // rail beside it on a tablet.
-            .clipToBounds()
             .background(Theme.colors.bg)
-            .windowInsetsPadding(WindowInsets.statusBars)
-            .padding(horizontal = Theme.space6)
-            .padding(bottom = Theme.space4),
-        verticalArrangement = Arrangement.spacedBy(Theme.space6),
+            .windowInsetsPadding(WindowInsets.statusBars),
     ) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // Passing weeks reach the page's edge but never draw over the
+                // rail beside it on a tablet.
+                .clipToBounds()
+                .padding(horizontal = Theme.space6)
+                .padding(bottom = Theme.space4),
+            verticalArrangement = Arrangement.spacedBy(Theme.space6),
+        ) {
         Header(
             monday, chip(year, monday), term, openPicker = { picker = true },
             step = { weeks -> go(monday.plusWeeks(weeks), slow = false) },

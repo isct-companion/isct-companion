@@ -60,7 +60,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -278,6 +277,9 @@ class Navigator(private val controller: NavHostController) {
     /** A page below 設定's root, pushed inside the tab's graph. */
     internal fun openSettingsPage(page: SettingsPage) = controller.navigate(settingsPageRoute(page))
 
+    /** A running reset holds navigation until it finishes. */
+    internal var resetBusy by mutableStateOf(false)
+
     /** Switches tabs, keeping each tab's stack. */
     fun openTab(route: String) = controller.navigate(route) {
         popUpTo(controller.graph.findStartDestination().id) { saveState = true }
@@ -331,8 +333,7 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
             Icon(Icons.Rounded.WarningAmber, null, tint = Theme.colors.muted)
             Text(t("common.couldNotStart"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
-            val scope = rememberCoroutineScope()
-            TextButton(onClick = { scope.launch { model.start() } }) { Text(t("common.retry")) }
+            TextButton(onClick = { model.retryStart() }) { Text(t("common.retry")) }
         }
         AppModel.Status.Ready -> Tabs(widgetLink, consumed)
     }
@@ -430,6 +431,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     // Tapping the current tab returns it to its root; for ウェブ, to the
     // shown site's start page.
     fun select(tab: AppTab) {
+        if (navigator.resetBusy) return
         if (tab == current) {
             controller.popBackStack(tab.start, inclusive = false)
             if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)

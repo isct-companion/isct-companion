@@ -167,9 +167,17 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             // The launch's first foreground came before the session opened, so
             // its update check never ran.
             if (foreground) scope.launch { updater.check(session, launch = true) }
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: Exception) {
             status = Status.Failed(describe(error))
         }
+    }
+
+    /** Retries a failed start on the process scope so leaving the failure
+     * screen does not cancel it. */
+    fun retryStart() {
+        scope.launch { start() }
     }
 
     /** Opens Core's session and starts listening to it; [start] runs the

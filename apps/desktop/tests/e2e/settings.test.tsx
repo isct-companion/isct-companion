@@ -1868,6 +1868,19 @@ describe("Study profile", () => {
       );
       expect(studyIntents(mounted)).toHaveLength(0);
 
+      // Clearing the pending programme back to Not set dismisses the alert without saving.
+      await chooseOption(stageSelect(pane), "unknown");
+      await wait(() => expect(pane.querySelector('[role="alert"]')).toBeNull());
+      expect(studyIntents(mounted)).toHaveLength(0);
+
+      // Pick again so the pending choice can conflict with an external update.
+      await chooseOption(stageSelect(pane), "doctoral");
+      await wait(() =>
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "admission year",
+        ),
+      );
+
       // Another device changed the profile while the programme waited.
       const external = structuredClone(initial);
       external.academicProfile.studyEnrollments = [
