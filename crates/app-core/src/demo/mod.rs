@@ -14,7 +14,9 @@
 use crate::course_materials::{course_folder, material_path};
 use crate::data::{DataError, DataStore, WorkspaceChangeSource};
 use crate::exam_share::SubjectRecords;
-use crate::lms_ingest::{apply_lms_assign, apply_lms_course, apply_lms_deadlines, apply_lms_enrolment};
+use crate::lms_ingest::{
+    apply_lms_assign, apply_lms_course, apply_lms_deadlines, apply_lms_enrolment,
+};
 use crate::notes::CourseFolder;
 use crate::ports::{SecretError, SecretVault};
 use crate::sync_state::{self, Key};
@@ -170,7 +172,9 @@ pub fn seed(core: &Core, course_root: &Path) -> Result<(), String> {
             store.paths().root().display()
         ));
     }
-    store.catalog_upsert_offerings(&scene.offerings).map_err(text)?;
+    store
+        .catalog_upsert_offerings(&scene.offerings)
+        .map_err(text)?;
     school_pull(store, |tx| {
         let now = crate::clock::now();
         apply_lms_enrolment(tx, &scene.enrolment, now)?;

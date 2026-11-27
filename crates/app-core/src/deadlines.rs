@@ -66,7 +66,11 @@ impl Duty for Reminders {
             let Some(sink) = self.0.sink() else {
                 return;
             };
-            if let Err(error) = self.0.deliver_due(sink, crate::clock::now().fixed_offset()).await {
+            if let Err(error) = self
+                .0
+                .deliver_due(sink, crate::clock::now().fixed_offset())
+                .await
+            {
                 crate::diagnostics::report("reminders", &error);
             }
         })
@@ -355,7 +359,8 @@ impl Duty for AgentAccess {
                         log::error!("[mcp] server unavailable: {error}");
                     }
                     if let Ok(mut next) = self.next.lock() {
-                        let retry = crate::clock::now() + Duration::from_std(wait).unwrap_or_default();
+                        let retry =
+                            crate::clock::now() + Duration::from_std(wait).unwrap_or_default();
                         *next = Some(next.map_or(retry, |next| next.min(retry)));
                     }
                 }

@@ -6,7 +6,6 @@
 
 use crate::{
     data::{DataError, WorkspaceChangeSource},
-    locale::{ContentLanguage, Localized},
     plan::{Gated, KeyEnd, Lease},
     sync_state::{self, Commit, Dataset, Key, Outcome, RunOutcome},
 };
@@ -84,6 +83,39 @@ pub struct AnnouncementsView {
     pub pending: Vec<AnnouncementView>,
 }
 
+/// An announcement's words: English, which every app can show, and Japanese
+/// and Chinese for apps set to those languages. Unlike school data, the
+/// maintainers write these, so they follow the app's own language
+/// (`settings.locale`), not the school-content language.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Text {
+    pub(crate) en: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ja: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) zh: Option<String>,
+}
+
+impl Text {
+    /// The text in the app's language, or English when it has none.
+    fn pick(&self, locale: Option<&str>) -> &str {
+        let chosen = match locale {
+            Some("ja") => self.ja.as_deref(),
+            Some("zh") => self.zh.as_deref(),
+            _ => None,
+        };
+        chosen
+            .filter(|text| !text.trim().is_empty())
+            .unwrap_or(&self.en)
+    }
+
+    /// Whether the fallback every app relies on is there.
+    fn present(&self) -> bool {
+        !self.en.trim().is_empty()
+    }
+}
+
 /// One announcement as the file publishes it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -92,8 +124,8 @@ pub(crate) struct Announcement {
     level: AnnouncementLevel,
     starts_at: DateTime<FixedOffset>,
     expires_at: DateTime<FixedOffset>,
-    title: Localized,
-    body: Localized,
+    title: Text,
+    body: Text,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     platforms: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -108,7 +140,7 @@ pub(crate) struct Announcement {
 #[serde(deny_unknown_fields)]
 struct Link {
     url: String,
-    label: Localized,
+    label: Text,
 }
 
 #[derive(Deserialize)]
@@ -143,8 +175,8 @@ impl Announcement {
         self.addressed() && self.starts_at <= now && now < self.expires_at
     }
 
-    fn view(&self, language: ContentLanguage) -> AnnouncementView {
-        let text = |text: &Localized| text.pick(language).unwrap_or_default().to_owned();
+    fn view(&self, locale: Option<&str>) -> AnnouncementView {
+        let text = |text: &Text| text.pick(locale).to_owned();
         AnnouncementView {
             id: self.id.clone(),
             level: self.level,
@@ -192,8 +224,8 @@ fn parse(body: &str) -> Result<Vec<Announcement>, String> {
         if item.id.trim().is_empty()
             || !seen.insert(item.id.clone())
             || item.starts_at >= item.expires_at
-            || item.title.pick(ContentLanguage::En).is_none()
-            || item.body.pick(ContentLanguage::En).is_none()
+            || !item.title.present()
+            || !item.body.present()
             || item.platforms.as_ref().is_some_and(|platforms| {
                 platforms.is_empty()
                     || platforms.iter().any(|platform| {
@@ -218,9 +250,11 @@ fn parse(body: &str) -> Result<Vec<Announcement>, String> {
         {
             return Err(format!("invalid announcement {}", item.id));
         }
-        if item.link.as_ref().is_some_and(|link| {
-            !allowed_link(&link.url) || link.label.pick(ContentLanguage::En).is_none()
-        }) {
+        if item
+            .link
+            .as_ref()
+            .is_some_and(|link| !allowed_link(&link.url) || !link.label.present())
+        {
             item.link = None;
         }
     }
@@ -234,16 +268,15 @@ pub(crate) fn view(
     answered: &[String],
     now: DateTime<Utc>,
 ) -> AnnouncementsView {
-    let language = ContentLanguage::of(workspace);
+    let locale = workspace
+        .pointer("/settings/locale")
+        .and_then(serde_json::Value::as_str);
     let mut current: Vec<_> = announcements
         .iter()
         .filter(|announcement| announcement.active_at(now))
         .collect();
     current.sort_by(|a, b| b.starts_at.cmp(&a.starts_at).then(a.id.cmp(&b.id)));
-    let active: Vec<_> = current
-        .into_iter()
-        .map(|item| item.view(language))
-        .collect();
+    let active: Vec<_> = current.into_iter().map(|item| item.view(locale)).collect();
     let pending = active
         .iter()
         .filter(|item| !answered.contains(&item.id))
