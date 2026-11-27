@@ -264,15 +264,21 @@
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
 /* The lessons as a quiet scrubber down the outline's edge: one short tick
    per lesson, brighter once held, warm while work is open, accent and
-   numbered where the reading is; a lesson's number shows on hover. */
+   numbered where the reading is; a lesson's number shows on hover.
+   The rail is as wide as its widest row: inset, the current (longest) tick,
+   the gap, a two-digit number at the scaled tick size, and room after it,
+   so a number never clips at a larger text size. */
 .lmsLessonRail {
-  position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 0; flex: 0 0 40px; width: 40px; min-height: 0;
+  --lms-rail-width: calc(var(--space-5) + 16px + var(--space-3) + 2.4ch + var(--space-3));
+  position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 0;
+  flex: 0 0 var(--lms-rail-width); width: var(--lms-rail-width); min-height: 0;
   padding: var(--space-6) 0; overflow: hidden auto; scrollbar-width: none;
+  font-size: calc(var(--type-tick-size) * var(--text)); font-variant-numeric: tabular-nums;
 }
 .lmsLessonRail button {
   position: relative; display: flex; align-items: center; gap: var(--space-3); flex: 0 0 18px; width: 100%; min-width: 0; padding: 0 0 0 var(--space-5);
   border: 0; background: none; white-space: nowrap;
-  color: transparent !important; font-size: calc(var(--type-tick-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: left;
+  color: transparent !important; font-size: inherit !important; font-variant-numeric: tabular-nums; text-align: left;
 }
 .lmsLessonRail button::before {
   content: ""; flex: 0 0 auto; width: 10px; height: 2px; border-radius: 1px; background: var(--line);
