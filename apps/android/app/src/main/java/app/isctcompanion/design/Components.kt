@@ -390,8 +390,6 @@ fun TabPage(
     onRefresh: (suspend () -> Unit)? = null,
     content: @Composable () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
-    var refreshing by remember { mutableStateOf(false) }
     Scaffold(
         containerColor = Theme.colors.bg,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -407,22 +405,33 @@ fun TabPage(
         },
     ) { padding ->
         Box(Modifier.padding(padding)) {
-            if (onRefresh == null) {
-                content()
-            } else {
-                PullToRefreshBox(
-                    isRefreshing = refreshing,
-                    onRefresh = {
-                        scope.launch {
-                            refreshing = true
-                            onRefresh()
-                            refreshing = false
-                        }
-                    },
-                ) { content() }
-            }
+            if (onRefresh == null) content() else RefreshBox(onRefresh) { content() }
         }
     }
+}
+
+/** Material's pull to refresh around a page's scrolling content, spinning
+ * until `onRefresh` returns; [TabPage] uses it, and so does a page with a
+ * header of its own (時間割). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RefreshBox(onRefresh: suspend () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var refreshing by remember { mutableStateOf(false) }
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        modifier = modifier,
+        onRefresh = {
+            scope.launch {
+                refreshing = true
+                try {
+                    onRefresh()
+                } finally {
+                    refreshing = false
+                }
+            }
+        },
+    ) { content() }
 }
 
 /** The muted line under a page title: date, quarter, week. */

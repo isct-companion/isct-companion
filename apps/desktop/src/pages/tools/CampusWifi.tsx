@@ -1,5 +1,5 @@
 import { Wifi } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Progress } from "../../components/ui";
 import { t, type MessageKey } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
@@ -13,6 +13,7 @@ import { InfoTip, UiButton } from "../../components/ui";
 import { confirmAction } from "../../components/confirm";
 import { ToolCard } from "./ToolCard";
 import { errorText } from "../../lib/error-text";
+import { useToolStatus } from "./useToolStatus";
 
 const OUTCOME_TEXT: Record<
   Exclude<CampusWifiOutcome, "science-tokyo-x">,
@@ -33,30 +34,18 @@ const STEP_TEXT: Record<CampusWifiStep, MessageKey> = {
 
 /**
  * ScienceTokyo Wi-Fi: one sign-in per click, nothing in the background. The
- * Wi-Fi state is read once each time the page opens.
+ * Wi-Fi state is read each time the page or the window is shown again, and
+ * on Check again.
  */
 export function CampusWifi({ notify }: { notify: (message: string) => void }) {
-  const [status, setStatus] = useState<CampusWifiStatus>();
-  const [checking, setChecking] = useState(true);
+  const { status, setStatus, checking, check } =
+    useToolStatus<CampusWifiStatus>(async () =>
+      desktopBridge?.campusWifiStatus?.(),
+    );
   const [step, setStep] = useState<CampusWifiStep>();
   const [connecting, setConnecting] = useState(false);
   const [result, setResult] = useState<string>();
   const connected = status === "signed-in";
-  useEffect(() => {
-    let current = true;
-    setChecking(true);
-    void (async () => {
-      const next = await desktopBridge
-        ?.campusWifiStatus?.()
-        .catch(() => undefined);
-      if (!current) return;
-      setStatus(next);
-      setChecking(false);
-    })();
-    return () => {
-      current = false;
-    };
-  }, []);
 
   const connect = async (leaveScienceTokyoX: boolean) => {
     if (!desktopBridge?.campusWifiConnect) return;
@@ -140,20 +129,34 @@ export function CampusWifi({ notify }: { notify: (message: string) => void }) {
       status={hint}
       note="tools.campusWifi.wifiHint"
       actions={
-        // Signed in, there is nothing to press until the sign-in expires.
-        !connected && (
-          <UiButton
-            className="button small"
-            disabled={checking || connecting}
-            onClick={() => void start()}
-          >
-            {t(
-              connecting
-                ? "tools.campusWifi.connecting"
-                : "tools.campusWifi.connect",
-            )}
-          </UiButton>
-        )
+        <>
+          {!connecting && (
+            <UiButton
+              className="button small"
+              disabled={checking}
+              onClick={() => {
+                setResult(undefined);
+                void check();
+              }}
+            >
+              {t("tools.checkAgain")}
+            </UiButton>
+          )}
+          {/* Signed in, there is nothing to press until the sign-in expires. */}
+          {!connected && (
+            <UiButton
+              className="button small"
+              disabled={checking || connecting}
+              onClick={() => void start()}
+            >
+              {t(
+                connecting
+                  ? "tools.campusWifi.connecting"
+                  : "tools.campusWifi.connect",
+              )}
+            </UiButton>
+          )}
+        </>
       }
     />
   );

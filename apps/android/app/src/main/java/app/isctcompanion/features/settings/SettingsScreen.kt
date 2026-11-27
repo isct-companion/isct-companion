@@ -17,12 +17,14 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.Widgets
 import app.isctcompanion.design.t
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SegmentedButton
+import android.appwidget.AppWidgetManager
 import android.content.ClipData
+import android.content.ComponentName
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -58,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -77,6 +80,8 @@ import app.isctcompanion.core.SchoolBrowserHost
 import app.isctcompanion.core.SyncState
 import app.isctcompanion.core.WebRouter
 import app.isctcompanion.core.exportApplicationLogs
+import app.isctcompanion.widgets.AssignmentsWidgetReceiver
+import app.isctcompanion.widgets.ClassesWidgetReceiver
 import app.isctcompanion.core.feedbackFormUrl
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
@@ -92,9 +97,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private sealed interface SettingsPage {
-    data object Root : SettingsPage
-    data class Account(val profile: SchoolAuthProfile, val name: String) : SettingsPage
+/** 設定's pages below its root. Each is a destination of the tab's graph
+ * ([SETTINGS_PAGE_ROUTE], App.kt), so system back and predictive back leave
+ * it as they leave any page, and a tab switch keeps it. */
+internal sealed interface SettingsPage {
+    data class Account(val profile: SchoolAuthProfile) : SettingsPage
     data object Notifications : SettingsPage
     data object AssignmentLeads : SettingsPage
     data object StudyProfile : SettingsPage
@@ -102,41 +109,39 @@ private sealed interface SettingsPage {
     data object Backup : SettingsPage
     data class Reset(val kind: ResetKind) : SettingsPage
 
-    /** Where back goes: a page opened from another returns to it. */
-    val parent: SettingsPage
-        get() = if (this == AssignmentLeads) Notifications else Root
+    /** The route argument naming the page. */
+    val key: String
+        get() = when (this) {
+            Notifications -> "notifications"
+            AssignmentLeads -> "assignment-leads"
+            StudyProfile -> "study-profile"
+            DataUpdates -> "data-updates"
+            Backup -> "backup"
+            is Reset -> "reset:${kind.name}"
+            is Account -> "account:${profile.name}"
+        }
 
     companion object {
-        /** Keeps the open page across a tab switch, which drops the composition. */
-        val Saver = androidx.compose.runtime.saveable.Saver<SettingsPage, String>(
-            save = {
-                when (it) {
-                    Root -> "root"
-                    Notifications -> "notifications"
-                    AssignmentLeads -> "assignment-leads"
-                    StudyProfile -> "study-profile"
-                    DataUpdates -> "data-updates"
-                    Backup -> "backup"
-                    is Reset -> "reset:${it.kind.name}"
-                    is Account -> "account:${it.profile.name}:${it.name}"
-                }
-            },
-            restore = { raw ->
-                val parts = raw.split(":", limit = 3)
-                when (parts[0]) {
-                    "notifications" -> Notifications
-                    "assignment-leads" -> AssignmentLeads
-                    "study-profile" -> StudyProfile
-                    "data-updates" -> DataUpdates
-                    "backup" -> Backup
-                    "reset" -> runCatching { Reset(ResetKind.valueOf(parts[1])) }.getOrNull() ?: Root
-                    "account" -> runCatching { Account(SchoolAuthProfile.valueOf(parts[1]), parts[2]) }.getOrNull() ?: Root
-                    else -> Root
-                }
-            },
-        )
+        fun parse(raw: String): SettingsPage? {
+            val parts = raw.split(":", limit = 2)
+            return when (parts[0]) {
+                "notifications" -> Notifications
+                "assignment-leads" -> AssignmentLeads
+                "study-profile" -> StudyProfile
+                "data-updates" -> DataUpdates
+                "backup" -> Backup
+                "reset" -> runCatching { Reset(ResetKind.valueOf(parts[1])) }.getOrNull()
+                "account" -> runCatching { Account(SchoolAuthProfile.valueOf(parts[1])) }.getOrNull()
+                else -> null
+            }
+        }
     }
 }
+
+/** The destination holding every [SettingsPage], registered in 設定's graph. */
+internal const val SETTINGS_PAGE_ROUTE = "settings/{page}"
+
+internal fun settingsPageRoute(page: SettingsPage) = "settings/${Uri.encode(page.key)}"
 
 /** 設定, the last tab: the desktop settings sections that apply on a phone —
  * school accounts, reminders, study profile, data updates, language and
@@ -144,55 +149,47 @@ private sealed interface SettingsPage {
  * calendars, folders and developer settings stay on desktop. */
 @Composable
 fun SettingsScreen() {
-    var page by rememberSaveable(stateSaver = SettingsPage.Saver) { mutableStateOf<SettingsPage>(SettingsPage.Root) }
-    // The welcome sheet's "Connect school accounts" lands on the account page.
     val navigator = LocalNavigator.current
-    LaunchedEffect(navigator.settingsAccount) {
-        val profile = navigator.settingsAccount ?: return@LaunchedEffect
-        navigator.settingsAccount = null
-        page = SettingsPage.Account(profile, accountName(profile))
+    SettingsFrame(t("common.settings"), back = null) {
+        RootPage { navigator.openSettingsPage(it) }
     }
-    // A running reset holds the page, as on iOS: leaving would look like it
-    // stopped while Core carries on.
-    var busy by remember { mutableStateOf(false) }
-    BackHandler(page != SettingsPage.Root) { if (!busy) page = page.parent }
-    Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
-        when (val current = page) {
-            SettingsPage.Root -> {
-                Bar(t("common.settings"))
-                RootPage { page = it }
-            }
-            is SettingsPage.Account -> {
-                Bar(current.name, back = { page = SettingsPage.Root })
-                AccountPage(current.profile) { page = SettingsPage.Root }
-            }
-            SettingsPage.Notifications -> {
-                Bar(t("common.notifications"), back = { page = SettingsPage.Root })
-                NotificationsPage { page = SettingsPage.AssignmentLeads }
-            }
-            SettingsPage.AssignmentLeads -> {
-                Bar(t("settings.notification.assignmentReminderTimes"), back = { page = SettingsPage.Notifications })
-                AssignmentLeadsPage()
-            }
-            SettingsPage.StudyProfile -> {
-                Bar(t("settings.main.studyProfile"), back = { page = SettingsPage.Root })
-                StudyProfilePage()
-            }
-            SettingsPage.DataUpdates -> {
-                Bar(t("settings.main.dataUpdates"), back = { page = SettingsPage.Root })
-                DataUpdatesPage()
-            }
+}
 
-            SettingsPage.Backup -> {
-                Bar(t("settings.main.backup"), back = { page = SettingsPage.Root })
-                BackupPage()
-            }
-            is SettingsPage.Reset -> {
-                val title = if (current.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
-                Bar(t(title), back = if (busy) null else ({ page = SettingsPage.Root }))
-                ResetPage(current.kind, onBusy = { busy = it }) { page = SettingsPage.Root }
+/** One page below 設定's root, by its route argument. */
+@Composable
+internal fun SettingsPageScreen(key: String) {
+    val navigator = LocalNavigator.current
+    val back: () -> Unit = { navigator.back() }
+    when (val page = SettingsPage.parse(key)) {
+        is SettingsPage.Account -> SettingsFrame(accountName(page.profile), back) { AccountPage(page.profile, back) }
+        SettingsPage.Notifications -> SettingsFrame(t("common.notifications"), back) {
+            NotificationsPage { navigator.openSettingsPage(SettingsPage.AssignmentLeads) }
+        }
+        SettingsPage.AssignmentLeads ->
+            SettingsFrame(t("settings.notification.assignmentReminderTimes"), back) { AssignmentLeadsPage() }
+        SettingsPage.StudyProfile -> SettingsFrame(t("settings.main.studyProfile"), back) { StudyProfilePage() }
+        SettingsPage.DataUpdates -> SettingsFrame(t("settings.main.dataUpdates"), back) { DataUpdatesPage() }
+        SettingsPage.Backup -> SettingsFrame(t("settings.main.backup"), back) { BackupPage() }
+        is SettingsPage.Reset -> {
+            // A running reset holds the page, as on iOS: leaving would look
+            // like it stopped while Core carries on.
+            var busy by remember { mutableStateOf(false) }
+            BackHandler(busy) {}
+            DisposableEffect(Unit) { onDispose { navigator.resetBusy = false } }
+            val title = if (page.kind == ResetKind.Everything) "settings.reset.full.title" else "settings.reset.caches.title"
+            SettingsFrame(t(title), back = if (busy) null else back) {
+                ResetPage(page.kind, onBusy = { busy = it; navigator.resetBusy = it }, done = back)
             }
         }
+        null -> LaunchedEffect(Unit) { navigator.back() }
+    }
+}
+
+@Composable
+private fun SettingsFrame(title: String, back: (() -> Unit)?, content: @Composable () -> Unit) {
+    Column(Modifier.fillMaxSize().background(Theme.colors.bg).imePadding()) {
+        Bar(title, back)
+        content()
     }
 }
 
@@ -228,13 +225,13 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             AccountRow(
                 SchoolAuthProfile.SCIENCE, science, model.credentials?.science, model.sessions?.science,
                 model.syncSource("lms")?.lastUpdated,
-            ) { open(SettingsPage.Account(SchoolAuthProfile.SCIENCE, science)) }
+            ) { open(SettingsPage.Account(SchoolAuthProfile.SCIENCE)) }
             RowDivider(inset = 36.dp)
             val tokyoTech = accountName(SchoolAuthProfile.TOKYO_TECH)
             AccountRow(
                 SchoolAuthProfile.TOKYO_TECH, tokyoTech, model.credentials?.tokyoTech, model.sessions?.tokyoTech,
                 model.syncSource("kyomu")?.lastUpdated,
-            ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH, tokyoTech)) }
+            ) { open(SettingsPage.Account(SchoolAuthProfile.TOKYO_TECH)) }
         }
         Card(Modifier.padding(top = Theme.space8)) {
             NavRow(
@@ -254,8 +251,9 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
         LanguageCard()
         // No maps-app choice: Android has no Apple Maps, and Core opens Google Maps.
         WebCard()
-        // As on iOS: About holds the version, the tips and the logs, then the
-        // desktop note; the destructive Reset group comes last.
+        WidgetCard()
+        // As on iOS: About holds the version, the tips and the logs; the
+        // destructive Reset group comes last.
         Spacer(Modifier.height(Theme.space4))
         SectionLabel(t("settings.main.about"))
         Card {
@@ -281,7 +279,6 @@ private fun RootPage(open: (SettingsPage) -> Unit) {
             RowDivider(inset = ICON_ROW_INSET)
             LogsRow()
         }
-        Footer(t("settings.main.calendarEditingCourseFoldersAnd"))
         ResetCard(open)
     }
 }
@@ -440,6 +437,24 @@ private fun backupSummary(cloud: SyncState?): String {
 }
 
 /** The ウェブ tab's device preferences: page text size and the site it opens on. */
+/** One tap puts a widget on the Home screen, where the launcher supports
+ * asking (`requestPinAppWidget`); otherwise the launcher's own widget list
+ * is the way, and the card stays away. */
+@Composable
+private fun WidgetCard() {
+    val context = LocalContext.current
+    val widgets = context.getSystemService(AppWidgetManager::class.java) ?: return
+    if (!widgets.isRequestPinAppWidgetSupported) return
+    fun pin(receiver: Class<*>) = widgets.requestPinAppWidget(ComponentName(context, receiver), null, null)
+    Spacer(Modifier.height(Theme.space4))
+    SectionLabel(t("widget.pin"))
+    Card {
+        ActionRow(t("widget.courses"), Icons.Rounded.Widgets) { pin(ClassesWidgetReceiver::class.java) }
+        RowDivider(inset = ICON_ROW_INSET)
+        ActionRow(t("widget.assignments"), Icons.Rounded.Widgets) { pin(AssignmentsWidgetReceiver::class.java) }
+    }
+}
+
 @Composable
 private fun WebCard() {
     val web = LocalModel.current.web

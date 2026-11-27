@@ -64,7 +64,11 @@ export function WorkspaceDialogs({
   announcements?: AnnouncementsView;
   readingAnnouncements: boolean;
 }) {
-  const needsDataNotice = !readOnly && !settings.dataNoticeAcknowledgedAt;
+  // Answered here but not yet stored: the notice must not queue again while
+  // the write is on its way.
+  const [dataNoticeAnswered, setDataNoticeAnswered] = useState(false);
+  const needsDataNotice =
+    !readOnly && !settings.dataNoticeAcknowledgedAt && !dataNoticeAnswered;
   const [dataNoticeAttempt, setDataNoticeAttempt] = useState(0);
   const [needsWelcome, finishWelcome] = useWelcome();
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -98,7 +102,6 @@ export function WorkspaceDialogs({
 
   useEffect(() => {
     if (
-      !needsDataNotice &&
       needsWelcome &&
       !welcomeOpen &&
       !blocked &&
@@ -107,28 +110,29 @@ export function WorkspaceDialogs({
     ) {
       setWelcomeOpen(true);
     }
-  }, [needsDataNotice, needsWelcome, welcomeOpen, blocked, undo, confirming]);
+  }, [needsWelcome, welcomeOpen, blocked, undo, confirming]);
 
-  const automatic: NoticeDialog[] = needsDataNotice
-    ? [
-        dataNoticeDialog(
-          dataNoticeAttempt,
-          () =>
-            void workspaceActions
-              .updateSettings((draft) => {
-                draft.settings.dataNoticeAcknowledgedAt =
-                  new Date().toISOString();
-                return draft;
-              })
-              .catch((error) => {
-                notify.error(error);
-                setDataNoticeAttempt((attempt) => attempt + 1);
-              }),
-        ),
-      ]
-    : needsWelcome || welcomeOpen
+  const acknowledgeDataNotice = () => {
+    setDataNoticeAnswered(true);
+    void workspaceActions
+      .updateSettings((draft) => {
+        draft.settings.dataNoticeAcknowledgedAt = new Date().toISOString();
+        return draft;
+      })
+      .catch((error) => {
+        notify.error(error);
+        setDataNoticeAnswered(false);
+        setDataNoticeAttempt((attempt) => attempt + 1);
+      });
+  };
+  // The welcome sheet carries the data notice; alone, the notice is only for
+  // a device that saw the welcome before acknowledging.
+  const automatic: NoticeDialog[] =
+    needsWelcome || welcomeOpen
       ? []
-      : [
+      : needsDataNotice
+        ? [dataNoticeDialog(dataNoticeAttempt, acknowledgeDataNotice)]
+        : [
           ...(group
             ? [
                 classGroupDialog(
@@ -158,7 +162,9 @@ export function WorkspaceDialogs({
           connected={connected}
           openAccounts={openAccounts}
           openAgents={openAgents}
+          noticeNeeded={needsDataNotice}
           close={() => {
+            if (needsDataNotice) acknowledgeDataNotice();
             finishWelcome();
             setWelcomeOpen(false);
           }}

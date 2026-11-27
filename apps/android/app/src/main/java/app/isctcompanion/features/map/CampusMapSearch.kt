@@ -18,9 +18,12 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.clearText
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Cancel
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,6 +86,11 @@ internal fun SearchBar(
                 }
             },
         )
+        if (state.text.isNotEmpty()) {
+            IconButton(onClick = { state.clearText() }, modifier = Modifier.size(Control)) {
+                Icon(Icons.Rounded.Cancel, t("common.clear"), tint = Theme.colors.muted, modifier = Modifier.size(20.dp))
+            }
+        }
     }
 }
 

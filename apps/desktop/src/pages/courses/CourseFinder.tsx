@@ -50,21 +50,26 @@ const TAG: Partial<Record<Condition["type"], MessageKey>> = {
   credits: "courses.credits",
 };
 
+/** How a schedule that is not a weekly slot reads in the result row. */
+const SCHEDULE_KIND: Record<string, MessageKey> = {
+  intensive: "courses.finder.scheduleIntensive",
+  seminar: "courses.finder.scheduleSeminar",
+  internship: "courses.finder.scheduleInternship",
+  tba: "courses.finder.scheduleTba",
+  "on-demand": "courses.finder.scheduleOnDemand",
+};
+
+// `DAYS` is the syllabus's own day notation (月火水…), a data format the
+// finder query also parses, so weekly slots keep it in every language.
 function schedule(course: FinderCourse) {
   return (
     course.schedule
       .map((s) =>
         s.kind === "weekly" && s.day && s.periods
           ? `${DAYS[s.day - 1] ?? s.day}${s.periods[0]}-${s.periods[1]}`
-          : ((
-              {
-                intensive: "集中",
-                seminar: "特課研",
-                internship: "インターン",
-                tba: "未定",
-                "on-demand": "オンデマンド",
-              } as Record<string, string>
-            )[s.kind] ?? s.kind),
+          : SCHEDULE_KIND[s.kind]
+            ? t(SCHEDULE_KIND[s.kind])
+            : s.kind,
       )
       .join(" ") || "—"
   );
@@ -139,7 +144,7 @@ export function CourseFinder({
   /** The result whose details are open. */
   activeId?: string;
   readOnly?: boolean;
-  /** What is on this quarter's timetable, e.g. "3 on timetable · 6 credits". */
+  /** What is on this quarter's timetable, e.g. "3 on timetable". */
   summary?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -341,7 +346,9 @@ export function CourseFinder({
             .join(" · "),
         );
       })
-      .catch((reason) => setError(errorText(reason, { nativeMessage: false }) ?? String(reason)));
+      .catch((reason) =>
+        setError(errorText(reason, { nativeMessage: false }) ?? String(reason)),
+      );
   };
 
   const pillLabel = (c: Condition) =>
@@ -357,10 +364,7 @@ export function CourseFinder({
     : "";
 
   return (
-    <Paper
-      component="aside"
-      className="listCard courseFinder"
-    >
+    <Paper component="aside" className="listCard courseFinder">
       <header>
         <div className="finderTitle">
           <b>
@@ -448,6 +452,7 @@ export function CourseFinder({
                 : undefined
             }
             aria-label={t("courses.findCourses")}
+            title={t("courses.finder.pasteCodesHint")}
             autoComplete="off"
             spellCheck={false}
             placeholder={
@@ -622,7 +627,7 @@ export function CourseFinder({
         {view && total === 0 && (
           <EmptyState icon={SearchX}>
             {firstDownload
-              ? t("courses.downloadingTheYearCourseCatalogResults", { year })
+              ? t("courses.downloadingTheYearCourseCatalog", { year })
               : stored === 0 && signInNeeded
                 ? t("courses.signInToSearchCourses")
                 : stored === 0 && accountHeld

@@ -309,7 +309,15 @@ export function UploadDialog({
       const pick = desktopBridge?.examUploadPickFiles;
       if (!pick) throw new Error(t("examShare.upload.failedFiles"));
       const picked = await pick(t("examShare.upload.chooseFiles"));
-      if (picked) setFiles(picked);
+      // Each pick adds pages after the ones already chosen; a file picked
+      // again keeps its place.
+      if (picked)
+        setFiles((previous) => [
+          ...previous,
+          ...picked.filter(
+            (file) => !previous.some(({ path }) => path === file.path),
+          ),
+        ]);
     } catch (failure) {
       setPickerError(errorText(failure) ?? t("examShare.upload.failedFiles"));
     } finally {
@@ -733,11 +741,19 @@ export function UploadDialog({
             />
           </Group>
           <p className="examQuiet">{t("examShare.uploadPublic")}</p>
-          {readiness?.reasonKey && !pending && !running && (
-            <Text size="sm" c="red" role="status">
-              {lookup(readiness.reasonKey)}
-            </Text>
-          )}
+          {/* An empty selection is where the dialog starts, not a mistake;
+              the disabled send button says enough. */}
+          {readiness?.reasonKey &&
+            !(
+              files.length === 0 &&
+              readiness.reasonKey === "error.exam-share-upload-no-files"
+            ) &&
+            !pending &&
+            !running && (
+              <Text size="sm" c="red" role="status">
+                {lookup(readiness.reasonKey)}
+              </Text>
+            )}
           {running && <UploadProgress status={status} cancel={cancel} />}
           {pending && !running && (
             <UploadRecovery

@@ -5,12 +5,16 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -35,6 +39,7 @@ import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.HandInAvailability
 import app.isctcompanion.core.SharedInbox
 import app.isctcompanion.design.DeadlineRow
+import app.isctcompanion.design.EmptyState
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
@@ -83,12 +88,27 @@ internal fun InboxSheet() {
         }
     }
     ModalBottomSheet(onDismissRequest = { SharedInbox.discard(selection) }, containerColor = Theme.colors.bg) {
-        Text(
-            t("common.handInTo"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = Theme.space8, vertical = Theme.space4),
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(start = Theme.space8, end = Theme.space4),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                t("common.handInTo"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { SharedInbox.discard(selection) }) { Text(t("common.cancel")) }
+        }
         val groups = model.board?.today
-        TextButton(onClick = { SharedInbox.discard(selection) }) { Text(t("common.cancel")) }
+        val sections = groups?.let {
+            listOf(
+                t("common.pinned") to it.pinned,
+                t("common.thisWeek") to it.dueThisWeek,
+                t("assignments.nextWeekAndLater") to it.later,
+                t("common.noDeadline") to it.undated,
+                t("common.past") to it.pastRecent,
+            ).map { (title, rows) -> title to rows.filter { row -> row.handInAvailability == HandInAvailability.PREPARE_DRAFT } }
+                .filter { (_, rows) -> rows.isNotEmpty() }
+        }
         LazyColumn {
             item(key = "files") {
                 LazyRow(
@@ -109,22 +129,15 @@ internal fun InboxSheet() {
             error?.let { message ->
                 item(key = "error") { Text(message, color = Theme.colors.danger, modifier = Modifier.padding(Theme.space8)) }
             }
-            if (groups != null) {
-                for ((title, rows) in listOf(
-                    t("common.pinned") to groups.pinned,
-                    t("common.thisWeek") to groups.dueThisWeek,
-                    t("assignments.nextWeekAndLater") to groups.later,
-                    t("common.noDeadline") to groups.undated,
-                    t("common.past") to groups.pastRecent,
-                )) {
-                    val available = rows.filter { it.handInAvailability == HandInAvailability.PREPARE_DRAFT }
-                    if (available.isEmpty()) continue
-                    item(key = title) { SectionLabel(title) }
-                    items(available, key = { "$title-${it.assignmentId}" }) { row ->
-                        Box(Modifier.clickable(enabled = !SharedInbox.working) {
-                            give(SharedInbox.Target(row.assignmentId, row.title))
-                        }) { DeadlineRow(row, now) }
-                    }
+            if (sections != null && sections.isEmpty() && !SharedInbox.working) {
+                item(key = "empty") { EmptyState(Icons.Rounded.CheckCircle, t("assignments.noUnsubmittedAssignments")) }
+            }
+            sections?.forEach { (title, available) ->
+                item(key = title) { SectionLabel(title) }
+                items(available, key = { "$title-${it.assignmentId}" }) { row ->
+                    Box(Modifier.clickable(enabled = !SharedInbox.working) {
+                        give(SharedInbox.Target(row.assignmentId, row.title))
+                    }) { DeadlineRow(row, now) }
                 }
             }
         }

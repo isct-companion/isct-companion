@@ -140,7 +140,8 @@ struct SettingsScreen: View {
                 } header: {
                     Text(t("settings.main.about"))
                 } footer: {
-                    Text(t("settings.main.calendarEditingCourseFoldersAnd"))
+                    // Where the widgets are, once, instead of in the welcome sheet.
+                    Text(t("widget.addOnPhone"))
                 }
                 // Destructive rows last, as in the system Settings.
                 Section(t("settings.reset.group")) {

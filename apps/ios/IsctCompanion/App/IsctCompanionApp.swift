@@ -212,6 +212,7 @@ struct RootView: View {
     var body: some View {
         content
             .environment(\.openCampusMap) { campusMapRequest = CampusMapRequest(room: $0) }
+            .environment(\.exportCalendar, CalendarExportAction { export($0) })
             // Keep the cover independent of list rows and the current window layout.
             .fullScreenCover(item: $campusMapRequest, onDismiss: model.campusMapClose) { request in
                 CampusMapScreen(request: request)
@@ -411,10 +412,12 @@ struct RootView: View {
             }
             Divider().ignoresSafeArea()
             VStack(spacing: 0) {
-                switch navigator.tab {
-                case .today: TodayWorkbench()
-                case .lectures: LecturesSplit()
-                default: page(navigator.tab)
+                Group {
+                    switch navigator.tab {
+                    case .today: TodayWorkbench()
+                    case .lectures: LecturesSplit()
+                    default: page(navigator.tab)
+                    }
                 }
                 SchoolStatusBar()
             }

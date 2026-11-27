@@ -1,7 +1,21 @@
 import IsctCore
 import SwiftUI
 
-/// What the 時間割 tab's long press offers: the shown quarter as an .ics.
+extension EnvironmentValues {
+    /// Writes the shown quarter as an .ics and offers it in the share sheet;
+    /// the root view owns the sheet, so the header button, the tab's long
+    /// press and the workstation's rail share one export.
+    @Entry var exportCalendar = CalendarExportAction()
+}
+
+struct CalendarExportAction {
+    var action: (CalendarExportPick) -> Void = { _ in }
+
+    func callAsFunction(_ pick: CalendarExportPick) { action(pick) }
+}
+
+/// What 時間割's export offers (its header menu, the tab's long press): the
+/// shown quarter as an .ics.
 enum CalendarExportPick: Hashable {
     case courses, coursesAndEvents
 

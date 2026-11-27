@@ -87,7 +87,7 @@ struct NotificationsScreen: View {
                     if settings["assignments"] as? Bool == true {
                         NavigationLink(value: SettingsRoute.assignmentLeads) {
                             LabeledContent(t("settings.main.remindMe")) {
-                                Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).joined(separator: "、"))
+                                Text(ReminderLeads.assignmentLeads(settings).sorted(by: >).map(ReminderLeads.label).formatted(.list(type: .and).locale(Localizer.shared.locale)))
                                     .lineLimit(2)
                             }
                         }
@@ -112,7 +112,7 @@ struct NotificationsScreen: View {
                         Text(t("settings.main.notificationsAreNotAllowedAllow"))
                             .foregroundStyle(Theme.danger)
                     } else if tested {
-                        Text(t("settings.notification.theSystemAcceptedTheTest"))
+                        Text(t("settings.notification.testAcceptedOnPhone"))
                     }
                 }
             }

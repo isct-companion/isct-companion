@@ -65,6 +65,7 @@
   padding-top: var(--space-5);
 }
 .groupFooter,
+.groupDescription,
 .settingsNote {
   margin: var(--space-4) 0 0;
   color: var(--muted);
@@ -75,6 +76,9 @@
 }
 .groupFooter a {
   color: inherit;
+}
+.groupDescription {
+  margin: 0 0 var(--space-4);
 }
 .settingsGroup.danger > h3 {
   color: var(--danger);
@@ -129,13 +133,6 @@
 }
 .settingsPane .row > :is(.uiInputWrapper, .uiSelect) {
   width: clamp(180px, 40cqi, 280px);
-}
-.studyProfileActions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  padding-top: var(--space-6);
 }
 .studyProfileError {
   color: var(--danger);

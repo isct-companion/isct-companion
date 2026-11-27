@@ -87,22 +87,11 @@ struct AccountScreen: View {
                 if summary?.saved == true || session?.presentation.recovery.contains(.finishSignOut) == true {
                     Section {
                         // Core first stops the account's reads, so this can take a moment.
+                        // Removing cannot be taken back, so it asks once more.
                         Button(role: .destructive) {
-                            removing = true
-                            error = nil
-                            Task {
-                                do {
-                                    try await model.deleteCredentials(profile)
-                                    dismiss()
-                                } catch {
-                                    // Signing out did not finish: the account
-                                    // stays saved, and this button with it.
-                                    self.error = AppModel.describe(error)
-                                }
-                                removing = false
-                            }
+                            model.notices.confirm(title: removeLabel, action: removeLabel, destructive: true) { remove() }
                         } label: {
-                            if removing { ProgressView() } else { Text(t(session?.presentation.recovery.contains(.finishSignOut) == true ? "settings.schoolAccounts.finishSignOut" : "settings.main.removeSignInDetailsFrom")) }
+                            if removing { ProgressView() } else { Text(removeLabel) }
                         }
                         .disabled(removing)
                     }
@@ -116,6 +105,26 @@ struct AccountScreen: View {
         .onAppear { if username.isEmpty { username = summary?.username ?? "" } }
         .onChange(of: summary?.username) { _, owner in
             if username.isEmpty { username = owner ?? "" }
+        }
+    }
+
+    private var removeLabel: String {
+        t(session?.presentation.recovery.contains(.finishSignOut) == true ? "settings.schoolAccounts.finishSignOut" : "settings.main.removeSignInDetailsFrom")
+    }
+
+    private func remove() {
+        removing = true
+        error = nil
+        Task {
+            do {
+                try await model.deleteCredentials(profile)
+                dismiss()
+            } catch {
+                // Signing out did not finish: the account
+                // stays saved, and this button with it.
+                self.error = AppModel.describe(error)
+            }
+            removing = false
         }
     }
 

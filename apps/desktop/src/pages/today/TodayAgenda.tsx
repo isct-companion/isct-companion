@@ -62,8 +62,16 @@ export function TodayAgenda({
     if (block.kind === "event") {
       const event = data.events.find((item) => item.id === block.id);
       if (event) openEvent(event);
-    } else if (block.kind === "exam" && block.termId && openExam) {
-      openExam(block.key, block.termId);
+    } else if (block.kind === "exam") {
+      // An exam opens on Lecture Desk's exam view; without its term it
+      // opens its course, never a lecture under the exam's own id.
+      if (block.termId && openExam) openExam(block.key, block.termId);
+      else if (block.courseId)
+        open(block.courseId, undefined, {
+          date: block.date,
+          startTime: block.startTime,
+          endTime: block.endTime,
+        });
     } else {
       if (block.kind === "course") zoomFrom(button);
       open(block.id, undefined, {
@@ -160,7 +168,7 @@ export function TodayAgenda({
           )}
           {nextClass && nextClass.date > todayIso && (
             <UiButton
-              className={`dayAgendaRow focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}
+              className={`dayAgendaRow ${nextClass.kind} focus nextClass${selection?.courseId === nextClass.id && !selection.assignmentId ? " selected" : ""}`}
               style={{ "--course": nextClass.color } as React.CSSProperties}
               onClick={(event) => openBlock(nextClass, event.currentTarget)}
             >
@@ -174,6 +182,8 @@ export function TodayAgenda({
                         month: "numeric",
                         day: "numeric",
                       })}
+                  {nextClass.kind === "exam" &&
+                    ` · ${t(nextClass.quiz ? "common.quiz" : "common.exam")}`}
                 </small>
                 {timeLabel(nextClass.startTime)}
               </time>

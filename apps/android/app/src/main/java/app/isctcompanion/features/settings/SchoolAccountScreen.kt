@@ -36,7 +36,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.semantics
@@ -58,6 +57,7 @@ import app.isctcompanion.design.Card
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.rememberSecretReveal
 import kotlinx.coroutines.launch
 import app.isctcompanion.core.connect
 import app.isctcompanion.core.retrySchool
@@ -335,9 +335,11 @@ private fun Secret(
 ) {
     // Only the login password is offered to password managers; the TOTP secret
     // and matrix are pasted keys and stay out of Autofill.
+    val reveal = rememberSecretReveal()
     OutlinedTextField(
         value, onChange, label = { Text(label) }, singleLine = true,
-        visualTransformation = PasswordVisualTransformation(),
+        visualTransformation = reveal.transformation,
+        trailingIcon = { reveal.Toggle() },
         keyboardOptions = KeyboardOptions(
             capitalization = capitalization, autoCorrectEnabled = false,
             keyboardType = if (login) KeyboardType.Password else KeyboardType.Ascii,

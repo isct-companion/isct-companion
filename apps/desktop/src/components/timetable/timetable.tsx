@@ -1,3 +1,5 @@
+import { primaryModifierName } from "../../lib/shortcuts";
+import { nativeOs } from "../../platform/desktop-bridge";
 import { t, type MessageKey } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
@@ -243,7 +245,10 @@ export function WeekTimetable({
                       key={`slot-${period.label}`}
                       aria-pressed={Boolean(active)}
                       aria-label={`${t(column.label)} ${period.label}`}
-                      title={t("timetable.findCoursesAtThisTime")}
+                      title={`${t("timetable.findCoursesAtThisTime")} · ${t(
+                        "timetable.slotAppendHint",
+                        { modifier: primaryModifierName(nativeOs()) },
+                      )}`}
                       style={{
                         top: `${position.topPercent}%`,
                         height: `${position.heightPercent}%`,

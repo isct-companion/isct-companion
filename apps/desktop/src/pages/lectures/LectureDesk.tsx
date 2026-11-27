@@ -425,6 +425,12 @@ function LectureDeskBody({
             {!entry && (
               <TitleRow className="lectureEmptyHeader">{contentStart}</TitleRow>
             )}
+            {/* The list says when there is nothing to choose. */}
+            {!entry && shown.length > 0 && (
+              <EmptyState icon={BookOpen}>
+                {t("common.chooseACourse")}
+              </EmptyState>
+            )}
             {retained.map((item) => (
               <div
                 className={`lectureSlot${entering === item.courseId ? " entering" : ""}`}

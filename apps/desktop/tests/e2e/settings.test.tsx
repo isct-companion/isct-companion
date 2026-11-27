@@ -279,7 +279,7 @@ describe("School accounts", () => {
         }),
       );
       await clickButton(science, "Change");
-      await chooseOtpPath(science, "Import existing setup");
+      await chooseOtpPath(science, "Import existing OTP");
       await scanFile(science, PNG());
       await wait(() =>
         expect(document.body.textContent).toContain(
@@ -320,7 +320,7 @@ describe("School accounts", () => {
           }),
       );
       const mounted = await mountAccounts();
-      await chooseOtpPath(account(mounted, "science"), "Import existing setup");
+      await chooseOtpPath(account(mounted, "science"), "Import existing OTP");
       await clickButton(account(mounted, "science"), "Scan QR");
       await wait(() => expect(qrVideo).toHaveBeenCalled());
       const close = document.querySelector<HTMLButtonElement>(
@@ -336,7 +336,7 @@ describe("School accounts", () => {
   );
 
   it(
-    "offers Connect and Forget on a saved portal and labels each card by Core's session",
+    "offers Connect and Remove on a saved portal and labels each card by Core's session",
     async () => {
       const status: SchoolCredentialStatus = {
         science: saved({ username: "saved-id", hasOtp: true }),
@@ -357,7 +357,7 @@ describe("School accounts", () => {
       const science = account(mounted, "science");
       expect(
         cardButtons(science.querySelector(".schoolAccountActions")!),
-      ).toEqual(["Connect", "Forget"]);
+      ).toEqual(["Connect", "Remove"]);
       // No label until Core's first snapshot lands.
       expect(science.querySelector(".uiTag")).toBeNull();
       await wait(() => expect(answer).toBeDefined());
@@ -382,7 +382,7 @@ describe("School accounts", () => {
       expect(tokyoTech.querySelector(".uiTag")?.textContent).toBe(
         "Not connected",
       );
-      expect(cardButtons(tokyoTech)).not.toContain("Forget");
+      expect(cardButtons(tokyoTech)).not.toContain("Remove");
     },
     TIMEOUT,
   );
@@ -622,17 +622,17 @@ describe("School accounts", () => {
         },
       });
 
-      await clickButton(account(mounted, "science"), "Forget");
+      await clickButton(account(mounted, "science"), "Remove");
       const confirm = await wait(() => openDialog());
       expect(confirm.textContent).toContain(
-        "Forget saved Science Tokyo Portal credentials on this device?",
+        "Remove saved Science Tokyo Portal credentials from this device?",
       );
       // Asking is not doing.
       expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
         0,
       );
 
-      await clickButton(confirm, "Forget");
+      await clickButton(confirm, "Remove");
       await wait(() =>
         expect(mounted.core.commands("delete_school_credentials")).toHaveLength(
           1,
@@ -1622,7 +1622,7 @@ function studyWorkspace(): Workspace {
 
 const stageSelect = (pane: HTMLElement) =>
   pane.querySelector<HTMLInputElement>(
-    '[role="combobox"][aria-label="Degree programme"]',
+    '[role="combobox"][aria-label="Degree program"]',
   )!;
 
 const departmentSelect = (pane: HTMLElement) =>
@@ -1694,52 +1694,54 @@ describe("Study profile", () => {
     );
   });
 
-  it("prefills the detected entry year and saves it only on request", async () => {
+  const yearSelect = (pane: HTMLElement) =>
+    pane.querySelector<HTMLInputElement>(
+      '[data-setting="admission-year"] [role="combobox"]',
+    )!;
+  const shown = (select: HTMLElement) => select.textContent?.replace(/⌄$/, "");
+  const publishProfile: Apply = (intent, core) => {
+    if (intent.kind !== "setStudyProfile") return;
+    const next = structuredClone(core.workspace);
+    next.academicProfile.admissionYear = intent.admissionYear ?? undefined;
+    next.academicProfile.studyEnrollments = intent.studyEnrollments;
+    core.publish(next, `revision:${core.intents.length}`);
+  };
+
+  it("offers the detected entry year without saving it, and saves it when chosen", async () => {
     const workspace = studyWorkspace();
     delete workspace.academicProfile.admissionYear;
     workspace.academicProfile.studyEnrollments = [];
     const mounted = await mountStudy(workspace, {
-      apply: (intent, core) => {
-        if (intent.kind === "setStudyProfile")
-          core.publish(
-            {
-              ...core.workspace,
-              academicProfile: {
-                ...core.workspace.academicProfile,
-                admissionYear: intent.admissionYear ?? undefined,
-                studyEnrollments: intent.studyEnrollments,
-              },
-            },
-            "revision:profile-edit",
-          );
-      },
+      apply: publishProfile,
       handle: (command) => {
         if (command === "school_credential_status")
           return { ...matrixStatus(), suggestedAdmissionYear: 2025 };
       },
     });
     const pane = settingsPane(mounted);
-    await wait(() =>
-      expect(
-        pane
-          .querySelector<HTMLInputElement>(
-            '[data-setting="admission-year"] [role="combobox"]',
-          )!
-          .textContent?.replace(/⌄$/, ""),
-      ).toBe("2025 entry"),
+    const offer = await wait(() =>
+      buttonIn(pane, "Use 2025 from your school account"),
     );
+    // A detected year is a suggestion: nothing is stored or shown as chosen.
+    expect(shown(yearSelect(pane))).toBe("Not set");
     expect(studyIntents(mounted)).toHaveLength(0);
-    await chooseOption(stageSelect(pane), "undergraduate");
-    await clickButton(pane, "Save enrollment details");
+    await click(offer);
     await wait(() =>
       expect(mounted.core.workspace.academicProfile.admissionYear).toBe(2025),
     );
-    expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual([
-      { stage: "undergraduate", entryKind: "unknown", admittedTerm: "2025-1Q" },
-    ]);
+    await chooseOption(stageSelect(pane), "undergraduate");
+    await wait(() =>
+      expect(mounted.core.workspace.academicProfile.studyEnrollments).toEqual([
+        {
+          stage: "undergraduate",
+          entryKind: "unknown",
+          admittedTerm: "2025-1Q",
+        },
+      ]),
+    );
   });
 
-  it("keeps a manually saved admission year when a different year is detected", async () => {
+  it("keeps a saved admission year when a different year is detected", async () => {
     const workspace = studyWorkspace();
     workspace.academicProfile.admissionYear = 2024;
     const mounted = await mountStudy(workspace, {
@@ -1750,36 +1752,39 @@ describe("Study profile", () => {
     });
     const pane = settingsPane(mounted);
     await flush();
-    expect(
-      pane
-        .querySelector<HTMLInputElement>(
-          '[data-setting="admission-year"] [role="combobox"]',
-        )!
-        .textContent?.replace(/⌄$/, ""),
-    ).toBe("2024 entry");
-    expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true);
+    expect(shown(yearSelect(pane))).toBe("2024 entry");
+    expect(pane.textContent).not.toContain("Use 2025");
     expect(studyIntents(mounted)).toHaveLength(0);
   });
 
   it(
-    "saves the simple year and degree fields without discarding known enrollment details",
+    "saves each choice at once without discarding known enrollment details",
     async () => {
-      const mounted = await mountStudy(studyWorkspace());
+      const mounted = await mountStudy(studyWorkspace(), {
+        apply: publishProfile,
+      });
       const pane = settingsPane(mounted);
       expect(pane.querySelectorAll('[role="combobox"]')).toHaveLength(3);
       expect(pane.textContent).not.toContain("Add degree programme");
       await chooseOption(stageSelect(pane), "professional");
-      await chooseOption(
-        pane.querySelector<HTMLElement>(
-          '[data-setting="admission-year"] [role="combobox"]',
-        )!,
-        "2025",
-      );
-
-      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
-      // One save carries every edit, so a field cannot be lost half-way.
       expect(studyIntents(mounted)[0]).toEqual({
+        kind: "setStudyProfile",
+        admissionYear: 2026,
+        studyEnrollments: [
+          {
+            stage: "professional",
+            entryKind: "regular",
+            entryGrade: 1,
+            admittedTerm: "2026-1Q",
+          },
+        ],
+      });
+      await wait(() => expect(yearSelect(pane).disabled).toBe(false));
+      await chooseOption(yearSelect(pane), "2025");
+      await wait(() => expect(studyIntents(mounted)).toHaveLength(2));
+      // The second save keeps the first one's programme.
+      expect(studyIntents(mounted)[1]).toEqual({
         kind: "setStudyProfile",
         admissionYear: 2025,
         studyEnrollments: [
@@ -1813,14 +1818,8 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await chooseOption(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save enrollment details");
       await wait(() => expect(stageSelect(pane).disabled).toBe(true));
-      expect(
-        pane.querySelector<HTMLInputElement>(
-          '[data-setting="admission-year"] [role="combobox"]',
-        )!.disabled,
-      ).toBe(true);
-      expect(buttonIn(pane, "Saving…").disabled).toBe(true);
+      expect(yearSelect(pane).disabled).toBe(true);
 
       await act(async () => release());
       await wait(() => expect(stageSelect(pane).disabled).toBe(false));
@@ -1829,7 +1828,7 @@ describe("Study profile", () => {
   );
 
   it(
-    "keeps a rejected draft visible for correction",
+    "reports a rejected choice and shows what is stored",
     async () => {
       const mounted = await mountStudy(studyWorkspace(), {
         handle: (command) => {
@@ -1840,31 +1839,58 @@ describe("Study profile", () => {
       const pane = settingsPane(mounted);
 
       await chooseOption(stageSelect(pane), "doctoral");
-      await clickButton(pane, "Save enrollment details");
       const error = await wait(() => {
         const alert = pane.querySelector('[role="alert"]');
         if (!alert) throw new Error("The rejection is not reported yet.");
         return alert;
       });
       expect(error.textContent).toContain("duplicate term");
-      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Doctoral");
-      expect(buttonIn(pane, "Save enrollment details").disabled).toBe(false);
+      await wait(() => expect(shown(stageSelect(pane))).toBe("Undergraduate"));
     },
     TIMEOUT,
   );
 
   it(
-    "does not overwrite an external profile change with a dirty draft",
+    "does not overwrite an external profile change with a programme waiting for its year",
     async () => {
       const initial = studyWorkspace();
+      delete initial.academicProfile.admissionYear;
+      initial.academicProfile.studyEnrollments = [];
       const mounted = await mountStudy(initial);
       const pane = settingsPane(mounted);
 
+      // Without a year the programme cannot be stored yet; it waits.
       await chooseOption(stageSelect(pane), "doctoral");
+      await wait(() =>
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "admission year",
+        ),
+      );
+      expect(studyIntents(mounted)).toHaveLength(0);
 
-      // Another device changed the profile while this draft was open.
+      // Clearing the pending programme back to Not set dismisses the alert without saving.
+      await chooseOption(stageSelect(pane), "unknown");
+      await wait(() => expect(pane.querySelector('[role="alert"]')).toBeNull());
+      expect(studyIntents(mounted)).toHaveLength(0);
+
+      // Pick again so the pending choice can conflict with an external update.
+      await chooseOption(stageSelect(pane), "doctoral");
+      await wait(() =>
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "admission year",
+        ),
+      );
+
+      // Another device changed the profile while the programme waited.
       const external = structuredClone(initial);
-      external.academicProfile.studyEnrollments![0].entryGrade = 2;
+      external.academicProfile.studyEnrollments = [
+        {
+          stage: "master",
+          entryKind: "regular",
+          entryGrade: 1,
+          admittedTerm: "2024-1Q",
+        },
+      ];
       external.settings.departmentId = "physics";
       mounted.core.publish(external, "revision:external");
       await wait(() =>
@@ -1877,23 +1903,19 @@ describe("Study profile", () => {
           changes: ["settings"],
         }),
       );
-      // The department is not part of the draft, so it proves the newer profile
-      // has really been adopted before Save is pressed.
+      // The department is not part of the profile, so it proves the newer
+      // profile has really arrived before the year is chosen.
+      await wait(() => expect(shown(departmentSelect(pane))).toBe("Physics"));
+
+      await chooseOption(yearSelect(pane), "2025");
       await wait(() =>
-        expect(departmentSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
-          "Physics",
+        expect(pane.querySelector('[role="alert"]')?.textContent).toContain(
+          "changed elsewhere",
         ),
       );
-
-      await clickButton(pane, "Save enrollment details");
-      const error = await wait(() => {
-        const alert = pane.querySelector('[role="alert"]');
-        if (!alert) throw new Error("The conflict is not reported yet.");
-        return alert;
-      });
-      expect(error.textContent).toContain("changed elsewhere");
-      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Doctoral");
       expect(studyIntents(mounted)).toHaveLength(0);
+      // The newer profile is what the fields show now.
+      await wait(() => expect(shown(stageSelect(pane))).toBe("Master"));
     },
     TIMEOUT,
   );
@@ -1902,24 +1924,13 @@ describe("Study profile", () => {
     "adopts a newer external profile after a successful save",
     async () => {
       const initial = studyWorkspace();
-      const mounted = await mountStudy(initial, {
-        apply: (intent, core) => {
-          if (intent.kind !== "setStudyProfile") return;
-          const next = structuredClone(core.workspace);
-          next.academicProfile.admissionYear =
-            intent.admissionYear ?? undefined;
-          next.academicProfile.studyEnrollments = intent.studyEnrollments;
-          core.publish(next, "revision:saved");
-        },
-      });
+      const mounted = await mountStudy(initial, { apply: publishProfile });
       const pane = settingsPane(mounted);
 
       await chooseOption(stageSelect(pane), "master");
-      await clickButton(pane, "Save enrollment details");
-      await wait(() =>
-        expect(buttonIn(pane, "Save enrollment details").disabled).toBe(true),
-      );
-      expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe("Master");
+      await wait(() => expect(studyIntents(mounted)).toHaveLength(1));
+      await wait(() => expect(stageSelect(pane).disabled).toBe(false));
+      expect(shown(stageSelect(pane))).toBe("Master");
 
       const external = structuredClone(initial);
       external.academicProfile.studyEnrollments = [
@@ -1941,11 +1952,7 @@ describe("Study profile", () => {
           changes: ["settings"],
         }),
       );
-      await wait(() =>
-        expect(stageSelect(pane).textContent?.replace(/⌄$/, "")).toBe(
-          "Doctoral",
-        ),
-      );
+      await wait(() => expect(shown(stageSelect(pane))).toBe("Doctoral"));
     },
     TIMEOUT,
   );

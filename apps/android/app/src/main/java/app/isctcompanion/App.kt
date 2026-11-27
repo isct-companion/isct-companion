@@ -51,6 +51,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -112,7 +113,11 @@ import app.isctcompanion.features.pastexams.ExamSubjectEntry
 import app.isctcompanion.features.pastexams.ExamSubjectScreen
 import app.isctcompanion.features.pastexams.PastExamsScreen
 import app.isctcompanion.features.map.CampusMapScreen
+import app.isctcompanion.features.settings.SETTINGS_PAGE_ROUTE
+import app.isctcompanion.features.settings.SettingsPage
+import app.isctcompanion.features.settings.SettingsPageScreen
 import app.isctcompanion.features.settings.SettingsScreen
+import app.isctcompanion.features.settings.settingsPageRoute
 import app.isctcompanion.features.timetable.TimetableScreen
 import app.isctcompanion.features.today.TodayScreen
 import app.isctcompanion.features.web.WebPageScreen
@@ -261,14 +266,19 @@ class Navigator(private val controller: NavHostController) {
     /** Opens the campus map full screen, on a room string or on none to browse. */
     fun openMap(room: String?) = controller.navigate("map?room=${Uri.encode(room.orEmpty())}")
 
-    /** The account page 設定 should open on, taken (and cleared) by it. */
-    var settingsAccount by mutableStateOf<SchoolAuthProfile?>(null)
-
     /** Switches to the 設定 tab, as tapping it would, or onto an account page. */
     fun openSettings(account: SchoolAuthProfile? = null) {
-        settingsAccount = account
         openTab("tab/settings")
+        if (account != null) {
+            controller.navigate(settingsPageRoute(SettingsPage.Account(account))) { launchSingleTop = true }
+        }
     }
+
+    /** A page below 設定's root, pushed inside the tab's graph. */
+    internal fun openSettingsPage(page: SettingsPage) = controller.navigate(settingsPageRoute(page))
+
+    /** A running reset holds navigation until it finishes. */
+    internal var resetBusy by mutableStateOf(false)
 
     /** Switches tabs, keeping each tab's stack. */
     fun openTab(route: String) = controller.navigate(route) {
@@ -323,6 +333,7 @@ private fun RootView(widgetLink: String?, consumed: () -> Unit) {
             Icon(Icons.Rounded.WarningAmber, null, tint = Theme.colors.muted)
             Text(t("common.couldNotStart"), style = MaterialTheme.typography.titleLarge)
             Text(status.message, color = Theme.colors.muted, textAlign = TextAlign.Center)
+            TextButton(onClick = { model.retryStart() }) { Text(t("common.retry")) }
         }
         AppModel.Status.Ready -> Tabs(widgetLink, consumed)
     }
@@ -420,6 +431,7 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     // Tapping the current tab returns it to its root; for ウェブ, to the
     // shown site's start page.
     fun select(tab: AppTab) {
+        if (navigator.resetBusy) return
         if (tab == current) {
             controller.popBackStack(tab.start, inclusive = false)
             if (tab == AppTab.Web) model.web.goHome(model.web.tabSite)
@@ -478,7 +490,11 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
                 tab(AppTab.Lectures) { LecturesScreen() }
                 tab(AppTab.Web) { WebTabScreen() }
                 tab(AppTab.PastExams) { PastExamsScreen() }
-                tab(AppTab.Settings) { SettingsScreen() }
+                tab(AppTab.Settings, {
+                    destination(SETTINGS_PAGE_ROUTE, listOf(navArgument("page") { type = NavType.StringType })) {
+                        SettingsPageScreen(it.arguments?.getString("page").orEmpty())
+                    }
+                }) { SettingsScreen() }
                 destination(
                     PAST_EXAMS_DETAIL,
                     listOf(navArgument("course") { type = NavType.StringType; defaultValue = "" }),
@@ -588,9 +604,12 @@ private fun Tabs(widgetLink: String?, consumed: () -> Unit) {
     }
 }
 
-private fun NavGraphBuilder.tab(tab: AppTab, content: @Composable () -> Unit) {
+/** A tab's graph; `pages` adds destinations that belong to the tab (設定's
+ * pages), so the tab stays selected on them. */
+private fun NavGraphBuilder.tab(tab: AppTab, pages: NavGraphBuilder.() -> Unit = {}, content: @Composable () -> Unit) {
     navigation(startDestination = tab.start, route = tab.route) {
         destination(tab.start) { content() }
+        pages()
     }
 }
 

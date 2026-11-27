@@ -208,6 +208,7 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
     val site by rememberExamSite(calls)
     val account = model.examAccount
     var tab by rememberSaveable { mutableStateOf(Tab.Browse) }
+    var pulls by remember { mutableIntStateOf(0) }
 
     /** Reads the account, or changes it with [action]; the lists reload themselves. */
     suspend fun reload(action: ExamAction = ExamAction.Account): ExamAnswer? = calls.call(action)
@@ -237,6 +238,8 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                     }
                 }
             },
+            // The account, then the shown list, as returning to the page reads them.
+            onRefresh = { reload(); pulls++ },
         ) {
             when (account?.status) {
                 ExamAccountStatus.CONNECTED -> Column(Modifier.fillMaxSize()) {
@@ -271,8 +274,8 @@ fun PastExamsScreen(onBack: (() -> Unit)? = null) {
                     }
                     when (tab) {
                         Tab.Browse -> BrowseList(calls)
-                        Tab.Requests -> RequestList(calls)
-                        Tab.Library -> LibraryList(calls) { reload(it) }
+                        Tab.Requests -> RequestList(calls, pulls)
+                        Tab.Library -> LibraryList(calls, pulls) { reload(it) }
                     }
                 }
                 null -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
@@ -501,7 +504,7 @@ private fun BrowseList(calls: ExamCalls) {
 /** Requests from everyone, or the person's own; each opens its detail. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun RequestList(calls: ExamCalls) {
+private fun RequestList(calls: ExamCalls, pulls: Int) {
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
     var mine by rememberSaveable { mutableStateOf(false) }
@@ -513,8 +516,8 @@ private fun RequestList(calls: ExamCalls) {
         val previous = if (cursor == null) emptyList() else pages[forMine]?.items.orEmpty()
         pages = pages + (forMine to page.copy(items = previous + page.items))
     }
-    // Shown, or back from a request that changed: read the list again.
-    LifecycleResumeEffect(mine) {
+    // Shown, back from a request that changed, or pulled: read the list again.
+    LifecycleResumeEffect(mine, pulls) {
         val refresh = scope.launch { load() }
         onPauseOrDispose { refresh.cancel() }
     }
@@ -558,7 +561,7 @@ private val uploadRunning = setOf(
 
 /** Saved, downloaded and shared documents; the account at the foot. */
 @Composable
-private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAnswer?) {
+private fun LibraryList(calls: ExamCalls, pulls: Int, reload: suspend (ExamAction) -> ExamAnswer?) {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     val scope = rememberCoroutineScope()
@@ -581,7 +584,7 @@ private fun LibraryList(calls: ExamCalls, reload: suspend (ExamAction) -> ExamAn
             }
         }
     }
-    LifecycleResumeEffect(Unit) {
+    LifecycleResumeEffect(pulls) {
         val refresh = scope.launch { load() }
         onPauseOrDispose { refresh.cancel() }
     }

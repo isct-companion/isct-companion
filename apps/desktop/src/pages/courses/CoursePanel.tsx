@@ -1,5 +1,6 @@
 import { Button, Paper } from "../../components/ui";
 import type { ReactNode } from "react";
+import { useEventListener } from "usehooks-ts";
 import { openExternalUrl } from "../../platform/external-url";
 import { examWhen } from "../../components/exams/ExamCards";
 import { dayShort } from "../../components/timetable/timetable";
@@ -41,6 +42,14 @@ function PlanningPanel({
   children: ReactNode;
   foot?: ReactNode;
 }) {
+  // Escape closes the panel unless an overlay above it takes the key first.
+  // The listener goes with the page: a hidden Activity removes it.
+  useEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    if (document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]'))
+      return;
+    close();
+  });
   return (
     <Paper
       component="aside"

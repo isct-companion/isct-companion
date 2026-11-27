@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.util.Log
 import app.isctcompanion.BackgroundWake
 import app.isctcompanion.MainActivity
@@ -274,9 +275,18 @@ class NotificationScheduler(
             manager.createNotificationChannel(
                 NotificationChannel(CHANNEL, context.getString(R.string.reminders), NotificationManager.IMPORTANCE_HIGH),
             )
+            // Each reminder gets its own request code: with one shared code,
+            // FLAG_UPDATE_CURRENT would point every posted reminder at the
+            // last one's destination.
             val open = PendingIntent.getActivity(
-                context, 0,
-                Intent(context, MainActivity::class.java).putExtra("deepLink", deepLink),
+                context, key.hashCode(),
+                Intent(context, MainActivity::class.java).apply {
+                    val link = openLink(deepLink)
+                    if (link != null) {
+                        action = Intent.ACTION_VIEW
+                        data = link
+                    }
+                },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val notification = android.app.Notification.Builder(context, CHANNEL)
@@ -288,6 +298,17 @@ class NotificationScheduler(
                 .build()
             manager.notify(key.hashCode(), notification)
             return true
+        }
+
+        /** Core's reminder links (`/assignments/<id>`, `/today`) as the
+         * widget link MainActivity already routes through Core's
+         * `widgetRoute`, so a tapped reminder lands where a tapped widget row
+         * would. `/today` needs none: the app opens on Today. */
+        private fun openLink(deepLink: String?): Uri? {
+            val id = deepLink?.removePrefix("/assignments/")?.takeIf { it != deepLink && it.isNotEmpty() }
+                ?: return null
+            return Uri.Builder().scheme("isctcompanion").authority("widget").path("/assignment")
+                .appendQueryParameter("id", id).build()
         }
 
         private fun recordKeys(store: SharedPreferences): Set<String> =

@@ -625,10 +625,13 @@ struct MatrixImportSection: View {
 }
 
 /// 7 rows × 10 columns (A–J), one letter each, tinted by Core's review level.
+/// A letter moves on to the next cell; Delete in an empty cell goes back to
+/// the one before. Each cell is 44 pt tall and its whole tile takes the tap;
+/// ten columns leave it narrower than that on a phone.
 private struct MatrixGrid: View {
     @Binding var cells: [String]
     @Binding var confidence: [MatrixConfidence?]
-    @FocusState private var focus: Int?
+    @State private var focus: Int?
 
     var body: some View {
         Grid(horizontalSpacing: 3, verticalSpacing: 3) {
@@ -649,24 +652,22 @@ private struct MatrixGrid: View {
     }
 
     private func cell(_ index: Int) -> some View {
-        TextField("", text: Binding(
-            get: { cells[index] },
-            set: { value in
-                let letter = value.uppercased().filter { $0.isASCII && $0.isLetter }.suffix(1)
-                cells[index] = String(letter)
+        MatrixLetterField(
+            letter: cells[index],
+            focused: focus == index,
+            began: { focus = index },
+            ended: { if focus == index { focus = nil } },
+            typed: { letter in
+                cells[index] = letter
                 // A corrected cell is the person's own entry now.
                 confidence[index] = nil
                 if !letter.isEmpty, index < 69 { focus = index + 1 }
-            }))
-            .focused($focus, equals: index)
-            .multilineTextAlignment(.center)
-            .font(.callout.monospaced().weight(.semibold))
-            .textInputAutocapitalization(.characters)
-            .autocorrectionDisabled()
-            .keyboardType(.asciiCapable)
-            .privacySensitive()
-            .frame(minWidth: 24, minHeight: 30)
-            .background(fill(index), in: RoundedRectangle(cornerRadius: 5))
+            },
+            backFromEmpty: { if index > 0 { focus = index - 1 } }
+        )
+        .privacySensitive()
+        .frame(minWidth: 24, maxWidth: .infinity, minHeight: 44)
+        .background(fill(index), in: RoundedRectangle(cornerRadius: 5))
     }
 
     private func fill(_ index: Int) -> Color {
@@ -675,6 +676,83 @@ private struct MatrixGrid: View {
         case .high: return Theme.okSoft
         case .medium: return Theme.warnSoft
         case .low: return Theme.dangerSoft
+        }
+    }
+}
+
+/// One Matrix cell's field. UIKit rather than SwiftUI's `TextField`, which
+/// reports nothing when Delete is pressed in an empty field, so the grid
+/// could not step back.
+private struct MatrixLetterField: UIViewRepresentable {
+    let letter: String
+    let focused: Bool
+    let began: () -> Void
+    let ended: () -> Void
+    /// The one letter now in the cell, or "" once it is deleted.
+    let typed: (String) -> Void
+    let backFromEmpty: () -> Void
+
+    func makeUIView(context: Context) -> Field {
+        let field = Field()
+        field.delegate = context.coordinator
+        field.textAlignment = .center
+        let baseSize = UIFontDescriptor
+            .preferredFontDescriptor(
+                withTextStyle: .callout,
+                compatibleWith: UITraitCollection(preferredContentSizeCategory: .large))
+            .pointSize
+        field.font = UIFontMetrics(forTextStyle: .callout)
+            .scaledFont(for: .monospacedSystemFont(ofSize: baseSize, weight: .semibold))
+        field.adjustsFontForContentSizeCategory = true
+        field.textColor = UIColor(Theme.ink)
+        field.tintColor = UIColor(Theme.accent)
+        field.keyboardType = .asciiCapable
+        field.autocapitalizationType = .allCharacters
+        field.autocorrectionType = .no
+        field.spellCheckingType = .no
+        field.smartInsertDeleteType = .no
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateUIView(_ field: Field, context: Context) {
+        context.coordinator.parent = self
+        if field.text != letter { field.text = letter }
+        field.backFromEmpty = backFromEmpty
+        if focused, !field.isFirstResponder {
+            // Not during the view update that moved the focus.
+            DispatchQueue.main.async { field.becomeFirstResponder() }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    final class Field: UITextField {
+        var backFromEmpty: (() -> Void)?
+
+        override func deleteBackward() {
+            if text?.isEmpty ?? true { backFromEmpty?() } else { super.deleteBackward() }
+        }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: MatrixLetterField
+
+        init(parent: MatrixLetterField) { self.parent = parent }
+
+        func textFieldDidBeginEditing(_ field: UITextField) { parent.began() }
+        func textFieldDidEndEditing(_ field: UITextField) { parent.ended() }
+
+        /// A typed or pasted letter replaces the cell's; Delete empties it.
+        func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            let letter = String(string.uppercased().filter { $0.isASCII && $0.isLetter }.suffix(1))
+            if string.isEmpty {
+                parent.typed("")
+            } else if !letter.isEmpty {
+                parent.typed(letter)
+            }
+            return false
         }
     }
 }

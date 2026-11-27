@@ -64,8 +64,6 @@ fun WelcomeSheet(onClosed: () -> Unit, connect: () -> Unit) {
                 listOf("auto" to t("common.automatic"), "en" to "English", "ja" to "日本語"),
                 settings.optString("contentLanguage").ifEmpty { "auto" },
             ) { set("contentLanguage", it) }
-            Footer(t("guide.canDifferFromTheApp"))
-            Footer(t("widget.addOnPhone"))
             if (model.needsAccount) {
                 Button(onClick = { close(connect) }, modifier = Modifier.fillMaxWidth().padding(top = Theme.space8)) {
                     Text(t("common.connectSchoolAccounts"), fontWeight = FontWeight.SemiBold)

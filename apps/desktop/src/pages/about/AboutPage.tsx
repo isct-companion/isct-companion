@@ -64,8 +64,8 @@ export function About({
 }) {
   const { status, pending, check } = useAppUpdate();
   const resetGuide = useResetGuide();
+  // Idle has no status line: the button beside it already says it.
   const labels = {
-    idle: "settings.about.checkForUpdates",
     unpublished: "settings.about.noStableReleaseHasBeen",
     checking: "settings.about.checkingForUpdates",
     current: "settings.about.youreUpToDate",
@@ -142,7 +142,7 @@ export function About({
                     role="status"
                     data-phase={phase}
                   >
-                    {t(labels[phase])}
+                    {phase !== "idle" && t(labels[phase])}
                     {status?.version ? ` · ${status.version}` : ""}
                     {progress}
                     {status?.phase === "error" && status.message

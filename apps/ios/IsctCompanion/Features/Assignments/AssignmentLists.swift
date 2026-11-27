@@ -1,6 +1,5 @@
 import IsctCore
 import SwiftUI
-import TipKit
 
 /// 今日's 課題: what is left to do this quarter, in the groups of Core's task
 /// timeline (`AssignmentBoard.today`), as sections of 今日's list so the rows
@@ -18,10 +17,6 @@ struct TodayAssignmentSections: View {
                     Text(t("assignments.noUnsubmittedAssignments"))
                         .foregroundStyle(Theme.muted)
                         .listRowBackground(Color.clear)
-                } else {
-                    TipView(AssignmentSwipeTip())
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets())
                 }
             } header: {
                 // One line on the narrowest phone: the title never wraps, the
@@ -90,6 +85,12 @@ extension DeadlineGroups {
     /// Nothing left to do among the groups 今日 shows.
     var isOpenEmpty: Bool {
         pinned.isEmpty && dueThisWeek.isEmpty && later.isEmpty && undated.isEmpty && pastRecent.isEmpty
+    }
+
+    /// The quarter's row for one assignment, in whichever group Core put it.
+    func item(_ id: String) -> DeadlineItem? {
+        [pinned, dueThisWeek, later, undated, pastRecent, pastEarlier, hidden].lazy
+            .compactMap { $0.first { $0.assignmentId == id } }.first
     }
 }
 
@@ -188,12 +189,7 @@ struct AssignmentListRow<Content: View>: View {
                     push(WebRouter.PushedPage(site: .scienceLms, target: url, title: item.title))
                 }
             }
-            if hidden {
-                Button(t("common.restore"), systemImage: "eye") { setHidden(false) }
-            } else {
-                Button(item.pinned ? t("common.unpin") : t("common.pin"), systemImage: "pin") { togglePin() }
-                Button(t("common.hide"), systemImage: "eye.slash", role: .destructive) { setHidden(true) }
-            }
+            AssignmentMarkButtons(item: item, hidden: hidden) { acted += 1 }
         }
         .swipeActions(edge: .leading) {
             if !hidden {
@@ -225,6 +221,33 @@ struct AssignmentListRow<Content: View>: View {
 
     private func setHidden(_ hide: Bool) {
         acted += 1
+        Task { await model.setHidden(item, hide) }
+    }
+}
+
+/// Pin and hide (or restore) as menu items: a row's context menu and the
+/// assignment page's menu, the way to them without the swipes.
+struct AssignmentMarkButtons: View {
+    let item: DeadlineItem
+    var hidden: Bool
+    /// Runs with each choice, for the caller's tap feedback.
+    var acted: () -> Void = {}
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if hidden {
+            Button(t("common.restore"), systemImage: "eye") { setHidden(false) }
+        } else {
+            Button(item.pinned ? t("common.unpin") : t("common.pin"), systemImage: "pin") {
+                acted()
+                Task { await model.setPinned(item, !item.pinned) }
+            }
+            Button(t("common.hide"), systemImage: "eye.slash", role: .destructive) { setHidden(true) }
+        }
+    }
+
+    private func setHidden(_ hide: Bool) {
+        acted()
         Task { await model.setHidden(item, hide) }
     }
 }

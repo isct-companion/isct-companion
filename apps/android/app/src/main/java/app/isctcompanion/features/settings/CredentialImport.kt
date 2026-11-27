@@ -292,8 +292,7 @@ fun OtpImportField(
                         photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }
                 }
-                Hint(t("settings.credentialImport.exportFromGoogleAuthenticator"))
-                OtpGuideButton(OtpGuide.Google)
+                SourceHint(t("settings.credentialImport.exportFromGoogleAuthenticator"), OtpGuide.Google)
             } else {
                 OutlinedTextField(
                     setup, { onSetup(it); label = null; error = null }, singleLine = true,
@@ -316,10 +315,8 @@ fun OtpImportField(
                 SourceChip(t("settings.credentialImport.paste"), Icons.Rounded.ContentPaste) {
                     clipboardText(context)?.let { read(it, pasted = true) } ?: run { error = t("settings.credentialImport.theClipboardIsEmpty") }
                 }
-                Hint(t("settings.credentialImport.pasteFromTitechApp"))
-                OtpGuideButton(OtpGuide.TitechApp)
+                SourceHint(t("settings.credentialImport.pasteFromTitechApp"), OtpGuide.TitechApp)
             }
-            Hint(t("settings.credentialImport.readOnThisDevice"))
         }
     }
     read?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Theme.colors.ok) }
@@ -389,6 +386,17 @@ private fun OtpBranchCard(selected: Boolean, title: String, hint: String, select
                 content = content,
             )
         }
+    }
+}
+
+/** One short line on what to bring from the source, beside the button
+ * that shows the steps with pictures; the guide's last step says what not to
+ * share and what to delete. */
+@Composable
+private fun SourceHint(text: String, guide: OtpGuide) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
+        Box(Modifier.weight(1f)) { Hint(text) }
+        OtpGuideButton(guide)
     }
 }
 

@@ -22,13 +22,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.credentialPasswordLength
 import app.isctcompanion.design.Card
 import app.isctcompanion.design.SectionLabel
 import app.isctcompanion.design.Theme
+import app.isctcompanion.design.rememberSecretReveal
 import app.isctcompanion.design.t
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -116,6 +116,7 @@ internal fun BackupCredentials(toast: (String) -> Unit) {
             Text(title, color = Theme.colors.ink)
             Text(hint, style = MaterialTheme.typography.bodySmall, color = Theme.colors.muted)
             if (showFields) {
+                val reveal = rememberSecretReveal()
                 OutlinedTextField(
                     password, { password = it },
                     singleLine = true,
@@ -123,7 +124,8 @@ internal fun BackupCredentials(toast: (String) -> Unit) {
                     label = {
                         Text(t(if (restoring) "settings.backup.encryptionPassword" else "settings.backup.newPassword"))
                     },
-                    visualTransformation = PasswordVisualTransformation(),
+                    visualTransformation = reveal.transformation,
+                    trailingIcon = { reveal.Toggle() },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Password,
                         imeAction = if (restoring) ImeAction.Done else ImeAction.Next,
@@ -140,7 +142,8 @@ internal fun BackupCredentials(toast: (String) -> Unit) {
                         supportingText = if (confirmPassword.isNotEmpty() && !matches) {
                             { Text(t("settings.backup.theTwoPasswordsDoNot")) }
                         } else null,
-                        visualTransformation = PasswordVisualTransformation(),
+                        // The pair shows or hides together, from the first field's switch.
+                        visualTransformation = reveal.transformation,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                         modifier = Modifier.fillMaxWidth(),
                     )

@@ -21,7 +21,7 @@ struct HandInCard: View {
             } label: {
                 VStack(spacing: Theme.space3) {
                     Image(systemName: "arrow.up.doc").font(.title2).foregroundStyle(Theme.accent)
-                    Text(t("handIn.dropFilesHereOrTap")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
+                    Text(t("handIn.tapToChoose")).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.ink)
                     Text(t("handIn.upTo32Files20")).font(.footnote).foregroundStyle(Theme.muted)
                 }
                 .frame(maxWidth: .infinity)

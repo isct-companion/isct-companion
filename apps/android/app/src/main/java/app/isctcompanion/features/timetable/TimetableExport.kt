@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.EditCalendar
-import androidx.compose.material.icons.rounded.IosShare
+import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -49,7 +49,7 @@ internal fun ExportButton(term: String) {
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.IosShare, t("common.exportICS"), tint = Theme.colors.accent) }
+        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Share, t("common.exportICS"), tint = Theme.colors.accent) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             Text(
                 t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,

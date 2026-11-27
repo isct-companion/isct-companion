@@ -42,8 +42,6 @@ struct BackupScreen: View {
                     Button(t("settings.backup.import")) { importing = true }
                 } header: {
                     Text(t("settings.backup.backupFile"))
-                } footer: {
-                    Text(t("settings.backup.schoolLoginsSyncWithICloud"))
                 }
             }
             .themedRows()
@@ -89,12 +87,13 @@ struct BackupScreen: View {
                     get: { state?.automatic ?? false },
                     set: { on in run { await model.backup.setAutomatic(on) } })
                 ) {
+                    // Off needs no words: the Upload and Pull buttons sit right below.
                     VStack(alignment: .leading, spacing: Theme.space1) {
                         Text(t("settings.backup.syncAutomatically"))
-                        Text(state?.automatic == true
-                            ? t("settings.backup.pullsOtherDevicesChangesWhen")
-                            : t("settings.backup.uploadAndPullByHand"))
-                            .font(.subheadline).foregroundStyle(Theme.muted)
+                        if state?.automatic == true {
+                            Text(t("settings.backup.pullsOtherDevicesChangesWhen"))
+                                .font(.subheadline).foregroundStyle(Theme.muted)
+                        }
                     }
                 }
                 .disabled(locked)

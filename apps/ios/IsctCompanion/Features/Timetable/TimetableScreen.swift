@@ -17,6 +17,7 @@ struct TimetableScreen: View {
     @State private var dragOffset: CGFloat = 0
     @State private var gridWidth: CGFloat = 390
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.exportCalendar) private var exportCalendar
 
     /// Core's equal-row axis for the shown week.
     @State private var axis: TimetableAxis?
@@ -33,21 +34,27 @@ struct TimetableScreen: View {
 
     var body: some View {
         let weekRevision = model.timetableWeeks.revision
-        VStack(alignment: .leading, spacing: Theme.space6) {
-            header
-            TipView(TimetableMarkTip())
-            pager
-                .frame(maxHeight: .infinity, alignment: .top)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
-                    gridHeight = size.height
-                    gridWidth = size.width
-                }
-                // The pager offsets each week; the UIKit pan fails a block's
-                // tap once it begins, so a swipe never opens a course.
-                .gesture(PagePan(moved: follow, ended: release))
+        // A scroll view only for the pull that refreshes from the school;
+        // the page is one screen tall and never scrolls.
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.space6) {
+                header
+                pager
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
+                        gridHeight = size.height
+                        gridWidth = size.width
+                    }
+                    // The pager offsets each week; the UIKit pan fails a block's
+                    // tap once it begins, so a swipe never opens a course.
+                    .gesture(PagePan(moved: follow, ended: release))
+            }
+            .padding(.horizontal, Theme.gutter)
+            .padding(.bottom, Theme.space4)
+            .containerRelativeFrame(.vertical, alignment: .top)
         }
-        .padding(.horizontal, Theme.gutter)
-        .padding(.bottom, Theme.space4)
+        .scrollBounceBehavior(.always, axes: .vertical)
+        .refreshable { model.refreshFromSchool() }
         .background(Theme.bg)
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: shownTerm, initial: true) { _, term in navigator.timetableTerm = term }
@@ -92,27 +99,31 @@ struct TimetableScreen: View {
 
     // MARK: Header
 
-    /// The week chip on its own row, free to take the full width; below it
-    /// the date range and 今日. Weeks change by swiping the grid; the quarter's
-    /// calendar export is a long press on the 時間割 tab.
+    /// The week chip on its own row, free to take the full width, with the
+    /// quarter's calendar export; below it the date range, the previous and
+    /// next week, and 今日. Swiping the grid turns weeks too, and a long press
+    /// on the 時間割 tab exports as a shortcut.
     private var header: some View {
         VStack(alignment: .leading, spacing: Theme.space3) {
-            Button {
-                showsPicker = true
-            } label: {
-                // A chip, so the line reads as the way into the week picker.
-                Label(subtitle, systemImage: "calendar")
-                    .font(.footnote.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .foregroundStyle(Theme.accent)
-                    .padding(.horizontal, Theme.space5)
-                    .padding(.vertical, 5)
-                    .background(Theme.accentSoft, in: Capsule())
+            HStack(spacing: Theme.space4) {
+                Button {
+                    showsPicker = true
+                } label: {
+                    // A chip, so the line reads as the way into the week picker.
+                    Label(subtitle, systemImage: "calendar")
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, Theme.space5)
+                        .padding(.vertical, 5)
+                        .background(Theme.accentSoft, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(t("timetable.chooseAWeek"))
+                Spacer(minLength: 0)
+                exportMenu
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityHint(t("timetable.chooseAWeek"))
             HStack(alignment: .center) {
                 Button {
                     showsPicker = true
@@ -125,7 +136,11 @@ struct TimetableScreen: View {
                         .countingFigure(monday, down: false)
                 }
                 .buttonStyle(.plain)
+                // Over the grid rather than above it, so the week keeps its height.
+                .popoverTip(TimetableMarkTip(), arrowEdge: .top)
                 Spacer(minLength: Theme.space4)
+                weekButton(-1, symbol: "chevron.backward", label: t("today.previousWeek"))
+                weekButton(1, symbol: "chevron.forward", label: t("today.nextWeek"))
                 todayButton
             }
         }
@@ -170,6 +185,36 @@ struct TimetableScreen: View {
         .disabled(atThisWeek)
         .opacity(atThisWeek ? 0.35 : 1)
         .accessibilityLabel(t("timetable.backToThisWeek"))
+    }
+
+    /// The week before or after, turned as a swipe turns it.
+    private func weekButton(_ step: Int, symbol: String, label: String) -> some View {
+        Button {
+            turn(step)
+        } label: {
+            Image(systemName: symbol)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 40, height: 40)
+        }
+        .buttonStyle(CapsuleButtonStyle(level: .secondary))
+        .accessibilityLabel(label)
+    }
+
+    /// The shown quarter as an .ics, as the 時間割 tab's long press offers it.
+    @ViewBuilder private var exportMenu: some View {
+        if shownTerm ?? model.today?.term != nil {
+            Menu {
+                Button(t("common.coursesOnly"), systemImage: "calendar") { exportCalendar(.courses) }
+                Button(t("common.coursesWeeklyEvents"), systemImage: "calendar.badge.plus") { exportCalendar(.coursesAndEvents) }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.rect)
+            }
+            .accessibilityLabel(t("common.exportICS"))
+        }
     }
 
     private func shift(_ weeks: Int) {

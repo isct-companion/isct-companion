@@ -315,13 +315,12 @@ struct PastExamsScreen: View {
         let requests = requestPages[mine]
         return List {
             Section {
+                // A menu row, not a second segmented control under the tabs.
                 Picker(t("examShare.requests"), selection: $mine) {
                     Text(t("examShare.openRequests")).tag(false)
                     Text(t("examShare.myRequests")).tag(true)
                 }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
+                .pickerStyle(.menu)
                 .onChange(of: mine) { Task { await loadVisible(reload: false) } }
             }
             if let requests {

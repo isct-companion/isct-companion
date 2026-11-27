@@ -13,7 +13,6 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.rounded.ArrowDropDown
-import app.isctcompanion.design.GuideTip
 import android.net.Uri
 import android.view.View
 import android.view.ViewGroup
@@ -475,11 +474,6 @@ fun WebTabScreen() {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             }
             web.error?.let { ProblemNote(it, Modifier.align(Alignment.TopCenter)) }
-            // The one thing drawn over the page, once: how to reach the other sites.
-            GuideTip(
-                "web-sites", "common.switchSites", "web.tapTheTitleToSwitch",
-                Modifier.align(Alignment.BottomCenter).padding(Theme.space6),
-            )
         }
     }
 }

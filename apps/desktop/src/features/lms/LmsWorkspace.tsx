@@ -607,9 +607,6 @@ export function LmsWorkspaceBody({
             <LmsIcon name="plus" />
           </button>
         </div>
-        {!isOpen && section.summaryHtml && (
-          <p className="lmsSectionPreview">{t("lms.sectionCollapsed")}</p>
-        )}
         {isOpen && (
           <div id={`lms-panel-${section.id}`} className="lmsSectionBody">
             {section.summaryHtml && (
@@ -684,12 +681,13 @@ export function LmsWorkspaceBody({
                   }
                 >
                   <FileTile family="note" />
+                  {/* The name is the note's first line; that it stays on
+                      this device is said once, in the note itself. */}
                   <span>
                     <b>
                       {note.name.trim() ||
                         `${section.title} · ${t("lms.note")}`}
                     </b>
-                    <small>{t("lms.localNoteStoredOnlyOn")}</small>
                   </span>
                   <LmsIcon name="chevron" className="lmsRowAction" />
                 </button>
@@ -841,7 +839,8 @@ export function LmsWorkspaceBody({
                         aria-current={
                           l.id === lessonId && paged ? "step" : undefined
                         }
-                        title={l.title}
+                        // The one-time tip fades; the tooltip keeps saying it.
+                        title={`${l.title}\n${t("lms.doubleClickALessonNumber")}`}
                         onClick={() => goLesson(l.id)}
                         onDoubleClick={() => markThisClass(l.id)}
                       >
@@ -983,9 +982,7 @@ export function LmsWorkspaceBody({
                       aria-label={t("common.exams")}
                     >
                       <h2>{t("common.exams")}</h2>
-                      <ExamCards
-                        exams={courseExams}
-                      />
+                      <ExamCards exams={courseExams} />
                     </section>
                   )}
                   {!paged && <h2>{t("syncStatus.dataset.courseContent")}</h2>}
