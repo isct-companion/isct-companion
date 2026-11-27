@@ -1641,6 +1641,12 @@ export type Occurrence = {
    */
   sourceChanged?: boolean | null;
   /**
+   * Set on an exam from the exam timetable held in a room other than the
+   * ones its course meets in: those usual rooms, joined by ` / `. The
+   * block's `room` is the exam's.
+   */
+  usualRoom?: string | null;
+  /**
    * Where the block sits on the period grid, when that differs from its
    * own times or it shares the time with another block.
    */

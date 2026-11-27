@@ -1544,6 +1544,7 @@
   "timetable.intensiveUnscheduled": "集中・時間未定",
   "timetable.longPressAClassTo": "授業を長押しすると、試験や休講にできます。",
   "timetable.nextYear": "次の年度",
+  "timetable.notTheUsualRoom": "いつもの教室（{{room}}）とは別の部屋です",
   "timetable.planned": "計画",
   "timetable.previousYear": "前の年度",
   "timetable.rightClickAClassTo": "授業を右クリックすると、試験や休講にできます。",

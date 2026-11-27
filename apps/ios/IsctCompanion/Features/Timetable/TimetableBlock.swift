@@ -109,7 +109,7 @@ extension TimetableScreen {
                 .lineLimit(BlockText.titleLines(height: height, tagged: tagged, footer: !narrow))
             if !narrow {
                 Spacer(minLength: 0)
-                bottomLine(block, planned: planned, cancelled: cancelled)
+                bottomLine(block, planned: planned, cancelled: cancelled, exam: exam)
                     .font(BlockText.roomFont)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
@@ -150,14 +150,18 @@ extension TimetableScreen {
         .sessionMarks(block)
     }
 
-    /// 計画, 休講, the real times of a block drawn over whole periods, or the
-    /// first room; every room stays on the course page.
+    /// 計画, 休講, an exam's room flagged when Core says it is not the
+    /// course's usual one, the real times of a block drawn over whole
+    /// periods, or the first room; every room stays on the course page.
     @ViewBuilder
-    private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool) -> some View {
+    private func bottomLine(_ block: Occurrence, planned: Bool, cancelled: Bool, exam: Bool) -> some View {
         if planned {
             Text(t("timetable.planned"))
         } else if cancelled {
             Text(t("common.noClass"))
+        } else if exam, let usual = block.usualRoom {
+            Tag(text: BlockText.firstRoom(block.room), ink: Theme.warn, fill: Theme.warnSoft)
+                .accessibilityLabel("\(block.room), \(t("timetable.notTheUsualRoom", ["room": usual]))")
         } else if let grid = block.grid,
             grid.startTime != block.startTime || grid.endTime != block.endTime
         {

@@ -1544,6 +1544,7 @@
   "timetable.longPressAClassTo": "Long-press a class to mark it as an exam or canceled.",
   "timetable.slotAppendHint": "{{modifier}}-click to add another time",
   "timetable.nextYear": "Next year",
+  "timetable.notTheUsualRoom": "Not the usual room ({{room}})",
   "timetable.planned": "Planned",
   "timetable.previousYear": "Previous year",
   "timetable.rightClickAClassTo": "Right-click a class to mark it as an exam or canceled.",

@@ -91,6 +91,11 @@ pub struct Occurrence {
     /// exam timetable; the block keeps the user's values until they choose.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_changed: Option<bool>,
+    /// Set on an exam from the exam timetable held in a room other than the
+    /// ones its course meets in: those usual rooms, joined by ` / `. The
+    /// block's `room` is the exam's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usual_room: Option<String>,
     /// Where the block sits on the period grid, when that differs from its
     /// own times or it shares the time with another block.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -548,7 +553,13 @@ impl<'a> CourseSessions<'a> {
             published
                 .iter()
                 .filter(|exam| exam.date == date)
-                .filter_map(|exam| published_block(exam, include_cancelled)),
+                .filter_map(|exam| published_block(exam, include_cancelled))
+                .map(|mut block| {
+                    if block.kind == OccurrenceKind::Exam {
+                        block.usual_room = self.usual_room_if_elsewhere(&block);
+                    }
+                    block
+                }),
         );
         for block in &mut blocks {
             block.term_id = Some(self.term.into());
@@ -562,6 +573,27 @@ impl<'a> CourseSessions<'a> {
             blocks.retain(|block| block.cancelled != Some(true));
         }
         Ok(blocks)
+    }
+
+    /// The course's usual rooms when a linked exam meets elsewhere: the
+    /// rooms of its weekly meetings and intensive days, as the course record
+    /// states them, not a single session the person re-roomed.
+    fn usual_room_if_elsewhere(&self, exam: &Occurrence) -> Option<String> {
+        let course_id = exam.course_id.as_deref()?;
+        let course = self
+            .courses
+            .iter()
+            .find(|row| visible(row) && text(row, "id") == Some(course_id))?;
+        let usual: Vec<&str> = array(course, "meetings")
+            .iter()
+            .chain(
+                array(self.workspace, "intensiveSchedules")
+                    .iter()
+                    .filter(|row| visible(row) && text(row, "courseId") == Some(course_id)),
+            )
+            .filter_map(|row| text(row, "room"))
+            .collect();
+        super::rooms::usual_room_if_elsewhere(&exam.room, &usual)
     }
 
     pub(super) fn agenda_on(
@@ -672,6 +704,7 @@ fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -
         planned: None,
         quiz: None,
         source_changed: None,
+        usual_room: None,
         grid: None,
         mark: None,
     }
@@ -768,6 +801,7 @@ fn course_occurrence(
         planned: None,
         quiz: None,
         source_changed: None,
+        usual_room: None,
         grid: None,
         mark: None,
     }
@@ -876,6 +910,7 @@ fn published_block(exam: &super::ExamView, include_cancelled: bool) -> Option<Oc
         planned: None,
         quiz: (exam.kind == "quiz").then_some(true),
         source_changed: exam.conflict.is_some().then_some(true),
+        usual_room: None,
         grid: None,
         mark: None,
     })

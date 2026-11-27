@@ -1544,6 +1544,7 @@
   "timetable.intensiveUnscheduled": "集中授课／时间未定",
   "timetable.longPressAClassTo": "长按课程，可标记为考试或停课。",
   "timetable.nextYear": "下一学年",
+  "timetable.notTheUsualRoom": "不在平时的教室（{{room}}）",
   "timetable.planned": "计划",
   "timetable.previousYear": "上一学年",
   "timetable.rightClickAClassTo": "右键点击课程，可标记为考试或停课。",

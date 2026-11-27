@@ -3,7 +3,7 @@ import { nativeOs } from "../../platform/desktop-bridge";
 import { t, type MessageKey } from "../../i18n";
 import { alternationLabel } from "../../lib/alternation";
 import type { Alternation } from "../../lib/model";
-import { ContextMenu, type ContextAction } from "../ui";
+import { ContextMenu, Tag, type ContextAction } from "../ui";
 import { GuideTip } from "../guide";
 import { zoomFrom } from "./course-zoom";
 import {
@@ -68,6 +68,8 @@ export type Block = {
   quiz?: boolean;
   /** The published exam changed after the user corrected it. */
   sourceChanged?: boolean;
+  /** Core's usual rooms of the course, set on an exam held elsewhere. */
+  usualRoom?: string | null;
   /** A course only planned for the block's quarter: drawn as an outline. */
   planned?: boolean | null;
   /** Core's place for the block on the period grid (`GridSlot`). */
@@ -360,9 +362,20 @@ export function WeekTimetable({
                     <b>{block.title}</b>
                   )}
                   {/* A block drawn over whole periods names its own times;
-                    a cancelled one says so instead of its room. */}
+                    a cancelled one says so instead of its room, and an exam
+                    away from the usual room shows that room, flagged. */}
                   {cancelled ? (
                     <small className="ttRoom">{t("common.noClass")}</small>
+                  ) : exam && block.usualRoom ? (
+                    <Tag
+                      tone="warn"
+                      className="ttRoom ttRoomElsewhere"
+                      title={t("timetable.notTheUsualRoom", {
+                        room: block.usualRoom,
+                      })}
+                    >
+                      {block.room}
+                    </Tag>
                   ) : snapped ? (
                     <small className="ttRoom">
                       {block.startTime}–{block.endTime}
