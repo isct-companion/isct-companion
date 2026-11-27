@@ -844,7 +844,9 @@ export function LmsWorkspaceBody({
                         onClick={() => goLesson(l.id)}
                         onDoubleClick={() => markThisClass(l.id)}
                       >
-                        {l.label}
+                        <span className="lmsRailLabel" data-label={l.label}>
+                          <span>{l.label}</span>
+                        </span>
                       </button>
                     );
                     // The tip points at the lesson the course is at, the
