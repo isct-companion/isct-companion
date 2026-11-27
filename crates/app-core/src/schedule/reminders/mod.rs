@@ -664,7 +664,8 @@ fn notification_plan_with_tracked(
             let published =
                 super::exams::published_sessions_by_date(workspace, school, &source_term);
             let published_dates = published.iter().filter_map(|(date, exams)| {
-                exams.iter()
+                exams
+                    .iter()
                     .any(|exam| class_keys.contains(exam.key.as_str()))
                     .then_some(date)
             });

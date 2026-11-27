@@ -223,8 +223,10 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(SubscriptionError::from)?;
     drop(statement);
-    crate::data::versioned::mark_missing_rows(tx, table, old, live, || crate::clock::now().to_rfc3339())
-        .map_err(SubscriptionError::from)
+    crate::data::versioned::mark_missing_rows(tx, table, old, live, || {
+        crate::clock::now().to_rfc3339()
+    })
+    .map_err(SubscriptionError::from)
 }
 
 pub fn apply_important_dates(

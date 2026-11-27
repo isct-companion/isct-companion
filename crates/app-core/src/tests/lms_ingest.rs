@@ -210,7 +210,11 @@ fn a_failed_course_key_writes_nothing_and_keeps_its_fetched_time() {
         ],
     };
     assert!(matches!(
-        commit_on(&mut connection, |tx| apply_lms_course(tx, &bad, crate::clock::now())),
+        commit_on(&mut connection, |tx| apply_lms_course(
+            tx,
+            &bad,
+            crate::clock::now()
+        )),
         Err(IngestError::InvalidPayload(_))
     ));
     commit_on(&mut connection, |tx| {

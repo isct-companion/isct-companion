@@ -98,10 +98,9 @@ impl Host {
     pub(crate) const fn budget(self) -> (usize, Duration) {
         match self {
             Host::Moodle => (4, Duration::from_millis(60)),
-            Host::Kyomu
-            | Host::GetAccess
-            | Host::GetAccessRouter
-            | Host::ScienceAccount => (1, Duration::from_millis(300)),
+            Host::Kyomu | Host::GetAccess | Host::GetAccessRouter | Host::ScienceAccount => {
+                (1, Duration::from_millis(300))
+            }
             #[cfg(feature = "campus-vpn")]
             Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),

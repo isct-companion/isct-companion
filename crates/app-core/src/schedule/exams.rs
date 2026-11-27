@@ -1036,11 +1036,7 @@ fn existing_override<'a>(workspace: &'a Value, key: &str) -> Option<&'a Value> {
 /// Identity and the existing personal fields. The recorded
 /// published schedule stays until the user edits the schedule itself, so a
 /// conflict outlives marking or linking the exam.
-fn override_base(
-    workspace: &Value,
-    school: &SchoolReads,
-    source: &ExamView,
-) -> Map<String, Value> {
+fn override_base(workspace: &Value, school: &SchoolReads, source: &ExamView) -> Map<String, Value> {
     let existing = exam_override(workspace, school, &source.key);
     let mut row = Map::new();
     row.insert("targetKey".into(), source.key.clone().into());

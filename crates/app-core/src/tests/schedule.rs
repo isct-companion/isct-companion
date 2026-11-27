@@ -1125,9 +1125,12 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
         {"courseId":"withdrawn","termId":"2026-4Q","status":"withdrawn"}
     ]);
 
-    let WorkspaceQueryResult::ExamCourses(list) =
-        query(&data, &SchoolReads::fixture(&data), WorkspaceQuery::ExamCourses).unwrap()
-    else {
+    let WorkspaceQueryResult::ExamCourses(list) = query(
+        &data,
+        &SchoolReads::fixture(&data),
+        WorkspaceQuery::ExamCourses,
+    )
+    .unwrap() else {
         panic!("expected this quarter's past-exam courses");
     };
     let courses: Vec<_> = list
