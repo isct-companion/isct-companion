@@ -2651,6 +2651,55 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
     );
 }
 
+/// An exam from the exam timetable names the course's usual rooms only when
+/// it meets elsewhere, so the week can point out the exam room; the same
+/// room spelt in other widths, or a class in the exam timetable, is not news.
+#[test]
+fn a_linked_exam_names_the_usual_rooms_only_when_it_meets_elsewhere() {
+    let mut data = workspace();
+    // The course meets in M-101 on Mondays and S8-108 or 109 on Thursdays.
+    data["courses"][0]["meetings"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"days":[4],"startTime":"13:30","endTime":"15:10","room":"S8-108,109"}));
+    let row = |id: &str, kind: &str, date: &str, room: &str| json!({"id":id,"kind":kind,"sourceKey":format!("reference:{id}"),"academicYear":2026,"quarter":"1Q","courseCode":"CSC.T241","date":date,"periods":[5,6],"room":{"ja":room},"label":{"ja":"期末試験"},"status":"scheduled"});
+    data["exams"] = json!([
+        row("elsewhere", "exam", "2026-04-13", "W8E-E207"),
+        row("same", "exam", "2026-04-20", "Ｍ－１０１"),
+        row("bare-number", "exam", "2026-04-27", "S8-109"),
+        row("partly", "exam", "2026-05-11", "M-101, M-102"),
+        row("class", "class", "2026-05-18", "W8E-E207"),
+        row("no-room", "exam", "2026-05-25", ""),
+    ]);
+    let usual = |data: &Value, date| {
+        resolve_day_agenda(
+            data,
+            &SchoolReads::fixture(data),
+            "2026-1Q",
+            date,
+            Default::default(),
+        )
+        .unwrap()
+        .into_iter()
+        .filter(|block| block.key.starts_with("reference:"))
+        .map(|block| block.usual_room)
+        .collect::<Vec<_>>()
+    };
+    let both = Some("M-101 / S8-108,109".to_owned());
+    assert_eq!(usual(&data, "2026-04-13"), [both.clone()]);
+    assert_eq!(usual(&data, "2026-04-20"), [None]);
+    assert_eq!(usual(&data, "2026-04-27"), [None]);
+    assert_eq!(usual(&data, "2026-05-11"), [both]);
+    assert_eq!(usual(&data, "2026-05-18"), [None]);
+    assert_eq!(usual(&data, "2026-05-25"), [None]);
+
+    // A course with no room of its own has nothing to compare with.
+    for meeting in data["courses"][0]["meetings"].as_array_mut().unwrap() {
+        meeting["room"] = json!("");
+    }
+    assert_eq!(usual(&data, "2026-04-13"), [None]);
+}
+
 #[test]
 fn a_user_mark_decides_what_a_session_is() {
     let mut data = workspace();

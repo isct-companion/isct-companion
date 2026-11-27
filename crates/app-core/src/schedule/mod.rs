@@ -18,6 +18,7 @@ mod occurrence;
 mod profile_validation;
 mod range;
 mod reminders;
+mod rooms;
 pub(crate) use reminders::{assignment_lead_minutes, notification_preferences};
 pub use reminders::{reminder_lead_options, ReminderLeadOptions};
 mod lecture_list;

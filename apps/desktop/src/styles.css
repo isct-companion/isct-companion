@@ -534,6 +534,14 @@ summary,
   display: block;
   max-width: 100%;
 }
+/* An exam away from the course's usual room: the room as a warn tag, in
+   the tag's own colour rather than the block's ink. */
+.ttBlock .ttRoomElsewhere {
+  display: block;
+  align-self: flex-start;
+  max-width: 100%;
+  color: var(--tag);
+}
 /* A course only planned for the quarter is intent, not a booked class: an
    outline in the course colour, no fill. */
 .ttBlock.planned {

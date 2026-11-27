@@ -278,6 +278,10 @@ pub(super) struct Occurrence {
     /// exam timetable; the person's values stay until they choose.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub source_changed: bool,
+    /// Set on an exam held outside the rooms its course meets in: those
+    /// usual rooms. `room` is the exam's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usual_room: Option<String>,
     /// A course only planned for its quarter, with no registration there.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub planned: bool,
@@ -320,6 +324,7 @@ impl From<crate::schedule::Occurrence> for Occurrence {
             planned,
             quiz,
             source_changed,
+            usual_room,
             grid: _,
             mark: _,
         } = occurrence;
@@ -340,6 +345,7 @@ impl From<crate::schedule::Occurrence> for Occurrence {
             quiz: quiz == Some(true),
             overridden: overridden == Some(true),
             source_changed: source_changed == Some(true),
+            usual_room,
             planned: planned == Some(true),
             conflict: conflict == Some(true),
             conflict_with: conflict_with.unwrap_or_default(),

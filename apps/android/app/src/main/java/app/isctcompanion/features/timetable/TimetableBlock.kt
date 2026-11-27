@@ -38,6 +38,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -156,19 +158,30 @@ internal fun Block(
             // Side by side there is room for the title only.
             if (lanes == 1) {
                 Spacer(Modifier.weight(1f))
-                // 計画, 休講, the times of a block drawn over whole periods,
-                // or the first room; every room stays on the course page.
+                // 計画, 休講, an exam's room flagged when Core says it is not
+                // the course's usual one, the times of a block drawn over
+                // whole periods, or the first room; every room stays on the
+                // course page.
                 val moved = grid != null && (grid.startTime != block.startTime || grid.endTime != block.endTime)
-                val line = when {
-                    planned -> t("timetable.planned")
-                    cancelled -> t("common.noClass")
-                    moved -> "${block.startTime.removePrefix("0")}–${block.endTime.removePrefix("0")}"
-                    else -> firstRoom(block.room)
+                val usual = block.usualRoom.takeIf { exam && !planned }
+                if (usual != null) {
+                    val note = t("timetable.notTheUsualRoom", "room" to usual)
+                    Tag(
+                        firstRoom(block.room), color = Theme.colors.warn, soft = Theme.colors.warnSoft,
+                        modifier = Modifier.semantics { contentDescription = "${block.room}, $note" },
+                    )
+                } else {
+                    val line = when {
+                        planned -> t("timetable.planned")
+                        cancelled -> t("common.noClass")
+                        moved -> "${block.startTime.removePrefix("0")}–${block.endTime.removePrefix("0")}"
+                        else -> firstRoom(block.room)
+                    }
+                    Text(
+                        line, style = style, fontWeight = FontWeight.SemiBold, color = ink,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
                 }
-                Text(
-                    line, style = style, fontWeight = FontWeight.SemiBold, color = ink,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
             }
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
