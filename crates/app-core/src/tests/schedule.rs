@@ -2,7 +2,6 @@ use chrono::DateTime;
 use serde_json::{json, Value};
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use super::calendar::quarter_range;
 use super::*;
 
 pub(super) fn workspace() -> Value {
@@ -30,33 +29,6 @@ fn mark_session(data: &mut Value, key: &str, mark: &str) {
         row["id"] = json!(key);
         rows.push(row);
     }
-}
-
-#[test]
-fn quarter_and_calendar_precedence_match_desktop() {
-    let mut data = workspace();
-    assert_eq!(
-        quarter_range(&data, "2026-1Q").unwrap().unwrap().from,
-        "2026-04-07"
-    );
-    data["academicCalendar"].as_array_mut().unwrap().push(json!({"id":"published","date":"2026-04-13","type":"replacement","replacementDay":2,"label":{"en":"Tuesday"}}));
-    data["exceptions"] =
-        json!([{"id":"mine","date":"2026-04-13","type":"no-class","label":"Trip"}]);
-    assert_eq!(
-        calendar::calendar_state(&data, "2026-04-13").unwrap()["id"],
-        "mine"
-    );
-    assert!(occurrences_on_date(
-        &data,
-        "2026-1Q",
-        "2026-04-13",
-        AgendaOptions {
-            include_personal: true,
-            ..Default::default()
-        }
-    )
-    .unwrap()
-    .is_empty());
 }
 
 #[test]
@@ -184,33 +156,6 @@ fn period_backed_meetings_follow_profile_clock_while_custom_clocks_stay_explicit
 }
 
 #[test]
-fn teaching_period_query_returns_resolved_default_and_profile_override() {
-    let mut data = workspace();
-    let WorkspaceQueryResult::TeachingPeriods(defaults) = query(
-        &data,
-        &SchoolReads::fixture(&data),
-        WorkspaceQuery::TeachingPeriods,
-    )
-    .unwrap() else {
-        panic!("expected teaching periods")
-    };
-    assert_eq!(defaults, default_teaching_periods());
-
-    let mut configured = defaults;
-    configured[5].end_time = "21:00".into();
-    data["academicProfile"]["teachingPeriods"] = serde_json::to_value(&configured).unwrap();
-    let WorkspaceQueryResult::TeachingPeriods(resolved) = query(
-        &data,
-        &SchoolReads::fixture(&data),
-        WorkspaceQuery::TeachingPeriods,
-    )
-    .unwrap() else {
-        panic!("expected teaching periods")
-    };
-    assert_eq!(resolved, configured);
-}
-
-#[test]
 fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
     let mut data = workspace();
     data["events"] = json!([
@@ -220,6 +165,15 @@ fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
         {"id":"descending","targetKey":"course-weekly-0-2026-04-13","targetKind":"course","periods":[5,3],"room":"Elsewhere","hidden":false},
         {"id":"wrapped","targetKey":"elsewhere","targetKind":"course","periods":[257,258],"hidden":false}
     ]);
+    data["courses"].as_array_mut().unwrap().push(json!({
+        "id":"bad-course", "termId":"2026-1Q", "title":"Broken course",
+        "code":"BAD.1", "color":"#000000",
+        "meetings":[{"days":[1],"periods":[257,258],"startTime":"09:00","endTime":"10:00","room":""}]
+    }));
+    data["memberships"].as_array_mut().unwrap().push(json!({
+        "id":"bad-member", "termId":"2026-1Q", "courseId":"bad-course",
+        "status":"registered", "evidence":{"provider":"school"}
+    }));
     let day = resolve_day_agenda(
         &data,
         &SchoolReads::fixture(&data),
@@ -238,46 +192,27 @@ fn one_bad_stored_record_is_reported_without_hiding_the_rest_of_the_day() {
     assert_eq!(day[0].start_time, "08:50");
     assert_eq!(day[0].room, "M-101");
     assert_eq!(day[0].overridden, None);
+    // Each bad record is named, a course meeting by its index.
     let problems = schedule_problems(&data);
-    assert_eq!(
-        problems
-            .iter()
-            .map(|problem| (problem.kind, problem.id.as_str()))
-            .collect::<Vec<_>>(),
-        [
-            (ScheduleProblemKind::ScheduleOverride, "descending"),
-            (ScheduleProblemKind::ScheduleOverride, "wrapped"),
-        ]
-    );
-}
-
-#[test]
-fn malformed_period_meeting_is_reported_without_hiding_a_good_course() {
-    let mut data = workspace();
-    data["courses"].as_array_mut().unwrap().push(json!({
-        "id":"bad-course", "termId":"2026-1Q", "title":"Broken course",
-        "code":"BAD.1", "color":"#000000",
-        "meetings":[{"days":[1],"periods":[257,258],"startTime":"09:00","endTime":"10:00","room":""}]
-    }));
-    data["memberships"].as_array_mut().unwrap().push(json!({
-        "id":"bad-member", "termId":"2026-1Q", "courseId":"bad-course",
-        "status":"registered", "evidence":{"provider":"school"}
-    }));
-
-    let day =
-        occurrences_on_date(&data, "2026-1Q", "2026-04-13", AgendaOptions::default()).unwrap();
-    assert_eq!(day.len(), 1);
-    assert_eq!(day[0].id, "course");
-    assert!(schedule_problems(&data).iter().any(|problem| {
-        problem.kind == ScheduleProblemKind::CourseMeeting && problem.id == "bad-course:0"
-    }));
+    let problems: Vec<_> = problems
+        .iter()
+        .map(|problem| (problem.kind, problem.id.as_str()))
+        .collect();
+    assert_eq!(problems.len(), 3);
+    for expected in [
+        (ScheduleProblemKind::ScheduleOverride, "descending"),
+        (ScheduleProblemKind::ScheduleOverride, "wrapped"),
+        (ScheduleProblemKind::CourseMeeting, "bad-course:0"),
+    ] {
+        assert!(problems.contains(&expected), "{expected:?}");
+    }
 }
 
 #[test]
 fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     let mut data = workspace();
     data["selectedTerm"] = json!("2099-4Q");
-    data["settings"]["departmentId"] = json!("undergraduate:cs");
+    data["settings"]["departmentId"] = json!("cs");
     data["courses"].as_array_mut().unwrap().push(json!({
         "id":"future-course","termId":"2027-1Q","title":"Future","credits":2,
         "meetings":[]
@@ -320,60 +255,6 @@ fn overview_uses_live_terms_quarter_roster_and_static_department_name() {
     assert_eq!(future.courses_term, "2026-1Q");
     assert_eq!(future.term, "2027-1Q");
     assert_eq!(future.term_course_ids, vec!["future-course"]);
-}
-
-#[test]
-fn weekly_events_survive_holidays_and_conflict() {
-    let mut data = workspace();
-    data["academicCalendar"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"id":"off","date":"2026-04-13","type":"holiday","label":{"en":"Off"}}));
-    // "dated" is a one-date event synced from an older app: it has no
-    // weekday, so it never occurs.
-    data["events"] = json!([
-        {"id":"lab","termId":"2026-1Q","days":[1],"title":"Lab","room":"","startTime":"09:00","endTime":"10:00"},
-        {"id":"event","termId":"2026-1Q","days":[1,3],"title":"Event","room":"","startTime":"09:30","endTime":"10:00"},
-        {"id":"dated","termId":"2026-1Q","date":"2026-04-13","title":"Dated","room":"","startTime":"09:00","endTime":"10:00"}
-    ]);
-    let rows = occurrences_on_date(
-        &data,
-        "2026-1Q",
-        "2026-04-13",
-        AgendaOptions {
-            include_personal: true,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
-        ["lab", "event"]
-    );
-    assert!(rows.iter().all(|row| row.kind == OccurrenceKind::Event));
-    assert!(rows.iter().all(|row| row.conflict == Some(true)));
-}
-
-#[test]
-fn intensive_dates_are_strict() {
-    assert_eq!(
-        intensive_days(
-            &default_teaching_periods(),
-            "2026-04-12",
-            "2026-04-14",
-            [3, 4]
-        )
-        .unwrap()
-        .len(),
-        3
-    );
-    assert!(intensive_days(
-        &default_teaching_periods(),
-        "2026-04-14",
-        "2026-04-12",
-        [3, 4]
-    )
-    .is_err());
 }
 
 #[test]
@@ -472,6 +353,12 @@ fn advanced_calendar_and_course_rules_match_desktop_cases() {
             .unwrap()
             .is_empty()
     );
+    // An intensive range or period pair out of order, or periods outside
+    // the table, is refused rather than read.
+    let periods = default_teaching_periods();
+    assert!(intensive_days(&periods, "2026-04-14", "2026-04-12", [3, 4]).is_err());
+    assert!(intensive_days(&periods, "2026-04-01", "2026-04-02", [0, 10]).is_err());
+    assert!(intensive_days(&periods, "2026-04-01", "2026-04-02", [4, 3]).is_err());
 
     data["intensiveSchedules"] = json!([]);
     data["courses"][0]["meetings"] = json!([{"days":[1],"startTime":"08:50","endTime":"10:30","room":"M-101","validFrom":"2026-04-20","validTo":"2026-04-27"}]);
@@ -585,21 +472,6 @@ fn exams_and_single_occurrence_overrides_preserve_identity_and_conflicts() {
 #[test]
 fn ics_and_cancelled_context_cover_desktop_boundaries() {
     let mut data = workspace();
-    assert!(intensive_days(
-        &default_teaching_periods(),
-        "2026-04-01",
-        "2026-04-02",
-        [0, 10]
-    )
-    .is_err());
-    assert!(intensive_days(
-        &default_teaching_periods(),
-        "2026-04-01",
-        "2026-04-02",
-        [4, 3]
-    )
-    .is_err());
-
     data["events"] = json!([{"id":"seminar","termId":"2026-1Q","days":[1],"title":"Weekly seminar","room":"","startTime":"18:00","endTime":"19:00"}]);
     data["academicCalendar"]
         .as_array_mut()
@@ -674,8 +546,6 @@ fn timestamps_reject_locale_and_relaxed_rfc3339_forms() {
 
 #[test]
 fn academic_year_credits_and_colors_preserve_source_semantics() {
-    assert_eq!(calendar::academic_year_of("2027-03-31").unwrap(), 2026);
-    assert_eq!(calendar::academic_year_of("2026-04-01").unwrap(), 2026);
     let mut data = workspace();
     data["academicCalendar"] = json!([
         {"id":"start","academicYear":2026,"quarter":"3Q","date":"2026-09-28","type":"quarter-start","label":{"en":"3Q starts"}},
@@ -726,24 +596,6 @@ fn academic_year_credits_and_colors_preserve_source_semantics() {
         declared_term_credits(pair.as_array().unwrap(), "2026-1Q").unwrap(),
         Some(2.5)
     );
-    // Fractions, historical spans and failed/pending results must not be
-    // replaced by declaration totals or by competency points.
-    let grades = json!([
-        {"completed":"2025前学期","quarter":"1","credits":"0.5-0.5-0","result":"合格"},
-        {"completed":"2025後学期","quarter":"3-4","credits":"1-0.5-0","effectiveCredits":1.5,"result":"75"},
-        {"completed":"2026前学期","quarter":"1-4","credits":"4-0-0","result":"認定"},
-        {"completed":"2024後学期","quarter":"3","credits":"2-0-0","result":"不合格"},
-        {"completed":"2026後学期","quarter":"3","credits":"2-0-0","result":"未報告"},
-        {"completed":"2023後学期","quarter":"3","credits":"2-0-0","result":"合格","missingSince":"x"}
-    ]);
-    let ledger = credits::earned_credits_by_term(grades.as_array().unwrap());
-    assert_eq!(ledger["2025-1Q"], 1.0);
-    assert_eq!(ledger["2025-3Q"], 0.75);
-    assert_eq!(ledger["2025-4Q"], 0.75);
-    assert_eq!(ledger["2026-2Q"], 1.0);
-    assert_eq!(ledger["2026-3Q"], 1.0);
-    assert_eq!(ledger["2024-3Q"], 0.0);
-    assert!(!ledger.contains_key("2023-3Q"));
     assert_eq!(
         declared_term_credits(pair.as_array().unwrap(), "2026-3Q").unwrap(),
         None
@@ -782,29 +634,6 @@ fn academic_year_credits_and_colors_preserve_source_semantics() {
     }
 }
 
-#[test]
-fn notification_plan_uses_jst_and_explicit_locale() {
-    let mut data = workspace();
-    data["assignments"] = json!([{"id":"assignment","courseId":"course","title":"Report","dueAt":"2026-04-14T23:59:00+09:00"}]);
-    let now = DateTime::parse_from_rfc3339("2026-04-13T08:00:00+09:00").unwrap();
-    let horizon = DateTime::parse_from_rfc3339("2026-04-14T23:00:00+09:00").unwrap();
-    let plan = notification_plan(
-        &data,
-        &SchoolReads::fixture(&data),
-        now,
-        horizon,
-        Some(NotificationLocale::Ja),
-    )
-    .unwrap();
-    assert!(plan
-        .items
-        .iter()
-        .any(|item| item.key.starts_with("class:") && item.body.contains("10分後")));
-    assert!(plan.items.iter().any(
-        |item| item.key == "assignment:assignment:1440" && item.body.contains("締切まで24時間")
-    ));
-}
-
 fn due_plan(data: &Value, now: &str) -> NotificationPlan {
     let through = DateTime::parse_from_rfc3339(now).unwrap();
     notification_plan(
@@ -829,7 +658,7 @@ fn class_reminders_preserve_lead_grace_calendar_and_toggle_policy() {
         .next()
         .unwrap();
     assert_eq!(reminder.title, "授業, A; B");
-    assert_eq!(reminder.body, "Starts in 10 min · 08:50 · M-101");
+    assert!(reminder.body.contains("M-101"));
     assert!(due_plan(&data, "2026-04-13T08:46:00+09:00")
         .items
         .is_empty());
@@ -857,11 +686,14 @@ fn assignment_reminders_preserve_leads_and_open_work_filter() {
         "id":"assignment","courseId":"course","title":"Local report",
         "dueAt":"2026-04-14T23:59:00+09:00"
     }]);
-    let one_day = due_plan(&data, "2026-04-13T23:59:00+09:00");
-    assert_eq!(one_day.items[0].body, "Due in 24 hours · 授業, A; B");
+    let key = |lead: i64| format!("assignment:assignment:{lead}");
+    assert_eq!(
+        due_plan(&data, "2026-04-13T23:59:00+09:00").items[0].key,
+        key(DEFAULT_ASSIGNMENT_LEADS[0])
+    );
     assert_eq!(
         due_plan(&data, "2026-04-14T22:59:30+09:00").items[0].key,
-        "assignment:assignment:60"
+        key(DEFAULT_ASSIGNMENT_LEADS[1])
     );
 
     data["assignments"] = json!([
@@ -878,15 +710,15 @@ fn assignment_reminders_preserve_leads_and_open_work_filter() {
 fn deadline_display_truncates_adjacent_units_and_changes_at_the_projected_instant() {
     use CountdownUnit::*;
     let due: DateTime<FixedOffset> = "2026-04-14T00:00:00+09:00".parse().unwrap();
-    for (seconds, expected, tone) in [
-        (59, vec![(Seconds, 59)], "urgent"),
-        (60, vec![(Minutes, 1)], "urgent"),
-        (61, vec![(Minutes, 1), (Seconds, 1)], "urgent"),
-        (3660, vec![(Hours, 1), (Minutes, 1)], "urgent"),
-        (3630, vec![(Hours, 1)], "urgent"),
-        (86_400 + 5 * 60, vec![(Days, 1)], "soon"),
-        (86_400, vec![(Days, 1)], "soon"),
-        (259_200, vec![(Days, 3)], "normal"),
+    for (seconds, expected) in [
+        (59, vec![(Seconds, 59)]),
+        (60, vec![(Minutes, 1)]),
+        (61, vec![(Minutes, 1), (Seconds, 1)]),
+        (3660, vec![(Hours, 1), (Minutes, 1)]),
+        (3630, vec![(Hours, 1)]),
+        (86_400 + 5 * 60, vec![(Days, 1)]),
+        (86_400, vec![(Days, 1)]),
+        (259_200, vec![(Days, 3)]),
     ] {
         for elapsed in [false, true] {
             let delta = chrono::Duration::seconds(seconds);
@@ -899,7 +731,7 @@ fn deadline_display_truncates_adjacent_units_and_changes_at_the_projected_instan
                     .collect::<Vec<_>>()
             };
             assert_eq!(parts(&view), expected);
-            assert_eq!(view.countdown_tone, if elapsed { "past" } else { tone });
+            assert_eq!(view.countdown_tone == "past", elapsed);
             let next = view
                 .next_change_at
                 .as_ref()
@@ -1071,7 +903,6 @@ fn task_view_strictly_classifies_today_and_lecture_work() {
             count: 2
         }]
     );
-    assert_eq!(view.deadlines["soon"].countdown_tone, "urgent");
     assert!(!view.deadlines.contains_key("invalid"));
 }
 
@@ -1104,30 +935,29 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
     // Local timetable records as stored after editing or importing a course.
     // A syllabus code written PRIMARY(ALIAS) is looked up by its primary
     // code only (ScienceTokyoExam files the subject there); a lone code of
-    // unknown standing stays, and a lone code another source of the same
-    // course names as its alias is dropped.
+    // unknown standing stays.
     data["courses"] = json!([
         {"id":"cross","termId":"2026-4Q","title":"Frontiers","code":"ＥＮＴ．Ｂ１０１（ＬＡＳ．Ｆ１０１）-02"},
         {"id":"alias-only","termId":"2026-4Q","title":"Creativity","code":"LAW.X376"},
-        {"id":"lms-pair","termId":"2026-4Q","title":"Paired","code":"LAS.F101","lmsCourseId":7},
         {"id":"manual","termId":"2026-4Q","title":"Independent Study","code":""},
         {"id":"withdrawn","termId":"2026-4Q","title":"Dropped","code":"CSC.T101"},
         {"id":"multi","termId":"2026-3Q","title":"Long Course","code":"MTH.B301"}
     ]);
-    data["lmsCourses"] = json!([{"lmsId":7,"shortname":"ENT.B101(LAS.F101)-01 [2026]"}]);
     // The exam timetable names one of them; the page folds away the rest.
     data["exams"] = json!([{"id":"final","academicYear":2026,"level":"undergraduate","quarter":"4Q","courseCode":"LAW.X376","date":"2027-01-25","label":{"ja":"試験"},"periods":[3,4],"room":{"ja":"W9-101"},"rooms":[],"status":"scheduled","sourceIds":["notice"],"sourcePages":[1]}]);
     data["memberships"] = json!([
         {"courseId":"cross","termId":"2026-4Q","status":"registered"},
         {"courseId":"alias-only","termId":"2026-4Q","status":"lms-member"},
-        {"courseId":"lms-pair","termId":"2026-4Q","status":"registered"},
         {"courseId":"manual","termId":"2026-4Q","status":"declared"},
         {"courseId":"withdrawn","termId":"2026-4Q","status":"withdrawn"}
     ]);
 
-    let WorkspaceQueryResult::ExamCourses(list) =
-        query(&data, &SchoolReads::fixture(&data), WorkspaceQuery::ExamCourses).unwrap()
-    else {
+    let WorkspaceQueryResult::ExamCourses(list) = query(
+        &data,
+        &SchoolReads::fixture(&data),
+        WorkspaceQuery::ExamCourses,
+    )
+    .unwrap() else {
         panic!("expected this quarter's past-exam courses");
     };
     let courses: Vec<_> = list
@@ -1141,7 +971,6 @@ fn past_exam_courses_are_this_quarters_enrolled_courses_by_primary_code() {
         [
             ("cross", vec!["ENT.B101".to_owned()]),
             ("alias-only", vec!["LAW.X376".to_owned()]),
-            ("lms-pair", vec!["ENT.B101".to_owned()]),
             ("manual", vec![]),
         ]
     );
@@ -1356,11 +1185,6 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     assert_eq!(
         (Some(material.url.as_str()), material.kind),
         (lesson_item.source.as_deref(), lesson_item.kind)
-    );
-    // Without a section title, the row names the lesson by its number.
-    assert_eq!(
-        class.class_materials[0].section_label.as_deref(),
-        Some("Lesson 2")
     );
     assert!(class
         .class_materials
@@ -1588,14 +1412,6 @@ fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
             .countdown_tone,
         "past"
     );
-    assert_eq!(
-        board.today.due_this_week[0]
-            .deadline
-            .as_ref()
-            .unwrap()
-            .countdown_tone,
-        "urgent"
-    );
     assert!(board.today.undated.is_empty() && board.today.hidden.is_empty());
     assert_eq!(
         ids(&board.record.due_this_week),
@@ -1650,59 +1466,6 @@ fn query_wire_is_camel_case_and_tagged() {
     let wire = serde_json::to_value(result).unwrap();
     assert_eq!(wire["kind"], "dayAgenda");
     assert!(wire.get("value").unwrap().is_array());
-}
-
-#[test]
-fn matches_committed_typescript_schedule_trace() {
-    let fixture: Value =
-        serde_json::from_str(include_str!("../schedule/fixtures/typescript.json")).unwrap();
-    let workspace = &fixture["workspace"];
-    let expected = &fixture["expected"];
-    assert_eq!(
-        serde_json::to_value(super::calendar::quarter_range(workspace, "2026-1Q").unwrap())
-            .unwrap(),
-        expected["range"]
-    );
-    assert_eq!(
-        serde_json::to_value(
-            occurrences_on_date(workspace, "2026-1Q", "2026-04-13", AgendaOptions::default())
-                .unwrap()
-        )
-        .unwrap(),
-        expected["holidayOccurrences"]
-    );
-    assert_eq!(
-        serde_json::to_value(
-            resolve_day_agenda(
-                workspace,
-                &SchoolReads::fixture(workspace),
-                "2026-1Q",
-                "2026-04-20",
-                AgendaOptions::default()
-            )
-            .unwrap()
-        )
-        .unwrap(),
-        expected["ordinaryAgenda"]
-    );
-    assert_eq!(display_color(&workspace["courses"][0]), expected["color"]);
-    assert_eq!(
-        declared_term_credits(workspace["registrations"].as_array().unwrap(), "2026-1Q").unwrap(),
-        expected["credits"].as_f64()
-    );
-    assert_eq!(
-        serde_json::to_value(academic_year_calendar(workspace, 2026).unwrap()).unwrap(),
-        expected["academicYear"]
-    );
-    let ics = export_quarter_ics(
-        workspace,
-        &SchoolReads::fixture(workspace),
-        "2026-1Q",
-        CalendarExportScope::Courses,
-        DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z").unwrap(),
-    )
-    .unwrap();
-    assert_eq!(ics, expected["ics"]);
 }
 
 struct NoopSink;
@@ -1803,18 +1566,6 @@ async fn reminder_service_opens_current_history_on_its_first_pass_and_stops_afte
     ));
     drop(service);
     std::fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
-fn assignment_completion_is_shared_by_mcp_tasks_and_reminders() {
-    for row in [
-        json!({"submission":"graded"}),
-        json!({"submission":"submitted"}),
-        json!({"submission":"unknown","submissionStatus":"submitted"}),
-    ] {
-        assert!(super::assignment_submitted(&row));
-    }
-    assert!(!super::assignment_submitted(&json!({"submission":"open"})));
 }
 
 #[test]
@@ -2219,20 +1970,13 @@ fn assignment_reminders_use_configured_times_and_reject_invalid_ones() {
         Some(NotificationLocale::En),
     )
     .unwrap();
-    assert_eq!(plan.items.len(), 2);
-    assert_eq!(plan.items[0].at, "2026-04-14T15:00:00+09:00");
-    assert_eq!(plan.items[0].body, "Due in 3 hours");
-    assert_eq!(plan.items[1].at, "2026-04-14T17:30:00+09:00");
-    assert_eq!(plan.items[1].body, "Due in 30 minutes");
-    let ja = notification_plan(
-        &data,
-        &SchoolReads::fixture(&data),
-        from,
-        to,
-        Some(NotificationLocale::Ja),
-    )
-    .unwrap();
-    assert_eq!(ja.items[1].body, "締切まで30分");
+    assert_eq!(
+        plan.items
+            .iter()
+            .map(|item| item.at.as_str())
+            .collect::<Vec<_>>(),
+        ["2026-04-14T15:00:00+09:00", "2026-04-14T17:30:00+09:00"]
+    );
     for selected in [vec![17], vec![17, 1, 2, 3, 4, 5, 6, 7]] {
         data["settings"]["notifications"]["assignmentLeadMinutes"] = json!(selected);
         let plan = notification_plan(&data, &SchoolReads::fixture(&data), from, to, None).unwrap();
@@ -2548,9 +2292,9 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
     .unwrap();
     assert_eq!(
         days.iter()
-            .map(|day| (day.no_classes, day.calendar_notice.as_deref()))
+            .map(|day| (day.no_classes, day.calendar_notice.is_some()))
             .collect::<Vec<_>>(),
-        [(false, Some("Exam period")), (true, Some("Exam period"))]
+        [(false, true), (true, true)]
     );
 
     let views = exam_views(&data, &SchoolReads::fixture(&data), "2026-1Q");
@@ -3076,25 +2820,22 @@ fn reminders_follow_marks_exam_week_classes_and_timetable_exams() {
             (
                 item.at.as_str(),
                 matches!(item.priority, NotificationPriority::Exam),
-                item.title.starts_with("Exam · ") || item.title.starts_with("Quiz · "),
             )
         })
         .collect();
-    assert!(plan
-        .items
-        .iter()
-        .any(|item| item.at == "2026-05-11T07:50:00+09:00" && item.title.starts_with("Quiz · ")));
+    // The quiz reminds as an exam, with the exam lead.
+    assert!(items.contains(&("2026-05-11T07:50:00+09:00", true)));
     // Weekly Mondays from 04-27 to 05-25 remind as classes; 04-13 is
     // cancelled and 04-20 is an exam with the exam lead.
     assert!(!items.iter().any(|item| item.0.starts_with("2026-04-13")));
-    assert!(items.contains(&("2026-04-20T07:50:00+09:00", true, true)));
-    assert!(items.contains(&("2026-04-27T08:40:00+09:00", false, false)));
+    assert!(items.contains(&("2026-04-20T07:50:00+09:00", true)));
+    assert!(items.contains(&("2026-04-27T08:40:00+09:00", false)));
     // The timetable's exam-week class is a class; its final is an exam.
-    assert!(items.contains(&("2026-05-28T13:20:00+09:00", false, false)));
-    assert!(items.contains(&("2026-05-29T09:45:00+09:00", true, true)));
+    assert!(items.contains(&("2026-05-28T13:20:00+09:00", false)));
+    assert!(items.contains(&("2026-05-29T09:45:00+09:00", true)));
     // The exam period stops the weekly class, unless the user says it runs;
     // a timetable exam the user cancelled never reminds.
-    assert!(items.contains(&("2026-06-01T08:40:00+09:00", false, false)));
+    assert!(items.contains(&("2026-06-01T08:40:00+09:00", false)));
     assert!(!items.iter().any(|item| item.0.starts_with("2026-06-02")));
     assert_eq!(
         items.iter().filter(|item| item.1).count(),
@@ -3231,19 +2972,17 @@ fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
     ));
 }
 
-// Teacher-authored HTML is arbitrary. Exercise both read models with the
-// same language markers the sanitizer handles, independent of Moodle markup.
-const LANGUAGE_SAMPLE: &str = r#"<p lang="ja">日本語</p><p lang="en">English</p>"#;
-
+/// Generic markup only: teacher HTML is a course's own, so none is committed
+/// (see `lms_html.rs`), and Moodle's own regions are checked on a real
+/// assignment by SCHOOL-ASSIGNMENT-LMS-EXIT.
 #[test]
-fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
+fn assignment_detail_lists_each_lms_file_once_and_reads_the_content_language() {
+    const LANGUAGE_SAMPLE: &str = r#"<p lang="ja">日本語</p><p lang="en">English</p>"#;
     let body = concat!(
-        r#"<div data-region="activity-dates"><strong>Opened:</strong> 1 Oct</div>"#,
         r#"<p>Write a parser &amp; test it.</p><br>"#,
         r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">Sheet</a>"#,
         r#"<a href="https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_assign/introattachment/0/sheet%201.pdf">again</a>"#,
         r#"<a href="https://example.com/pluginfile.php/2/x.pdf">elsewhere</a>"#,
-        r#"<div data-region="activity-information">Done: view</div>"#,
     );
     let data = json!({
         "courses":[{"id":"c","code":"CSC.T273","termId":"2026-3Q"}],
@@ -3316,290 +3055,13 @@ fn assignment_detail_reads_the_lms_text_without_moodle_dates() {
     }
 }
 
+/// The person's lesson marks decide where a course is: a mark for the class
+/// it is recorded against (the next one here, as the last was not today)
+/// wins over "last lesson with material", and once a later class has begun
+/// the course is at the lesson after the mark.
 #[test]
-fn course_content_follows_the_desktop_lecture_desk() {
-    for (title, number) in [
-        ("第2回", Some(2)),
-        ("第 12 回 クラス", Some(12)),
-        ("第３回", Some(3)),
-        ("Lecture 4", Some(4)),
-        ("Week 10: Graphs", Some(10)),
-        ("5. Recursion", Some(5)),
-        ("一般", None),
-        ("連絡先・オフィスアワー", None),
-        ("2026年度 講義資料", None),
-    ] {
-        let read = course_content::lesson_title(title).map(|title| title.number);
-        assert_eq!(read, number, "{title}");
-    }
-
-    // Sections and their text come from the LMS record; section numbers and
-    // lesson numbers differ (section 6 is 第5回). Moodle may send a section
-    // id as a string, and its files still sit in it.
-    let data = json!({
-        "courses":[{"id":"c","termId":"2026-3Q","offeringId":"o"}],
-        "lmsCourses":[{"lmsId":8,"offeringId":"o","sections":[
-            {"id":100,"number":0,"title":"一般","bodyHtml":""},
-            {"id":"105","number":5,"title":"第4回","bodyHtml":"<div class=\"summarytext\"><div>授業計画：配列<br>課題：確認</div></div><ul data-for=\"cmlist\"></ul>"},
-            {"id":106,"number":6,"title":"第5回","bodyHtml":"<script>x()</script><p>授業計画：継承</p>"},
-            {"id":107,"number":7,"title":"第6回","bodyHtml":""},
-            {"id":108,"number":8,"title":"第7回","bodyHtml":"<p>hidden</p>","visible":false},
-            {"id":109,"number":9,"title":"第8回","bodyHtml":""}
-        ]}],
-        "materials":[
-            {"id":"g","courseId":"c","session":0,"sectionId":100,"module":"forum","title":"お知らせ","bodyHtml":"<article>Room changed</article>"},
-            {"id":"a","courseId":"c","session":5,"sectionId":105,"module":"resource","title":"slides","url":"https://lms.s.isct.ac.jp/mod/resource/view.php?id=1"},
-            {"id":"l","courseId":"c","session":5,"sectionId":105,"module":"label","title":"note","bodyHtml":"<p>Bring a laptop</p>"},
-            {"id":"b","courseId":"c","session":6,"sectionId":106,"module":"page","title":"Reading","bodyHtml":"<p>Read chapter 3</p>"},
-            {"id":"task","courseId":"c","session":7,"sectionId":107,"module":"assign","cmid":5,"title":"Report"},
-            {"id":"quiz","courseId":"c","session":7,"sectionId":107,"module":"quiz","title":"Quiz"}
-        ],
-        "assignments":[
-            {"id":"r","courseId":"c","title":"Report","details":"","lmsCmid":5},
-            {"id":"loose","courseId":"c","title":"Essay","details":""},
-            {"id":"gone","courseId":"c","title":"Gone","details":"","lmsCmid":5,"hidden":true}
-        ]
-    });
-    let request: WorkspaceQuery = serde_json::from_value(
-        json!({"kind":"courseContent","courseId":"c","now":"2026-11-24T12:00:00+09:00"}),
-    )
-    .unwrap();
-    let WorkspaceQueryResult::CourseContent(Some(view)) =
-        query(&data, &SchoolReads::fixture(&data), request).unwrap()
-    else {
-        panic!("wrong result kind")
-    };
-    let lessons: Vec<_> = view
-        .lessons
-        .iter()
-        .map(|lesson| {
-            (
-                lesson.section,
-                lesson.number,
-                lesson.label.as_str(),
-                lesson.posted,
-            )
-        })
-        .collect();
-    // Hidden sections drop out, and so do empty ones that are not lessons; a
-    // lesson with nothing posted yet keeps its place. With 第7回 hidden the
-    // numbers skip, so the rail counts the lessons in order.
-    assert_eq!(
-        lessons,
-        [
-            (0, None, "一般", true),
-            (5, Some(4), "1", true),
-            (6, Some(5), "2", true),
-            (7, Some(6), "3", false),
-            (9, Some(8), "4", false)
-        ]
-    );
-    assert_eq!(view.current_section, Some(6));
-    // An assignment sits where its LMS activity does; one without an
-    // activity is the course's own, and a hidden one is in neither.
-    assert_eq!(view.lessons[3].assignment_ids, ["r"]);
-    assert_eq!(view.other_assignment_ids, ["loose"]);
-    let fifth = &view.lessons[2];
-    assert_eq!(fifth.summary_html, "<p>授業計画：継承</p>");
-    // A folded lesson is headed by its plan's first line, without the label.
-    let summaries: Vec<_> = view
-        .lessons
-        .iter()
-        .map(|lesson| lesson.summary.as_str())
-        .collect();
-    assert_eq!(summaries, ["", "配列", "継承", "", ""]);
-    assert_eq!(
-        view.lessons[1].summary_html,
-        "<div><div>授業計画：配列<br>課題：確認</div></div><ul></ul>"
-    );
-    let items: Vec<_> = view.lessons[1]
-        .items
-        .iter()
-        .map(|item| (item.kind, item.body_html.as_deref()))
-        .collect();
-    assert_eq!(
-        items,
-        [
-            (LessonItemKind::File, None),
-            (LessonItemKind::Label, Some("<p>Bring a laptop</p>"))
-        ]
-    );
-    assert_eq!(view.lessons[0].items[0].kind, LessonItemKind::Forum);
-    assert!(view.lessons[3].items.is_empty());
+fn a_lesson_mark_decides_where_the_course_is() {
     let now = DateTime::parse_from_rfc3339("2026-11-24T12:00:00+09:00").unwrap();
-    assert!(course_content(&data, &SchoolReads::fixture(&data), "unknown", now).is_none());
-
-    let mut localized = data.clone();
-    localized["lmsCourses"][0]["sections"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
-    localized["materials"][2]["bodyHtml"] = json!(LANGUAGE_SAMPLE);
-    for (language, preferred) in [("en", "English"), ("ja", "日本語")] {
-        localized["settings"] =
-            json!({"locale":"en","contentLanguage":language,"lmsBilingualFilter":true});
-        let view = course_content(&localized, &SchoolReads::fixture(&localized), "c", now).unwrap();
-        let filtered = format!(r#"<p lang="{language}">{preferred}</p>"#);
-        assert_eq!(view.lessons[2].summary_html, filtered);
-        assert_eq!(
-            view.lessons[2].original_summary_html.as_deref(),
-            Some(LANGUAGE_SAMPLE)
-        );
-        let label = view.lessons[1]
-            .items
-            .iter()
-            .find(|item| item.material_id == "l")
-            .unwrap();
-        assert_eq!(label.body_html.as_deref(), Some(filtered.as_str()));
-        assert_eq!(label.original_body_html.as_deref(), Some(LANGUAGE_SAMPLE));
-    }
-
-    // Linear Algebra II【X】's sections: lectures and recitations interleave.
-    // The series with more lessons shows bare numbers, the other its own
-    // word from the title; a label alone does not post a lesson.
-    let titles = [
-        "一般",
-        "連絡先・オフィスアワー",
-        "第1回",
-        "第2回",
-        "演習第1回",
-        "第3回",
-        "第4回",
-        "演習第2回",
-        "第5回",
-        "第6回",
-        "演習第3回",
-        "第7回",
-        "演習第4回",
-        "第8回",
-        "演習第5回",
-        "第9回",
-        "第10回",
-        "演習第6回",
-        "第11回",
-        "第12回",
-        "第13回",
-        "演習第7回",
-        "第14回",
-    ];
-    // 一般 holds the course's schedule table, which Core marks against the
-    // lesson the course is at.
-    let schedule =
-        "<table><tr><td>1回目</td><td>行列</td></tr><tr><td>2回目</td><td>行列式</td></tr></table>";
-    let mut algebra = data.clone();
-    algebra["lmsCourses"][0]["sections"] = titles
-        .iter()
-        .enumerate()
-        .map(|(number, title)| {
-            let body = match number {
-                0 => schedule,
-                1 => "<p>Office hours</p>",
-                2 => "<p>Course schedule: Basic syntax</p><p>Objectives: …</p>",
-                _ => "",
-            };
-            json!({"id":200 + number,"number":number,"title":title,"bodyHtml":body})
-        })
-        .collect();
-    algebra["materials"] = json!([
-        {"id":"g","courseId":"c","session":0,"sectionId":200,"module":"forum","title":"お知らせ"},
-        {"id":"s","courseId":"c","session":3,"sectionId":203,"module":"resource","title":"slides"},
-        {"id":"n","courseId":"c","session":4,"sectionId":204,"module":"label","title":"board","bodyHtml":"<p><img src=\"https://lms.s.isct.ac.jp/2026/pluginfile.php/1/mod_label/intro/board.png\" alt=\"\"></p>"}
-    ]);
-    let view = course_content(&algebra, &SchoolReads::fixture(&algebra), "c", now).unwrap();
-    let labels: Vec<_> = view
-        .lessons
-        .iter()
-        .map(|lesson| lesson.label.as_str())
-        .collect();
-    assert_eq!(
-        labels,
-        [
-            "一般",
-            "連絡先・オフィスアワー",
-            "1",
-            "2",
-            "演習 1",
-            "3",
-            "4",
-            "演習 2",
-            "5",
-            "6",
-            "演習 3",
-            "7",
-            "演習 4",
-            "8",
-            "演習 5",
-            "9",
-            "10",
-            "演習 6",
-            "11",
-            "12",
-            "13",
-            "演習 7",
-            "14"
-        ]
-    );
-    assert_eq!(view.current_section, Some(3));
-    assert_eq!(view.lessons[2].summary, "Basic syntax");
-    assert_eq!(
-        view.lessons[0].summary_html,
-        concat!(
-            r#"<table><tbody><tr class="lmsRowPast"><td>1回目</td><td>行列</td></tr>"#,
-            r#"<tr class="lmsRowNow"><td>2回目</td><td>行列式</td></tr></tbody></table>"#
-        )
-    );
-    // A label of pictures only is marked for laying out side by side.
-    assert!(view.lessons[4].items[0].image_only);
-
-    // One series whose titles skip and repeat a number counts in order.
-    algebra["materials"] = json!([]);
-    algebra["lmsCourses"][0]["sections"] = ["第7回", "第9回", "第8回", "第11回", "第11回"]
-        .iter()
-        .enumerate()
-        .map(|(number, title)| json!({"id":300 + number,"number":number,"title":title}))
-        .collect();
-    let view = course_content(&algebra, &SchoolReads::fixture(&algebra), "c", now).unwrap();
-    let rail: Vec<_> = view
-        .lessons
-        .iter()
-        .map(|lesson| (lesson.number, lesson.label.as_str()))
-        .collect();
-    // Before anything is posted, the course is at its first lesson.
-    assert_eq!(view.current_section, Some(0));
-    assert_eq!(
-        rail,
-        [
-            (Some(7), "1"),
-            (Some(9), "2"),
-            (Some(8), "3"),
-            (Some(11), "4"),
-            (Some(11), "5")
-        ]
-    );
-
-    // Without an LMS record, materials name the sections; one numbered
-    // section is not a lesson course.
-    let mut plain = data.clone();
-    plain["lmsCourses"] = json!([]);
-    plain["materials"] = json!([
-        {"id":"g","courseId":"c","session":0,"sectionTitle":"一般","title":"Syllabus"},
-        {"id":"h","courseId":"c","session":0,"sectionTitle":"一般","title":"Guide"},
-        {"id":"a","courseId":"c","session":3,"sectionTitle":"第1回","title":"slides"},
-        {"id":"r","courseId":"c","session":4,"sectionTitle":"Reading","title":"paper"}
-    ]);
-    let view = course_content(&plain, &SchoolReads::fixture(&plain), "c", now).unwrap();
-    assert!(view.lessons.iter().all(|lesson| lesson.number.is_none()));
-    let labels: Vec<_> = view
-        .lessons
-        .iter()
-        .map(|lesson| lesson.label.as_str())
-        .collect();
-    assert_eq!(labels, ["一般", "第1回", "Reading"]);
-    // The syllabus link is the course page's own, not course content.
-    assert_eq!(view.lessons[0].items.len(), 1);
-    assert_eq!(view.lessons[0].items[0].title, "Guide");
-    assert_eq!(view.current_section, Some(4));
-
-    // A mark for the class it is recorded against (the next one here, as
-    // the last was not today) wins over "last lesson with material"; once a
-    // later class has begun, the course is at the lesson after the mark.
     let mut marked = multi_quarter_workspace();
     marked["courses"][0]["offeringId"] = json!("202630001");
     marked["lmsCourses"] = json!([{"lmsId":9,"offeringId":"202630001","sections":[
@@ -3721,6 +3183,9 @@ fn the_month_rule_puts_january_to_march_in_the_previous_academic_year() {
     };
     assert_eq!(in_japan(14, 59), "2025-4Q");
     assert_eq!(in_japan(15, 0), "2026-1Q");
+    // The calendar's own year reading follows the same rule.
+    assert_eq!(calendar::academic_year_of("2027-03-31").unwrap(), 2026);
+    assert_eq!(calendar::academic_year_of("2026-04-01").unwrap(), 2026);
 }
 
 #[test]

@@ -148,8 +148,7 @@ pub struct Reply {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expires: Option<i64>,
     /// The answering helper's `HELPER_REVISION`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revision: Option<u32>,
+    pub revision: u32,
     /// Why the helper ended the last tunnel itself, until the next start or
     /// stop. `None` when nothing has, or the person stopped it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -182,7 +181,7 @@ impl Reply {
             ifname: None,
             pid: None,
             expires: None,
-            revision: Some(HELPER_REVISION),
+            revision: HELPER_REVISION,
             ended: None,
             program: None,
         }
@@ -197,7 +196,7 @@ impl Reply {
             ifname: None,
             pid: None,
             expires: None,
-            revision: Some(HELPER_REVISION),
+            revision: HELPER_REVISION,
             ended: None,
             program: None,
         }

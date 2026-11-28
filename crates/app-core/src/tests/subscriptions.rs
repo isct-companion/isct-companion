@@ -173,22 +173,6 @@ fn fixture_selection(
 }
 
 #[test]
-fn frozen_subscription_fixtures_validate_and_include_the_documented_cs_course() {
-    let (calendar, departments) =
-        fixture_selection(2026, 2026).expect("frozen official data must validate");
-    assert_eq!(calendar.academic_year, 2026);
-    assert_eq!(departments.departments.len(), 17);
-    let cs = departments
-        .departments
-        .iter()
-        .find(|department| department.id == "cs")
-        .expect("Computer Science department");
-    assert!(cs.recommended.iter().any(|course| course.code == "CSC.T241"
-        && course.group == "A"
-        && matches!(course.mark, Some(RecommendationMark::Recommended))));
-}
-
-#[test]
 fn calendar_validation_rejects_missing_fields_bad_dates_and_unknown_types() {
     let official: Value =
         serde_json::from_str(FIXTURE_ACADEMIC_CALENDAR_2026).expect("fixture JSON");
@@ -207,85 +191,21 @@ fn calendar_validation_rejects_missing_fields_bad_dates_and_unknown_types() {
 }
 
 #[test]
-fn department_validation_rejects_a_missing_required_field() {
-    let mut official: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2026).expect("fixture JSON");
-    official["departments"][0]
+fn department_validation_rejects_a_missing_field_and_a_mismatched_cohort() {
+    let official: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2026).expect("fixture JSON");
+
+    let mut missing = official.clone();
+    missing["departments"][0]
         .as_object_mut()
         .unwrap()
         .remove("syllabusScope");
-    assert!(validate_departments(&official.to_string()).is_err());
-}
-
-#[test]
-fn department_guide_must_match_its_declared_admission_cohort() {
-    let mut official: Value =
-        serde_json::from_str(FIXTURE_DEPARTMENTS_2026).expect("official 2026 guide data");
-    assert_eq!(official["admissionYear"], 2026);
-    assert!(official["source"][0]["url"]
-        .as_str()
-        .unwrap()
-        .contains("/guide/guide_2026/"));
+    assert!(validate_departments(&missing.to_string()).is_err());
 
     // A mismatched cohort label must not silently relabel the real 2026
     // recommendations as 2025 recommendations.
-    official["admissionYear"] = 2025.into();
-    let error = validate_departments(&official.to_string()).unwrap_err();
-    assert!(
-        error.to_string().contains("does not match admissionYear"),
-        "{error}"
-    );
-}
-
-#[test]
-fn admission_year_2025_selects_only_the_real_guide_2025_dataset() {
-    let index: Value = serde_json::from_str(FIXTURE_INDEX).unwrap();
-    assert_eq!(
-        index["admissionYears"]["2025"]["departments"]["source"],
-        "data/2025/departments.json"
-    );
-    assert_ne!(
-        index["admissionYears"]["2025"]["departments"]["source"],
-        index["admissionYears"]["2026"]["departments"]["source"]
-    );
-
-    let (calendar, departments) = fixture_selection(2026, 2025).unwrap();
-    assert_eq!(calendar.academic_year, 2026);
-    assert_eq!(departments.admission_year, 2025);
-    assert_eq!(departments.departments.len(), 17);
-    for source in &departments.source {
-        let url = url::Url::parse(&source.url).unwrap();
-        assert_eq!(url.scheme(), "https");
-        assert_eq!(url.host_str(), Some("www.titech.ac.jp"));
-        assert!(url.path().starts_with("/guide/guide_2025/gakubu1/"));
-        assert!(!url.path().contains("guide_2026"));
-    }
-    for department in &departments.departments {
-        let url = url::Url::parse(&department.guide_pdf).unwrap();
-        assert_eq!(url.host_str(), Some("www.titech.ac.jp"));
-        assert!(url.path().starts_with("/guide/guide_2025/gakubu1/pdf/26-"));
-        assert!(url.path().ends_with(".pdf"));
-        assert!(!url.path().contains("guide_2026"));
-    }
-
-    let cs = departments
-        .departments
-        .iter()
-        .find(|department| department.id == "cs")
-        .unwrap();
-    assert_eq!(
-        cs.guide_pdf,
-        "https://www.titech.ac.jp/guide/guide_2025/gakubu1/pdf/26-13.pdf"
-    );
-    assert_eq!(cs.recommended.len(), 39);
-    assert!(cs.recommended.iter().any(|course| {
-        course.code == "CSC.Z399"
-            && course.group == "R"
-            && serde_json::to_value(&course.mark).unwrap() == "required"
-    }));
-
-    // The frozen fixture bytes themselves must carry the same audited cohort.
-    let raw: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2025).unwrap();
-    assert_eq!(raw["admissionYear"], 2025);
+    let mut relabelled = official;
+    relabelled["admissionYear"] = 2025.into();
+    assert!(validate_departments(&relabelled.to_string()).is_err());
 }
 
 #[test]

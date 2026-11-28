@@ -83,17 +83,6 @@ fn failure_reason(kind: &str) -> Label {
     }
 }
 
-/// The 教務Web pages Core reads, by `Key::key`; each has a name in the
-/// catalogs, so a page in progress never shows its identifier.
-pub(super) const KYOMU_PAGES: [&str; 6] = [
-    "profile",
-    "registrations",
-    "declared",
-    "grades",
-    "requirements",
-    "gpa",
-];
-
 /// What a run is reading now. The catalogs print `title`; a 教務Web page has
 /// none and is named by its page key, and any other key without a title is
 /// left out rather than shown as an identifier.
@@ -103,10 +92,14 @@ fn current_label(dataset: Dataset, key: &str, title: Option<&str>) -> Option<Lab
             key: format!("sync.current.{}", label_name(dataset)),
             args: json!({ "title": title, "key": key }),
         }),
-        None if dataset == Dataset::KyomuPage && KYOMU_PAGES.contains(&key) => Some(Label {
-            key: format!("syncStatus.kyomuPage.{key}"),
-            args: json!({}),
-        }),
+        None if dataset == Dataset::KyomuPage
+            && adpt_isct::kyomu::PAGES.iter().any(|page| page.kind == key) =>
+        {
+            Some(Label {
+                key: format!("syncStatus.kyomuPage.{key}"),
+                args: json!({}),
+            })
+        }
         None => None,
     }
 }

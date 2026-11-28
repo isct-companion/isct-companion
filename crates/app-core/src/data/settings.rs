@@ -108,6 +108,25 @@ pub(super) fn validate_choices(
     Ok(())
 }
 
+/// A stored department is one of `departments.json`'s ids, exactly; every
+/// reader looks it up with `SyllabusDepartment::by_id`.
+fn validate_department(settings: &Value) -> Result<(), DataError> {
+    match settings.get("departmentId").filter(|value| !value.is_null()) {
+        None => Ok(()),
+        Some(id)
+            if id
+                .as_str()
+                .and_then(crate::course_query::SyllabusDepartment::by_id)
+                .is_some() =>
+        {
+            Ok(())
+        }
+        Some(id) => Err(DataError::InvalidInput(format!(
+            "settings.departmentId {id} is not a department"
+        ))),
+    }
+}
+
 /// Checks the values present in whole settings or in one stored part of them.
 pub(super) fn validate_preference_values(settings: &Value) -> Result<(), DataError> {
     crate::schedule::assignment_lead_minutes(
@@ -128,6 +147,7 @@ pub(super) fn validate_preference_values(settings: &Value) -> Result<(), DataErr
         }
     }
     validate_choices(settings, PREFERENCE_CHOICES)?;
+    validate_department(settings)?;
     settings
         .get("cloud")
         .map_or(Ok(()), |cloud| validate_choices(cloud, CLOUD_CHOICES))

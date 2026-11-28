@@ -8,7 +8,7 @@
 //! queued for the lane takes the next free slot first.
 mod lease;
 
-use lease::{Gate, LeaseWriter};
+use lease::{Gate, LeaseControl, LeaseWriter};
 pub(crate) use lease::{Gated, KeyEnd, Lease};
 
 use super::{
@@ -77,6 +77,20 @@ fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 struct LeaseEntry {
     cancel: CancellationToken,
+    lane: Lane,
+    /// How much its read is wanted, as the plan ranked it when leased:
+    /// lower first (`Rank`).
+    rank: Rank,
+    control: Arc<LeaseControl>,
+    /// Paused at a safe point, its lane slot given up (`Lease::checkpoint`).
+    paused: bool,
+}
+
+/// How a key ranks for its lane: tier first, then priority (higher first).
+type Rank = (planner::Tier, std::cmp::Reverse<Priority>);
+
+fn rank(candidate: &Candidate) -> Rank {
+    (candidate.tier, std::cmp::Reverse(candidate.priority))
 }
 /// One failed key of a run.
 pub(super) struct FailedKey {
@@ -114,6 +128,22 @@ enum ManualTarget {
     /// The current-term courses of an LMS refresh, once its course list
     /// was read.
     LmsCurrentCourses,
+    /// The registered and declared courses, after the person used the
+    /// 教務 web page, where registration happens (`d/wdhvm1`): each key with
+    /// the resource revision a read must have been leased at.
+    KyomuConfirmation(Vec<(Key, u64)>),
+}
+
+/// Someone wants a key read (`d/jsc8fm`): a refresh press, a confirmation
+/// after the person used the school's page, or a one-off read's waiter. It
+/// is answered only by a read leased at `revision` or later (the commit
+/// gate's resource revision); a press asks for 0, so any read answers it,
+/// one running already included.
+#[derive(Clone, Debug)]
+struct Intent {
+    at: Instant,
+    scope: Option<String>,
+    revision: u64,
 }
 
 /// Why a one-off read did not run. Only the desktop's LMS writes read
@@ -181,7 +211,7 @@ struct State {
     batches: Vec<Batch>,
     opens: HashMap<View, Instant>,
     /// Keys a refresh button asked for, until they are read.
-    manual: HashMap<Key, (Instant, Option<String>)>,
+    manual: HashMap<Key, Intent>,
     /// When each key was last asked for by hand, for the 30 s join.
     last_manual: HashMap<Key, Instant>,
     requests: Vec<(ManualTarget, Instant)>,
@@ -251,10 +281,26 @@ impl PlanHints {
         }
     }
 
+    /// The person left the 教務 web page: what they registered or declared
+    /// there is read again at once (`d/wdhvm1`).
+    pub(crate) fn kyomu_web_left(&self) {
+        if let Some(shared) = self.0.upgrade() {
+            let engine = PlanEngine(shared);
+            // What the person did there is a write to the school's data: a
+            // read leased before now neither commits nor answers it.
+            let keys = ["registrations", "declared"].map(|page| Key::new(Dataset::KyomuPage, page));
+            let revisions = engine.0.gate.bump_resources(&keys);
+            let keys = keys.into_iter().zip(revisions).collect();
+            guard(&engine.0.state)
+                .requests
+                .push((ManualTarget::KyomuConfirmation(keys), Instant::now()));
+            engine.reevaluate();
+        }
+    }
+
     pub(crate) fn announcements_changed(&self) {
         if let Some(engine) = self.engine() {
-            guard(&engine.0.state).evaluate = true;
-            engine.0.wake.notify_one();
+            engine.reevaluate();
         }
     }
 
@@ -412,7 +458,7 @@ impl PlanEngine {
     /// does not commit. Returns the revision a read after the write has.
     #[cfg_attr(not(feature = "agent"), allow(dead_code))]
     pub(crate) fn bump_resource(&self, key: &Key) -> u64 {
-        self.0.gate.bump_resource(key)
+        self.0.gate.bump_resources(std::slice::from_ref(key))[0]
     }
 
     /// Reads `key` in full as a refresh press does, past the 30 s join, and
@@ -443,11 +489,11 @@ impl PlanEngine {
                 return Err(ReadRefused::Held(held));
             }
             let now = Instant::now();
-            state.last_manual.insert(key.clone(), now);
-            state.manual.insert(key.clone(), (now, None));
             // Revisions count from this run's start: after a restart every
             // read is later than a write recorded before it.
             let revision = revision.min(self.0.gate.resource(&key));
+            state.last_manual.insert(key.clone(), now);
+            want_after(&mut state, key.clone(), None, now, revision);
             state
                 .waiters
                 .entry(key)
@@ -617,6 +663,27 @@ impl PlanEngine {
         self.0.wake.notify_one();
     }
 
+    /// `key`'s read paused at a safe point (`Lease::checkpoint`): its slot
+    /// is free for the read that asked for it.
+    pub(super) fn lease_paused(&self, key: &Key) {
+        {
+            let mut state = guard(&self.0.state);
+            let Some(entry) = state.leases.get_mut(key) else {
+                return;
+            };
+            if entry.paused {
+                return;
+            }
+            entry.paused = true;
+            let lane = entry.lane;
+            if let Some(busy) = state.busy.get_mut(&lane) {
+                *busy = busy.saturating_sub(1);
+            }
+            state.evaluate = true;
+        }
+        self.0.wake.notify_one();
+    }
+
     /// Stored facts changed outside a key (saved credentials, settings):
     /// evaluate again on the next driver turn.
     pub(crate) fn reevaluate(&self) {
@@ -676,6 +743,9 @@ impl PlanEngine {
     pub fn hint(&self, hint: Hint) {
         self.ensure_started();
         let now = Instant::now();
+        // A press or a way to the school that came back may probe a paused
+        // host at once (`d/kt8ts2`), instead of waiting out its pause.
+        let mut probe = matches!(hint, Hint::Refresh { .. } | Hint::NetworkPath);
         let evaluate = {
             let mut state = guard(&self.0.state);
             let evaluate = match hint {
@@ -700,7 +770,12 @@ impl PlanEngine {
                     state.facts.suspended = false;
                     true
                 }
-                Hint::Network { network } => report_network(&mut state, network),
+                Hint::Network { network } => {
+                    let changed = report_network(&mut state, network);
+                    probe = changed && network != Network::Offline;
+                    changed
+                }
+                Hint::NetworkPath => false,
                 Hint::PowerSaver { on } => {
                     let changed = state.facts.power_saver != on;
                     state.facts.power_saver = on;
@@ -726,9 +801,35 @@ impl PlanEngine {
             }
             evaluate
         };
-        if evaluate {
+        let probed = probe && self.probe_paused_hosts();
+        if evaluate || probed {
             self.0.wake.notify_one();
         }
+    }
+
+    /// Asks the breaker of every paused host to let its probe out now, and
+    /// stops holding the hosts it let through. Called outside the state
+    /// lock: the sessions never call back under it. Returns whether any
+    /// host was let through.
+    fn probe_paused_hosts(&self) -> bool {
+        let Some(readers) = self.school() else {
+            return false;
+        };
+        let paused: Vec<crate::net::Host> =
+            guard(&self.0.state).facts.paused.keys().copied().collect();
+        let through: Vec<crate::net::Host> = paused
+            .into_iter()
+            .filter(|host| readers.sessions.probe_early(*host))
+            .collect();
+        if through.is_empty() {
+            return false;
+        }
+        let mut state = guard(&self.0.state);
+        for host in &through {
+            state.facts.paused.remove(host);
+        }
+        state.evaluate = true;
+        true
     }
 
     /// Folds the session snapshot into the status line; the planner never
@@ -1029,7 +1130,7 @@ impl PlanEngine {
         state.opens.retain(|_, at| fresh(&*at, INTENT_LIFETIME));
         state
             .manual
-            .retain(|_, (at, _)| fresh(&*at, INTENT_LIFETIME));
+            .retain(|_, intent| fresh(&intent.at, INTENT_LIFETIME));
         state.last_manual.retain(|_, at| fresh(&*at, MANUAL_JOIN));
         let requests = std::mem::take(&mut state.requests);
         for (target, at) in requests {
@@ -1039,6 +1140,14 @@ impl PlanEngine {
                     .into_iter()
                     .map(|key| (key, None))
                     .collect(),
+                ManualTarget::KyomuConfirmation(keys) => {
+                    if inputs.tokyo_configured {
+                        for (key, revision) in keys {
+                            want_after(&mut state, key.clone(), None, at, *revision);
+                        }
+                    }
+                    Vec::new()
+                }
             };
             for (key, scope) in keys {
                 request_manual(&mut state, key, scope, at);
@@ -1066,9 +1175,14 @@ impl PlanEngine {
         let manual: HashMap<Key, Option<String>> = state
             .manual
             .iter()
-            .map(|(key, (_, scope))| (key.clone(), scope.clone()))
+            .map(|(key, intent)| (key.clone(), intent.scope.clone()))
             .collect();
-        let leased: HashSet<Key> = state.leases.keys().cloned().collect();
+        // A lease holds the key it reads beside its own too.
+        let leased: HashSet<Key> = state
+            .leases
+            .keys()
+            .flat_map(|key| std::iter::once(key.clone()).chain(planner::read_beside(key)))
+            .collect();
         state.plan = planner::plan(
             &inputs,
             &state.facts,
@@ -1146,11 +1260,7 @@ impl PlanEngine {
                         }
                     }
                 }
-                while state.busy.get(&lane).copied().unwrap_or(0) < lane.capacity() {
-                    let Some(lease) = self.lease_next(&mut state, lane, &credentials) else {
-                        break;
-                    };
-                    *state.busy.entry(lane).or_default() += 1;
+                for lease in self.fill_lane(&mut state, lane, &credentials) {
                     started.push((lane, lease));
                 }
             }
@@ -1171,6 +1281,39 @@ impl PlanEngine {
         }
     }
 
+    /// Gives `lane`'s free slots out, in rank order: a paused read takes its
+    /// slot back unless a ready key ranks before it, otherwise the next
+    /// ready key is leased. A full lane with a ready key ranked before one
+    /// of its reads asks that read to give way at its next safe point
+    /// (`d/3mjnxv`). Returns the new leases, to be run.
+    fn fill_lane(&self, state: &mut State, lane: Lane, credentials: &Credentials) -> Vec<Lease> {
+        let now = crate::clock::now();
+        let mut leased = Vec::new();
+        while state.busy.get(&lane).copied().unwrap_or(0) < lane.capacity() {
+            let waiting =
+                ready_index(state, lane, credentials, now).map(|index| rank(&state.plan[index]));
+            if let Some((key, paused)) = first_paused(state, lane) {
+                if waiting.is_none_or(|waiting| paused <= waiting) {
+                    resume(state, &key);
+                    continue;
+                }
+            }
+            let Some(lease) = self.lease_next(state, lane, credentials) else {
+                if let Some((key, _)) = first_paused(state, lane) {
+                    resume(state, &key);
+                    continue;
+                }
+                break;
+            };
+            *state.busy.entry(lane).or_default() += 1;
+            leased.push(lease);
+        }
+        if state.busy.get(&lane).copied().unwrap_or(0) >= lane.capacity() {
+            ask_to_yield(state, lane, credentials, now);
+        }
+        leased
+    }
+
     /// The first ready key of `lane` in plan order, leased. Each key's hold
     /// is asked again with `credentials` as they are now: the plan may be
     /// older than a read that just ended waiting.
@@ -1184,21 +1327,7 @@ impl PlanEngine {
             return None;
         }
         let now = crate::clock::now();
-        let index = state.plan.iter().position(|candidate| {
-            candidate.lane == lane
-                && candidate.held.is_none()
-                && !state.leases.contains_key(&candidate.key)
-                && planner::hold(
-                    &candidate.key,
-                    candidate.priority,
-                    candidate.depth,
-                    &state.inputs,
-                    &state.facts,
-                    credentials,
-                    now,
-                )
-                .is_none()
-        })?;
+        let index = ready_index(state, lane, credentials, now)?;
         let candidate = state.plan.remove(index);
         let batch = state
             .batches
@@ -1217,10 +1346,15 @@ impl PlanEngine {
         };
         let cancel = CancellationToken::new();
         let deadline = tokio::time::Instant::now() + deadline(candidate.key.dataset);
+        let control = Arc::new(LeaseControl::new(deadline, self.hints()));
         state.leases.insert(
             candidate.key.clone(),
             LeaseEntry {
                 cancel: cancel.clone(),
+                lane,
+                rank: rank(&candidate),
+                control: control.clone(),
+                paused: false,
             },
         );
         let key = candidate.key.clone();
@@ -1230,13 +1364,19 @@ impl PlanEngine {
             locator: candidate.locator,
             depth: candidate.depth,
             started: now,
-            deadline,
             cancel,
+            control,
             writer: LeaseWriter {
                 store: self.0.store.clone(),
                 gate: self.0.gate.clone(),
                 generation: self.0.gate.generation(),
-                resource: Some((key.clone(), self.0.gate.resource(&key))),
+                resources: std::iter::once(key.clone())
+                    .chain(planner::read_beside(&key))
+                    .map(|key| {
+                        let revision = self.0.gate.resource(&key);
+                        (key, revision)
+                    })
+                    .collect(),
             },
         })
     }
@@ -1355,22 +1495,27 @@ impl PlanEngine {
     /// Records how a read ended and leases the lane's next key, if any.
     async fn finish(&self, lease: Lease, end: KeyEnd) -> Option<Lease> {
         let lane = Lane::of(lease.key.dataset);
-        let ending = lease.ending(&end);
-        let after = tokio::task::spawn_blocking(move || ending.write())
-            .await
-            .ok()
-            .flatten();
+        let (after, beside) = record_end(&lease, &end).await;
         let credentials = self.credentials();
         let next = {
             let mut state = guard(&self.0.state);
-            settle(&mut state, &lease, &end, after, &credentials);
-            // A queued one-off read takes the slot first (`pump`).
-            let next = if state.reads.iter().any(|request| request.lane == lane) {
+            // A read cancelled while paused holds no slot.
+            let held_slot = !state
+                .leases
+                .get(&lease.key)
+                .is_some_and(|entry| entry.paused);
+            settle(&mut state, &lease, &end, (after, beside), &credentials);
+            // A queued one-off read or a paused read takes the slot first
+            // (`pump`).
+            let next = if !held_slot
+                || state.reads.iter().any(|request| request.lane == lane)
+                || first_paused(&state, lane).is_some()
+            {
                 None
             } else {
                 self.lease_next(&mut state, lane, &credentials)
             };
-            if next.is_none() {
+            if next.is_none() && held_slot {
                 if let Some(busy) = state.busy.get_mut(&lane) {
                     *busy = busy.saturating_sub(1);
                 }
@@ -1564,14 +1709,82 @@ fn cancel_requests(state: &mut State) {
     }
 }
 
-/// Races a read against its lease's cancellation and its deadline.
+/// Races a read against its lease's cancellation and its deadline, which
+/// a pause at a safe point moves later.
 async fn bounded(lease: &Lease, work: impl Future<Output = KeyEnd>) -> KeyEnd {
     tokio::select! {
         biased;
         _ = lease.cancel.cancelled() => KeyEnd::Cancelled { source: String::new() },
-        ended = tokio::time::timeout_at(lease.deadline, work) => {
-            ended.unwrap_or_else(|_| KeyEnd::failed("timeout", ""))
-        }
+        ended = work => ended,
+        () = lease.control.expired() => KeyEnd::failed("timeout", ""),
+    }
+}
+
+/// The first ready key of `lane` in plan order: due, not held, not leased.
+fn ready_index(
+    state: &State,
+    lane: Lane,
+    credentials: &Credentials,
+    now: DateTime<Utc>,
+) -> Option<usize> {
+    state.plan.iter().position(|candidate| {
+        candidate.lane == lane
+            && candidate.held.is_none()
+            && !state.leases.contains_key(&candidate.key)
+            // Nor the key a lease reads beside its own, paused or not.
+            && !state
+                .leases
+                .keys()
+                .any(|key| planner::read_beside(key).as_ref() == Some(&candidate.key))
+            && planner::hold(
+                &candidate.key,
+                candidate.priority,
+                candidate.depth,
+                &state.inputs,
+                &state.facts,
+                credentials,
+                now,
+            )
+            .is_none()
+    })
+}
+
+/// The paused read of `lane` that ranks first, if any.
+fn first_paused(state: &State, lane: Lane) -> Option<(Key, Rank)> {
+    state
+        .leases
+        .iter()
+        .filter(|(_, entry)| entry.lane == lane && entry.paused)
+        .map(|(key, entry)| (key.clone(), entry.rank))
+        .min_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(&b.0)))
+}
+
+/// Hands `key`'s paused read its slot back.
+fn resume(state: &mut State, key: &Key) {
+    if let Some(entry) = state.leases.get_mut(key) {
+        entry.paused = false;
+        *state.busy.entry(entry.lane).or_default() += 1;
+        entry.control.resumed.notify_one();
+    }
+}
+
+/// When `lane` is full and a ready key ranks before a running read, asks
+/// the last-ranked running read to give the lane up at its next safe point.
+fn ask_to_yield(state: &State, lane: Lane, credentials: &Credentials, now: DateTime<Utc>) {
+    let Some(waiting) = ready_index(state, lane, credentials, now).map(|i| rank(&state.plan[i]))
+    else {
+        return;
+    };
+    let last = state
+        .leases
+        .values()
+        .filter(|entry| entry.lane == lane && !entry.paused)
+        .max_by_key(|entry| entry.rank);
+    if let Some(entry) = last.filter(|entry| waiting < entry.rank) {
+        entry
+            .control
+            .asked
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -1597,7 +1810,22 @@ fn request_manual(state: &mut State, key: Key, scope: Option<String>, at: Instan
         return;
     }
     state.last_manual.insert(key.clone(), at);
-    state.manual.insert(key, (at, scope));
+    want_after(state, key, scope, at, 0);
+}
+
+/// Wants `key` read by a read leased at `revision` or later; an intent
+/// already there keeps the later revision and its own scope.
+fn want_after(state: &mut State, key: Key, scope: Option<String>, at: Instant, revision: u64) {
+    let intent = state.manual.entry(key).or_insert(Intent {
+        at,
+        scope: None,
+        revision,
+    });
+    intent.at = intent.at.max(at);
+    intent.revision = intent.revision.max(revision);
+    if scope.is_some() {
+        intent.scope = scope;
+    }
 }
 
 /// The shell's network.
@@ -1607,14 +1835,39 @@ fn report_network(state: &mut State, network: Network) -> bool {
     changed
 }
 
-/// Folds one finished key into the facts, the cache and its run.
-/// `credentials` are the facts now: a wait decided under an older version
-/// of them is not kept.
+/// Records how `lease` ended, on a blocking thread, and returns its key's
+/// state after it, with the state of the key it read beside its own when
+/// that committed with it (`planner::read_beside`).
+async fn record_end(lease: &Lease, end: &KeyEnd) -> (Option<KeyState>, Option<(Key, KeyState)>) {
+    let ending = lease.ending(end);
+    let beside = planner::read_beside(&lease.key)
+        .filter(|_| lease.beside_landed())
+        .map(|key| (key, lease.writer().store().clone()));
+    tokio::task::spawn_blocking(move || {
+        let after = ending.write();
+        let beside = beside.and_then(|(key, store)| {
+            let state = store
+                .catalog_key_states(std::slice::from_ref(&key))
+                .ok()?
+                .pop()
+                .flatten()?;
+            Some((key, state))
+        });
+        (after, beside)
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// Folds one finished key into the facts, the cache and its run, with the
+/// key it read beside its own when that committed with it
+/// (`planner::read_beside`). `credentials` are the facts now: a wait decided under an
+/// older version of them is not kept.
 fn settle(
     state: &mut State,
     lease: &Lease,
     end: &KeyEnd,
-    after: Option<KeyState>,
+    (after, beside): (Option<KeyState>, Option<(Key, KeyState)>),
     credentials: &Credentials,
 ) {
     let key = &lease.key;
@@ -1686,44 +1939,16 @@ fn settle(
         }
         _ => {}
     }
-    // A read that ended for a reason of its own uses up the button press;
-    // a paused host, a cancel or a missing course leaves the key wanted.
-    if matches!(
-        end,
-        KeyEnd::Done { .. } | KeyEnd::Failed { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale
-    ) {
-        state.manual.remove(key);
-    }
-    // Someone waits for a read of this key that started late enough.
-    if let Some(waiters) = state.waiters.remove(key) {
-        let answer = match end {
-            KeyEnd::Done { .. } => Some(Ok(())),
-            KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {
-                Some(Err(ReadRefused::Failed(kind.clone())))
-            }
-            _ => None,
-        };
-        let mut left = Vec::new();
-        // A waiter that stopped waiting wants no read.
-        for waiter in waiters
-            .into_iter()
-            .filter(|waiter| !waiter.reply.is_closed())
-        {
-            match &answer {
-                Some(answer) if lease.revision() >= waiter.revision => {
-                    let _ = waiter.reply.send(answer.clone());
-                }
-                _ => left.push(waiter),
-            }
+    answer(state, lease, key, end);
+    // The key read beside this one is answered by its commit, as if leased
+    // on its own; one that did not commit is planned on its own again.
+    match beside {
+        Some((beside, after)) => {
+            state.inputs.states.insert(beside.clone(), after);
+            answer(state, lease, &beside, end);
         }
-        if !left.is_empty() {
-            // Still wanted by hand, past the join, until a read late
-            // enough ends.
-            let now = Instant::now();
-            state.manual.insert(key.clone(), (now, None));
-            state.waiters.insert(key.clone(), left);
-            state.evaluate = true;
-        }
+        None if planner::read_beside(key).is_some() => state.evaluate = true,
+        None => {}
     }
     if key.dataset == Dataset::LmsEnrolment
         && !matches!(end, KeyEnd::Cancelled { .. } | KeyEnd::Stale)
@@ -1789,6 +2014,55 @@ fn settle(
     state
         .batches
         .retain(|batch| !(batch.idle() && batch.finished_at.is_some() && batch.failed.is_empty()));
+}
+
+/// What `lease`'s end answers of what was wanted of `key`.
+fn answer(state: &mut State, lease: &Lease, key: &Key, end: &KeyEnd) {
+    // A read that ended for a reason of its own answers what was wanted of
+    // it, if it was leased late enough; a paused host, a cancel or a
+    // missing course leaves the key wanted.
+    if matches!(
+        end,
+        KeyEnd::Done { .. } | KeyEnd::Failed { .. } | KeyEnd::Refused { .. } | KeyEnd::Stale
+    ) && state
+        .manual
+        .get(key)
+        .is_some_and(|intent| lease.revision(key) >= intent.revision)
+    {
+        state.manual.remove(key);
+    }
+    // Someone waits for a read of this key that started late enough.
+    if let Some(waiters) = state.waiters.remove(key) {
+        let answer = match end {
+            KeyEnd::Done { .. } => Some(Ok(())),
+            KeyEnd::Failed { kind, .. } | KeyEnd::Refused { kind } => {
+                Some(Err(ReadRefused::Failed(kind.clone())))
+            }
+            _ => None,
+        };
+        let mut left = Vec::new();
+        // A waiter that stopped waiting wants no read.
+        for waiter in waiters
+            .into_iter()
+            .filter(|waiter| !waiter.reply.is_closed())
+        {
+            match &answer {
+                Some(answer) if lease.revision(key) >= waiter.revision => {
+                    let _ = waiter.reply.send(answer.clone());
+                }
+                _ => left.push(waiter),
+            }
+        }
+        if !left.is_empty() {
+            // Still wanted by hand, past the join, until a read late
+            // enough ends.
+            let now = Instant::now();
+            let revision = left.iter().map(|waiter| waiter.revision).max().unwrap_or(0);
+            want_after(state, key.clone(), None, now, revision);
+            state.waiters.insert(key.clone(), left);
+            state.evaluate = true;
+        }
+    }
 }
 
 /// Matches the new plan against the runs: due keys join their group's open
@@ -1892,6 +2166,7 @@ fn load_inputs(
     let science_configured = auth.configured(SchoolAuthProfile::Science);
     let tokyo_configured = auth.configured(SchoolAuthProfile::TokyoTech);
     let followed = crate::reference_refresh::followed(&workspace);
+    let own_prefix = own_department_prefix(&workspace);
     store.write(None, |transaction| {
         let states = sync_state::list(transaction, None)?
             .into_iter()
@@ -1929,8 +2204,16 @@ fn load_inputs(
             year,
             english,
             references,
+            own_prefix,
         })
     })
+}
+
+/// The catalog code prefix of the department the person chose in Settings
+/// (`settings.departmentId`).
+fn own_department_prefix(workspace: &Value) -> Option<String> {
+    let id = workspace.pointer("/settings/departmentId")?.as_str()?;
+    planner::department_prefix(id).map(str::to_owned)
 }
 
 /// Drives the engine by hand: no driver task runs, so nothing reads the
@@ -1949,8 +2232,16 @@ impl PlanEngine {
             store: self.0.store.clone(),
             gate: self.0.gate.clone(),
             generation,
-            resource: None,
+            resources: Vec::new(),
         }
+    }
+
+    /// `pump`'s slot assignment for `lane` (`fill_lane`), without running
+    /// the new leases.
+    pub(crate) fn fill_for_test(&self, lane: Lane) -> Vec<Lease> {
+        let credentials = self.credentials();
+        let mut state = guard(&self.0.state);
+        self.fill_lane(&mut state, lane, &credentials)
     }
 
     /// A lease as `pump` would make it, without running it.
@@ -1960,14 +2251,23 @@ impl PlanEngine {
         self.lease_next(&mut state, lane, &credentials)
     }
 
+    /// Runs `work` for `lease` under the worker's deadline and cancellation.
+    pub(crate) async fn bounded_for_test(
+        lease: &Lease,
+        work: impl Future<Output = KeyEnd>,
+    ) -> KeyEnd {
+        bounded(lease, work).await
+    }
+
+    /// Ends a read that `fill_for_test` leased, as its worker would.
+    pub(crate) async fn finish_for_test(&self, lease: Lease, end: KeyEnd) -> Option<Lease> {
+        self.finish(lease, end).await
+    }
+
     /// Records and settles a read's ending as `finish` does, without
     /// leasing the lane's next key.
     pub(crate) async fn settle_for_test(&self, lease: Lease, end: KeyEnd) {
-        let ending = lease.ending(&end);
-        let after = tokio::task::spawn_blocking(move || ending.write())
-            .await
-            .ok()
-            .flatten();
+        let after = record_end(&lease, &end).await;
         let credentials = self.credentials();
         settle(&mut guard(&self.0.state), &lease, &end, after, &credentials);
     }

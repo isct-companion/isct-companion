@@ -8,7 +8,7 @@
 
 use super::html::{
     by_id, cells, clean, clean_text, closest, corner_depth, explicit_empty, explicit_empty_element,
-    first, group, has_class, heading_before, is, js_number, jwc, lines, maintenance_notice, matrix,
+    first, group, has_class, heading_before, is, js_number, jwc, lines, matrix,
     next_element_sibling, nine_digits, select, table_data, table_rows, text_at, text_content,
     thead_rows,
 };
@@ -36,7 +36,35 @@ fn complete(shape: &'static str, data: Value, empty: bool) -> Read {
     })
 }
 
-/// Reads one fetched page; `source_url` is the URL that was requested.
+/// Whether a page the school answered at `url` is a sign-in form: a form
+/// that posts to a login action, or one holding a password field, served
+/// by 教務Web or the identity providers it sends people to. A 200 answer
+/// can be one; whoever reads 教務 treats it as the session gone.
+pub fn is_login_page(url: &url::Url, html: &str) -> bool {
+    login_document(url, &Html::parse_document(html))
+}
+
+fn login_document(url: &url::Url, document: &Html) -> bool {
+    let host = url.host_str().unwrap_or("");
+    let known_login_host =
+        [HOST, "portal.titech.ac.jp", "rp.nap.gsic.titech.ac.jp"].contains(&host);
+    if url.scheme() != "https" || !known_login_host {
+        return false;
+    }
+    let root = document.root_element();
+    select(root, "form").into_iter().any(|form| {
+        form.attr("action")
+            .is_some_and(|action| action.to_lowercase().contains("login"))
+    }) || select(root, "input").into_iter().any(|input| {
+        input
+            .attr("type")
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
+            && closest(input, |element| is(element, "form")).is_some()
+    })
+}
+
+/// Reads one fetched page; `source_url` is the URL that was requested. The
+/// caller has already turned maintenance and sign-in answers into errors.
 pub fn extract_page(source_url: &str, html: &str) -> KyomuPayload {
     let document = Html::parse_document(html);
     let url = url::Url::parse(source_url).ok();
@@ -50,33 +78,7 @@ pub fn extract_page(source_url: &str, html: &str) -> KyomuPayload {
     };
     let https = url.as_ref().is_some_and(|url| url.scheme() == "https");
     let host = url.as_ref().and_then(|url| url.host_str()).unwrap_or("");
-    if https && host == HOST {
-        if let Some(notice) = maintenance_notice(&document) {
-            return result("maintenance", json!({}), &notice);
-        }
-    }
     let root = document.root_element();
-    let login_form = select(root, "form")
-        .into_iter()
-        .find(|form| {
-            form.attr("action")
-                .is_some_and(|action| action.to_lowercase().contains("login"))
-        })
-        .or_else(|| {
-            select(root, "input")
-                .into_iter()
-                .find(|input| {
-                    input
-                        .attr("type")
-                        .is_some_and(|kind| kind.eq_ignore_ascii_case("password"))
-                })
-                .and_then(|input| closest(input, |element| is(element, "form")))
-        });
-    let known_login_host =
-        [HOST, "portal.titech.ac.jp", "rp.nap.gsic.titech.ac.jp"].contains(&host);
-    if https && known_login_host && login_form.is_some() {
-        return result("login", json!({}), "");
-    }
     let Some(kind) = kind.filter(|_| https && host == HOST) else {
         return result("error", json!({}), "The source page is not approved.");
     };

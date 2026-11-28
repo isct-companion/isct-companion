@@ -279,7 +279,3 @@ pub(crate) fn clock_for_periods(
 pub(crate) fn validate_period_range(periods: [u8; 2]) -> Result<(), ScheduleError> {
     clock_for_periods(&default_teaching_periods(), periods).map(|_| ())
 }
-
-#[cfg(test)]
-#[path = "../tests/schedule__timing.rs"]
-mod tests;

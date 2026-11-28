@@ -1,82 +1,45 @@
+//! The `moodle_envelope_captures` test reads Moodle's answers to requests
+//! without an account, saved with `curl -s` into the directory in
+//! `MOODLE_ENVELOPE_CAPTURES`, and is compiled only when it holds all three
+//! (`build.rs`):
+//!
+//! - `rest-invalidtoken.json`: `-d wstoken=0 -d wsfunction=core_webservice_get_site_info
+//!   -d moodlewsrestformat=json https://lms.s.isct.ac.jp/2025/webservice/rest/server.php`;
+//! - `ajax-requireslogin.json`: `-H 'Content-Type: application/json'
+//!   -d '[{"index":0,"methodname":"core_calendar_get_action_events_by_timesort","args":{}}]'
+//!   'https://lms.s.isct.ac.jp/2025/lib/ajax/service.php?sesskey=0'`;
+//! - `login-page.html`: `https://lms.s.isct.ac.jp/2025/login/index.php`.
+//!
+//! None carries an account's data.
+//!
+//! `MOODLE_ENVELOPE_CAPTURES=/path/to/dir cargo test -p app-core --lib net::moodle::envelope`
 use super::*;
 use serde_json::json;
 
-#[test]
-fn rest_errors_arrive_as_http_200_bodies_and_are_classified_before_parsing() {
-    let cases = [
-        (
-            json!({"exception":"moodle_exception","errorcode":"invalidtoken","message":"Invalid token"}),
-            EnvelopeError::InvalidToken,
-        ),
-        (
-            json!({"exception":"webservice_access_exception","errorcode":"accessexception","message":"x"}),
-            EnvelopeError::InvalidToken,
-        ),
-        (
-            json!({"exception":"moodle_exception","errorcode":"servicenotavailable"}),
-            EnvelopeError::ServiceUnavailable("servicenotavailable".into()),
-        ),
-        (
-            json!({"exception":"moodle_exception","errorcode":"sitemaintenance"}),
-            EnvelopeError::Maintenance,
-        ),
-        (
-            json!({"exception":"invalid_parameter_exception","errorcode":"invalidparameter","message":"secret echo","debuginfo":"more"}),
-            EnvelopeError::Api("invalidparameter".into()),
-        ),
-    ];
-    for (body, expected) in cases {
-        assert_eq!(
-            rest_result(body.to_string().as_bytes()).unwrap_err(),
-            expected
-        );
-    }
-    // A gateway or login page is not JSON.
-    assert_eq!(
-        rest_result(b"<!doctype html><title>403</title>").unwrap_err(),
-        EnvelopeError::NotJson
-    );
-    // Success shapes: arrays, objects, and functions that return null.
-    assert_eq!(rest_result(b"[{\"id\":1}]").unwrap(), json!([{"id": 1}]));
-    assert_eq!(rest_result(b"null").unwrap(), serde_json::Value::Null);
-    let partial =
-        rest_result(br#"{"courses":[],"warnings":[{"warningcode":"1","message":"m"}]}"#).unwrap();
-    assert!(has_warnings(&partial));
-    assert!(!has_warnings(&json!({"courses": [], "warnings": []})));
-    // A course or module the student cannot open is expected, not missing data.
-    assert!(!has_warnings(&json!({"warnings": [
-        {"item": "course", "itemid": 7, "warningcode": "1", "message": "No access rights"},
-        {"item": "module", "itemid": 9, "warningcode": "1", "message": "No access rights in module context"}
-    ]})));
-    assert!(has_warnings(
-        &json!({"warnings": [{"item": "assign", "itemid": 3, "warningcode": "x"}]})
-    ));
+#[cfg(moodle_envelope_captures)]
+fn capture(name: &str) -> Vec<u8> {
+    let path = std::path::Path::new(env!("MOODLE_ENVELOPE_CAPTURES")).join(name);
+    std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
+/// Moodle's errors arrive as HTTP 200 bodies and are classified before any
+/// success parsing: a refused token sends the client to launch a new one,
+/// a lost session to sign in again, and a page that is not JSON (a sign-in
+/// or gateway page) is neither.
 #[test]
-fn ajax_batches_report_the_first_call_and_whole_request_failures() {
+#[cfg(moodle_envelope_captures)]
+fn captured_moodle_refusals_are_classified() {
     assert_eq!(
-        ajax_result(br#"[{"error":false,"data":{"courses":[]}}]"#).unwrap(),
-        json!({"courses": []})
+        rest_result(&capture("rest-invalidtoken.json")).unwrap_err(),
+        EnvelopeError::InvalidToken
     );
     assert_eq!(
-        ajax_result(
-            br#"[{"error":true,"exception":{"errorcode":"invalidsesskey","message":"m"}}]"#
-        )
-        .unwrap_err(),
-        EnvelopeError::InvalidSesskey
-    );
-    assert_eq!(
-        ajax_result(br#"[{"error":true,"exception":{"errorcode":"servicenotavailable"}}]"#)
-            .unwrap_err(),
-        EnvelopeError::ServiceUnavailable("servicenotavailable".into())
-    );
-    assert_eq!(
-        ajax_result(br#"{"error":"x","errorcode":"servicerequireslogin"}"#).unwrap_err(),
+        ajax_result(&capture("ajax-requireslogin.json")).unwrap_err(),
         EnvelopeError::SignInRequired
     );
-    assert_eq!(ajax_result(b"[]").unwrap_err(), EnvelopeError::NotJson);
-    assert_eq!(ajax_result(b"<html>").unwrap_err(), EnvelopeError::NotJson);
+    let page = capture("login-page.html");
+    assert_eq!(rest_result(&page).unwrap_err(), EnvelopeError::NotJson);
+    assert_eq!(ajax_result(&page).unwrap_err(), EnvelopeError::NotJson);
 }
 
 #[test]

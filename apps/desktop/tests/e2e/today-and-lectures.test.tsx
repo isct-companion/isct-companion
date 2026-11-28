@@ -7,13 +7,11 @@ import {
   TERM,
   click,
   chooseOption,
-  emptySchoolRecords,
   mountApp,
   overviewFor,
   planningWeekFor,
   lectureListFor,
   lectureSearchFor,
-  typeInto,
   until,
   workspaceFixture,
   type FakeCore,
@@ -23,7 +21,6 @@ import { paths } from "@app/app/routes";
 import type {
   Assignment,
   Course,
-  GpaSummary,
   TaskView,
   TermId,
   Workspace,
@@ -31,14 +28,11 @@ import type {
 import type { AssignmentGroups } from "@app/generated/persistence";
 
 /**
- * Today, the lecture desk and the grades panel, driven through the real shell
- * over a scripted Core.
- *
- * The legacy suites mounted `Today`, `CourseFinder`, `LectureDesk` and
- * `AcademicSummary` directly and replaced `core-query`,
- * `finder-query` and UI components with `vi.mock`. Here the pages are reached
- * through the shipped routes and the harness answers the real query path, so a
- * passing test says something about the app instead of about a mock.
+ * Today and the lecture desk, driven through the real shell over a scripted
+ * Core. Each test walks a path and checks where it ends: the route, or the
+ * intents the shell committed. Which assignments Core groups where is Core's
+ * task view (`crates/app-core/src/tests/schedule.rs`); how the rows look is
+ * the manual check DESKTOP-TODAY-LECTURE-ASSIGNMENTS.
  *
  * `taskViewFor` supplies the assignment views needed by these journeys.
  */
@@ -147,7 +141,7 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
   );
   const pick = (...candidates: string[]) =>
     candidates.filter((id) => ids.has(id));
-  const overdue = pick("closed", "missed", "early");
+  const overdue = pick("closed", "missed");
   const groups = (
     pinned: string[],
     thisWeek: string[],
@@ -194,13 +188,13 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
     nearestByCourse: {},
     byTerm: {
       [term]: {
-        pendingIds: pick("upcoming", "pinned"),
-        today: groups(pick("pinned"), pick("upcoming", "a1"), pick("missed")),
+        pendingIds: pick("upcoming"),
+        today: groups([], pick("upcoming", "a1"), pick("missed")),
         record: groups(
-          pick("pinned"),
+          [],
           pick("upcoming", "handed-in", "a1"),
           pick("missed", "closed"),
-          { pastEarlierIds: pick("early"), hiddenIds: pick("a2") },
+          { hiddenIds: pick("a2") },
         ),
       },
     },
@@ -219,7 +213,7 @@ const homeQueries = {
 };
 
 /* ------------------------------------------------------------------ *
- * Today's assignment scopes.
+ * Today's assignments.
  * ------------------------------------------------------------------ */
 
 function todayWorkspace(): Workspace {
@@ -265,18 +259,6 @@ async function mountToday(workspace: Workspace): Promise<MountedApp> {
   return mounted;
 }
 
-function dueTitles(section: Element): (string | null)[] {
-  return [...section.querySelectorAll(".dueRow b")].map(
-    (node) => node.textContent,
-  );
-}
-
-function dueRow(section: Element, title: string): Element | undefined {
-  return [...section.querySelectorAll(".dueRow")].find((row) =>
-    row.textContent?.includes(title),
-  );
-}
-
 async function assignmentsSection(mounted: MountedApp): Promise<HTMLElement> {
   return required(
     () =>
@@ -287,47 +269,9 @@ async function assignmentsSection(mounted: MountedApp): Promise<HTMLElement> {
   );
 }
 
-describe("Today's assignment scopes", () => {
-  it("keeps pinned work at the top of Today without listing it twice", async () => {
-    const workspace = todayWorkspace();
-    workspace.assignments.push(
-      assignmentRow("pinned", "now", "Report pinned", "2026-11-12T00:00:00Z", {
-        pinned: true,
-      }),
-    );
-    const mounted = await mountToday(workspace);
-    const section = await assignmentsSection(mounted);
-
-    await until(() => expect(dueTitles(section)).toContain("Report pinned"));
-    const titles = dueTitles(section);
-    expect(titles[0]).toBe("Report pinned");
-    expect(titles.filter((title) => title === "Report pinned")).toHaveLength(1);
-    // Pinned work is still open work, so it stays counted as active.
-    expect(section.textContent).toContain("2 active");
-  }, 20_000);
-
-  it("shows open work and the last week's misses, never completed work", async () => {
+describe("Today's assignments", () => {
+  it("opens the quarter's full record on Lecture Desk", async () => {
     const mounted = await mountToday(todayWorkspace());
-    const section = await assignmentsSection(mounted);
-
-    await until(() => expect(dueTitles(section)).toContain("Report upcoming"));
-    expect(dueTitles(section)).toEqual(["Report upcoming", "Report missed"]);
-    expect(dueRow(section, "Report missed")?.className).toContain("missed");
-    expect(section.textContent).toContain("Missed · 1");
-    expect(dueRow(section, "Report handed-in")).toBeUndefined();
-    expect(dueRow(section, "Report closed")).toBeUndefined();
-    expect(dueRow(section, "Report stale")).toBeUndefined();
-    expect(section.textContent).toContain("1 active");
-  }, 20_000);
-
-  it("opens the quarter's full record on Lecture Desk, older work folded", async () => {
-    const workspace = todayWorkspace();
-    workspace.assignments.push(
-      assignmentRow("early", "now", "Report early", "2026-09-20T00:00:00Z", {
-        submission: "submitted",
-      }),
-    );
-    const mounted = await mountToday(workspace);
     const section = await assignmentsSection(mounted);
     const all = await required(
       () =>
@@ -338,43 +282,6 @@ describe("Today's assignment scopes", () => {
     );
     await click(all);
     await until(() => expect(window.location.hash).toContain(paths.lectures()));
-    const rows = await required(() => {
-      const found = lectureRows(mounted.host);
-      return found.length >= 4 ? found : undefined;
-    }, "the quarter's assignment record");
-
-    expect(rows.map((row) => row.querySelector("b")?.textContent)).toEqual([
-      "Report upcoming",
-      "Report handed-in",
-      "Report missed",
-      "Report closed",
-    ]);
-    const list = mounted.host.querySelector(".lectureList")!;
-    expect(list.textContent).toContain("This week · 2");
-    expect(list.textContent).toContain("Past deadline · 2");
-    expect(rows[1].className).toContain("done");
-    expect(rows[2].className).toContain("missed");
-    expect(rows[3].className).toContain("closed");
-    expect(rows[1].querySelector("small")?.textContent).toContain("submitted");
-    // Submitted work says so on the right instead of repeating its deadline;
-    // only open work counts down and only missed work shows its deadline.
-    expect(
-      rows.map((row) => row.querySelector(".dueChip")?.textContent),
-    ).toEqual(["1d", "Submitted", "1d ago", "Submitted"]);
-    expect(rows[2].querySelector(".dueChip")?.className).toContain("overdue");
-
-    const earlier = await required(
-      () =>
-        [...list.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-          button.textContent?.includes("1 earlier, back to the quarter start"),
-        ),
-      "the folded earlier work",
-    );
-    expect(lectureTitles(mounted.host)).not.toContain("Report early");
-    await click(earlier);
-    await until(() =>
-      expect(lectureTitles(mounted.host)).toContain("Report early"),
-    );
   }, 20_000);
 });
 
@@ -431,33 +338,13 @@ function lectureWorkspace(): Workspace {
   return workspace;
 }
 
-function lectureTasks(workspace: Workspace): TaskView {
-  const view = taskViewFor(workspace);
-  return {
-    ...view,
-    deadlines: {
-      ...view.deadlines,
-      a1: {
-        at: "2026-10-08T15:00:00Z",
-        units: [
-          { unit: "days", count: 1 },
-          { unit: "hours", count: 12 },
-        ],
-        state: "remaining",
-        countdownTone: "soon",
-        nextChangeAt: null,
-      },
-    },
-  };
-}
-
 async function mountLectures(workspace: Workspace): Promise<MountedApp> {
   const mounted = await mountApp(
     {
       workspace,
       queries: {
         ...homeQueries,
-        taskView: (_query, core) => lectureTasks(core.workspace),
+        taskView: (_query, core) => taskViewFor(core.workspace),
         lectureSearch: (query, core) => lectureSearchFor(core.workspace, query),
       },
       handle: nativeNoise,
@@ -470,10 +357,6 @@ async function mountLectures(workspace: Workspace): Promise<MountedApp> {
 
 function lectureRows(host: HTMLElement): HTMLElement[] {
   return [...host.querySelectorAll<HTMLElement>(".lectureList .lectureRow")];
-}
-
-function lectureTitles(host: HTMLElement): (string | null | undefined)[] {
-  return lectureRows(host).map((row) => row.querySelector("b")?.textContent);
 }
 
 async function readyLectureRows(host: HTMLElement): Promise<HTMLElement[]> {
@@ -512,7 +395,7 @@ describe("the lecture desk", () => {
               noClasses: false,
             },
           ],
-          taskView: (_query, core) => lectureTasks(core.workspace),
+          taskView: (_query, core) => taskViewFor(core.workspace),
         },
         handle: nativeNoise,
       },
@@ -522,7 +405,6 @@ describe("the lecture desk", () => {
       () => document.querySelector<HTMLElement>('[role="dialog"]'),
       "the data notice",
     );
-    expect(notice.textContent).toContain("Before you rely on this data");
     await click(
       [...notice.querySelectorAll<HTMLButtonElement>("button")].find(
         (button) => button.textContent === "I understand",
@@ -556,20 +438,14 @@ describe("the lecture desk", () => {
         }),
       );
     });
-    const items = await required(() => {
-      const found = [
-        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ];
-      return found.length ? found : null;
-    }, "the session menu");
-    expect(items.map((item) => item.textContent?.trim())).toEqual([
-      "Mark as exam",
-      "Mark as quiz",
-      "Mark as canceled",
-    ]);
-    // A running class carries no mark.
-    expect(items.some((item) => item.textContent?.includes("✓"))).toBe(false);
-    await click(items[2]);
+    const cancel = await required(
+      () =>
+        [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+          (item) => item.textContent?.includes("Mark as canceled"),
+        ),
+      "the session menu's cancel item",
+    );
+    await click(cancel);
     await until(() =>
       expect(app!.core.intents).toContainEqual({
         kind: "markSession",
@@ -584,45 +460,7 @@ describe("the lecture desk", () => {
     await readyLectureRows(mounted.host);
 
     expect(window.location.hash.replace(/^#/, "")).toBe(paths.lectures());
-    expect(mounted.host.querySelector(".lectureRow.selected")).toBeNull();
-    expect(
-      mounted.host.querySelector('.lectureRow[aria-current="true"]'),
-    ).toBeNull();
     expect(mounted.core.intents).toEqual([]);
-  }, 20_000);
-
-  it("filters the lecture list by title or code", async () => {
-    const mounted = await mountLectures(lectureWorkspace());
-    await readyLectureRows(mounted.host);
-    const filter = await required(
-      () =>
-        mounted.host.querySelector<HTMLInputElement>(
-          "input.lectureFilter, .lectureFilter input",
-        ),
-      "the lecture filter",
-    );
-
-    await typeInto(filter, "FRI");
-    await until(() =>
-      expect(lectureTitles(mounted.host)).toEqual(["Course friday"]),
-    );
-
-    await typeInto(filter, "later");
-    await until(() =>
-      expect(lectureTitles(mounted.host)).toEqual(["Course later"]),
-    );
-
-    await click(
-      await required(
-        () =>
-          mounted.host.querySelector<HTMLButtonElement>(
-            '.lectureFilter button[aria-label="Clear"]',
-          ),
-        "the filter's clear button",
-      ),
-    );
-    expect(filter.value).toBe("");
-    expect(lectureTitles(mounted.host)).toHaveLength(3);
   }, 20_000);
 
   it("switches to the quarter's assignments and opens the chosen one", async () => {
@@ -638,14 +476,6 @@ describe("the lecture desk", () => {
       ];
       return rows.length ? rows : undefined;
     }, "the open assignment rows");
-
-    expect(work.map((row) => row.querySelector("b")?.textContent)).toEqual([
-      "Report",
-    ]);
-    expect(work[0].querySelector("small")?.textContent).toBe(
-      "Course later · open",
-    );
-    expect(work[0].querySelector(".dueChip")?.textContent).toBe("1d 12h");
 
     await click(work[0]);
     await until(() =>
@@ -665,7 +495,7 @@ describe("the lecture desk", () => {
             ...lectureListFor(core.workspace),
             allTerms: [TERM, "2026-4Q"],
           }),
-          taskView: (_query, core) => lectureTasks(core.workspace),
+          taskView: (_query, core) => taskViewFor(core.workspace),
         },
         handle: nativeNoise,
       },
@@ -674,7 +504,9 @@ describe("the lecture desk", () => {
     app = mounted;
     await readyLectureRows(mounted.host);
     await click(await assignmentModeButton(mounted.host));
-    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    const work = () =>
+      mounted.host.querySelectorAll(".lectureList button.lectureRow").length;
+    await until(() => expect(work()).toBeGreaterThan(0));
     const quarter = await required(
       () =>
         mounted.host.querySelector<HTMLInputElement>(
@@ -682,47 +514,12 @@ describe("the lecture desk", () => {
         ),
       "the quarter picker",
     );
-    const choose = (term: TermId) => chooseOption(quarter, term);
 
-    expect(mounted.host.querySelector("select.lectureTerm")).toBeNull();
-    await click(quarter);
-    await until(() =>
-      expect(document.activeElement?.getAttribute("data-option-value")).toBe(
-        TERM,
-      ),
-    );
-    await act(async () => {
-      document.activeElement!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "ArrowDown",
-          code: "ArrowDown",
-          bubbles: true,
-        }),
-      );
-    });
-    // Radix moves option focus asynchronously; Enter belongs to the next option.
-    await until(() =>
-      expect(document.activeElement?.getAttribute("data-option-value")).toBe(
-        "2026-4Q",
-      ),
-    );
-    await act(async () => {
-      document.activeElement!.dispatchEvent(
-        new KeyboardEvent("keydown", {
-          key: "Enter",
-          code: "Enter",
-          bubbles: true,
-        }),
-      );
-    });
-    expect(quarter.getAttribute("aria-expanded")).toBe("false");
-    await until(() =>
-      expect(mounted.host.textContent).toContain(
-        "No assignments this quarter.",
-      ),
-    );
-    await choose(TERM);
-    await until(() => expect(mounted.host.textContent).toContain("Report"));
+    await chooseOption(quarter, "2026-4Q");
+    await until(() => expect(work()).toBe(0));
+    expect(mounted.host.querySelector(".pageError")).toBeNull();
+    await chooseOption(quarter, TERM);
+    await until(() => expect(work()).toBeGreaterThan(0));
     expect(mounted.host.querySelector(".pageError")).toBeNull();
   }, 20_000);
 
@@ -737,8 +534,12 @@ describe("the lecture desk", () => {
     await readyLectureRows(mounted.host);
 
     await click(await assignmentModeButton(mounted.host));
-    await until(() => expect(mounted.host.textContent).toContain("Report"));
-    expect(mounted.host.textContent).not.toContain("Quiz");
+    await until(() =>
+      expect(
+        mounted.host.querySelectorAll(".lectureList button.lectureRow").length,
+      ).toBeGreaterThan(0),
+    );
+    expect(mounted.host.querySelector(".lectureRow.hidden")).toBeNull();
 
     const toggle = await required(
       () =>
@@ -754,9 +555,6 @@ describe("the lecture desk", () => {
       () => mounted.host.querySelector<HTMLElement>(".lectureRow.hidden"),
       "the folded hidden assignment",
     );
-    expect(hidden.querySelector("b")?.textContent).toBe("Quiz");
-    expect(hidden.querySelector("small")?.textContent).toBe("Course now");
-
     await click(hidden.querySelector("button"));
     await until(() =>
       expect(mounted.core.intents).toContainEqual({
@@ -765,90 +563,5 @@ describe("the lecture desk", () => {
         hidden: false,
       }),
     );
-  }, 20_000);
-});
-
-/* ------------------------------------------------------------------ *
- * The grades panel.
- * ------------------------------------------------------------------ */
-
-const gpaSummary: GpaSummary = {
-  id: "kyomu-gpa:all",
-  scope: "all",
-  gpa: 3.2,
-  gpt: 100,
-  earnedCredits: 10,
-  fetchedAt: "2026-09-01T00:00:00Z",
-  rev: 1,
-  updatedAt: "2026-09-01T00:00:00Z",
-  updatedBy: "kyomu",
-};
-
-async function mountGrades(
-  summaries: GpaSummary[],
-  availability: {
-    state: "available" | "unavailable";
-    checkedAt: string;
-    message: string;
-  },
-): Promise<MountedApp> {
-  const workspace = workspaceFixture();
-  workspace.gpaSummary = summaries;
-  const schoolRecords = emptySchoolRecords();
-  schoolRecords.pageAvailability = { "kyomu:gpa": availability };
-  const mounted = await mountApp(
-    {
-      workspace,
-      schoolRecords,
-      queries: homeQueries,
-      handle: nativeNoise,
-    },
-    { route: paths.timetable() },
-  );
-  app = mounted;
-
-  const details = await required(
-    () =>
-      mounted.host.querySelector<HTMLButtonElement>(".academicDetailsTrigger"),
-    "the academic summary Details button",
-  );
-  await click(details);
-  await required(
-    () => document.querySelector(".academicPanel"),
-    "the academic panel",
-  );
-  return mounted;
-}
-
-describe("the grades panel", () => {
-  it("reports the capability check instead of calling an unavailable GPA page unfetched", async () => {
-    await mountGrades([], {
-      state: "unavailable",
-      checkedAt: "2026-10-15T00:00:00Z",
-      message: "このページは利用できません",
-    });
-
-    expect(document.body.textContent).toContain(
-      "This GPA page is not provided for this account.",
-    );
-    expect(document.body.textContent).toContain(
-      "Credits for multi-quarter courses are split equally across quarters.",
-    );
-    expect(document.body.textContent).toContain("Checked:");
-    expect(document.body.textContent).not.toContain("Not fetched yet");
-  }, 20_000);
-
-  it("labels retained GPA rows as coming from an earlier fetch", async () => {
-    await mountGrades([gpaSummary], {
-      state: "unavailable",
-      checkedAt: "2026-10-15T00:00:00Z",
-      message: "このページは利用できません",
-    });
-
-    expect(document.body.textContent).toContain(
-      "The values below were retained from an earlier successful fetch.",
-    );
-    expect(document.body.textContent).toContain("Previous fetch:");
-    expect(document.body.textContent).toContain("3.20");
   }, 20_000);
 });

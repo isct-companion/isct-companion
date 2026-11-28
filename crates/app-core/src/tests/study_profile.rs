@@ -1,216 +1,89 @@
 use super::*;
 use serde_json::json;
 
-fn offering(code: &str) -> Value {
-    json!({"code":code})
+/// A workspace whose study history is regular first-grade entries.
+fn history(entries: &[(&str, &str)]) -> Value {
+    let enrollments: Vec<Value> = entries
+        .iter()
+        .map(|(stage, admitted_term)| {
+            json!({"stage":stage, "entryKind":"regular", "entryGrade":1,
+                   "admittedTerm":admitted_term})
+        })
+        .collect();
+    json!({"academicProfile":{"studyEnrollments":enrollments}})
 }
 
-fn enrolled(stage: &str, admitted_term: &str) -> Value {
-    json!({"academicProfile":{"studyEnrollments":[{
-        "stage":stage, "entryKind":"regular", "entryGrade":1,
-        "admittedTerm":admitted_term
-    }]}})
-}
-
+/// Each row is one decision the 2026 study guides fix for a study history, a
+/// planned term and a course code. The undergraduate first-year rule is also
+/// walked through the finder (`course_query`) and the catalog add path
+/// (`workspace`); its rows here are only the level boundary.
 #[test]
-fn old_profiles_stay_unknown_instead_of_becoming_undergraduates() {
-    let result = catalog_course_eligibility(
-        &json!({"academicProfile":{"admissionYear":2026}}),
-        "2026-3Q",
-        &offering("CSC.T201"),
-    );
-    assert_eq!(result.status, CourseEligibilityStatus::Unknown);
-    assert_eq!(
-        result.reason,
-        CourseEligibilityReason::AcademicIdentityMissing
-    );
-}
-
-#[test]
-fn regular_first_year_rule_parses_class_suffixes() {
-    let workspace = json!({"academicProfile":{"studyEnrollments":[{
-        "stage":"undergraduate", "entryKind":"regular", "entryGrade":1,
-        "admittedTerm":"2026-1Q"
-    }]}});
-    for code in ["CSC.T200", "CSC.T299-01", "LAE.E201-12"] {
+fn eligibility_follows_the_2026_guides_for_each_stage_and_term() {
+    use super::CourseEligibilityReason as R;
+    use super::CourseEligibilityStatus::{Allowed, Ineligible, Unknown};
+    let admission_year_only = json!({"academicProfile":{"admissionYear":2026}});
+    let shared_term = history(&[("undergraduate", "2026-1Q"), ("master", "2026-1Q")]);
+    let undergraduate = history(&[("undergraduate", "2026-1Q")]);
+    let then_master = history(&[("master", "2026-3Q"), ("undergraduate", "2026-1Q")]);
+    let master = history(&[("master", "2026-1Q")]);
+    let autumn_master = history(&[("master", "2026-3Q")]);
+    let professional = history(&[("professional", "2026-1Q")]);
+    let doctoral = history(&[("doctoral", "2026-1Q")]);
+    let doctoral_2027 = history(&[("doctoral", "2027-1Q")]);
+    #[rustfmt::skip]
+    let cases = [
+        // Identity Core cannot read stays unknown instead of being guessed:
+        // an admission year alone is not an undergraduate.
+        (&admission_year_only, "2026-3Q", "CSC.T201", Unknown, R::AcademicIdentityMissing),
+        (&shared_term, "2026-2Q", "CSC.T201", Unknown, R::InvalidStudyHistory),
+        (&undergraduate, "2026-3Q", "SPECIAL", Unknown, R::CourseCodeUnrecognized),
+        (&undergraduate, "2026-3Q", "SPECIAL.2026", Unknown, R::CourseCodeUnrecognized),
+        // Undergraduate first year: 200-level and up are closed, suffix or not.
+        (&undergraduate, "2026-4Q", "CSC.T200", Ineligible, R::UndergraduateFirstYearUpperLevel),
+        (&undergraduate, "2026-4Q", "CSC.T199-01", Allowed, R::NoKnownRestriction),
+        // The stage that governs a term is the latest one admitted by then.
+        (&then_master, "2026-2Q", "CSC.T201", Ineligible, R::UndergraduateFirstYearUpperLevel),
+        (&then_master, "2026-3Q", "CSC.T201", Allowed, R::NoKnownRestriction),
+        // Graduate stages are not held to the undergraduate rule.
+        (&master, "2026-1Q", "LAH.T400", Allowed, R::NoKnownRestriction),
+        (&master, "2026-1Q", "LAW.W599-01", Allowed, R::NoKnownRestriction),
+        (&professional, "2026-1Q", "LAH.T500", Allowed, R::NoKnownRestriction),
+        (&doctoral, "2026-1Q", "CSC.T600", Allowed, R::NoKnownRestriction),
+        // Master humanities 500+ opens after the first semester, spring or autumn entry.
+        (&master, "2026-2Q", "LAH.S501-01", Ineligible, R::MasterFirstSemesterHumanitiesUpperLevel),
+        (&master, "2026-3Q", "LAH.S501-01", Allowed, R::NoKnownRestriction),
+        (&autumn_master, "2026-4Q", "LAH.S501-01", Ineligible, R::MasterFirstSemesterHumanitiesUpperLevel),
+        (&autumn_master, "2027-1Q", "LAH.S501-01", Allowed, R::NoKnownRestriction),
+        // 600-level needs an approval Core cannot see; the humanities block comes first.
+        (&master, "2026-3Q", "CSC.T601", Unknown, R::GraduateCourseApprovalRequired),
+        (&professional, "2026-3Q", "CSC.T601", Unknown, R::GraduateCourseApprovalRequired),
+        (&master, "2026-2Q", "CSC.T601", Unknown, R::GraduateCourseApprovalRequired),
+        (&master, "2026-2Q", "LAH.A601", Ineligible, R::MasterFirstSemesterHumanitiesUpperLevel),
+        // Leadership practica need a workshop grade, for master students only.
+        (&master, "2026-3Q", "LAH.C402", Unknown, R::LeadershipWorkshopGradeRequired),
+        (&master, "2026-3Q", "LAH.C501-01", Unknown, R::LeadershipWorkshopGradeRequired),
+        (&professional, "2026-3Q", "LAH.C402", Allowed, R::NoKnownRestriction),
+        // Doctoral entrepreneurship: principle, first-semester block, separate application.
+        (&doctoral, "2026-2Q", "ENT.A621", Unknown, R::DoctoralFirstSemesterGenerallyRestricted),
+        (&doctoral, "2026-2Q", "ENT.A631", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-2Q", "ENT.A635", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-2Q", "ENT.A639", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-2Q", "ENT.A641", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-2Q", "ENT.A642", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-2Q", "ENT.A643", Ineligible, R::DoctoralFirstSemesterRestricted),
+        (&doctoral, "2026-3Q", "ENT.A635", Unknown, R::SeparateApplicationRequired),
+        (&doctoral, "2026-3Q", "ENT.A639", Unknown, R::SeparateApplicationRequired),
+        (&doctoral, "2026-3Q", "ENT.A631", Allowed, R::NoKnownRestriction),
+        (&doctoral, "2026-2Q", "ENT.C620", Allowed, R::NoKnownRestriction),
+        // A matching rule from a year no guide was read for is not applied.
+        (&doctoral_2027, "2027-2Q", "ENT.A631", Unknown, R::RuleYearUnsupported),
+    ];
+    for (workspace, term, code, status, reason) in cases {
+        let result = catalog_course_eligibility(workspace, term, &json!({"code":code}));
         assert_eq!(
-            catalog_course_eligibility(&workspace, "2026-4Q", &offering(code)).status,
-            CourseEligibilityStatus::Ineligible,
-            "{code}"
+            (result.status, result.reason),
+            (status, reason),
+            "{term} {code}"
         );
     }
-    assert_eq!(
-        catalog_course_eligibility(&workspace, "2026-4Q", &offering("CSC.T199-01")).status,
-        CourseEligibilityStatus::Allowed
-    );
-}
-
-#[test]
-fn historical_stage_changes_at_the_admission_quarter() {
-    let workspace = json!({"academicProfile":{"studyEnrollments":[
-        {"stage":"master","entryKind":"regular","entryGrade":1,"admittedTerm":"2026-3Q"},
-        {"stage":"undergraduate","entryKind":"regular","entryGrade":1,"admittedTerm":"2026-1Q"}
-    ]}});
-    assert_eq!(
-        catalog_course_eligibility(&workspace, "2026-2Q", &offering("CSC.T201")).status,
-        CourseEligibilityStatus::Ineligible
-    );
-    assert_eq!(
-        catalog_course_eligibility(&workspace, "2026-3Q", &offering("CSC.T201")).status,
-        CourseEligibilityStatus::Allowed
-    );
-}
-
-#[test]
-fn graduate_stages_are_not_blocked_by_the_undergraduate_rule() {
-    for (stage, code) in [
-        ("master", "LAH.T400"),
-        ("master", "LAW.W599-01"),
-        ("professional", "LAH.T500"),
-        ("doctoral", "CSC.T600"),
-    ] {
-        let workspace = json!({"academicProfile":{"studyEnrollments":[{
-            "stage":stage,"entryKind":"regular","entryGrade":1,"admittedTerm":"2026-1Q"
-        }]}});
-        assert_eq!(
-            catalog_course_eligibility(&workspace, "2026-1Q", &offering(code)).status,
-            CourseEligibilityStatus::Allowed,
-            "{stage} {code}"
-        );
-    }
-}
-
-#[test]
-fn master_humanities_500_opens_after_the_first_semester_for_spring_and_autumn_entry() {
-    for (admitted, blocked, open) in [
-        ("2026-1Q", "2026-2Q", "2026-3Q"),
-        ("2026-3Q", "2026-4Q", "2027-1Q"),
-    ] {
-        let workspace = enrolled("master", admitted);
-        let blocked = catalog_course_eligibility(&workspace, blocked, &offering("LAH.S501-01"));
-        assert_eq!(blocked.status, CourseEligibilityStatus::Ineligible);
-        assert_eq!(
-            blocked.reason,
-            CourseEligibilityReason::MasterFirstSemesterHumanitiesUpperLevel
-        );
-        assert_eq!(
-            blocked.rule.as_ref().map(|rule| rule.academic_year),
-            Some(2026)
-        );
-        assert_eq!(
-            catalog_course_eligibility(&workspace, open, &offering("LAH.S501-01")).status,
-            CourseEligibilityStatus::Allowed
-        );
-    }
-}
-
-#[test]
-fn graduate_600_level_requires_unknown_course_approval() {
-    for stage in ["master", "professional"] {
-        let result = catalog_course_eligibility(
-            &enrolled(stage, "2026-1Q"),
-            "2026-3Q",
-            &offering("CSC.T601"),
-        );
-        assert_eq!(result.status, CourseEligibilityStatus::Unknown);
-        assert_eq!(
-            result.reason,
-            CourseEligibilityReason::GraduateCourseApprovalRequired
-        );
-    }
-    let master = enrolled("master", "2026-1Q");
-    let humanities = catalog_course_eligibility(&master, "2026-2Q", &offering("LAH.A601"));
-    assert_eq!(humanities.status, CourseEligibilityStatus::Ineligible);
-    assert_eq!(
-        humanities.reason,
-        CourseEligibilityReason::MasterFirstSemesterHumanitiesUpperLevel
-    );
-    assert_eq!(
-        catalog_course_eligibility(&master, "2026-2Q", &offering("CSC.T601")).reason,
-        CourseEligibilityReason::GraduateCourseApprovalRequired
-    );
-}
-
-#[test]
-fn leadership_practica_need_an_authoritative_workshop_grade() {
-    let workspace = enrolled("master", "2026-1Q");
-    for code in ["LAH.C402", "LAH.C501-01"] {
-        let result = catalog_course_eligibility(&workspace, "2026-3Q", &offering(code));
-        assert_eq!(result.status, CourseEligibilityStatus::Unknown, "{code}");
-        assert_eq!(
-            result.reason,
-            CourseEligibilityReason::LeadershipWorkshopGradeRequired,
-            "{code}"
-        );
-    }
-    assert_eq!(
-        catalog_course_eligibility(
-            &enrolled("professional", "2026-1Q"),
-            "2026-3Q",
-            &offering("LAH.C402")
-        )
-        .status,
-        CourseEligibilityStatus::Allowed
-    );
-}
-
-#[test]
-fn doctoral_entrepreneurship_rules_distinguish_principle_block_and_application() {
-    let workspace = enrolled("doctoral", "2026-1Q");
-    let principle = catalog_course_eligibility(&workspace, "2026-2Q", &offering("ENT.A621"));
-    assert_eq!(principle.status, CourseEligibilityStatus::Unknown);
-    assert_eq!(
-        principle.reason,
-        CourseEligibilityReason::DoctoralFirstSemesterGenerallyRestricted
-    );
-    for code in [
-        "ENT.A631", "ENT.A635", "ENT.A639", "ENT.A641", "ENT.A642", "ENT.A643",
-    ] {
-        let result = catalog_course_eligibility(&workspace, "2026-2Q", &offering(code));
-        assert_eq!(result.status, CourseEligibilityStatus::Ineligible, "{code}");
-        assert_eq!(
-            result.reason,
-            CourseEligibilityReason::DoctoralFirstSemesterRestricted,
-            "{code}"
-        );
-    }
-    for code in ["ENT.A635", "ENT.A639"] {
-        let result = catalog_course_eligibility(&workspace, "2026-3Q", &offering(code));
-        assert_eq!(result.status, CourseEligibilityStatus::Unknown, "{code}");
-        assert_eq!(
-            result.reason,
-            CourseEligibilityReason::SeparateApplicationRequired,
-            "{code}"
-        );
-    }
-    assert_eq!(
-        catalog_course_eligibility(&workspace, "2026-3Q", &offering("ENT.A631")).status,
-        CourseEligibilityStatus::Allowed
-    );
-    assert_eq!(
-        catalog_course_eligibility(&workspace, "2026-2Q", &offering("ENT.C620")).status,
-        CourseEligibilityStatus::Allowed
-    );
-}
-
-#[test]
-fn matching_restrictions_from_an_unverified_year_are_unknown() {
-    let result = catalog_course_eligibility(
-        &enrolled("doctoral", "2027-1Q"),
-        "2027-2Q",
-        &offering("ENT.A631"),
-    );
-    assert_eq!(result.status, CourseEligibilityStatus::Unknown);
-    assert_eq!(result.reason, CourseEligibilityReason::RuleYearUnsupported);
-}
-
-#[test]
-fn duplicate_stage_terms_make_the_decision_unknown() {
-    let workspace = json!({"academicProfile":{"studyEnrollments":[
-        {"stage":"undergraduate","entryKind":"regular","entryGrade":1,"admittedTerm":"2026-1Q"},
-        {"stage":"master","entryKind":"regular","entryGrade":1,"admittedTerm":"2026-1Q"}
-    ]}});
-    let result = catalog_course_eligibility(&workspace, "2026-2Q", &offering("CSC.T201"));
-    assert_eq!(result.status, CourseEligibilityStatus::Unknown);
-    assert_eq!(result.reason, CourseEligibilityReason::InvalidStudyHistory);
 }

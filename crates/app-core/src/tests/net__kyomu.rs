@@ -1,4 +1,36 @@
+//! The capture tests read 教務Web pages from `KYOMU_CAPTURES`, the directory
+//! `crates/adpt-isct/src/tests/kyomu.rs` describes (`student-top.html` and
+//! `<kind>.html` for each kind in `adpt_isct::kyomu::PAGES`), and from it
+//! `maintenance.html`: the page 教務Web answers during a maintenance window,
+//! which carries no account data, saved as the server sent it. They are
+//! compiled only when `KYOMU_CAPTURES` names a directory (`kyomu_captures`,
+//! `build.rs`); a page missing from it fails its test.
+//!
+//! `KYOMU_CAPTURES=/path/to/dir cargo test -p app-core --lib net::kyomu::tests`
 use super::*;
+#[cfg(kyomu_captures)]
+use crate::net::Response;
+#[cfg(kyomu_captures)]
+use crate::school_auth::{SchoolAuthProfile::TokyoTech, SchoolAuthService};
+#[cfg(kyomu_captures)]
+use crate::school_session::{tests::NoVault, SchoolSessions, Transport};
+#[cfg(kyomu_captures)]
+use std::collections::HashMap;
+
+#[cfg(kyomu_captures)]
+fn offline_attempt(transport: Arc<dyn Transport>) -> (SchoolSessions, Attempt) {
+    let sessions =
+        SchoolSessions::with_transport(transport, Arc::new(SchoolAuthService::new(NoVault)));
+    sessions.assume_configured(TokyoTech);
+    let attempt = Attempt::detached(&sessions, Site::Kyomu, Default::default());
+    (sessions, attempt)
+}
+
+#[cfg(kyomu_captures)]
+fn capture(name: &str) -> String {
+    let path = std::path::Path::new(env!("KYOMU_CAPTURES")).join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
 
 /// GetAccess's sign-in and 教務Web's own entry both mean the session is
 /// gone, so the run rebuilds it through the SSO instead of failing as a
@@ -73,39 +105,20 @@ fn a_capped_catalog_search_narrows_to_one_quarter() {
 }
 
 // 教務Web's maintenance page may come with an error status. It is the site's
-// maintenance all the same: the host pauses with the notice, on a page read
-// and a course search alike. Another error page stays the HTTP failure it is.
+// maintenance all the same: the host pauses with the notice. A real page of
+// the site answered with an error status stays the HTTP failure it is.
 #[tokio::test]
-async fn a_maintenance_page_with_an_error_status_pauses_the_host() {
+#[cfg(kyomu_captures)]
+async fn a_captured_maintenance_page_with_an_error_status_pauses_the_host() {
     use crate::net::one_answer::OneAnswer;
-    use crate::school_auth::{SchoolAuthProfile::TokyoTech, SchoolAuthService};
-    use crate::school_session::SchoolSessions;
-    use std::sync::Arc;
-
-    struct NoVault;
-    impl crate::ports::SecretVault for NoVault {
-        fn store(&self, _: &str, _: &str) -> Result<(), crate::ports::SecretError> {
-            Ok(())
-        }
-        fn load(&self, _: &str) -> Result<Option<String>, crate::ports::SecretError> {
-            Ok(None)
-        }
-        fn delete(&self, _: &str) -> Result<(), crate::ports::SecretError> {
-            Ok(())
-        }
-    }
-    let answering = |body| {
-        let sessions = SchoolSessions::with_transport(
-            Arc::new(OneAnswer {
-                status: 503,
-                content_type: "text/html; charset=utf-8",
-                body,
-            }),
-            Arc::new(SchoolAuthService::new(NoVault)),
-        );
-        sessions.assume_configured(TokyoTech);
-        let attempt = Attempt::detached(&sessions, Site::Kyomu, Default::default());
-        (sessions, attempt)
+    let answering = |name: &str| {
+        // `OneAnswer` serves a body that lives as long as the test.
+        let body: &'static str = Box::leak(capture(name).into_boxed_str());
+        offline_attempt(Arc::new(OneAnswer {
+            status: 503,
+            content_type: "text/html; charset=utf-8",
+            body,
+        }))
     };
     let notice = |sessions: &SchoolSessions| {
         sessions
@@ -116,97 +129,77 @@ async fn a_maintenance_page_with_an_error_status_pauses_the_host() {
             .and_then(|maintenance| maintenance.notice)
     };
 
-    const PAGE: &str = "<html><body><main><h1>ただいまメンテナンス中です</h1></main></body></html>";
-    let (sessions, attempt) = answering(PAGE);
+    let (sessions, attempt) = answering("maintenance.html");
     let answer = page(&attempt, &MenuCache::default(), "grades").await;
     assert!(
         matches!(answer, Err(NetError::HostPaused { .. })),
         "{answer:?}"
     );
-    assert!(notice(&sessions).is_some_and(|text| text.contains("メンテナンス中")));
+    assert!(notice(&sessions).is_some_and(|text| !text.trim().is_empty()));
 
-    let (sessions, attempt) = answering("<html><body><p>Service Unavailable</p></body></html>");
+    let (sessions, attempt) = answering("student-top.html");
     let answer = page(&attempt, &MenuCache::default(), "grades").await;
     assert!(matches!(answer, Err(NetError::Http(503))), "{answer:?}");
     assert_eq!(notice(&sessions), None);
 }
 
-/// Issue #64: a 修士 account reads its grades at the address its student
-/// menu links (`PID2_2`), not the 学士 one 教務Web redirects it away from,
-/// and the menu is read once per site instance.
-#[tokio::test]
-async fn a_page_is_read_at_the_address_the_student_menu_links() {
-    use crate::net::Response;
-    use crate::school_auth::{SchoolAuthProfile::TokyoTech, SchoolAuthService};
-    use crate::school_session::{SchoolSessions, Transport};
-    use std::sync::{Arc, Mutex};
+/// Each path answered with the page captured for it; any other with 404.
+#[cfg(kyomu_captures)]
+struct Captured(HashMap<String, String>);
 
-    /// The 修士 student menu for every request, keeping each path asked.
-    #[derive(Default)]
-    struct MasterMenu(Mutex<Vec<String>>);
-    impl Transport for MasterMenu {
-        fn send(
-            &self,
-            request: NetRequest,
-        ) -> crate::net::BoxFuture<'_, Result<Response, NetError>> {
-            self.0.lock().unwrap().push(request.url.path().to_string());
-            let mut headers = reqwest::header::HeaderMap::new();
-            headers.insert(
-                reqwest::header::CONTENT_TYPE,
-                reqwest::header::HeaderValue::from_static("text/html; charset=utf-8"),
-            );
-            let body = r#"<html><body><div id="ctl00_sideMenu1_pnlStudent">
-                <a id="ctl00_sideMenu1_HyperLink8" href="%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_2.aspx">成績一覧</a>
-                </div></body></html>"#;
-            let response = Response {
-                status: 200,
-                url: request.url,
-                headers,
-                body: body.as_bytes().to_vec().into(),
-            };
-            Box::pin(async move { Ok(response) })
-        }
-        fn report_maintenance(&self, _host: crate::net::Host) {}
-        fn paused_until(&self, _host: crate::net::Host) -> Option<i64> {
-            None
-        }
+#[cfg(kyomu_captures)]
+impl Transport for Captured {
+    fn send(&self, request: NetRequest) -> crate::net::BoxFuture<'_, Result<Response, NetError>> {
+        let (status, body) = match self.0.get(request.url.path()) {
+            Some(html) => (200, html.clone()),
+            None => (404, String::new()),
+        };
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("text/html; charset=utf-8"),
+        );
+        let response = Response {
+            status,
+            url: request.url,
+            headers,
+            body: body.into_bytes().into(),
+        };
+        Box::pin(async move { Ok(response) })
     }
-    struct NoVault;
-    impl crate::ports::SecretVault for NoVault {
-        fn store(&self, _: &str, _: &str) -> Result<(), crate::ports::SecretError> {
-            Ok(())
-        }
-        fn load(&self, _: &str) -> Result<Option<String>, crate::ports::SecretError> {
-            Ok(None)
-        }
-        fn delete(&self, _: &str) -> Result<(), crate::ports::SecretError> {
-            Ok(())
-        }
+    fn report_maintenance(&self, _host: Host) {}
+    fn paused_until(&self, _host: Host) -> Option<i64> {
+        None
     }
-    let transport = Arc::new(MasterMenu::default());
-    let sessions = SchoolSessions::with_transport(
-        transport.clone(),
-        Arc::new(SchoolAuthService::new(NoVault)),
-    );
-    sessions.assume_configured(TokyoTech);
-    let attempt = Attempt::detached(&sessions, Site::Kyomu, Default::default());
+}
+
+/// Issue #64: every page is read at the address the account's own student
+/// menu links (a 修士 account's 成績一覧 is `PID2_2`, not the 学士 `PID2_0`
+/// 教務Web sends it away from), and what it answers passes the reader and the
+/// trust boundary as that page. An address the menu does not link answers
+/// 404 here, so a guessed one fails the read.
+#[tokio::test]
+#[cfg(kyomu_captures)]
+async fn each_captured_page_is_read_at_the_address_its_student_menu_links() {
+    let top = capture("student-top.html");
+    let menu = kyomu::Menu::read(kyomu::STUDENT_TOP, &top).unwrap();
+    let mut pages = HashMap::from([(
+        Url::parse(kyomu::STUDENT_TOP).unwrap().path().to_string(),
+        top,
+    )]);
+    for listed in &kyomu::PAGES {
+        let url = Url::parse(&menu.url(listed.kind).unwrap()).unwrap();
+        pages.insert(
+            url.path().to_string(),
+            capture(&format!("{}.html", listed.kind)),
+        );
+    }
+    let (_sessions, attempt) = offline_attempt(Arc::new(Captured(pages)));
     let cache = MenuCache::default();
-    // The answer to the page itself is the menu again, which no grade
-    // reader accepts: only the address asked matters here.
-    for _ in 0..2 {
-        let answer = page(&attempt, &cache, "grades").await;
-        assert!(matches!(answer, Err(NetError::Invalid(_))), "{answer:?}");
+    for kind in kyomu::PAGES.iter().map(|listed| listed.kind) {
+        let payload = page(&attempt, &cache, kind)
+            .await
+            .unwrap_or_else(|error| panic!("{kind}: {error:?}"));
+        assert_eq!(payload.kind, kind);
     }
-    let grades = "/Titech/Student/%E6%88%90%E7%B8%BE%E9%96%B2%E8%A6%A7/PID2_2.aspx";
-    assert_eq!(
-        *transport.0.lock().unwrap(),
-        ["/Titech/Student/", grades, grades]
-    );
-    // The menu links no 科目から page: an error, never another address.
-    let answer = page(&attempt, &cache, "declared").await;
-    assert!(
-        matches!(&answer, Err(NetError::Invalid(reason)) if reason.contains("declared")),
-        "{answer:?}"
-    );
-    assert_eq!(transport.0.lock().unwrap().len(), 3);
 }

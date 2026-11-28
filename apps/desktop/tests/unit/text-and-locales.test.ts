@@ -54,7 +54,6 @@ const NOT_KEYS = new Set([
   "guide.welcome",
   "guide.resetTips",
   "assignments.json",
-  "app.campuslife.sciencetokyo",
 ]);
 const isNotAKey = (value: string) =>
   NOT_KEYS.has(value) ||

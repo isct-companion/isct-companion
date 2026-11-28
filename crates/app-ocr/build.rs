@@ -9,6 +9,9 @@ const LITERT_WINDOWS_SHA256: &str =
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(matrix_ocr)");
+    // The geometry test over a private camera frame compiles only when
+    // MATRIX_PHOTO names one (`capture-gate`).
+    capture_gate::file("matrix_photo", "MATRIX_PHOTO");
 
     let engine = std::env::var_os("CARGO_FEATURE_ENGINE").is_some();
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();

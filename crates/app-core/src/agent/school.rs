@@ -507,7 +507,7 @@ fn shows_sign_in(site: Site, url: &Url, response: &Response) -> bool {
             .is_some_and(|content_type| content_type.to_ascii_lowercase().contains("html"))
         && response
             .text()
-            .is_ok_and(|html| adpt_isct::kyomu::extract_page(url.as_str(), &html).status == "login")
+            .is_ok_and(|html| adpt_isct::kyomu::is_login_page(url, &html))
 }
 
 fn run_error(error: RunError<ExchangeError>) -> AgentError {

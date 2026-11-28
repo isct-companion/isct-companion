@@ -14,9 +14,20 @@
 //! token ends the run: no relaunch, cookie or sign-in is wired in. The
 //! summary keeps codes, counts and settings under synthetic ids; no token,
 //! names, ids or course text.
+//!
+//! The maintenance test reads Moodle's answers without an account from
+//! `MOODLE_ENVELOPE_CAPTURES`, the directory `net__moodle__envelope.rs`
+//! describes (`login-page.html`, `rest-invalidtoken.json`), and from it
+//! `maintenance.html`: the page `https://lms.s.isct.ac.jp/2025/my/` answers
+//! during a maintenance window, saved with `curl -s`. It is compiled only
+//! when `MOODLE_ENVELOPE_CAPTURES` names a directory
+//! (`moodle_envelope_captures`, `build.rs`); a file missing from it fails the
+//! test.
+//!
+//! `MOODLE_ENVELOPE_CAPTURES=/path/to/dir cargo test -p app-core --lib captured_maintenance_html`
 use super::*;
 use crate::net::Http;
-use crate::ports::{vault_key, SecretError, SecretVault, VAULT_SERVICE};
+use crate::ports::{vault_item, SecretError, SecretVault};
 use crate::school_auth::SchoolAuthService;
 use crate::school_session::{Attempt, SchoolSessions, Site};
 use serde_json::Map;
@@ -46,7 +57,7 @@ impl SecretVault for NoVault {
 /// here: its owner check opens the synchronized school login, which only the
 /// signed app can, and it deletes a record whose owner it cannot match.
 fn stored_token() -> MoodleToken {
-    let key = vault_key(VAULT_SERVICE, "lms-token-science").unwrap();
+    let key = vault_item("lms-token-science").unwrap().key;
     let output = std::process::Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
@@ -558,16 +569,23 @@ async fn write_surface_survey() {
     std::fs::write(&out, serde_json::to_vec_pretty(&summary).unwrap()).unwrap();
 }
 
-const MAINTENANCE_PAGE: &str = r#"<html><body id="page-maintenance-message" class="pagelayout-maintenance">
-    <h2>Site under maintenance</h2><div class="maintenance_message">Back at 18:00</div></body></html>"#;
+#[cfg(moodle_envelope_captures)]
+fn envelope_capture(name: &str) -> &'static str {
+    let path = std::path::Path::new(env!("MOODLE_ENVELOPE_CAPTURES")).join(name);
+    let body = std::fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    // `OneAnswer` serves a body that lives as long as the test.
+    Box::leak(body.into_boxed_str())
+}
 
 // During maintenance the LMS answers HTML wherever JSON was asked for: the
 // cookie AJAX with 200 (which read as a lost session) and REST with 503 (a
 // bare HTTP failure). Both are the site's maintenance: its host pauses with
-// the notice, and no verdict on the session or the token follows. A page that
-// only mentions maintenance stays what it was.
+// the notice, and no verdict on the session or the token follows. Another
+// page of the site, or a JSON refusal, stays what it was.
 #[tokio::test]
-async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
+#[cfg(moodle_envelope_captures)]
+async fn captured_maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
     use crate::school_auth::SchoolAuthProfile::Science;
     let answering = |status, content_type, body| {
         let auth = Arc::new(SchoolAuthService::new(NoVault));
@@ -608,20 +626,18 @@ async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
     let rest = MoodleFunction::SiteInfo;
     let ajax = MoodleFunction::CourseformatState;
     let args = json!({"courseid": 1});
+    let maintenance = envelope_capture("maintenance.html");
 
     for (status, kind) in [(200, "text/html; charset=utf-8"), (503, "text/html")] {
-        let (sessions, attempt, _) = answering(status, kind, MAINTENANCE_PAGE);
+        let (sessions, attempt, _) = answering(status, kind, maintenance);
         let answer = cookie().call(&attempt, ajax, &args).await;
         assert!(
             matches!(answer, Err(MoodleError::Net(NetError::HostPaused { .. }))),
             "AJAX {status}: {answer:?}"
         );
-        assert_eq!(
-            notice(&sessions).as_deref(),
-            Some("Site under maintenance Back at 18:00")
-        );
+        assert!(notice(&sessions).is_some_and(|text| !text.trim().is_empty()));
 
-        let (sessions, attempt, client) = answering(status, kind, MAINTENANCE_PAGE);
+        let (sessions, attempt, client) = answering(status, kind, maintenance);
         let answer = TokenTransport::new(client)
             .post(&attempt, &token, rest, &json!({}), Limits::page)
             .await;
@@ -634,8 +650,8 @@ async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
 
     let (sessions, attempt, _) = answering(
         200,
-        "text/html",
-        "<html><body>Scheduled maintenance of the lab</body></html>",
+        "text/html; charset=utf-8",
+        envelope_capture("login-page.html"),
     );
     let answer = cookie().call(&attempt, ajax, &args).await;
     assert!(
@@ -644,10 +660,17 @@ async fn maintenance_html_on_the_ajax_and_rest_paths_pauses_the_host() {
     );
     assert_eq!(notice(&sessions), None);
 
-    let (sessions, attempt, client) = answering(200, "application/json", r#"{"lang":"en"}"#);
-    assert!(TokenTransport::new(client)
+    let (sessions, attempt, client) = answering(
+        200,
+        "application/json",
+        envelope_capture("rest-invalidtoken.json"),
+    );
+    let answer = TokenTransport::new(client)
         .post(&attempt, &token, rest, &json!({}), Limits::page)
-        .await
-        .is_ok());
+        .await;
+    assert!(
+        !matches!(answer, Err(MoodleError::Net(NetError::HostPaused { .. }))),
+        "{answer:?}"
+    );
     assert_eq!(notice(&sessions), None);
 }

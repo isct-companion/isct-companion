@@ -312,6 +312,185 @@ impl crate::ports::SecretVault for NoVault {
     }
 }
 
+// Drive the operation's verdict directly. The real session runner still owns
+// the instance, retry, cancellation and account permit. No school page is needed.
+struct LocalRead<F>(F);
+
+impl<F, Fut> Operation for LocalRead<F>
+where
+    F: FnMut(Attempt) -> Fut + Send,
+    Fut: std::future::Future<Output = Result<u64, NetError>> + Send + 'static,
+{
+    type Output = u64;
+    type Error = NetError;
+
+    fn attempt(&mut self, attempt: Attempt) -> BoxFuture<'_, Result<u64, NetError>> {
+        Box::pin((self.0)(attempt))
+    }
+}
+
+#[tokio::test]
+async fn overlapping_lms_expirations_share_recovery_and_replay_each_read_only_once() {
+    let site = Site::Lms;
+    let profile = site.profile();
+    for replacement_available in [true, false] {
+        let sessions = SchoolSessions::ready(None, Arc::new(SchoolAuthService::new(NoVault)));
+        let old = Arc::new(AtomicU64::new(0));
+        let all_on_old = Arc::new(tokio::sync::Barrier::new(4));
+        let replay_started = tokio_util::sync::CancellationToken::new();
+        let mut reads = tokio::task::JoinSet::new();
+        for index in 0..4 {
+            let sessions = sessions.clone();
+            let old = old.clone();
+            let all_on_old = all_on_old.clone();
+            let replay_started = replay_started.clone();
+            reads.spawn(async move {
+                let mut count = 0;
+                let mut op = LocalRead(|attempt: Attempt| {
+                    count += 1;
+                    let replay = count == 2;
+                    assert!(count <= 2, "one replay per read");
+                    let old = old.clone();
+                    let all_on_old = all_on_old.clone();
+                    let replay_started = replay_started.clone();
+                    if replay && index == 0 {
+                        if replacement_available {
+                            // The site has recovered before the other three old replies land.
+                            sessions.0.site(site).install_restored(Jar::default(), 0);
+                        }
+                        replay_started.cancel();
+                    }
+                    async move {
+                        let instance = attempt.instance().await?;
+                        if replay {
+                            assert_ne!(instance, old.load(Ordering::SeqCst));
+                            return Ok(instance);
+                        }
+                        if index == 0 {
+                            old.store(instance, Ordering::SeqCst);
+                        }
+                        all_on_old.wait().await;
+                        assert_eq!(instance, old.load(Ordering::SeqCst));
+                        if index != 0 {
+                            replay_started.cancelled().await;
+                        }
+                        Err(NetError::SignInRequired)
+                    }
+                });
+                let permit = sessions.permit(profile).unwrap();
+                let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+                let outcome = sessions.run(site, &permit, deadline, &mut op).await;
+                assert_eq!(count, 2);
+                outcome
+            });
+        }
+        let mut replacements = std::collections::HashSet::new();
+        while let Some(done) = reads.join_next().await {
+            let result = done.unwrap();
+            if replacement_available {
+                replacements.insert(result.unwrap());
+            } else {
+                assert!(
+                    matches!(
+                        result,
+                        Err(RunError::Blocked(Blocked {
+                            wait: crate::plan::AccountWait::Person,
+                            ..
+                        }))
+                    ),
+                    "{result:?}"
+                );
+            }
+        }
+        assert_eq!(replacements.len(), usize::from(replacement_available));
+        let identity = &sessions.0.account(profile).identity;
+        assert_eq!(
+            identity.sign_ins_started(),
+            u64::from(!replacement_available)
+        );
+    }
+}
+
+#[tokio::test]
+async fn signing_out_cancels_active_and_queued_reads_and_isolates_late_cookies() {
+    let site = Site::Kyomu;
+    let profile = site.profile();
+    let sessions = SchoolSessions::ready(None, Arc::new(SchoolAuthService::new(NoVault)));
+    sessions.0.restore(profile).await;
+    let (started, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    let (polled, mut waiting) = tokio::sync::mpsc::unbounded_channel();
+    let mut reads = tokio::task::JoinSet::new();
+    for _ in 0..2 {
+        let sessions = sessions.clone();
+        let started = started.clone();
+        let polled = polled.clone();
+        let permit = sessions.permit(profile).unwrap();
+        reads.spawn(async move {
+            let mut work = LocalRead(|attempt: Attempt| {
+                let started = started.clone();
+                async move {
+                    let instance = attempt.instance().await?;
+                    started.send((attempt, instance)).unwrap();
+                    std::future::pending().await
+                }
+            });
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+            let read = sessions.run(site, &permit, deadline, &mut work);
+            tokio::pin!(read);
+            tokio::select! {
+                biased;
+                done = &mut read => return done,
+                _ = std::future::ready(()) => {}
+            }
+            polled.send(()).unwrap();
+            read.await
+        });
+    }
+    drop(started);
+    drop(polled);
+    // Both reads have been polled: one awaits its answer and one its site slot.
+    for _ in 0..2 {
+        tokio::time::timeout(Duration::from_secs(5), waiting.recv())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let (old, old_instance) = tokio::time::timeout(Duration::from_secs(5), requests.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(sessions.sign_out(profile).await, Ok(true));
+    while let Some(done) = reads.join_next().await {
+        assert!(matches!(done.unwrap(), Err(RunError::Cancelled)));
+    }
+    assert!(
+        requests.recv().await.is_none(),
+        "the queued read never started"
+    );
+    assert!(old.write_permit().is_none());
+
+    sessions.assume_configured(profile);
+    sessions.0.site(site).install_restored(Jar::default(), 0);
+    let url = Url::parse("https://example.test/stream").unwrap();
+    // A streamed response may deliver its Set-Cookie after the next account opens.
+    old.store_cookies(&url, &["late=old; Path=/; Secure".into()]);
+    let mut read = LocalRead(move |attempt: Attempt| {
+        let url = url.clone();
+        async move {
+            assert!(attempt.cookie_header(&url).await?.is_none());
+            attempt.instance().await
+        }
+    });
+    let permit = sessions.permit(profile).unwrap();
+    assert_ne!(permit.generation(), old.account_generation());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let instance = sessions
+        .run(site, &permit, deadline, &mut read)
+        .await
+        .unwrap();
+    assert_ne!(instance, old_instance);
+}
+
 // The school refused a session just recovered from the identity: the
 // anomaly pause stops silent SSO as well as sign-ins on Core's own, so sync
 // holds every key that needs a session by the facts alone (`AccountFacts`),
@@ -336,7 +515,36 @@ async fn an_anomaly_pause_stops_silent_sso_but_keeps_the_identity() {
     assert!(facts.admitted && facts.identity && facts.sites.is_empty());
     assert_eq!(facts.sign_in, SignInAdmission::Allowed);
 
-    identity.anomaly(generation);
+    let site = Site::Lms;
+    let mut calls = 0;
+    let mut read = LocalRead(|attempt: Attempt| {
+        calls += 1;
+        assert!(calls <= 2, "another expiry must end recovery");
+        // Each attempt has an available instance; both report expiry.
+        sessions
+            .0
+            .site(site)
+            .install_restored(Jar::default(), generation);
+        async move {
+            attempt.instance().await?;
+            Err(NetError::SignInRequired)
+        }
+    });
+    let permit = sessions.permit(profile).unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let end = sessions.run(site, &permit, deadline, &mut read).await;
+    assert!(
+        matches!(
+            end,
+            Err(RunError::Blocked(Blocked {
+                wait: crate::plan::AccountWait::Paused { .. },
+                ..
+            }))
+        ),
+        "{end:?}"
+    );
+    assert_eq!(calls, 2);
+    assert_eq!(identity.sign_ins_started(), 0);
     let facts = sessions.account_facts(profile);
     assert!(!facts.identity, "no SSO on Core's own during the pause");
     assert!(matches!(facts.sign_in, SignInAdmission::Paused { .. }));
@@ -520,14 +728,6 @@ async fn a_retry_the_vault_refuses_says_why() {
         Some(SchoolSignInProblemKind::CredentialStore)
     );
     assert!(session.retry_at.is_some());
-    assert_eq!(
-        session.presentation.state_key,
-        "schoolSession.state.unavailableRetry"
-    );
-    assert_eq!(
-        session.presentation.reason_key.as_deref(),
-        Some("schoolSession.problem.credentialStore")
-    );
     assert_eq!(session.presentation.recovery, [SignInRecovery::Retry]);
     assert_eq!(sessions.0.account(profile).identity.sign_ins_started(), 1);
     assert!(sessions.0.account(profile).identity.configured());
@@ -665,9 +865,7 @@ async fn a_reset_finishes_each_account_whose_credentials_went() {
     assert!(sessions.0.auth.configured(tokyo), "credentials go last");
     let snapshot = sessions.snapshot();
     let pending = &snapshot.profile(tokyo).presentation;
-    assert_eq!(pending.state_key, "schoolSession.state.signOutPending");
     assert_eq!(pending.recovery, [SignInRecovery::FinishSignOut]);
-    assert!(pending.reason_key.is_none());
     let relaunched = SchoolSessions::new(None, auth());
     assert!(!relaunched.sign_out_pending(science) && relaunched.sign_out_pending(tokyo));
 

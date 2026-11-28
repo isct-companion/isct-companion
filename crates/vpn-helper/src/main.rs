@@ -317,7 +317,7 @@ fn start(cfg: &Config, state: &State, cookie: &SessionCookie) -> Reply {
                     ifname: st.ifname.clone(),
                     pid: Some(pid),
                     expires: st.expires,
-                    revision: Some(HELPER_REVISION),
+                    revision: HELPER_REVISION,
                     ended: None,
                     program: None,
                 })
@@ -430,7 +430,7 @@ fn status(cfg: &Config, state: &State) -> Reply {
         ifname: st.ifname.clone(),
         pid: st.child.as_ref().map(|c| c.id()),
         expires: st.expires.filter(|_| st.routed),
-        revision: Some(HELPER_REVISION),
+        revision: HELPER_REVISION,
         ended: st.ended,
         program: own_program(),
     }

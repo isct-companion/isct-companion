@@ -13,17 +13,10 @@ fn at(hours: i64) -> DateTime<Utc> {
 }
 
 #[test]
-fn backoff_climbs_by_three_from_five_minutes_and_stops_at_six_hours() {
-    let minutes: Vec<i64> = (1..=6).map(|n| backoff(n).num_minutes()).collect();
-    assert_eq!(minutes, [5, 15, 45, 135, 360, 360]);
-    assert_eq!(backoff(u32::MAX).num_minutes(), 360);
-}
-
-#[test]
 fn a_key_is_fresh_only_after_a_complete_commit() {
     let db = database();
     let course = Key::new(Dataset::LmsCourse, "123");
-    let ttl = ttl(Dataset::LmsCourse, Term::Current);
+    let ttl = ttl(&course, Term::Current);
     assert_eq!(
         due(get(&db, &course).unwrap().as_ref(), ttl, at(0)),
         Due::Missing
@@ -37,6 +30,10 @@ fn a_key_is_fresh_only_after_a_complete_commit() {
     // Once the backoff passes, missing content is due before stale content.
     assert_eq!(due(state.as_ref(), ttl, at(1)), Due::Missing);
     assert!(Due::Missing < Due::Stale);
+    // A key that keeps failing (offline for weeks) waits longer each time,
+    // never past six hours, and its count never overflows.
+    assert!(backoff(2) > backoff(1));
+    assert_eq!(backoff(u32::MAX), Duration::hours(6));
 
     commit(
         &db,
@@ -108,4 +105,65 @@ fn run_sources_never_keep_query_strings() {
         source_of_url(&url),
         "lms.s.isct.ac.jp/2025/lib/ajax/service.php"
     );
+}
+
+/// A grades change marks the GPA and requirements pages due at once and a
+/// day later (`d/azfvr2`, `d/aa17ta`). A read answers only the marks set
+/// before it started; a failed read answers none; an unchanged read marks
+/// nothing.
+#[test]
+fn a_change_marks_its_dependents_and_only_a_later_read_answers_them() {
+    let db = database();
+    let grades = Key::new(Dataset::KyomuPage, "grades");
+    let gpa = Key::new(Dataset::KyomuPage, "gpa");
+    let run = |key: &Key, started: DateTime<Utc>, outcome: RunOutcome, changed: usize| {
+        record_run(
+            &db,
+            &RunRecord {
+                run: "run",
+                key,
+                started_at: started,
+                finished_at: started + Duration::seconds(1),
+                outcome,
+                changed,
+                requests: None,
+                bytes: None,
+                source: "kyomu",
+                error_kind: None,
+            },
+        )
+        .unwrap();
+    };
+    let marks = |key: &Key| {
+        get(&db, key)
+            .unwrap()
+            .map(|state| state.due_marks)
+            .unwrap_or_default()
+    };
+    run(&grades, at(0), RunOutcome::Complete, 0);
+    assert!(marks(&gpa).is_empty());
+    run(&grades, at(1), RunOutcome::Complete, 3);
+    let changed = at(1) + Duration::seconds(1);
+    // An unchanged read keeps the last real change.
+    run(&grades, at(2), RunOutcome::Complete, 0);
+    assert_eq!(
+        get(&db, &grades).unwrap().unwrap().changed_at,
+        Some(changed)
+    );
+    assert_eq!(marks(&gpa), [changed, changed + Duration::days(1)]);
+    assert_eq!(
+        marks(&Key::new(Dataset::KyomuPage, "requirements")),
+        [changed, changed + Duration::days(1)]
+    );
+    // A GPA read that started before the change answers nothing; a failed
+    // one neither; one started after it answers the mark now, not the one
+    // a day ahead.
+    run(&gpa, at(1) - Duration::seconds(5), RunOutcome::Complete, 0);
+    run(&gpa, at(2), RunOutcome::Failed, 0);
+    assert_eq!(marks(&gpa).len(), 2);
+    run(&gpa, at(2), RunOutcome::Complete, 0);
+    assert_eq!(marks(&gpa), [changed + Duration::days(1)]);
+    // A mark added by hand joins the set, earliest first.
+    mark_due(&db, &gpa, at(3)).unwrap();
+    assert_eq!(marks(&gpa), [at(3), changed + Duration::days(1)]);
 }

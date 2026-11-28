@@ -763,8 +763,9 @@ pub fn purge_downloads(root: &Path, delete: bool) -> Result<RemovedFiles, Materi
     Ok(removed)
 }
 
-/// The `materials` folders of the material tree, current and legacy:
-/// `<term>/<course>/materials` and `<term>/<course>/<section>/materials`.
+/// The `materials` folders of the material tree: `<term>/<course>/materials`,
+/// and `<term>/<course>/<section>/materials`, where earlier releases
+/// downloaded and whose files stay until a sweep removes them.
 fn material_directories(root: &Path) -> Result<Vec<PathBuf>, MaterialError> {
     let root = crate::storage::material_root(root);
     if !root.exists() {
@@ -773,16 +774,6 @@ fn material_directories(root: &Path) -> Result<Vec<PathBuf>, MaterialError> {
     let root = root.canonicalize().map_err(storage_error)?;
     let mut directories = Vec::new();
     for term in child_directories(&root)? {
-        let term_name = term
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("");
-        if matches!(
-            term_name,
-            "debug" | "notes" | "deleted-notes" | "workspace" | "workspaces"
-        ) {
-            continue;
-        }
         for course in child_directories(&term)? {
             directories.push(course.join("materials"));
             for section in child_directories(&course)? {

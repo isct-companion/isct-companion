@@ -6,7 +6,8 @@ use super::{
     lms_url,
     mapping::{pick, BodyBudget, DETAIL_MODULES},
     reader::{set_detail, MAX_STATES, WORKERS},
-    sign_in_redirect, Dashboard, KeyError, MoodleClient, MoodleError, MoodleFunction,
+    required_list, sign_in_redirect, Dashboard, KeyError, MoodleClient, MoodleError,
+    MoodleFunction,
 };
 use crate::{
     net::{Body, Limits, NetError},
@@ -153,17 +154,15 @@ async fn course_state(
         }
     }
     .map_err(|_| KeyError::new(function.name(), MoodleError::Malformed("course state")))?;
-    let list = |key: &str, keys: &[&str]| -> Vec<Value> {
-        full.get(key)
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
+    let list = |key: &'static str, keys: &[&str]| -> Result<Vec<Value>, KeyError> {
+        Ok(required_list(&full, key, function)?
+            .iter()
             .map(|item| pick(item, keys))
-            .collect()
+            .collect())
     };
     Ok(json!({
-        "section": list("section", &["id", "number", "title", "visible", "anchor"]),
-        "cm": list("cm", &["id", "name", "module", "url", "sectionid", "visible", "uservisible", "anchor"]),
+        "section": list("section", &["id", "number", "title", "visible", "anchor"])?,
+        "cm": list("cm", &["id", "name", "module", "url", "sectionid", "visible", "uservisible", "anchor"])?,
     }))
 }
 

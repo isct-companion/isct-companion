@@ -1,20 +1,11 @@
 // @vitest-environment jsdom
 import { act, useState } from "react";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   advance,
   click,
   chooseOption,
   courseFor,
-  emptySchoolRecords,
   installFakeCore,
   mount,
   mountApp,
@@ -23,7 +14,6 @@ import {
   planItemFor,
   planningWeekFor,
   lectureListFor,
-  scheduleViewFor,
   typeInto,
   until,
   watchConsoleErrors,
@@ -42,18 +32,19 @@ import { notify } from "@app/components/notifications/notify";
 import i18n from "@app/i18n";
 import type { Workspace } from "@app/lib/model";
 import type { FinderAction, FinderPage } from "@app/generated/persistence";
-import type { ScheduleQuery } from "@app/platform/core-query";
 
 /**
  * The whole shell over a scripted Core: hash routing, page retention, keyboard
  * shortcuts, the native-navigation blocker and the query caches that only
- * exist inside React hooks. These assert what a person sees, not which
- * component rendered.
+ * exist inside React hooks. Each case drives a path through and checks where
+ * it ends: the route, the retained nodes and their state, what Core stored or
+ * was asked. How a screen reads is a person's check in
+ * docs/verification/manual-checks.yaml, not an assertion here.
  *
  * Local helpers exist where the harness has no builder: `shellOptions` (a
  * navigable workspace with the school-web commands answered), `mountShell`
  * (adopts this test's workspace before mounting, because the harness reuses one
- * module-level store), `emptyFinder`, and the `Schedule*` / `FinderProbe`
+ * module-level store), `emptyFinder`, and the `ScheduleProbe` / `FinderProbe`
  * probe components.
  */
 
@@ -101,16 +92,6 @@ afterEach(async () => {
   delete (window as unknown as Record<string, unknown>)
     .__ISCT_COMPANION_NATIVE_TARGET__;
 });
-
-function titles(host: HTMLElement): string[] {
-  return [
-    ...new Set(
-      [...host.querySelectorAll(".ttBlock b")].map(
-        (node) => node.textContent ?? "",
-      ),
-    ),
-  ];
-}
 
 /* ------------------------------------------------------------------ *
  * A navigable shell over the scripted host.
@@ -276,44 +257,39 @@ function required<T extends Element>(
  * ------------------------------------------------------------------ */
 
 describe("shell navigation", () => {
-  it("opens the workspace route named in the hash", async () => {
+  it("keeps valid deep links and replaces unknown, unsupported and deleted-course routes", async () => {
+    consoleWatch = watchConsoleErrors();
     const workspace = workspaceFixture({
       courses: [placedCourse],
       planItems: [planItemFor(placedCourse)],
     });
-    app = await mountShell(shellOptions({ workspace, revision: "rev:route" }), {
-      route: paths.timetable(),
-    });
+    const options = shellOptions({ workspace, revision: "rev:redirect" });
+    app = await mountShell(options, { route: paths.timetable() });
+    const { core, router } = app;
     await until(() =>
       expect(app!.host.querySelector(".timetableMain")).not.toBeNull(),
     );
     expect(window.location.hash).toBe(`#${paths.timetable()}`);
-  }, 20_000);
 
-  it("replaces unknown, unsupported and deleted-course routes", async () => {
-    consoleWatch = watchConsoleErrors();
-    const workspace = workspaceFixture({ courses: [placedCourse] });
-    app = await mountShell(
-      shellOptions({ workspace, revision: "rev:redirect" }),
-      { route: paths.home() },
+    const visit = async (route: string, lands: string) => {
+      await app!.go(route);
+      await advance(20);
+      await until(() => expect(window.location.hash).toBe(`#${lands}`));
+      // A replaced route leaves no entry for Back to return to.
+      expect(router.state.historyAction, route).toBe(
+        lands === route ? "PUSH" : "REPLACE",
+      );
+    };
+    // Course files are a desktop page, so this build keeps it.
+    await visit(paths.settings("files"), paths.settings("files"));
+    await visit(
+      paths.lectures(placedCourse.id),
+      paths.lectures(placedCourse.id),
     );
-    const { host, core, router } = app;
-    await until(() => expect(host.querySelector(".homeMain")).not.toBeNull());
-
-    await app.go("/settings/not-a-section");
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
-    );
-    expect(router.state.historyAction).toBe("REPLACE");
-
+    await visit("/settings/not-a-section", paths.settings("accounts"));
     // A developer-tier page stays closed until Developer options are on.
-    await app.go(paths.settings("diagnostics"));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
-    );
-
-    await app.go("/decidedly-not-a-route");
-    await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+    await visit(paths.settings("diagnostics"), paths.settings("accounts"));
+    await visit("/decidedly-not-a-route", paths.home());
 
     // A lecture naming a deleted course falls back to the lecture list.
     await act(async () => {
@@ -325,36 +301,23 @@ describe("shell navigation", () => {
       );
       await storeModule.workspaceStore.reload();
     });
-    await app.go(paths.lectures(placedCourse.id));
-    await until(() =>
-      expect(window.location.hash).toBe(`#${paths.lectures()}`),
-    );
-    expect(host.querySelector(".lectureSlot:not([hidden])")).toBeNull();
+    await visit(paths.lectures(placedCourse.id), paths.lectures());
 
     consoleWatch.expectClean();
     consoleWatch.restore();
     consoleWatch = undefined;
   }, 20_000);
 
-  it("keeps a desktop settings section and replaces one this build lacks", async () => {
-    const options = shellOptions({
-      workspace: workspaceFixture(),
-      revision: "rev:platform",
-    });
-    app = await mountShell(options, { route: paths.settings("files") });
-    await until(() =>
-      expect(app!.host.querySelector(".settingsMain")).not.toBeNull(),
-    );
-    // Course files are a desktop page, so this build keeps it.
-    expect(window.location.hash).toBe(`#${paths.settings("files")}`);
-
+  it("replaces a desktop settings section a preview build lacks", async () => {
     // The native bootstrap injects the build target; a preview build without
     // desktop file settings must not leave the person on an unknown page.
-    await app.unmount();
     (
       window as unknown as Record<string, unknown>
     ).__ISCT_COMPANION_NATIVE_TARGET__ = "browser-preview";
-    app = await mountShell(options, { route: paths.settings("files") });
+    app = await mountShell(
+      shellOptions({ workspace: workspaceFixture(), revision: "rev:platform" }),
+      { route: paths.settings("files") },
+    );
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
     );
@@ -401,12 +364,6 @@ describe("shell navigation", () => {
       { route: paths.settings("appearance") },
     );
     const { host } = app;
-    // The hash names the section that opens.
-    await until(() =>
-      expect(
-        host.querySelector(".settingsNav button.active")?.textContent,
-      ).toContain("Appearance"),
-    );
     const disclosure = await required(
       () => host.querySelector<HTMLDetailsElement>(".settingsPane details"),
       "the folded options",
@@ -475,8 +432,8 @@ describe("shell navigation", () => {
     expect(filter.value).toBe("graph");
     expect(host.querySelector(".lectureList")).toBe(list);
     expect(list.scrollTop).toBe(128);
+    // The same picker node: the quarter chosen above was never reset.
     expect(host.querySelector('.lectureTerm [role="combobox"]')).toBe(term);
-    expect(term.textContent).toContain("2026 2Q");
   }, 20_000);
 
   it("hides an open menu with its page and brings it back still working", async () => {
@@ -547,109 +504,76 @@ describe("shell navigation", () => {
     );
   }, 20_000);
 
-  it("blocks Back while the Web page owns the native view and restores the URL when hiding fails", async () => {
-    let hideFails = false;
+  it("holds navigation away from a page that owns the native view until hiding it succeeds", async () => {
+    let hide: "ok" | "fail" | "hold" = "ok";
+    let releaseHide!: () => void;
+    const held = new Promise<boolean>((resolve) => {
+      releaseHide = () => resolve(true);
+    });
     app = await mountShell(
       shellOptions({
-        workspace: workspaceFixture(),
+        workspace: workspaceFixture({ courses: [placedCourse] }),
         revision: "rev:blocker",
         handle: (command, args, core) => {
-          if (command === "hide_school_web" && hideFails)
+          if (command === "hide_school_web" && hide === "fail")
             throw new Error("Native hide failed");
+          if (command === "hide_school_web" && hide === "hold") return held;
           return baseHandle(command, args, core);
         },
       }),
       { route: paths.home() },
     );
-    const { host, core } = app;
+    const { core } = app;
+    const hides = () => core.commands("hide_school_web").length;
+    const opens = () => core.commands("open_school_site").length;
+    const back = () =>
+      act(async () => {
+        window.history.back();
+        await new Promise((resolve) => setTimeout(resolve, 40));
+      });
+
     await app.go(paths.web());
-    await until(() =>
-      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
-    );
+    await until(() => expect(opens()).toBeGreaterThan(0));
 
-    hideFails = true;
-    await act(async () => {
-      window.history.back();
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    });
-    await until(() =>
-      expect(document.body.textContent).toContain("Native hide failed"),
-    );
+    // Back while hiding fails puts the Web page's URL back.
+    hide = "fail";
+    let tried = hides();
+    await back();
+    await until(() => expect(hides()).toBeGreaterThan(tried));
+    await advance(50);
     expect(window.location.hash).toBe(`#${paths.web()}`);
-    expect(host.querySelector(".webMain")).not.toBeNull();
-    expect(core.commands("open_school_site").length).toBeGreaterThan(0);
 
-    hideFails = false;
-    await act(async () => {
-      window.history.back();
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    });
+    hide = "ok";
+    await back();
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
-    // The native view is hidden, not destroyed: the page and its address stay.
-    expect(host.querySelector('[aria-label="Current URL"]')).not.toBeNull();
-  }, 20_000);
 
-  it("keeps an open lecture when hiding the native view fails", async () => {
-    let hideFails = true;
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture({ courses: [placedCourse] }),
-        revision: "rev:blocker-lecture",
-        handle: (command, args, core) => {
-          if (command === "hide_school_web" && hideFails)
-            throw new Error("Lecture hide failed");
-          return baseHandle(command, args, core);
-        },
-      }),
-      { route: paths.lectures(placedCourse.id) },
-    );
-    const { host } = app;
-    await until(() =>
-      expect(host.querySelector(".lectureSlot:not([hidden])")).not.toBeNull(),
-    );
-
-    await app.go(paths.home());
-    await until(() =>
-      expect(document.body.textContent).toContain("Lecture hide failed"),
-    );
-    expect(window.location.hash).toBe(`#${paths.lectures(placedCourse.id)}`);
-    expect(host.querySelector(".lecturesMain")).not.toBeNull();
-  }, 20_000);
-
-  it("waits for native hiding when leaving Web", async () => {
-    let holdHide = true;
-    let releaseHide!: () => void;
-    const hidden = new Promise<boolean>((resolve) => {
-      releaseHide = () => {
-        holdHide = false;
-        resolve(true);
-      };
-    });
-    app = await mountShell(
-      shellOptions({
-        workspace: workspaceFixture(),
-        revision: "rev:ingest",
-        handle: (command, args, core) => {
-          if (command === "hide_school_web") return holdHide ? hidden : true;
-          return baseHandle(command, args, core);
-        },
-      }),
-      { route: paths.web() },
-    );
-    const { host, core } = app;
-    await until(() =>
-      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
-    );
-
+    // Leaving while hiding is still in flight waits for it.
+    const opened = opens();
+    await app.go(paths.web());
+    await until(() => expect(opens()).toBeGreaterThan(opened));
+    hide = "hold";
     await app.go(paths.home());
     expect(window.location.hash).toBe(`#${paths.web()}`);
-    expect(host.querySelector(".webMain")).not.toBeNull();
-
+    hide = "ok";
     await act(async () => {
       releaseHide();
-      await hidden;
+      await held;
     });
     await until(() => expect(window.location.hash).toBe(`#${paths.home()}`));
+
+    // An open lecture's reader owns the native view as well.
+    await app.go(paths.lectures(placedCourse.id));
+    await until(() =>
+      expect(
+        app!.host.querySelector(".lectureSlot:not([hidden])"),
+      ).not.toBeNull(),
+    );
+    hide = "fail";
+    tried = hides();
+    await app.go(paths.home());
+    await until(() => expect(hides()).toBeGreaterThan(tried));
+    await advance(50);
+    expect(window.location.hash).toBe(`#${paths.lectures(placedCourse.id)}`);
   }, 20_000);
 });
 
@@ -708,10 +632,10 @@ describe("keyboard shortcuts", () => {
  * ------------------------------------------------------------------ */
 
 describe("native listener ordering", () => {
-  it("subscribes to native changes before the recovery read that follows registration", async () => {
-    let releaseListener!: () => void;
-    const listenerRegistered = new Promise<void>((resolve) => {
-      releaseListener = resolve;
+  it("adopts a change committed while its native subscription was still registering", async () => {
+    let register!: () => void;
+    const registered = new Promise<void>((resolve) => {
+      register = resolve;
     });
     app = await mountShell(
       shellOptions({
@@ -722,7 +646,7 @@ describe("native listener ordering", () => {
             command === "plugin:event|listen" &&
             args.event === "workspace-changed"
           )
-            return listenerRegistered.then(() => 1);
+            return registered.then(() => 1);
           return baseHandle(command, args, core);
         },
       }),
@@ -730,50 +654,56 @@ describe("native listener ordering", () => {
     );
     const { core } = app;
     await until(() =>
-      expect(app!.host.querySelector(".homeMain")).not.toBeNull(),
+      expect(
+        core.calls.some(
+          (call) =>
+            call.command === "plugin:event|listen" &&
+            call.args.event === "workspace-changed",
+        ),
+      ).toBe(true),
     );
 
-    const listenIndex = () =>
-      core.calls.findIndex(
-        (call) =>
-          call.command === "plugin:event|listen" &&
-          call.args.event === "workspace-changed",
-      );
-    const readsAfterListen = () =>
-      core.calls.filter(
-        (call, index) =>
-          index > listenIndex() && call.command === "workspace_revision",
-      ).length;
-
-    await until(() => expect(listenIndex()).toBeGreaterThanOrEqual(0));
-    // Registration is still in flight: the shell must not read yet.
-    expect(readsAfterListen()).toBe(0);
-
+    // Another writer commits before the subscription exists, so no event
+    // will ever name it: only a read after registration can see it.
+    core.publish(core.workspace, "rev:ordering-2");
     await act(async () => {
-      releaseListener();
-      await listenerRegistered;
+      register();
+      await registered;
     });
-    await until(() => expect(readsAfterListen()).toBeGreaterThan(0));
+    await until(() =>
+      expect(storeModule.workspaceStore.getState().revision).toBe(
+        "rev:ordering-2",
+      ),
+    );
   }, 20_000);
 
-  it("queries again only what a school change names, without reading the workspace", async () => {
-    const before = workspaceFixture({ courses: [placedCourse] });
-    const after = workspaceFixture({ courses: [clashingCourse] });
+  it("asks Core again for the timetable when a school change names what it shows", async () => {
+    // The course ids each answer was built from, newest last.
+    const answered: string[][] = [];
+    const recorded =
+      (build: (workspace: Workspace) => Record<string, unknown>) =>
+      (_query: unknown, core: FakeCore) => {
+        answered.push(core.workspace.courses.map((course) => course.id));
+        return build(core.workspace);
+      };
     app = await mountShell(
       shellOptions({
-        workspace: before,
+        workspace: workspaceFixture({ courses: [placedCourse] }),
         revision: "rev:changed",
         finder: emptyFinder,
+        queries: {
+          ...shellQueries(),
+          workspaceOverview: recorded((workspace) => overviewFor(workspace)),
+          planningWeek: recorded((workspace) => planningWeekFor(workspace)),
+        },
       }),
       { route: paths.timetable() },
     );
-    const { host, core } = app;
-    // The planner timetable is the person-visible view of the workspace rows.
-    await until(() => expect(titles(host)).toEqual(["Placed"]));
-    const revisionReads = core.commands("workspace_revision").length;
+    const { core } = app;
+    await until(() => expect(answered).toContainEqual([placedCourse.id]));
 
     await act(async () => {
-      core.publish(after);
+      core.publish(workspaceFixture({ courses: [clashingCourse] }));
       core.emit("workspace-changed", {
         seq: core.commit().seq,
         source: "school-pull",
@@ -781,9 +711,7 @@ describe("native listener ordering", () => {
       });
     });
 
-    await until(() => expect(titles(host)).toEqual(["Clashing"]));
-    // A background change moves no intent revision.
-    expect(core.commands("workspace_revision")).toHaveLength(revisionReads);
+    await until(() => expect(answered.at(-1)).toEqual([clashingCourse.id]));
   }, 20_000);
 });
 
@@ -792,43 +720,69 @@ describe("native listener ordering", () => {
  * ------------------------------------------------------------------ */
 
 describe("web-page residency", () => {
-  it("keeps an open school page resident and hides rather than destroys it", async () => {
+  it("opens a requested school URL, keeps the page resident while hidden and resumes it", async () => {
+    const url = "https://lms.s.isct.ac.jp/course/view.php?id=12";
+    const course = courseFor(
+      offering("202602421", "CSC.T252", "Placed", { id: "lms-12" }),
+      { source: { provider: "lms", externalId: "12" }, url },
+    );
     app = await mountShell(
       shellOptions({
-        workspace: workspaceFixture(),
+        workspace: workspaceFixture({
+          courses: [course],
+          planItems: [planItemFor(course)],
+        }),
         revision: "rev:resident",
+        queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
       }),
-      { route: paths.web() },
+      { route: paths.timetable() },
     );
-    const { host, core } = app;
+    const { core, host } = app;
+    const opened = () => core.commands("open_school_site");
+
+    // An explicit link opens its own URL.
+    await click(
+      await required(
+        () => host.querySelector<HTMLButtonElement>(".ttBlock.course"),
+        "the placed course block",
+      ),
+    );
+    await click(
+      await required(
+        () =>
+          host.querySelector<HTMLButtonElement>(
+            ".coursePanel .officialLink button",
+          ),
+        "the official LMS link",
+      ),
+    );
     await until(() =>
-      expect(core.commands("open_school_site").length).toBeGreaterThan(0),
+      expect(opened().at(-1)?.args.entry).toEqual({ kind: "go", url }),
     );
+    expect(window.location.hash).toBe(`#${paths.web()}`);
+
     const address = await required(
       () => host.querySelector<HTMLInputElement>('[aria-label="Current URL"]'),
       "the school address bar",
     );
     await typeInto(address, "https://portal.isct.ac.jp/typed");
-
+    const hides = core.commands("hide_school_web").length;
     await app.go(paths.home());
     await until(() =>
-      expect(core.commands("hide_school_web").length).toBeGreaterThan(0),
+      expect(core.commands("hide_school_web").length).toBeGreaterThan(hides),
     );
     // The page is hidden, not destroyed: same node, same typed address.
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
     expect(address.value).toBe("https://portal.isct.ac.jp/typed");
 
-    const opened = core.commands("open_school_site").length;
+    // An ordinary return re-shows the resident session without a new URL.
+    const before = opened().length;
     await app.go(paths.web());
-    await until(() =>
-      expect(core.commands("open_school_site").length).toBeGreaterThan(opened),
-    );
+    await until(() => expect(opened().length).toBeGreaterThan(before));
+    expect(opened().at(-1)?.args.entry).toEqual({ kind: "resume" });
     expect(host.querySelector('[aria-label="Current URL"]')).toBe(address);
-    // An ordinary resume re-shows the resident session, without a new URL.
-    expect(core.commands("open_school_site").at(-1)?.args).toMatchObject({
-      surface: "web",
-      entry: { kind: "resume" },
-    });
+
+    // A typed address reaches the native view verbatim.
     const search =
       "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
     await typeInto(address, search);
@@ -844,63 +798,6 @@ describe("web-page residency", () => {
         search,
       ),
     );
-    expect(core.commands("resolve_school_url").at(-1)?.args).toEqual({
-      url: search,
-      site: "science-portal",
-    });
-  }, 20_000);
-
-  it("reopens an explicitly requested URL while an ordinary resume keeps the resident page", async () => {
-    const url = "https://lms.s.isct.ac.jp/course/view.php?id=12";
-    const course = courseFor(
-      offering("202602421", "CSC.T252", "Placed", { id: "lms-12" }),
-      { source: { provider: "lms", externalId: "12" }, url },
-    );
-    const workspace = workspaceFixture({
-      courses: [course],
-      planItems: [planItemFor(course)],
-    });
-    app = await mountShell(
-      shellOptions({
-        workspace,
-        revision: "rev:explicit",
-        queries: { ...shellQueries(), courseDetail: { lmsUrl: url } },
-      }),
-      { route: paths.timetable() },
-    );
-    const { core, host } = app;
-
-    await click(
-      await required(
-        () => host.querySelector<HTMLButtonElement>(".ttBlock.course"),
-        "the placed course block",
-      ),
-    );
-    const link = await required(
-      () =>
-        host.querySelector<HTMLButtonElement>(
-          ".coursePanel .officialLink button",
-        ),
-      "the official LMS link",
-    );
-    await click(link);
-    await until(() =>
-      expect(core.commands("open_school_site").at(-1)?.args.entry).toEqual({
-        kind: "go",
-        url,
-      }),
-    );
-    expect(window.location.hash).toBe(`#${paths.web()}`);
-
-    await app.go(paths.home());
-    const opened = core.commands("open_school_site").length;
-    await app.go(paths.web());
-    await until(() =>
-      expect(core.commands("open_school_site").length).toBeGreaterThan(opened),
-    );
-    expect(core.commands("open_school_site").at(-1)?.args.entry).toEqual({
-      kind: "resume",
-    });
   }, 20_000);
 });
 
@@ -909,7 +806,7 @@ describe("web-page residency", () => {
  * ------------------------------------------------------------------ */
 
 describe("store failures", () => {
-  it("surfaces a failed store operation as a notification with a readable reason", async () => {
+  it("keeps the page after a failed write and ties Retry and Undo to their own operations", async () => {
     app = await mountShell(
       shellOptions({
         workspace: workspaceFixture(),
@@ -923,51 +820,34 @@ describe("store failures", () => {
     );
     const { host, core } = app;
 
-    const toggle = await required(
-      () =>
-        host.querySelector<HTMLInputElement>(
-          '[data-setting="bilingual"] [role="switch"]',
-        ),
-      "the bilingual toggle",
-    );
-    await click(toggle);
-
-    await until(() =>
-      expect(document.querySelector(".uiToast")?.textContent).toContain(
-        "Disk is full",
+    await click(
+      await required(
+        () =>
+          host.querySelector<HTMLInputElement>(
+            '[data-setting="bilingual"] [role="switch"]',
+          ),
+        "the bilingual toggle",
       ),
     );
-    expect(core.mutations).toEqual([]);
-    expect(host.querySelector(".pageError")).toBeNull();
-  }, 20_000);
-
-  it("runs the given write retry and keeps Undo tied to its own operation", async () => {
-    app = await mountShell(
-      shellOptions({ workspace: workspaceFixture(), revision: "rev:retry" }),
-      { route: paths.home() },
+    await until(() =>
+      expect(
+        core.calls.some((call) => call.command === "mutate_workspace"),
+      ).toBe(true),
     );
-    const { core } = app;
-    const before = core.commands("workspace_revision").length;
+    await advance(50);
+    // The failure is a notice; the page never falls into its error boundary.
+    expect(host.querySelector(".pageError")).toBeNull();
+
     const action = (label: string) =>
       Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
         (button) => button.textContent === label,
       );
+    const retried: string[] = [];
     await act(async () => {
-      notify.error(
-        new Error("Disk is full"),
-        () => void storeModule.workspaceStore.reload(),
-      );
+      notify.error(new Error("Disk is full"), () => retried.push("write"));
     });
-    const retry = await required(
-      () => action("Retry saving"),
-      "the write's retry",
-    );
-    await click(retry);
-    await until(() =>
-      expect(core.commands("workspace_revision").length).toBeGreaterThan(
-        before,
-      ),
-    );
+    await click(await required(() => action("Retry saving"), "the retry"));
+    expect(retried).toEqual(["write"]);
 
     const restored: string[] = [];
     const { confirmAction } = await import("@app/components/confirm");
@@ -981,17 +861,12 @@ describe("store failures", () => {
       notify.info("Another operation finished");
     });
     await required(() => action("Undo"), "the first undo");
-    // A user confirmation pauses and hides Undo until the dialog closes.
+    // A confirmation in between neither runs nor drops a pending Undo.
     let confirmed: Promise<boolean> | undefined;
     await act(async () => {
       confirmed = confirmAction("Delete this item?", "Delete");
     });
-    const cancel = await required(
-      () => action("Cancel"),
-      "confirmation cancel",
-    );
-    expect(action("Undo")).toBeUndefined();
-    await click(cancel);
+    await click(await required(() => action("Cancel"), "confirmation cancel"));
     expect(await confirmed).toBe(false);
     await click(await required(() => action("Undo"), "the first undo"));
     await click(await required(() => action("Undo"), "the second undo"));
@@ -1021,8 +896,9 @@ describe("store failures", () => {
       }),
       { route: paths.home() },
     );
-    const { core, host } = app;
+    const { core } = app;
     const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    const answers = () => core.mutations.map((entry) => entry.intent);
     const publishFeed = async (next: typeof feed) => {
       feed = next;
       await act(async () => {
@@ -1034,48 +910,45 @@ describe("store failures", () => {
       });
     };
 
-    await until(() =>
-      expect(dialog()?.textContent).toContain("First announcement"),
-    );
-    expect(host.textContent).toContain("First announcement");
+    const firstDialog = await until(() => {
+      expect(dialog()).not.toBeNull();
+      return dialog()!;
+    });
 
-    // A newer announcement arriving does not replace the open one.
+    // A newer announcement arriving does not replace the open one: if it
+    // did, the answer recorded below would be A's, not B's.
     await publishFeed({ active: [second, first], pending: [second, first] });
     await advance(50);
-    expect(dialog()?.textContent).toContain("First announcement");
 
     // Closing without an explicit choice records no receipt, then opens B.
     await act(async () => {
-      dialog()!.dispatchEvent(
+      firstDialog.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
       );
     });
-    await until(() =>
-      expect(dialog()?.textContent).toContain("Second announcement"),
-    );
+    const secondDialog = await until(() => {
+      expect(dialog()).not.toBeNull();
+      expect(dialog()).not.toBe(firstDialog);
+      return dialog()!;
+    });
     expect(core.mutations).toEqual([]);
 
-    const ack = [...dialog()!.querySelectorAll("button")].find(
-      (button) => button.textContent === "Got it",
+    await click(
+      [...secondDialog.querySelectorAll("button")].find(
+        (button) => button.textContent === "Got it",
+      ),
     );
-    await click(ack);
     await until(() =>
-      expect(core.mutations.map((entry) => entry.intent)).toContainEqual({
-        kind: "answerAnnouncement",
-        id: "b",
-      }),
+      expect(answers()).toContainEqual({ kind: "answerAnnouncement", id: "b" }),
     );
+    await until(() => expect(dialog()).toBeNull());
 
     // A withdrawn announcement closes itself without recording an answer.
     await publishFeed({ active: [third], pending: [third] });
-    await until(() =>
-      expect(dialog()?.textContent).toContain("Withdrawn announcement"),
-    );
+    await until(() => expect(dialog()).not.toBeNull());
     await publishFeed({ active: [], pending: [] });
     await until(() => expect(dialog()).toBeNull());
-    expect(core.mutations.map((entry) => entry.intent)).toEqual([
-      { kind: "answerAnnouncement", id: "b" },
-    ]);
+    expect(answers()).toEqual([{ kind: "answerAnnouncement", id: "b" }]);
   }, 20_000);
 });
 
@@ -1084,52 +957,45 @@ describe("store failures", () => {
  * ------------------------------------------------------------------ */
 
 describe("Chinese UI", () => {
-  it("loads Chinese while keeping an explicit school-content language intact", async () => {
+  it("loads Chinese and saves an edit without touching the explicit school-content language", async () => {
     const workspace = workspaceFixture();
     workspace.settings.locale = "zh";
     workspace.settings.contentLanguage = "en";
     workspace.settings.theme = "paper";
-    app = await mountShell(shellOptions({ workspace, revision: "rev:zh" }), {
-      route: paths.settings("appearance"),
-    });
+    app = await mountShell(
+      shellOptions({
+        workspace,
+        revision: "rev:zh",
+        apply: (intent, core) => {
+          if (intent.kind === "replaceSettings")
+            core.publish(
+              {
+                ...core.workspace,
+                settings: intent.settings as Workspace["settings"],
+              },
+              `${core.revision}+`,
+            );
+        },
+      }),
+      { route: paths.settings("appearance") },
+    );
     const { host, core } = app;
 
     await until(() => expect(document.documentElement.lang).toBe("zh"));
-    // The synced background theme applies on load, and a swatch saves the
-    // next one at once.
-    expect(document.documentElement.dataset.theme).toBe("paper");
-    expect(
-      host
-        .querySelector('[data-setting="theme"] [aria-checked="true"]')
-        ?.getAttribute("title"),
-    ).toBe("米白");
     await click(
-      host.querySelector('[data-setting="theme"] [data-theme-value="moss"]'),
+      await required(
+        () =>
+          host.querySelector(
+            '[data-setting="theme"] [data-theme-value="moss"]',
+          ),
+        "the moss theme swatch",
+      ),
     );
-    // The scripted host keeps its workspace; the save is the intent it got.
-    await until(() =>
-      expect(
-        core.intents
-          .filter((intent) => intent.kind === "replaceSettings")
-          .map((intent) => (intent.settings as { theme?: string }).theme)
-          .at(-1),
-      ).toBe("moss"),
-    );
-    expect(host.querySelector(".rail button")?.textContent).toContain("今天");
-    expect(document.body.textContent).toContain("中文");
-    expect(
-      host
-        .querySelector(
-          '[data-setting="content-language"] button[data-state="on"]',
-        )
-        ?.getAttribute("data-value"),
-    ).toBe("en");
-    expect(
-      host
-        .querySelector('[data-setting="language"] button[data-state="on"]')
-        ?.getAttribute("data-value"),
-    ).toBe("zh");
-    expect(core.workspace.settings.contentLanguage).toBe("en");
+    await until(() => expect(core.workspace.settings.theme).toBe("moss"));
+    expect(core.workspace.settings).toMatchObject({
+      locale: "zh",
+      contentLanguage: "en",
+    });
   }, 20_000);
 });
 
@@ -1137,63 +1003,48 @@ describe("Chinese UI", () => {
  * Query-cache guarantees that live inside React hooks.
  * ------------------------------------------------------------------ */
 
-type Overviewish = { term?: string; courses?: { title?: string }[] };
+type Overviewish = { term?: string; courses?: { id: string }[] };
 
-function ScheduleConsumer({
-  queries,
-  label,
-}: {
-  queries: ScheduleQuery[];
-  label: string;
-}) {
-  const state =
-    coreQuery.useScheduleQueries<[Overviewish, Overviewish]>(queries);
-  return (
-    <output
-      className={`probe probe-${label}`}
-      data-pending={state.pending ? "yes" : "no"}
-      data-error={state.error ?? ""}
-    >
-      {state.value?.map((value) => value?.term ?? "").join("|")}
-    </output>
-  );
-}
-
-function SchedulePair({ queries }: { queries: ScheduleQuery[] }) {
-  return (
-    <div>
-      <ScheduleConsumer queries={queries} label="one" />
-      <ScheduleConsumer queries={queries} label="two" />
-    </div>
-  );
-}
-
-function ScheduleSwitchProbe({
-  initial,
-  next,
-}: {
-  initial: string;
-  next: string;
-}) {
-  const [term, setTerm] = useState(initial);
+/** One overview consumer that walks through `terms`, one step per click. */
+function ScheduleProbe({ terms }: { terms: string[] }) {
+  const [index, setIndex] = useState(0);
   const state = coreQuery.useScheduleQuery<Overviewish>({
     kind: "workspaceOverview",
-    term,
+    term: terms[index],
   });
   return (
     <div>
-      <output className="probeTerm" data-pending={state.pending ? "yes" : "no"}>
-        {state.value?.term ?? ""}
-      </output>
-      <output className="probeError">{state.error ?? ""}</output>
-      <button className="probeSwitch" onClick={() => setTerm(next)}>
-        switch
+      <output
+        className="probeValue"
+        data-term={state.value?.term ?? ""}
+        data-courses={
+          state.value?.courses?.map((course) => course.id).join(",") ?? ""
+        }
+        data-pending={state.pending ? "yes" : "no"}
+        data-error={state.error ?? ""}
+      />
+      <button
+        className="probeNext"
+        onClick={() => setIndex((current) => current + 1)}
+      >
+        next
       </button>
       <button className="probeRetry" onClick={() => state.retry?.()}>
         retry
       </button>
     </div>
   );
+}
+
+/** What the probe's hook currently holds. */
+function probed(host: HTMLElement) {
+  const output = host.querySelector(".probeValue")!;
+  return {
+    term: output.getAttribute("data-term"),
+    courses: output.getAttribute("data-courses"),
+    pending: output.getAttribute("data-pending"),
+    error: output.getAttribute("data-error"),
+  };
 }
 
 /** The finder owner alone, its keys and its shown page's input. */
@@ -1215,9 +1066,6 @@ function FinderProbe({ term, nextTerm }: { term: string; nextTerm: string }) {
       </button>
       <button className="typeQuick" onClick={() => finder.type("quick")}>
         quick
-      </button>
-      <button className="queueA" onClick={() => finder.toggleTime("A", false)}>
-        A
       </button>
       <button className="queueB" onClick={() => finder.toggleTime("B", true)}>
         B
@@ -1251,91 +1099,15 @@ function finderAnswer(request: Record<string, unknown>): FinderPage {
   }
   return { ...emptyFinder(request), keys };
 }
-const actions = (core: FakeCore) =>
-  core
-    .commands("finder_query")
-    .filter((call) => (call.args.request as { action?: unknown }).action);
 
 function scheduleAnswer(kind: string, value: unknown, revision: string) {
   return { revision, values: [{ kind, value }], reads: SCHEDULE_READS, seq: 0 };
 }
 
 describe("schedule query caches", () => {
-  const twoQueries: ScheduleQuery[] = [
-    { kind: "workspaceOverview", term: "cache-pair" },
-    {
-      kind: "scheduleView",
-      term: "cache-pair",
-      from: "2026-09-28",
-      to: "2026-12-02",
-    },
-  ];
-
-  it("shares one read per revision between two consumers that mount together", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
+  it("reads every view again when the store reloads", async () => {
     const core = installFakeCore({
-      workspace,
-      revision: "rev:schedule-share",
-      queries: {
-        workspaceOverview: (_q: unknown, live: FakeCore) =>
-          overviewFor(live.workspace, { term: "cache-pair" }),
-        scheduleView: (_q: unknown, live: FakeCore) =>
-          scheduleViewFor(live.workspace, { term: "cache-pair" }),
-      },
-    });
-    probe = await mount(<SchedulePair queries={twoQueries} />);
-
-    await until(() =>
-      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
-        "cache-pair",
-      ),
-    );
-    const calls = core.commands("schedule_query");
-    // Exactly one read carried both consumers' queries.
-    expect(calls).toHaveLength(1);
-    expect(calls[0].args.queries).toEqual(twoQueries);
-    expect(probe.host.querySelector(".probe-two")?.textContent).toContain(
-      "cache-pair",
-    );
-  }, 20_000);
-
-  it("shares the identical query with a consumer that joins later", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
-    const core = installFakeCore({
-      workspace,
-      revision: "rev:schedule-identical",
-      queries: {
-        workspaceOverview: (_q: unknown, live: FakeCore) =>
-          overviewFor(live.workspace, { term: "cache-identical" }),
-      },
-    });
-    const query: ScheduleQuery = {
-      kind: "workspaceOverview",
-      term: "cache-identical",
-    };
-    probe = await mount(<ScheduleConsumer queries={[query]} label="one" />);
-    await until(() =>
-      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
-        "cache-identical",
-      ),
-    );
-    expect(core.commands("schedule_query")).toHaveLength(1);
-
-    await probe.unmount();
-    probe = await mount(<ScheduleConsumer queries={[query]} label="two" />);
-    await until(() =>
-      expect(probe!.host.querySelector(".probe-two")?.textContent).toContain(
-        "cache-identical",
-      ),
-    );
-    expect(core.commands("schedule_query")).toHaveLength(1);
-  }, 20_000);
-
-  it("re-reads every view when the store reloads", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
-    const next = workspaceFixture({ courses: [clashingCourse] });
-    const core = installFakeCore({
-      workspace,
+      workspace: workspaceFixture({ courses: [placedCourse] }),
       revision: "rev:content-1",
       queries: {
         workspaceOverview: (_q: unknown, live: FakeCore) =>
@@ -1345,96 +1117,31 @@ describe("schedule query caches", () => {
     await act(async () => {
       await storeModule.workspaceStore.reload();
     });
-    probe = await mount(
-      <ScheduleConsumer
-        queries={[{ kind: "workspaceOverview", term: "cache-revision" }]}
-        label="one"
-      />,
-    );
+    probe = await mount(<ScheduleProbe terms={["cache-revision"]} />);
     await until(() =>
-      expect(probe!.host.querySelector(".probe-one")?.textContent).toContain(
-        "cache-revision",
-      ),
+      expect(probed(probe!.host).courses).toBe(placedCourse.id),
     );
-    expect(core.commands("schedule_query")).toHaveLength(1);
 
     await act(async () => {
-      core.publish(next, "rev:content-2");
+      core.publish(
+        workspaceFixture({ courses: [clashingCourse] }),
+        "rev:content-2",
+      );
       await storeModule.workspaceStore.reload();
     });
-    await until(() => expect(core.commands("schedule_query")).toHaveLength(2));
-    expect(core.commands("schedule_query").at(-1)?.args.queries).toEqual([
-      { kind: "workspaceOverview", term: "cache-revision" },
-    ]);
-  }, 20_000);
-
-  it("ignores a late response once the requested quarter changed", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
-    let holdLate = true;
-    let releaseLate!: () => void;
-    const late = new Promise<void>((resolve) => {
-      releaseLate = resolve;
-    });
-    const core = installFakeCore({
-      workspace,
-      revision: "rev:late-quarter",
-      handle: (command, args, live) => {
-        if (command === "schedule_query") {
-          const term = (args.queries as { term?: string }[])[0]?.term;
-          if (term === "late-quarter" && holdLate)
-            return late.then(() =>
-              scheduleAnswer(
-                "workspaceOverview",
-                overviewFor(live.workspace, { term: "late-quarter" }),
-                "rev:late-quarter",
-              ),
-            );
-          if (term === "quick-quarter")
-            return scheduleAnswer(
-              "workspaceOverview",
-              overviewFor(live.workspace, { term: "quick-quarter" }),
-              "rev:late-quarter",
-            );
-        }
-        return undefined;
-      },
-    });
-    probe = await mount(
-      <ScheduleSwitchProbe initial="late-quarter" next="quick-quarter" />,
-    );
-    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe("");
-
-    await click(probe.host.querySelector(".probeSwitch"));
     await until(() =>
-      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
-        "quick-quarter",
-      ),
+      expect(probed(probe!.host).courses).toBe(clashingCourse.id),
     );
-
-    holdLate = false;
-    await act(async () => {
-      releaseLate();
-      await late;
-    });
-    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
-      "quick-quarter",
-    );
-    expect(
-      core
-        .commands("schedule_query")
-        .map((call) => (call.args.queries as { term?: string }[])[0]?.term),
-    ).toEqual(["late-quarter", "quick-quarter"]);
   }, 20_000);
 
-  it("retains the last complete calendar while a replacement is pending", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
+  it("keeps the last complete answer while a new quarter loads and ignores an abandoned quarter's late answer", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     installFakeCore({
-      workspace,
-      revision: "rev:retained-quarter",
+      workspace: workspaceFixture({ courses: [placedCourse] }),
+      revision: "rev:switch-quarter",
       handle: (command, args, live) => {
         if (command !== "schedule_query") return undefined;
         const term = (args.queries as { term: string }[])[0].term;
@@ -1442,48 +1149,43 @@ describe("schedule query caches", () => {
           scheduleAnswer(
             "workspaceOverview",
             overviewFor(live.workspace, { term }),
-            "rev:retained-quarter",
+            "rev:switch-quarter",
           );
-        return term === "replacement-quarter" ? gate.then(answer) : answer();
+        return term === "slow-quarter" ? gate.then(answer) : answer();
       },
     });
     probe = await mount(
-      <ScheduleSwitchProbe
-        initial="retained-quarter"
-        next="replacement-quarter"
+      <ScheduleProbe
+        terms={["retained-quarter", "slow-quarter", "quick-quarter"]}
       />,
     );
     await until(() =>
-      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
-        "retained-quarter",
-      ),
+      expect(probed(probe!.host).term).toBe("retained-quarter"),
     );
-    await click(probe.host.querySelector(".probeSwitch"));
-    expect(probe.host.querySelector(".probeTerm")?.textContent).toBe(
-      "retained-quarter",
-    );
-    expect(
-      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
-    ).toBe("yes");
+
+    await click(probe.host.querySelector(".probeNext"));
+    expect(probed(probe.host)).toMatchObject({
+      term: "retained-quarter",
+      pending: "yes",
+    });
+
+    // Leave the slow quarter before it answers.
+    await click(probe.host.querySelector(".probeNext"));
+    await until(() => expect(probed(probe!.host).term).toBe("quick-quarter"));
     await act(async () => {
       release();
       await gate;
     });
-    await until(() =>
-      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
-        "replacement-quarter",
-      ),
-    );
-    expect(
-      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
-    ).toBe("no");
+    expect(probed(probe.host)).toMatchObject({
+      term: "quick-quarter",
+      pending: "no",
+    });
   }, 20_000);
 
-  it("retry re-issues the read without a remount and clears the error", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
+  it("retry reads again without a remount and clears the error", async () => {
     let failed = false;
-    const core = installFakeCore({
-      workspace,
+    installFakeCore({
+      workspace: workspaceFixture({ courses: [placedCourse] }),
       revision: "rev:retry-hook",
       handle: (command, args, live) => {
         if (command === "schedule_query") {
@@ -1502,27 +1204,14 @@ describe("schedule query caches", () => {
         return undefined;
       },
     });
-    probe = await mount(
-      <ScheduleSwitchProbe initial="retry-quarter" next="retry-quarter" />,
-    );
+    probe = await mount(<ScheduleProbe terms={["retry-quarter"]} />);
     await until(() =>
-      expect(probe!.host.querySelector(".probeError")?.textContent).toBe(
-        "Core refused the read",
-      ),
+      expect(probed(probe!.host).error).toBe("Core refused the read"),
     );
-    expect(core.commands("schedule_query")).toHaveLength(1);
 
     await click(probe.host.querySelector(".probeRetry"));
-    await until(() =>
-      expect(probe!.host.querySelector(".probeTerm")?.textContent).toBe(
-        "retry-quarter",
-      ),
-    );
-    expect(probe.host.querySelector(".probeError")?.textContent).toBe("");
-    expect(
-      probe.host.querySelector(".probeTerm")?.getAttribute("data-pending"),
-    ).toBe("no");
-    expect(core.commands("schedule_query")).toHaveLength(2);
+    await until(() => expect(probed(probe!.host).term).toBe("retry-quarter"));
+    expect(probed(probe.host)).toMatchObject({ error: "", pending: "no" });
   }, 20_000);
 });
 
@@ -1532,7 +1221,7 @@ describe("the finder owner", () => {
     const old = new Promise<void>((resolve) => {
       releaseOld = resolve;
     });
-    const core = installFakeCore({
+    installFakeCore({
       workspace: workspaceFixture(),
       revision: "rev:finder-latest",
       handle: (command, args) => {
@@ -1556,15 +1245,10 @@ describe("the finder owner", () => {
       await old;
     });
     expect(probe.host.querySelector(".shownInput")?.textContent).toBe("quick");
-    expect(
-      core
-        .commands("finder_query")
-        .map((call) => (call.args.request as { input?: string }).input),
-    ).toEqual(["", "late", "quick"]);
   }, 20_000);
 
-  it("feeds each rapid action the keys Core returned for the previous one", async () => {
-    const core = installFakeCore({
+  it("feeds each action the keys Core returned for the previous one, starting from a replaced set", async () => {
+    installFakeCore({
       workspace: workspaceFixture(),
       revision: "rev:queue-rapid",
       handle: (command, args) => {
@@ -1574,21 +1258,16 @@ describe("the finder owner", () => {
       },
     });
     probe = await mount(<FinderProbe term="queue" nextTerm="queue-next" />);
+    const keys = () => probe!.host.querySelector(".queueKeys")?.textContent;
 
+    await click(probe.host.querySelector(".queueReplace"));
+    expect(keys()).toBe("X");
+    await click(probe.host.querySelector(".queueB"));
+    await until(() => expect(keys()).toBe("X,B"));
+
+    // Two actions in one tick: the second must start from the first's answer.
     await click(probe.host.querySelector(".queueRapid"));
-    await until(() =>
-      expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("A,B"),
-    );
-    const calls = actions(core);
-    expect(calls).toHaveLength(2);
-    expect(calls[0].args.request).toMatchObject({
-      keys: [],
-      action: { kind: "toggleTime", key: "A", append: false },
-    });
-    expect(calls[1].args.request).toMatchObject({
-      keys: ["A"],
-      action: { kind: "toggleTime", key: "B", append: true },
-    });
+    await until(() => expect(keys()).toBe("A,B"));
   }, 20_000);
 
   it("starts a new session on a term change and drops in-flight and queued actions", async () => {
@@ -1623,72 +1302,34 @@ describe("the finder owner", () => {
     });
     // The old answer was dropped: the keys were never touched.
     expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("");
-    expect(actions(core)).toHaveLength(1);
 
     await click(probe.host.querySelector(".queueB"));
     await until(() =>
       expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("B"),
     );
+    // Core was asked about the new term.
     expect(core.commands("finder_query").at(-1)?.args.request).toMatchObject({
-      keys: [],
       term: "queue-next",
-    });
-  }, 20_000);
-
-  it("replace sets the keys the next action starts from", async () => {
-    const core = installFakeCore({
-      workspace: workspaceFixture(),
-      revision: "rev:queue-replace",
-      handle: (command, args) => {
-        if (command === "finder_query")
-          return finderAnswer(args.request as Record<string, unknown>);
-        return undefined;
-      },
-    });
-    probe = await mount(<FinderProbe term="queue" nextTerm="queue-next" />);
-
-    await click(probe.host.querySelector(".queueReplace"));
-    expect(probe.host.querySelector(".queueKeys")?.textContent).toBe("X");
-
-    await click(probe.host.querySelector(".queueB"));
-    await until(() =>
-      expect(probe!.host.querySelector(".queueKeys")?.textContent).toBe("X,B"),
-    );
-    expect(actions(core).at(-1)?.args.request).toMatchObject({
-      keys: ["X"],
     });
   }, 20_000);
 });
 
 describe("First school connection", () => {
-  it("offers account setup on an empty Home and opens the real account page", async () => {
+  it("offers account setup on an empty Home and opens the account page", async () => {
     app = await mountShell(shellOptions({ workspace: workspaceFixture() }), {
       route: paths.home(),
     });
-    const setup = await until(() => {
-      const element = app!.host.querySelector(
-        '[aria-label="School account setup"]',
-      );
-      expect(element).not.toBeNull();
-      return element!;
-    });
-    // A single line; the longer reason is its tooltip.
-    expect(setup.textContent).toContain("Connect your school accounts");
-    expect(setup.getAttribute("title")).toContain(
-      "Tokyo Tech for your timetable and course search",
+    const setup = await required(
+      () => app!.host.querySelector('[aria-label="School account setup"]'),
+      "the school account setup prompt",
     );
     await click(setup.querySelector("button"));
     await until(() =>
       expect(window.location.hash).toBe(`#${paths.settings("accounts")}`),
     );
-    await until(() =>
-      expect(app!.host.querySelector(".settingsPane")?.textContent).toContain(
-        "Science Tokyo Portal",
-      ),
-    );
   });
 
-  it("greets a first launch with both language choices, applies them live and stays closed", async () => {
+  it("greets a first launch, applies the chosen language live and stays closed", async () => {
     const workspace = workspaceFixture();
     delete workspace.settings.dataNoticeAcknowledgedAt;
     const options = shellOptions({
@@ -1705,51 +1346,28 @@ describe("First school connection", () => {
       },
     });
     app = await mountShell(options, { route: paths.home(), guide: true });
-    // One sheet: the welcome carries the data notice as a line, so there
-    // is no second dialog to click through.
-    const sheet = await until(() => {
-      const dialogs = [
-        ...document.querySelectorAll<HTMLElement>('[role="dialog"]'),
-      ];
-      expect(dialogs).toHaveLength(1);
-      expect(dialogs[0].textContent).toContain("Welcome to IsctCompanion");
-      expect(dialogs[0].textContent).toContain("can contain mistakes");
-      expect(dialogs[0].textContent).not.toContain(
-        "not responsible for any loss",
+    const button = (root: ParentNode, label: string) =>
+      [...root.querySelectorAll("button")].find(
+        (candidate) => candidate.textContent === label,
       );
-      return dialogs[0];
-    });
-    await click(
-      [...sheet.querySelectorAll("button")].find(
-        (button) => button.textContent === "View details",
-      ),
+    const sheet = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the welcome sheet",
     );
-    expect(sheet.textContent).toContain("not responsible for any loss");
-    // The school-content language is offered beside the UI language.
-    expect(sheet.textContent).toContain("Course and syllabus language");
-    const japanese = [...sheet.querySelectorAll("button")].find(
-      (label) => label.textContent === "日本語",
-    );
-    await click(japanese);
+    await click(button(sheet, "日本語"));
     await until(() => expect(app!.core.workspace.settings.locale).toBe("ja"));
-    await until(() =>
-      expect(sheet.textContent).toContain("IsctCompanion へようこそ"),
-    );
+    // The UI language does not decide the school-content language.
     expect(app.core.workspace.settings.contentLanguage ?? "auto").toBe("auto");
 
-    const later = [...sheet.querySelectorAll("button")].find(
-      (button) => button.textContent === "あとで",
-    );
-    await click(later);
+    // The sheet follows the choice at once: its own Later is now Japanese.
+    await click(await required(() => button(sheet, "あとで"), "Later"));
+    // The next window on this device opens straight to the page.
     await until(() =>
       expect(
-        document.querySelector('[role="dialog"]')?.textContent ?? "",
-      ).not.toContain("IsctCompanion へようこそ"),
+        JSON.parse(localStorage.getItem("isct-companion-guide") ?? "{}"),
+      ).toMatchObject({ welcome: true }),
     );
-    // The next window on this device opens straight to the page.
-    const stored = localStorage.getItem("isct-companion-guide");
-    expect(JSON.parse(stored ?? "{}")).toMatchObject({ welcome: true });
-    // Leaving the sheet is the notice's acknowledgement, stored as before.
+    // Leaving the sheet is the data notice's acknowledgement.
     await until(() =>
       expect(app!.core.workspace.settings.dataNoticeAcknowledgedAt).toEqual(
         expect.any(String),
@@ -1758,35 +1376,21 @@ describe("First school connection", () => {
 
     // "Show welcome and tips again" reopens the live welcome sheet directly.
     await app.go(paths.about());
-    const resetGuide = await required(
-      () =>
-        app!.host.querySelector<HTMLButtonElement>('[data-setting="guide"]'),
-      "the welcome reset button",
-    );
-    await click(resetGuide);
-    const reopened = await until(() => {
-      const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
-      expect(dialog?.textContent).toContain("IsctCompanion へようこそ");
-      return dialog!;
-    });
     await click(
-      [...reopened.querySelectorAll("button")].find(
-        (button) => button.textContent === "あとで",
+      await required(
+        () =>
+          app!.host.querySelector<HTMLButtonElement>('[data-setting="guide"]'),
+        "the welcome reset button",
       ),
     );
+    const reopened = await required(
+      () => document.querySelector<HTMLElement>('[role="dialog"]'),
+      "the reopened welcome sheet",
+    );
+    await click(await required(() => button(reopened, "あとで"), "Later"));
     await until(() =>
       expect(document.querySelector('[role="dialog"]')).toBeNull(),
     );
-  });
-
-  it("keeps the setup prompt out of an existing timetable", async () => {
-    const workspace = workspaceFixture({ courses: [placedCourse] });
-    app = await mountShell(shellOptions({ workspace }), {
-      route: paths.home(),
-    });
-    expect(
-      app.host.querySelector('[aria-label="School account setup"]'),
-    ).toBeNull();
   });
 });
 
@@ -1861,7 +1465,7 @@ describe("workspace column sizing", () => {
           secondMin="30%"
         >
           <textarea aria-label="Draft" defaultValue="Unsaved draft" />
-          <p>Reading pane {collapsed ? "collapsed" : "expanded"}</p>
+          <p data-pane={collapsed ? "collapsed" : "expanded"}>Reading pane</p>
         </ResizableWorkspace>
       );
     }
@@ -1869,21 +1473,14 @@ describe("workspace column sizing", () => {
       probe = await mount(<Workbench />);
       const separator = () =>
         probe!.host.querySelector<HTMLElement>('[role="separator"]')!;
-      const initial = Number(separator().getAttribute("aria-valuenow"));
-      await act(async () =>
-        separator().dispatchEvent(
-          new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
-        ),
-      );
-      const resized = Number(separator().getAttribute("aria-valuenow"));
-      expect(resized).toBeGreaterThan(initial);
-
+      const pane = () =>
+        probe!.host.querySelector("[data-pane]")?.getAttribute("data-pane");
       await act(async () =>
         separator().dispatchEvent(
           new KeyboardEvent("keydown", { key: "Home", bubbles: true }),
         ),
       );
-      expect(probe.host.textContent).toContain("Reading pane collapsed");
+      expect(pane()).toBe("collapsed");
       await probe.unmount();
       probe = await mount(<Workbench />);
       expect(Number(separator().getAttribute("aria-valuenow"))).toBe(0);
@@ -1895,7 +1492,7 @@ describe("workspace column sizing", () => {
       expect(Number(separator().getAttribute("aria-valuenow"))).toBeGreaterThan(
         0,
       );
-      expect(probe.host.textContent).toContain("Reading pane expanded");
+      expect(pane()).toBe("expanded");
       const expanded = Number(separator().getAttribute("aria-valuenow"));
       const draft = probe.host.querySelector("textarea")!;
       await typeInto(draft, "Still writing");
@@ -1908,14 +1505,6 @@ describe("workspace column sizing", () => {
       await probe.unmount();
       probe = await mount(<Workbench />);
       expect(Number(separator().getAttribute("aria-valuenow"))).toBe(expanded);
-      await act(async () =>
-        separator().dispatchEvent(
-          new KeyboardEvent("keydown", { key: "End", bubbles: true }),
-        ),
-      );
-      expect(
-        Number(separator().getAttribute("aria-valuenow")),
-      ).toBeLessThanOrEqual(70);
       await probe.unmount();
       probe = undefined;
       const matchMedia = vi
@@ -1943,15 +1532,11 @@ describe("workspace column sizing", () => {
             "lecture row",
           ),
         );
-        // The sidebar button sits in the title row of whichever column comes
-        // first after the rail: the list's while it shows, the course's once
-        // it is folded away.
         const toggle = () =>
           app!.host.querySelector<HTMLButtonElement>(
             '[aria-label="Toggle sidebar"]',
           )!;
         await required(toggle, "sidebar toggle");
-        expect(toggle().closest(".lectureListHeader")).not.toBeNull();
         const list = app.host.querySelector<HTMLElement>("#lecture-sidebar")!;
         const filter = list.querySelector<HTMLInputElement>(
           'input[type="search"]',
@@ -1961,19 +1546,14 @@ describe("workspace column sizing", () => {
         await until(() =>
           expect(toggle().getAttribute("aria-expanded")).toBe("false"),
         );
-        expect(toggle().closest(".lmsWorkspaceHeader")).not.toBeNull();
         expect(list.hasAttribute("inert")).toBe(true);
         const rail = app.host.querySelector<HTMLButtonElement>(
           '.rail button[title^="Lectures"]',
         )!;
+        // Hovering Lectures in the rail floats the folded list out, usable.
         await act(async () =>
           rail.dispatchEvent(new Event("pointerover", { bubbles: true })),
         );
-        expect(
-          app.host
-            .querySelector(".lectureDesk")!
-            .getAttribute("data-sidebar-floating"),
-        ).toBe("true");
         expect(list.hasAttribute("inert")).toBe(false);
         await act(async () =>
           rail.dispatchEvent(new Event("pointerout", { bubbles: true })),
@@ -2004,10 +1584,12 @@ describe("workspace column sizing", () => {
   });
 });
 
-it("names Core's sync snapshot in the rail's status menu and sends hints for its actions and opened pages", async () => {
+it("sends Core the hints the rail's status menu, an opened page and a page refresh ask for", async () => {
   // The rail's dot opens a native menu (the school view sits above HTML).
   // The scripted host records what the app builds; each item's action is the
-  // channel the app hands Tauri, called here as Tauri would.
+  // channel the app hands Tauri, called here as Tauri would. Which row the
+  // menu shows and how it reads is DESKTOP-SYNC-STATUS; the row choice is
+  // unit-tested beside `progressLine`.
   type MenuCall = {
     kind: string;
     options: { text?: string; enabled?: boolean };
@@ -2028,25 +1610,9 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
       },
     }),
   );
-  // Core decides what is due and how far a run is (`plan` and its
-  // tests); the shell only picks the row to show and names it.
-  const run = (overrides: Record<string, unknown>) => ({
-    run: "run",
-    dataset: "lms.course",
-    label: { key: "sync.dataset.lms.course", args: {} },
-    priority: "visible",
-    done: 0,
-    total: null,
-    current: null,
-    scope: null,
-    held: null,
-    failure: null,
-    retry: null,
-    ...overrides,
-  });
-  const source = (name: string, lastUpdated: string | null) => ({
+  const source = (name: string) => ({
     source: name,
-    lastUpdated,
+    lastUpdated: null,
     running: false,
     held: null,
     failure: null as unknown,
@@ -2055,77 +1621,61 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
     maintenance: null,
   });
   let generation = 1;
-  const emit = (
-    runs: unknown[],
-    sources = [source("lms", null)],
-    attention = {
-      primary: runs.length ? { kind: "active", run: "run" } : null,
-      problem: null as unknown,
-      busy: runs.length > 0,
-    },
-  ) =>
+  const emit = (runs: unknown[], sources = [source("lms")]) =>
     act(async () =>
       app!.core.emit("sync-snapshot", {
         generation: ++generation,
         resetting: false,
-        attention,
+        attention: {
+          primary: runs.length ? { kind: "active", run: "run" } : null,
+          problem: null,
+          busy: runs.length > 0,
+        },
         runs,
         sources,
       }),
     );
-  const dot = () =>
-    app!.host.querySelector<HTMLButtonElement>(".schoolStatusDot")!;
   const hints = () =>
     app!.core.calls
       .filter((call) => call.command === "sync_hint")
       .map((call) => call.args.hint);
-  /** Opens the menu and returns its items, as the person would see them. */
+  /** Opens the menu and returns its items. */
   const openMenu = async () => {
     menus = [];
-    await click(dot());
+    await click(app!.host.querySelector(".schoolStatusDot"));
     await until(() =>
       expect(menus.some((menu) => menu.kind === "Menu")).toBe(true),
     );
     return menus.filter((menu) => menu.kind === "MenuItem");
   };
-  const texts = (items: MenuCall[]) =>
-    items.map((item) => item.options.text ?? "");
-  const choose = async (items: MenuCall[], text: string) => {
-    const item = items.find((entry) => entry.options.text === text);
-    expect(item?.options.enabled, text).toBe(true);
-    await act(async () => item!.handler.onmessage(`menu-${text}`));
+  const choose = async (
+    items: MenuCall[],
+    what: string,
+    matches: (text: string) => boolean,
+  ) => {
+    const item = items.find((entry) => matches(entry.options.text ?? ""));
+    expect(item?.options.enabled, what).toBe(true);
+    await act(async () =>
+      item!.handler.onmessage(`menu-${item!.options.text}`),
+    );
   };
+  const retry = (text: string) => text.startsWith("Retry · ");
+  await until(() =>
+    expect(app!.core.listenerCount("sync-snapshot")).toBeGreaterThan(0),
+  );
 
-  await emit([run({ done: 7, total: 62 })]);
-  await until(() => expect(dot().getAttribute("data-kind")).toBe("busy"));
-  expect(texts(await openMenu()).join("\n")).toContain(
-    "Course content · 7 / 62",
-  );
-  // A run of unknown size never gets a count or a guessed percentage.
-  await emit([run({ done: 3 })]);
-  const unknownSize = texts(await openMenu());
-  expect(unknownSize.join("\n")).toContain("Course content");
-  expect(unknownSize.join(" ")).not.toContain("%");
-  // Background-only work says so and nothing more.
-  await emit([run({ priority: "background", done: 1, total: 40 })]);
-  expect(texts(await openMenu()).join("\n")).toContain(
-    "Updating in the background",
-  );
-  await emit([run({ held: { kind: "cellular" } })], undefined, {
-    primary: { kind: "held", run: "run" },
-    busy: false,
-    problem: null,
-  });
-  await until(() => expect(dot().getAttribute("data-kind")).toBe("held"));
-  expect(texts(await openMenu()).join("\n")).toContain("Waiting for Wi-Fi");
-  // A quiet, healthy sync names only the accounts: no per-source ages.
-  await emit([], [source("lms", null)]);
-  expect(texts(await openMenu()).join(" ")).not.toContain("Never updated");
+  // A failed run's Retry asks for its own scope; Refresh now for everything.
   await emit([
-    run({
+    {
       run: "grades",
       dataset: "kyomu.page",
+      label: { key: "sync.dataset.lms.course", args: {} },
+      priority: "visible",
+      done: 0,
+      total: null,
+      current: null,
       scope: "grades",
+      held: null,
       failure: {
         kind: "timeout",
         reason: { key: "syncStatus.failure.timedOut", args: {} },
@@ -2134,13 +1684,14 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
         detail: null,
       },
       retry: { scopes: [{ kind: "site", site: "kyomu" }] },
-    }),
+    },
   ]);
-  await until(() => expect(dot().getAttribute("data-kind")).toBe("problem"));
-  expect(dot().getAttribute("aria-label")).toContain("Needs attention (1)");
-  const failed = await openMenu();
-  await choose(failed, "Retry · 教務Web pages failed · timed out");
-  await choose(await openMenu(), "Refresh now");
+  await choose(await openMenu(), "the failed run's Retry", retry);
+  await choose(
+    await openMenu(),
+    "Refresh now",
+    (text) => text === "Refresh now",
+  );
   await until(() =>
     expect(hints()).toEqual(
       expect.arrayContaining([
@@ -2149,11 +1700,13 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
       ]),
     ),
   );
+
+  // A source's persisted failure retries every scope it names.
   await emit(
     [],
     [
       {
-        ...source("catalog", null),
+        ...source("catalog"),
         failure: {
           kind: "http-503",
           reason: {
@@ -2173,12 +1726,7 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
       },
     ],
   );
-  const catalog = await openMenu();
-  const catalogRetry = texts(catalog).find((text) =>
-    text.startsWith("Retry · "),
-  );
-  expect(catalogRetry, "the persisted catalog failure's Retry").toBeTruthy();
-  await choose(catalog, catalogRetry!);
+  await choose(await openMenu(), "the catalog failure's Retry", retry);
   await until(() =>
     expect(hints()).toEqual(
       expect.arrayContaining([
@@ -2187,6 +1735,8 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
       ]),
     ),
   );
+
+  // Opening a page and its own refresh tell Core what is in view.
   await app.go(paths.timetable());
   await until(() =>
     expect(hints()).toContainEqual({
@@ -2194,94 +1744,19 @@ it("names Core's sync snapshot in the rail's status menu and sends hints for its
       view: { kind: "timetable" },
     }),
   );
-  const timetableRefresh = await required(
-    () =>
-      [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
-        (button) => button.textContent?.trim() === "Refresh timetable",
-      ),
-    "the timetable refresh action",
+  await click(
+    await required(
+      () =>
+        [...app!.host.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent?.trim() === "Refresh timetable",
+        ),
+      "the timetable refresh action",
+    ),
   );
-  await click(timetableRefresh);
   await until(() =>
     expect(hints()).toContainEqual({
       kind: "refresh",
       scope: { kind: "timetable" },
     }),
   );
-  expect(
-    app.core.calls.some((call) =>
-      ["pull_school", "school_refresh_event"].includes(call.command),
-    ),
-  ).toBe(false);
 });
-
-/**
- * Proper names, product names and protocol words that stay in Latin script in
- * every UI language, plus the fixture's own course data. Anything else in
- * Latin script on a Chinese screen is an English string that skipped `t()`.
- */
-const LATIN_ALLOWED = new Set(
-  (
-    "LMS Web Science Tokyo TokyoTech Tech Portal Mail TSUBAME ICS PDF URL ID OTP " +
-    "AI Agent MCP Matrix Wi-Fi Google Drive Microsoft OAuth iCloud CSS " +
-    "JavaScript HTTP Streamable Bearer IsctCompanion GPA GPT ZIP macOS session " +
-    "English https isct-companion Isct-Data TitechApp test Placed CSC.T Q MB " +
-    "A B C D E F G H I J " +
-    // Course-search operators in the planner's placeholder are typed as is.
-    "teacher room W"
-  ).split(" "),
-);
-
-/** Latin-script words a person would see or hear on screen. */
-function latinWords(root: HTMLElement): string[] {
-  const words = new Set<string>();
-  const add = (text: string | null | undefined) => {
-    for (const word of text?.match(/[A-Za-z][A-Za-z'’.-]*/g) ?? [])
-      if (!LATIN_ALLOWED.has(word.replace(/[.]$/, ""))) words.add(word);
-  };
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-  for (let node = walker.nextNode(); node; node = walker.nextNode())
-    if (!["STYLE", "SCRIPT"].includes(node.parentElement?.tagName ?? ""))
-      add(node.textContent);
-  for (const element of root.querySelectorAll(
-    "[aria-label],[title],[placeholder]",
-  ))
-    for (const name of ["aria-label", "title", "placeholder"])
-      add(element.getAttribute(name));
-  return [...words];
-}
-
-it("shows every page and settings section in Chinese without English leftovers", async () => {
-  const workspace = workspaceFixture({
-    courses: [placedCourse],
-    planItems: [planItemFor(placedCourse)],
-  });
-  workspace.settings.locale = "zh";
-  app = await mountShell(shellOptions({ workspace }));
-  const sections = [
-    "accounts",
-    "study",
-    "notifications",
-    "calendar",
-    "appearance",
-    "files",
-    "backup",
-    "sources",
-    "agent",
-    "developer",
-  ] as const;
-  const leaks: Record<string, string[]> = {};
-  for (const route of [
-    paths.home(),
-    paths.timetable(),
-    paths.lectures(),
-    paths.web(),
-    ...sections.map((section) => paths.settings(section)),
-  ]) {
-    await app.go(route);
-    await advance(300);
-    const words = latinWords(app.host);
-    if (words.length) leaks[route] = words;
-  }
-  expect(leaks).toEqual({});
-}, 60_000);

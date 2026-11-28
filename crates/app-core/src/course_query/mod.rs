@@ -301,8 +301,8 @@ fn page(
     request: FinderRequest,
     (catalog_version, content_revision): (u64, &str),
 ) -> Result<FinderPage, FinderError> {
-    let departments = SyllabusDepartment::all()?
-        .into_iter()
+    let departments = SyllabusDepartment::all()
+        .iter()
         .map(|department| department.shown(catalog.language))
         .collect();
     let ctx = FinderContext {

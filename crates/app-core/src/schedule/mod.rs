@@ -994,10 +994,7 @@ fn workspace_overview(
         .pointer("/settings/departmentId")
         .and_then(Value::as_str);
     let department_name = department_id
-        .map(crate::course_query::department_name_ja)
-        .transpose()
-        .map_err(|error| ScheduleError::Compatibility(error.to_string()))?
-        .flatten();
+        .and_then(crate::course_query::department_name_ja);
     if let Some(name) = department_name {
         if !name.is_empty() {
             default_finder_keys.push(name);

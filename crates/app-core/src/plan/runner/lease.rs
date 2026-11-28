@@ -11,9 +11,12 @@ use chrono::{DateTime, Utc};
 use rusqlite::Transaction;
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
-use tokio::sync::watch;
+use tokio::sync::{watch, Notify};
 use tokio_util::sync::CancellationToken;
 
 // -- Commit gate --------------------------------------------------------------
@@ -22,8 +25,8 @@ use tokio_util::sync::CancellationToken;
 struct GateState {
     generation: u64,
     committing: usize,
-    /// Moves when an LMS write starts on a key's resource; a lease taken
-    /// before it never commits (`PlanEngine::bump_resource`).
+    /// Moves when an LMS write starts on a key's resource, or when the person
+    /// leaves the in-app 教務 page; a lease taken before it never commits.
     resources: HashMap<Key, u64>,
 }
 
@@ -61,31 +64,31 @@ impl Gate {
         guard(&self.state).resources.get(key).copied().unwrap_or(0)
     }
 
-    #[cfg_attr(not(feature = "agent"), allow(dead_code))]
-    pub(super) fn bump_resource(&self, key: &Key) -> u64 {
+    /// Moves every key's resource under one lock, so no commit lands
+    /// between them; returns their new revisions in order.
+    pub(super) fn bump_resources(&self, keys: &[Key]) -> Vec<u64> {
         let mut state = guard(&self.state);
-        let revision = state.resources.entry(key.clone()).or_default();
-        *revision = revision.saturating_add(1);
-        *revision
+        keys.iter()
+            .map(|key| {
+                let revision = state.resources.entry(key.clone()).or_default();
+                *revision = revision.saturating_add(1);
+                *revision
+            })
+            .collect()
     }
 
-    fn enter(
-        self: &Arc<Self>,
-        generation: u64,
-        resource: Option<&(Key, u64)>,
-    ) -> Option<GateGuard> {
+    fn enter(self: &Arc<Self>, generation: u64, resources: &[(Key, u64)]) -> Option<GateGuard> {
         let mut state = guard(&self.state);
         if state.generation != generation {
             return None;
         }
-        if let Some((key, revision)) = resource {
-            if state
+        if resources.iter().any(|(key, revision)| {
+            state
                 .resources
                 .get(key)
                 .is_some_and(|current| current > revision)
-            {
-                return None;
-            }
+        }) {
+            return None;
         }
         state.committing += 1;
         self.committing.send_replace(state.committing);
@@ -118,8 +121,10 @@ pub(crate) struct LeaseWriter {
     pub(super) store: DataStore,
     pub(super) gate: Arc<Gate>,
     pub(super) generation: u64,
-    /// The key's resource revision when it was leased.
-    pub(super) resource: Option<(Key, u64)>,
+    /// The resource revision, when it was leased, of each key the read
+    /// writes: its own and the one it reads beside it
+    /// (`planner::read_beside`).
+    pub(super) resources: Vec<(Key, u64)>,
 }
 
 impl LeaseWriter {
@@ -130,7 +135,7 @@ impl LeaseWriter {
     /// Holds the gate while the caller writes through store methods that
     /// open their own transaction. `None`: the lease is stale.
     pub(crate) fn enter(&self) -> Option<GateGuard> {
-        self.gate.enter(self.generation, self.resource.as_ref())
+        self.gate.enter(self.generation, &self.resources)
     }
 
     /// One transaction inside the gate.
@@ -170,25 +175,153 @@ pub(crate) struct Lease {
     pub(crate) locator: Option<String>,
     pub(crate) depth: Depth,
     pub(crate) started: DateTime<Utc>,
-    /// The key's deadline, counted from its start.
-    pub(crate) deadline: tokio::time::Instant,
     pub(crate) cancel: CancellationToken,
     pub(super) writer: LeaseWriter,
+    pub(super) control: Arc<LeaseControl>,
+}
+
+/// What the engine and a running read share beyond cancellation: a
+/// deadline that a pause does not use up, and the request to give the lane
+/// to a read that needs it more (`d/3mjnxv`).
+pub(crate) struct LeaseControl {
+    clock: Mutex<Clock>,
+    /// The clock paused or resumed.
+    moved: Notify,
+    /// The engine wants the lane back at the next safe point.
+    pub(super) asked: AtomicBool,
+    /// The engine gave the lane back.
+    pub(super) resumed: Notify,
+    /// Who to tell the read paused.
+    pub(super) engine: super::PlanHints,
+    /// The key read beside the lease's own committed with it.
+    beside: AtomicBool,
+}
+
+/// A read's time budget: running towards a deadline, or stopped with what
+/// was left while the read is paused.
+#[derive(Clone, Copy)]
+enum Clock {
+    Running(tokio::time::Instant),
+    Paused(std::time::Duration),
+}
+
+impl LeaseControl {
+    pub(super) fn new(deadline: tokio::time::Instant, engine: super::PlanHints) -> Self {
+        Self {
+            clock: Mutex::new(Clock::Running(deadline)),
+            moved: Notify::new(),
+            asked: AtomicBool::new(false),
+            resumed: Notify::new(),
+            engine,
+            beside: AtomicBool::new(false),
+        }
+    }
+
+    /// When the read must have ended if it runs on from now.
+    pub(super) fn deadline(&self) -> tokio::time::Instant {
+        match *guard(&self.clock) {
+            Clock::Running(deadline) => deadline,
+            Clock::Paused(left) => tokio::time::Instant::now() + left,
+        }
+    }
+
+    /// Waits until the running clock passes the deadline; a paused clock
+    /// never expires.
+    pub(super) async fn expired(&self) {
+        loop {
+            let moved = self.moved.notified();
+            tokio::pin!(moved);
+            moved.as_mut().enable();
+            let clock = *guard(&self.clock);
+            match clock {
+                Clock::Running(deadline) => tokio::select! {
+                    () = tokio::time::sleep_until(deadline) => {
+                        if matches!(*guard(&self.clock), Clock::Running(at) if at <= tokio::time::Instant::now()) {
+                            return;
+                        }
+                    }
+                    () = moved => {}
+                },
+                Clock::Paused(_) => moved.await,
+            }
+        }
+    }
+
+    fn pause(&self) {
+        {
+            let mut clock = guard(&self.clock);
+            if let Clock::Running(deadline) = *clock {
+                *clock =
+                    Clock::Paused(deadline.saturating_duration_since(tokio::time::Instant::now()));
+            }
+        }
+        self.moved.notify_waiters();
+    }
+
+    fn resume(&self) {
+        {
+            let mut clock = guard(&self.clock);
+            if let Clock::Paused(left) = *clock {
+                *clock = Clock::Running(tokio::time::Instant::now() + left);
+            }
+        }
+        self.moved.notify_waiters();
+    }
 }
 
 impl Lease {
-    /// The key's resource revision the lease was taken at.
-    pub(super) fn revision(&self) -> u64 {
+    /// `key`'s resource revision the lease was taken at.
+    pub(super) fn revision(&self, key: &Key) -> u64 {
         self.writer
-            .resource
-            .as_ref()
+            .resources
+            .iter()
+            .find(|(written, _)| written == key)
             .map_or(0, |(_, revision)| *revision)
+    }
+
+    /// The read committed the key it reads beside its own
+    /// (`planner::read_beside`) in its transaction.
+    pub(crate) fn landed_beside(&self) {
+        self.control.beside.store(true, Ordering::Release);
+    }
+
+    pub(super) fn beside_landed(&self) -> bool {
+        self.control.beside.load(Ordering::Acquire)
     }
 }
 
 impl Lease {
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancel.is_cancelled()
+    }
+
+    /// When the read must have ended, its pauses left out.
+    pub(crate) fn deadline(&self) -> tokio::time::Instant {
+        self.control.deadline()
+    }
+
+    /// A safe point between two complete exchanges with the school: when a
+    /// read that needs the lane more is waiting, this read gives its slot
+    /// and session up until the engine hands them back, and the pause does
+    /// not count against its deadline (`d/3mjnxv`). A cancel ends the pause.
+    pub(crate) async fn checkpoint(&self) {
+        let control = &self.control;
+        if !control.asked.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        let Some(engine) = control.engine.engine() else {
+            return;
+        };
+        let resumed = control.resumed.notified();
+        tokio::pin!(resumed);
+        resumed.as_mut().enable();
+        control.pause();
+        engine.lease_paused(&self.key);
+        tokio::select! {
+            () = resumed => {}
+            () = self.cancel.cancelled() => {}
+        }
+        control.resume();
     }
 
     pub(crate) fn writer(&self) -> LeaseWriter {
@@ -227,13 +360,16 @@ impl Lease {
             locator: None,
             depth: Depth::Full,
             started: crate::clock::now(),
-            deadline: tokio::time::Instant::now() + KEY_DEADLINE,
             cancel: CancellationToken::new(),
+            control: Arc::new(LeaseControl::new(
+                tokio::time::Instant::now() + KEY_DEADLINE,
+                super::PlanHints::detached(),
+            )),
             writer: LeaseWriter {
                 store: store.clone(),
                 gate: Arc::new(Gate::default()),
                 generation: 0,
-                resource: None,
+                resources: Vec::new(),
             },
         }
     }
@@ -415,9 +551,9 @@ impl Lease {
                 Some((RunOutcome::SignInRequired, "sign-in".to_string(), false))
             }
             KeyEnd::Offline { .. } => Some((RunOutcome::Waiting, "offline".to_string(), false)),
-            KeyEnd::HostPaused { .. } => {
-                Some((RunOutcome::Failed, "host-paused".to_string(), false))
-            }
+            // A paused host is not this key's failure and leaves no run
+            // (`d/kt8ts2`): the planner holds every key of the host.
+            KeyEnd::HostPaused { .. } => None,
             KeyEnd::Cancelled { .. } => {
                 Some((RunOutcome::Cancelled, "cancelled".to_string(), false))
             }

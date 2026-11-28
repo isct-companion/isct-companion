@@ -14,7 +14,9 @@ use super::{
 use crate::{
     data::WorkspaceChangeSource,
     events::CoreEvent,
-    kyomu_ingest::{apply_kyomu_payload, record_kyomu_unavailable},
+    kyomu_ingest::{
+        apply_kyomu_in_scope, apply_kyomu_payload, record_kyomu_unavailable, registration_scope,
+    },
     lifecycle::SchoolSite,
     lms_ingest::{
         self, apply_lms_assign, apply_lms_course, apply_lms_deadlines, apply_lms_enrolment,
@@ -238,7 +240,7 @@ pub(crate) async fn read_lms_key(
     };
     let read = readers
         .sessions
-        .run(Site::Lms, &permit, lease.deadline, &mut operation)
+        .run(Site::Lms, &permit, lease.deadline(), &mut operation)
         .await;
     match read {
         Ok(_) if lease.is_cancelled() || permit.is_cancelled() => KeyEnd::Cancelled {
@@ -316,25 +318,31 @@ pub(crate) async fn read_kyomu_page(
             }));
         }
     };
-    let read = readers
-        .sessions
-        .run(
-            Site::Kyomu,
-            &permit,
-            lease.deadline,
-            &mut KyomuPage {
-                kind,
-                menu: &readers.kyomu_menu,
-            },
-        )
-        .await;
-    let payload = match read {
-        Ok(_) if lease.is_cancelled() || permit.is_cancelled() => {
-            return KeyEnd::Cancelled { source };
-        }
-        Ok(payload) => payload,
-        Err(error) => {
-            return session_end(
+    // The declared page is read with the registered list beside it, in one
+    // operation: only the scope that list has now may drop declared courses
+    // (`d/aevz1j`); a list that proves no scope lets the page only add. The
+    // list commits with the page as the registrations key's own read
+    // (`planner::read_beside`). Either request failing ends the whole key,
+    // as one read, for the planner to hold or back off like any other.
+    let read_page = async |page: &'static str| {
+        let read = readers
+            .sessions
+            .run(
+                Site::Kyomu,
+                &permit,
+                lease.deadline(),
+                &mut KyomuPage {
+                    kind: page,
+                    menu: &readers.kyomu_menu,
+                },
+            )
+            .await;
+        match read {
+            Ok(_) if lease.is_cancelled() || permit.is_cancelled() => Err(KeyEnd::Cancelled {
+                source: source.clone(),
+            }),
+            Ok(payload) => Ok(payload),
+            Err(error) => Err(session_end(
                 error,
                 SchoolAuthProfile::TokyoTech,
                 source.clone(),
@@ -344,8 +352,27 @@ pub(crate) async fn read_kyomu_page(
                     }
                     kyomu_read_end(error, source.clone())
                 },
-            );
+            )),
         }
+    };
+    let beside = if kind == "declared" {
+        match read_page("registrations").await {
+            Ok(registered) => Some(registered),
+            Err(end) => return end,
+        }
+    } else {
+        None
+    };
+    // Between the two pages: a read that needs the lane more goes first.
+    if beside.is_some() {
+        lease.checkpoint().await;
+        if lease.is_cancelled() {
+            return KeyEnd::Cancelled { source };
+        }
+    }
+    let payload = match read_page(kind).await {
+        Ok(payload) => payload,
+        Err(end) => return end,
     };
     let unavailable = payload.status == "unavailable";
     let message = payload.message.clone();
@@ -356,10 +383,52 @@ pub(crate) async fn read_kyomu_page(
         lease.started,
         source.clone(),
     );
+    let beside_read = beside.is_some();
     let applied = tokio::task::spawn_blocking(move || {
         writer.write(Some(WorkspaceChangeSource::SchoolPull), |transaction| {
+            let scope = match &beside {
+                Some(registered) => {
+                    let scope = registration_scope(registered);
+                    let registered_unavailable = registered.status == "unavailable";
+                    let changed = if registered_unavailable {
+                        record_kyomu_unavailable(transaction, registered).map(|()| 0)?
+                    } else if let Some(scope) = &scope {
+                        apply_kyomu_in_scope(transaction, registered, scope)?
+                    } else {
+                        apply_kyomu_payload(transaction, registered)?
+                    };
+                    let registrations = Key::new(Dataset::KyomuPage, "registrations");
+                    let source = adpt_isct::kyomu::page_url("registrations")
+                        .and_then(|url| Url::parse(&url).ok())
+                        .map(|url| sync_state::source_of_url(&url))
+                        .unwrap_or_default();
+                    sync_state::record_run(
+                        transaction,
+                        &RunRecord {
+                            run: &run,
+                            key: &registrations,
+                            started_at: started,
+                            finished_at: crate::clock::now(),
+                            outcome: if registered_unavailable {
+                                RunOutcome::Unavailable
+                            } else {
+                                RunOutcome::Complete
+                            },
+                            changed,
+                            requests: None,
+                            bytes: None,
+                            source: &source,
+                            error_kind: None,
+                        },
+                    )?;
+                    scope
+                }
+                None => None,
+            };
             let changed = if unavailable {
                 record_kyomu_unavailable(transaction, &payload).map(|()| 0)?
+            } else if let Some(scope) = &scope {
+                apply_kyomu_in_scope(transaction, &payload, scope)?
             } else {
                 apply_kyomu_payload(transaction, &payload)?
             };
@@ -389,6 +458,9 @@ pub(crate) async fn read_kyomu_page(
     drop(permit);
     match applied {
         Ok(Ok(changed)) => {
+            if beside_read {
+                lease.landed_beside();
+            }
             if unavailable {
                 emit(IngestState::Unavailable, 0, message);
             } else {

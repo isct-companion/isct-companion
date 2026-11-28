@@ -32,7 +32,7 @@ function recoveryEntries() {
         throw new Error("expired");
       entries.push({ key, raw, draft: parsed });
     } catch {
-      // Old unbounded/plain-text recovery values are discarded deliberately.
+      // Expired or unreadable recovery values are discarded.
       localStorage.removeItem(key);
     }
   }

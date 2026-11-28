@@ -220,6 +220,9 @@ fn main() {
     if apple && !isolated && (os != "macos" || !debug || entitled) {
         println!("cargo::rustc-cfg=icloud");
     }
+    // `tests/school_ingest_boundaries.rs` reads a course list saved from a
+    // real account; it compiles only when its directory is given.
+    capture_gate::dir("moodle_ws_captures", "MOODLE_WS_CAPTURES");
     // Windows reads the Matrix card with LiteRT. app-ocr's build fetched the
     // pinned DLL; stage it where tauri.windows.conf.json bundles it beside
     // the executable (before tauri_build checks that the resource exists).

@@ -17,24 +17,18 @@ use std::path::Path;
 
 pub(super) const STORE_FILE: &str = "store.db";
 pub const USER_SCHEMA_VERSION: i64 = 3;
-/// user.db with `course_identity_map`, before `course_keys` (up to 1.2.2).
-const USER_IDENTITY_MAP_VERSION: i64 = 1;
-/// user.db with personal plans, before personal events became weekly only.
-const USER_WITH_PLANS_VERSION: i64 = 2;
-/// The user formats a user.db is copied from: older ones are upgraded in the
-/// new generation, never in their own file.
-pub(super) const READABLE_USER_VERSIONS: std::ops::RangeInclusive<i64> =
-    USER_IDENTITY_MAP_VERSION..=USER_SCHEMA_VERSION;
 /// The school tables' format. A build with the campus map (iOS, Android) has one
 /// table more, `campus_map`, so its format is one more; every other build
 /// never creates that table. A store belongs to one build, and a store of
 /// another format has its cache rebuilt like any format change. A change to
 /// the school tables raises both by two, so one build's format is never one
 /// the other build used.
+/// Versions 5/6 include announcements and the change timestamps and due marks
+/// in `dataset_state`. Versions 3/4 were used by both sets of changes.
 #[cfg(not(feature = "campus-map"))]
-pub const SCHOOL_SCHEMA_VERSION: i64 = 3;
+pub const SCHOOL_SCHEMA_VERSION: i64 = 5;
 #[cfg(feature = "campus-map")]
-pub const SCHOOL_SCHEMA_VERSION: i64 = 4;
+pub const SCHOOL_SCHEMA_VERSION: i64 = 6;
 pub(super) const STORE_VERSION: i64 = store_version(USER_SCHEMA_VERSION, SCHOOL_SCHEMA_VERSION);
 
 /// `PRAGMA user_version` of a store: its user and school formats, which change
@@ -333,7 +327,7 @@ CREATE TABLE dataset_state (
   dataset TEXT NOT NULL, key TEXT NOT NULL,
   fetched_at TEXT, validator TEXT, outcome TEXT, message TEXT,
   failures INTEGER NOT NULL DEFAULT 0, next_eligible TEXT, cursor TEXT,
-  last_error TEXT, last_used TEXT,
+  last_error TEXT, last_used TEXT, changed_at TEXT, due_marks TEXT,
   PRIMARY KEY (dataset, key)
 );
 CREATE TABLE sync_runs (
@@ -346,27 +340,15 @@ CREATE INDEX sync_runs_by_finished ON sync_runs(finished_at);
 CREATE INDEX sync_runs_by_key ON sync_runs(dataset, key, finished_at);
 "#;
 
-/// Creates a store at the current schema, in a new generation's directory, with
-/// the user tables of `user_from`, a user.db of a `READABLE_USER_VERSIONS`
-/// format, if given; the copy is upgraded here and the source is only read.
-/// It is checked before the index can name it.
-pub(super) fn create(path: &Path, user_from: Option<&Path>) -> Result<(), DataError> {
+/// Creates an empty store at the current schema, in a new generation's
+/// directory. It is checked before the index can name it.
+pub(super) fn create(path: &Path) -> Result<(), DataError> {
     let mut connection = Connection::open(path)?;
     let transaction = connection.transaction()?;
     transaction.execute_batch(USER_SCHEMA)?;
     create_school(&transaction)?;
     transaction.pragma_update(None, "user_version", STORE_VERSION)?;
     transaction.commit()?;
-    if let Some(source) = user_from {
-        let source = source
-            .to_str()
-            .ok_or_else(|| DataError::storage("The data folder path is not valid UTF-8"))?;
-        connection.execute("ATTACH DATABASE ?1 AS source", [source])?;
-        let transaction = connection.transaction()?;
-        copy_user_tables(&transaction)?;
-        transaction.commit()?;
-        connection.execute_batch("DETACH DATABASE source;")?;
-    }
     let check: String = connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
     if check != "ok" {
         return Err(DataError::storage(format!(
@@ -374,59 +356,6 @@ pub(super) fn create(path: &Path, user_from: Option<&Path>) -> Result<(), DataEr
         )));
     }
     Ok(())
-}
-
-/// Copies the user tables of the attached `source` into the new store and
-/// brings them to the current user format. Format 1 had the identity map in
-/// place of `course_keys`; formats 1 and 2 had a `plans` table, which the
-/// weekly personal events replaced and which is not carried over.
-fn copy_user_tables(transaction: &Transaction<'_>) -> Result<(), DataError> {
-    let version: i64 = transaction.query_row("PRAGMA source.user_version", [], |row| row.get(0))?;
-    if !READABLE_USER_VERSIONS.contains(&version) {
-        return Err(DataError::compatibility(format!(
-            "user.db has format {version}, which this version cannot read. It was left as it was."
-        )));
-    }
-    for table in USER_TABLES {
-        if version == USER_IDENTITY_MAP_VERSION && *table == "course_keys" {
-            continue;
-        }
-        let columns = shared_columns(transaction, table)?;
-        transaction.execute_batch(&format!(
-            "INSERT INTO main.{table} ({columns}) SELECT {columns} FROM source.{table};"
-        ))?;
-    }
-    if version == USER_IDENTITY_MAP_VERSION {
-        super::course_keys::migrate_identity_map(transaction, "source.course_identity_map")?;
-        super::course_keys::key_manual_courses(transaction)?;
-    }
-    if version <= USER_WITH_PLANS_VERSION {
-        log::info!(target: "app_core::data", "Upgraded the user tables from format {version}");
-    }
-    Ok(())
-}
-
-fn columns(connection: &Connection, schema: &str, table: &str) -> Result<Vec<String>, DataError> {
-    let mut statement = connection.prepare(&format!("PRAGMA {schema}.table_info({table})"))?;
-    let names = statement
-        .query_map([], |row| row.get(1))?
-        .collect::<Result<_, _>>()?;
-    Ok(names)
-}
-
-/// The columns of a user table that both the new store and `source` have,
-/// quoted for SQL: a copy by name, not by position.
-fn shared_columns(connection: &Connection, table: &str) -> Result<String, DataError> {
-    let source = columns(connection, "source", table)?;
-    if source.is_empty() {
-        return Err(DataError::storage(format!("user.db has no {table} table")));
-    }
-    Ok(columns(connection, "main", table)?
-        .into_iter()
-        .filter(|column| source.contains(column))
-        .map(|column| format!("\"{column}\""))
-        .collect::<Vec<_>>()
-        .join(","))
 }
 
 fn create_school(connection: &Connection) -> Result<(), DataError> {

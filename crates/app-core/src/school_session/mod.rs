@@ -277,6 +277,11 @@ pub(crate) trait Transport: Send + Sync {
     fn report_maintenance(&self, host: Host);
     /// The end of the host's current pause, in Unix seconds.
     fn paused_until(&self, host: Host) -> Option<i64>;
+    /// Lets a paused host's next request be its probe now. A transport with
+    /// no breaker has nothing to let through.
+    fn probe_early(&self, _host: Host) -> bool {
+        false
+    }
 }
 
 impl Transport for Http {
@@ -290,6 +295,10 @@ impl Transport for Http {
 
     fn paused_until(&self, host: Host) -> Option<i64> {
         Http::paused_until(self, host)
+    }
+
+    fn probe_early(&self, host: Host) -> bool {
+        Http::probe_early(self, host)
     }
 }
 
@@ -931,6 +940,12 @@ impl SchoolSessions {
     /// A permit for one operation on `profile`'s account.
     pub(crate) fn permit(&self, profile: SchoolAuthProfile) -> Option<Permit> {
         self.0.account(profile).owner.permit()
+    }
+
+    /// Lets a paused school host's next request be its probe now, for a
+    /// refresh the person asked for or a network that came back.
+    pub(crate) fn probe_early(&self, host: Host) -> bool {
+        self.0.transport.probe_early(host)
     }
 
     /// The signal sync listens to, shared with the LMS token's holder.

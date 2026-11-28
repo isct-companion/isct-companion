@@ -1,6 +1,70 @@
 use super::*;
 use ControlTag::{Button, Input, Select, Textarea};
 
+/// A result grid captured from the official search (public catalogue text;
+/// URL, date and hash in `content-provenance.json` beside it): 2026's CSC.T
+/// courses of 3Q and 4Q.
+const SEARCH: &str = include_str!("../../../app-core/tests/fixtures/kyomu/course-search.html");
+
+/// Every row of a real grid becomes one stored course: its own offering id
+/// and year, the code and quarters the search asked for, a timetable slot per
+/// line, credits as JSON integers (stored row hashes must not churn), and
+/// the syllabus link. The grid shows all it holds, so it is not truncated.
+/// The same Japanese page is refused as English, so a session still in
+/// Japanese never stores Japanese names as English ones.
+#[test]
+fn a_captured_search_grid_reads_every_row() {
+    let SearchRead::Results(results) = read_search(SEARCH, true, "2026-10-16T00:00:00Z").unwrap()
+    else {
+        panic!("the captured grid was not read as results");
+    };
+    assert_eq!(
+        results.courses.len(),
+        14,
+        "content-provenance.json counts 14"
+    );
+    assert!(!results.truncated);
+    let mut ids = HashSet::new();
+    for course in &results.courses {
+        let id = course["id"].as_str().unwrap();
+        assert!(nine_digits(id) && ids.insert(id), "{course}");
+        assert_eq!(course["year"], 2026, "{course}");
+        assert!(
+            course["code"].as_str().unwrap().starts_with("CSC.T"),
+            "{course}"
+        );
+        let quarters = course["quarters"].as_array().unwrap();
+        assert!(
+            !quarters.is_empty() && quarters.iter().all(|q| q == "3Q" || q == "4Q"),
+            "{course}"
+        );
+        assert!(
+            !course["title"]["ja"].as_str().unwrap().is_empty(),
+            "{course}"
+        );
+        assert!(
+            !course["instructors"].as_array().unwrap().is_empty(),
+            "{course}"
+        );
+        let slots = course["schedule"].as_array().unwrap();
+        assert!(!slots.is_empty(), "{course}");
+        for slot in slots {
+            assert_eq!(slot["kind"], "weekly", "{course}");
+            let periods = slot["periods"].as_array().unwrap();
+            let (from, to) = (periods[0].as_u64().unwrap(), periods[1].as_u64().unwrap());
+            assert!((1..=to).contains(&from) && to <= 12, "{course}");
+        }
+        for part in ["lecture", "exercise", "lab"] {
+            assert!(course["credits"][part].is_u64(), "{course}");
+        }
+        assert!(
+            course["syllabusUrl"].as_str().unwrap().contains(id),
+            "{course}"
+        );
+    }
+    assert!(read_english(SEARCH, true, "2026-10-16T00:00:00Z").is_err());
+}
+
 fn control(tag: ControlTag, kind: &str, name: &str, value: Option<&str>) -> FormControl {
     FormControl {
         tag,
@@ -131,11 +195,4 @@ fn page_size_postback_switches_the_grid_to_its_largest_choice() {
         expand_postback(fields, "grid$size", Some("10"), &["all".to_string()]),
         None
     );
-}
-
-#[test]
-fn a_search_is_truncated_at_the_school_cap_or_when_another_page_remains() {
-    assert!(!is_truncated(MAX_SEARCH_ROWS - 1, false));
-    assert!(is_truncated(MAX_SEARCH_ROWS, false));
-    assert!(is_truncated(12, true));
 }

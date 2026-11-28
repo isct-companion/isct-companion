@@ -876,6 +876,7 @@ export type SyncHint =
   | { kind: "suspend" }
   | { kind: "resume" }
   | { kind: "network"; network: SyncNetwork }
+  | { kind: "network-path" }
   | { kind: "power-saver"; on: boolean }
   | { kind: "open"; view: SyncView }
   | { kind: "refresh"; scope: SyncScope };

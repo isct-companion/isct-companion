@@ -48,7 +48,7 @@ pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, CommandError> {
 
 pub struct CloudSync(pub(crate) app_core::cloud_sync::CloudSync);
 impl CloudSync {
-    pub fn new(legacy: PathBuf, authorized: &[CloudProvider]) -> Result<Self, CommandError> {
+    pub fn new(journal: PathBuf, authorized: &[CloudProvider]) -> Result<Self, CommandError> {
         // The demo scene's fictional workspace never reaches a cloud: it
         // supports no provider, so none can be switched on.
         #[cfg(feature = "demo")]
@@ -59,7 +59,7 @@ impl CloudSync {
             #[cfg(icloud)]
             CloudProvider::Icloud,
         ];
-        app_core::cloud_sync::CloudSync::new(legacy, &supported, authorized)
+        app_core::cloud_sync::CloudSync::new(journal, &supported, authorized)
             .map(Self)
             .map_err(coded)
     }

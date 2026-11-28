@@ -26,9 +26,6 @@ use std::{
 pub(super) const FILE: &str = "submissions.db";
 /// The ledger format `store-index.db` records for its generation.
 pub(super) const FORMAT: i64 = 3;
-/// Formats of earlier releases, replaced by an empty ledger: hand-ins are
-/// confirmed before upgrading (`approach/short-lived-store-rebuild`).
-pub(super) const OLDER_FORMATS: &[i64] = &[1, 2];
 
 const SCHEMA: &str = r#"
 CREATE TABLE preparations (

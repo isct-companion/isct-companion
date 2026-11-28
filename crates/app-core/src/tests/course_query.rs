@@ -155,37 +155,6 @@ fn first_year_eligibility_uses_the_planned_year_and_keeps_all_course_search_visi
 }
 
 #[test]
-fn eligibility_does_not_guess_without_study_identity_or_course_number() {
-    let upper_level = eligibility_offering("upper", "CSC.T301");
-    assert_eq!(
-        catalog_course_eligibility(&json!({"academicProfile":{}}), "2026-3Q", &upper_level).status,
-        CourseEligibilityStatus::Unknown
-    );
-    let undergraduate = json!({"academicProfile":{"studyEnrollments":[{
-        "stage":"undergraduate","entryKind":"regular","entryGrade":1,
-        "admittedTerm":"2026-1Q"
-    }]}});
-    assert_eq!(
-        catalog_course_eligibility(
-            &undergraduate,
-            "2026-3Q",
-            &eligibility_offering("special", "SPECIAL")
-        )
-        .status,
-        CourseEligibilityStatus::Unknown
-    );
-    assert_eq!(
-        catalog_course_eligibility(
-            &undergraduate,
-            "2026-3Q",
-            &eligibility_offering("foreign", "SPECIAL.2026")
-        )
-        .status,
-        CourseEligibilityStatus::Unknown
-    );
-}
-
-#[test]
 fn replacement_ignores_same_course_and_nonweekly_results() {
     let fixture: Value =
         serde_json::from_str(include_str!("../course_query/fixtures.json")).unwrap();

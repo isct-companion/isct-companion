@@ -7,10 +7,21 @@ use crate::sync_state::{self, Commit, Dataset, Key, Outcome};
 use adpt_isct::kyomu::KyomuPayload;
 use rusqlite::{params, OptionalExtension, Transaction};
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+
+/// Fields that say when a row was read, not what it holds: left out of the
+/// content hash, so a read that finds the same content writes nothing. The
+/// key's own freshness (`dataset_state.fetched_at`) says when it was read.
+const READ_TIME_FIELDS: [&str; 1] = ["fetchedAt"];
 
 fn upsert(tx: &Transaction<'_>, table: &str, id: &str, value: &Value) -> Result<bool, IngestError> {
-    let hash = content_hash(value)?;
+    let mut hashed = value.clone();
+    if let Some(object) = hashed.as_object_mut() {
+        for field in READ_TIME_FIELDS {
+            object.remove(field);
+        }
+    }
+    let hash = content_hash(&hashed)?;
     let old: Option<(String, u64, bool)> = tx
         .query_row(
             &format!("SELECT hash,rev,missing_since IS NOT NULL OR deleted_at IS NOT NULL FROM {table} WHERE id=?1"),
@@ -241,11 +252,72 @@ fn grade_row_id(
     Ok(format!("kyomu-grade:flat:{identity}"))
 }
 
-/// Projects one 教務Web page inside the caller's transaction and marks its
-/// `kyomu.page/{kind}` key fresh in the same transaction.
+/// What a complete registered-courses page covers: the academic year its
+/// courses belong to and the quarters it lists. Only such a page, read in
+/// the same operation, may say a declared course is gone (`d/aevz1j`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegistrationScope {
+    pub year: i32,
+    pub quarters: Vec<Value>,
+}
+
+/// The scope a complete registered-courses page proves (`d/sgfx8a`): its
+/// quarters, and the one academic year every listed course belongs to (the
+/// first four digits of an official offering id). `None` for an unavailable
+/// or other page, one listing no quarters, and one whose year the page does
+/// not prove: no course to tell it, or courses of two years (a rollover).
+/// The page's row order never matters, and the device's date is no evidence.
+pub fn registration_scope(payload: &KyomuPayload) -> Option<RegistrationScope> {
+    if payload.status != "ok" || payload.kind != "registrations" {
+        return None;
+    }
+    let years: BTreeSet<i32> = payload.data["courses"]
+        .as_array()?
+        .iter()
+        .map(|course| {
+            course["offeringId"]
+                .as_str()
+                .and_then(|id| id.get(..4))
+                .and_then(|year| year.parse::<i32>().ok())
+        })
+        .collect::<Option<_>>()?;
+    let year = match years.len() {
+        1 => years.into_iter().next()?,
+        _ => return None,
+    };
+    let quarters = payload.data["quarters"].as_array()?.clone();
+    (!quarters.is_empty()).then_some(RegistrationScope { year, quarters })
+}
+
+/// Stores one approved 教務 page; a registered list expires rows inside the
+/// scope it proves. A declared page stored this way only adds: use
+/// [`apply_kyomu_in_scope`] with the scope of the registered list read
+/// beside it to let it drop courses.
 pub fn apply_kyomu_payload(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
+) -> Result<usize, IngestError> {
+    apply_page(tx, payload, registration_scope(payload).as_ref())
+}
+
+/// Stores a page with the registered list's scope already proven
+/// ([`registration_scope`]): a registered list's own, or for a declared
+/// page that of the list read in the same operation, inside which courses
+/// it no longer lists leave.
+pub fn apply_kyomu_in_scope(
+    tx: &Transaction<'_>,
+    payload: &KyomuPayload,
+    scope: &RegistrationScope,
+) -> Result<usize, IngestError> {
+    apply_page(tx, payload, Some(scope))
+}
+
+/// `scope`: what the registered list of this operation covers, the only
+/// ground for expiring registered or declared rows.
+fn apply_page(
+    tx: &Transaction<'_>,
+    payload: &KyomuPayload,
+    scope: Option<&RegistrationScope>,
 ) -> Result<usize, IngestError> {
     if payload.status != "ok" {
         return Err("教務 extraction is not ready".into());
@@ -264,40 +336,13 @@ pub fn apply_kyomu_payload(
         "registrations" => {
             let mut state_ids = HashSet::new();
             if let Some(state) = payload.data.get("state") {
-                let current = crate::schedule::japan_today(crate::clock::now());
-                let year = chrono::Datelike::year(&current)
-                    - i32::from(chrono::Datelike::month(&current) < 4);
                 let id = "kyomu-registration-state";
                 state_ids.insert(id.to_string());
                 let mut value = state.clone();
                 if let Some(o) = value.as_object_mut() {
                     o.insert("id".into(), id.into());
-                    o.insert(
-                        "academicYear".into(),
-                        payload.data["courses"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .find_map(|c| c["offeringId"].as_str()?.get(..4)?.parse::<i32>().ok())
-                            .unwrap_or(year)
-                            .into(),
-                    );
-                    o.insert(
-                        "quarters".into(),
-                        payload
-                            .data
-                            .get("quarters")
-                            .cloned()
-                            .unwrap_or_else(|| json!([])),
-                    );
                 }
                 changed += usize::from(upsert(tx, "registration_states", id, &value)?);
-                let scope_id = format!(
-                    "kyomu-scope:{}:{}",
-                    value["academicYear"], value["quarters"]
-                );
-                value["id"] = scope_id.clone().into();
-                changed += usize::from(upsert(tx, "registration_states", &scope_id, &value)?);
             }
             let mut ids = HashSet::new();
             for course in payload
@@ -322,26 +367,15 @@ pub fn apply_kyomu_payload(
                 changed += usize::from(upsert(tx, "registrations", &id, &value)?);
             }
             // This page covers one academic year. Never expire previous years.
-            let current = crate::schedule::japan_today(crate::clock::now());
-            let year = payload.data["courses"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find_map(|c| c["offeringId"].as_str()?.get(..4)?.parse::<i32>().ok())
-                .unwrap_or(
-                    chrono::Datelike::year(&current)
-                        - i32::from(chrono::Datelike::month(&current) < 4),
-                );
-            changed += expire_registration_scope(
-                tx,
-                "kyomu-registration:",
-                year,
-                payload.data["quarters"]
-                    .as_array()
-                    .map(Vec::as_slice)
-                    .unwrap_or(&[]),
-                &ids,
-            )?;
+            if let Some(scope) = scope {
+                changed += expire_registration_scope(
+                    tx,
+                    "kyomu-registration:",
+                    scope.year,
+                    &scope.quarters,
+                    &ids,
+                )?;
+            }
             changed += mark_missing(
                 tx,
                 "registration_states",
@@ -359,30 +393,19 @@ pub fn apply_kyomu_payload(
                 let id = row["id"].as_str().unwrap_or_default();
                 changed += usize::from(upsert(tx, "registrations", id, row)?);
             }
-            let scope: Option<String> = tx
-                .query_row(
-                    "SELECT value FROM registration_states WHERE id='kyomu-registration-state'",
-                    [],
-                    |row| row.get(0),
-                )
-                .optional()?;
-            if let Some(scope) = scope {
-                let scope: Value = serde_json::from_str(&scope)?;
-                if let Some(year) = scope["academicYear"]
-                    .as_i64()
-                    .and_then(|y| i32::try_from(y).ok())
-                {
-                    changed += expire_registration_scope(
-                        tx,
-                        "kyomu-declared:",
-                        year,
-                        scope["quarters"]
-                            .as_array()
-                            .map(Vec::as_slice)
-                            .unwrap_or(&[]),
-                        &live,
-                    )?;
-                }
+            // Rows leave the declared list only inside the scope the
+            // registered list read in this operation covers, and only when
+            // every listed row is of that year (`d/aevz1j`).
+            if let Some(scope) =
+                scope.filter(|scope| rows_of_year(&live, "kyomu-declared:", scope.year))
+            {
+                changed += expire_registration_scope(
+                    tx,
+                    "kyomu-declared:",
+                    scope.year,
+                    &scope.quarters,
+                    &live,
+                )?;
             }
         }
         "grades" => {
@@ -529,7 +552,7 @@ fn commit_page(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, kyomu_captures))]
 #[path = "tests/kyomu_ingest.rs"]
 mod tests;
 
@@ -570,6 +593,16 @@ pub(crate) fn registration_quarters(course: &Value) -> Vec<String> {
     let inactive = course.get("inactiveQuarters").and_then(Value::as_array);
     quarters.retain(|q| inactive.is_none_or(|values| !values.contains(&json!(q))));
     quarters
+}
+
+/// Whether every id (`{prefix}{offering}`) names an offering of `year`: the
+/// first four digits of an official offering id are its academic year.
+fn rows_of_year(ids: &HashSet<String>, prefix: &str, year: i32) -> bool {
+    let year = year.to_string();
+    ids.iter().all(|id| {
+        id.strip_prefix(prefix)
+            .is_some_and(|offering| offering.starts_with(&year))
+    })
 }
 
 fn expire_registration_scope(

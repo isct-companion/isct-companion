@@ -84,6 +84,10 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 httparse = "1"
 tokio = { version = "1", features = ["net"] }
 
+[build-dependencies]
+# Switches on the tests over captures kept outside the repository.
+capture-gate = { path = "../capture-gate" }
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "test-util"] }
 

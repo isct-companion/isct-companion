@@ -50,41 +50,39 @@ fn settings(sides: Sides, color: ColorMode) -> Settings {
     Settings { sides, color }
 }
 
-// A job with no settings prints like the printer's defaults: one collated
-// copy, long-edge duplex, monochrome.
+// A Print-Job is read as one sides and color model every platform maps into.
+// With no settings it prints like the printer's defaults: one collated copy,
+// long-edge duplex, monochrome. What the dialog asked for is honoured where
+// the printer offers it. A value the printer does not offer never fails the
+// job (Windows would show it as an error and the person would lose it): it
+// falls back to the default, and copies are clamped to what LPD repeats.
+// Copies are always collated, whatever the dialog's collate box said. The
+// document is exactly the bytes after the attributes; a wrong offset would
+// send a corrupt PDF.
 #[test]
-fn a_job_without_settings_gets_the_printer_defaults() {
-    let options = options_of(&[]).unwrap();
-    assert_eq!(options.copies, 1);
-    assert_eq!(options.settings, settings(Sides::LongEdge, ColorMode::Mono));
-}
+fn print_job_options_honour_offered_settings_and_fall_back_for_the_rest() {
+    let defaults = options_of(&[]).unwrap();
+    assert_eq!(defaults.copies, 1);
+    assert_eq!(
+        defaults.settings,
+        settings(Sides::LongEdge, ColorMode::Mono)
+    );
 
-// What the dialog asked for is honoured where the printer offers it, in the
-// one sides and color model every platform maps into.
-#[test]
-fn offered_settings_are_honoured() {
-    let options = options_of(&[
+    let offered = options_of(&[
         copies(3),
         keyword("sides", "two-sided-short-edge"),
         keyword("print-color-mode", "color"),
     ])
     .unwrap();
-    assert_eq!(options.copies, 3);
+    assert_eq!(offered.copies, 3);
     assert_eq!(
-        options.settings,
+        offered.settings,
         settings(Sides::ShortEdge, ColorMode::Color)
     );
     let one_sided = options_of(&[keyword("sides", "one-sided")]).unwrap();
     assert_eq!(one_sided.settings.sides, Sides::OneSided);
-}
 
-// A value the printer does not offer never fails the job (Windows would
-// show it as an error and the person would lose it): it falls back to the
-// default, and copies are clamped to what LPD repeats. Copies are always
-// collated, whatever the dialog's collate box said.
-#[test]
-fn unoffered_settings_fall_back_instead_of_failing_the_job() {
-    let options = options_of(&[
+    let unoffered = options_of(&[
         copies(250),
         keyword("sides", "tumble"),
         keyword("print-color-mode", "auto"),
@@ -94,8 +92,11 @@ fn unoffered_settings_fall_back_instead_of_failing_the_job() {
         ),
     ])
     .unwrap();
-    assert_eq!(options.copies, CAPABILITIES.max_copies);
-    assert_eq!(options.settings, settings(Sides::LongEdge, ColorMode::Mono));
+    assert_eq!(unoffered.copies, CAPABILITIES.max_copies);
+    assert_eq!(
+        unoffered.settings,
+        settings(Sides::LongEdge, ColorMode::Mono)
+    );
     assert_eq!(options_of(&[copies(0)]).unwrap().copies, 1);
     assert_eq!(
         options_of(&[keyword("print-color-mode", "bi-level")])
@@ -104,6 +105,9 @@ fn unoffered_settings_fall_back_instead_of_failing_the_job() {
             .color,
         ColorMode::Mono
     );
+
+    let request = parse(wire(2, &[copies(2)], b"%PDF-1.7 body")).unwrap();
+    assert_eq!(&request.document[..], b"%PDF-1.7 body");
 }
 
 // Only a PDF (or bytes a client did not name) is accepted; another format
@@ -121,14 +125,6 @@ fn only_uncompressed_pdf_documents_are_accepted() {
         options_of(&[keyword("compression", "gzip")]),
         Err(StatusCode::ClientErrorCompressionNotSupported)
     ));
-}
-
-// The document is exactly the bytes after the attributes; a wrong offset
-// would send a corrupt PDF.
-#[test]
-fn the_document_starts_after_the_attributes() {
-    let request = parse(wire(2, &[copies(2)], b"%PDF-1.7 body")).unwrap();
-    assert_eq!(&request.document[..], b"%PDF-1.7 body");
 }
 
 struct NoAccounts;

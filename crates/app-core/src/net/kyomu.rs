@@ -110,13 +110,6 @@ fn redirect_target(location: Option<&str>) -> String {
     )
 }
 
-enum Fetched {
-    Html(String),
-    SignedOut,
-    /// A redirect within 教務Web.
-    Redirected(u16),
-}
-
 fn invalid(error: impl std::fmt::Display) -> NetError {
     NetError::Invalid(error.to_string())
 }
@@ -180,14 +173,7 @@ async fn menu(attempt: &Attempt, cache: &MenuCache) -> Result<Arc<kyomu::Menu>, 
         }
     }
     let url = Url::parse(kyomu::STUDENT_TOP).map_err(invalid)?;
-    let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
-        Fetched::Html(html) => html,
-        Fetched::SignedOut => return Err(NetError::SignInRequired),
-        Fetched::Redirected(status) => return Err(NetError::Http(status)),
-    };
-    if let Some(notice) = adpt_isct::maintenance_notice(&url, &html) {
-        return Err(attempt.maintenance(Some(notice)));
-    }
+    let html = send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await?;
     let menu = Arc::new(kyomu::Menu::read(url.as_str(), &html).map_err(invalid)?);
     *slot = Some((instance, menu.clone()));
     Ok(menu)
@@ -209,73 +195,15 @@ pub(crate) async fn page(
 ) -> Result<KyomuPayload, NetError> {
     let address = menu(attempt, cache).await?.url(kind).map_err(invalid)?;
     let url = Url::parse(&address).map_err(invalid)?;
-    let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
-        Fetched::Html(html) => html,
-        Fetched::SignedOut => return Err(NetError::SignInRequired),
-        Fetched::Redirected(status) => return Err(NetError::Http(status)),
-    };
+    let html = send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await?;
     let payload = kyomu::extract_page(url.as_str(), &html);
-    match payload.status.as_str() {
-        "maintenance" => return Err(attempt.maintenance(Some(payload.message))),
-        "login" => return Err(NetError::SignInRequired),
-        _ => {}
-    }
     // The same trust boundary every 教務 payload has always passed:
     // source identity, completeness, size and record caps.
     let raw = serde_json::to_string(&payload).map_err(invalid)?;
     match kyomu::parse_payload(&raw).map_err(invalid)? {
         (KyomuStage::Ready | KyomuStage::Unavailable, Some(payload)) => Ok(payload),
-        (KyomuStage::ReconnectRequired, _) => Err(NetError::SignInRequired),
         _ => Err(NetError::Invalid("kyomu extraction was incomplete".into())),
     }
-}
-
-/// Whole-department official catalog: GET the search for one code prefix,
-/// then one ViewState postback to the largest page size. A prefix over the
-/// school's per-search cap is read again one quarter at a time; still
-/// `truncated` means some rows were not read. On the English site the rows
-/// are in the `search::read_english` shape.
-pub(crate) async fn catalog(
-    attempt: &Attempt,
-    year: u16,
-    code_prefix: &str,
-) -> Result<KeyOutcome<CatalogRows>, NetError> {
-    let whole = CatalogSearch {
-        code: code_prefix.into(),
-        ..CatalogSearch::default()
-    };
-    let first = match search(attempt, year, &whole).await? {
-        KeyOutcome::Complete(rows) if rows.truncated => rows,
-        other => return Ok(other),
-    };
-    let mut seen = std::collections::HashSet::new();
-    let mut merged = CatalogRows {
-        courses: Vec::new(),
-        search_options: first.search_options,
-        truncated: false,
-    };
-    for quarter in 1..=4 {
-        let part = CatalogSearch {
-            quarter,
-            ..whole.clone()
-        };
-        let rows = match search(attempt, year, &part).await? {
-            KeyOutcome::Complete(rows) => rows,
-            other => return Ok(other),
-        };
-        merged.truncated |= rows.truncated;
-        // A course of several quarters is listed once per quarter.
-        for course in rows.courses {
-            let id = course
-                .get("id")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_owned);
-            if id.is_none_or(|id| seen.insert(id)) {
-                merged.courses.push(course);
-            }
-        }
-    }
-    Ok(KeyOutcome::Complete(merged))
 }
 
 /// The official course search for any query the URL can carry.
@@ -290,15 +218,11 @@ pub(crate) async fn search(
         _ => search::read_search,
     };
     let fetched_at = crate::clock::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-    let html = match send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await? {
-        Fetched::Html(html) => html,
-        Fetched::SignedOut => return Err(NetError::SignInRequired),
-        Fetched::Redirected(status) => return Err(NetError::Http(status)),
-    };
+    let html = send(attempt, Method::GET, &url, MENU, Body::None, Limits::page()).await?;
     let read = match parse(&html, true, &fetched_at).map_err(invalid)? {
         SearchRead::Expand(fields) => {
             // A 1000-row page is about 3 MB.
-            let html = match send(
+            let html = send(
                 attempt,
                 Method::POST,
                 &url,
@@ -306,19 +230,13 @@ pub(crate) async fn search(
                 Body::Form(fields),
                 Limits::bulk(),
             )
-            .await?
-            {
-                Fetched::Html(html) => html,
-                Fetched::SignedOut => return Err(NetError::SignInRequired),
-                Fetched::Redirected(status) => return Err(NetError::Http(status)),
-            };
+            .await?;
             parse(&html, false, &fetched_at).map_err(invalid)?
         }
         read => read,
     };
     let results = match read {
         SearchRead::Results(results) => results,
-        SearchRead::Maintenance(notice) => return Err(attempt.maintenance(Some(notice))),
         SearchRead::Expand(_) => {
             return Err(NetError::Invalid(
                 "The search paging controls changed.".into(),
@@ -340,6 +258,10 @@ pub(crate) async fn search(
 }
 
 /// One request with the site instance's cookies; never follows redirects.
+/// The one place a 教務 answer is classified (`d/wm1bwz`): the page, or the
+/// session gone (a redirect to the sign-in, or a sign-in form served with
+/// 200), the site in maintenance (the host pauses), or an unexpected
+/// redirect or status. Every 教務 read starts from what this returns.
 async fn send(
     attempt: &Attempt,
     method: Method,
@@ -347,7 +269,7 @@ async fn send(
     referer: &str,
     body: Body,
     limits: Limits,
-) -> Result<Fetched, NetError> {
+) -> Result<String, NetError> {
     let response = attempt
         .send(NetRequest {
             host: Host::Kyomu,
@@ -358,9 +280,9 @@ async fn send(
             limits,
         })
         .await?;
-    match classify(response.status, response.location().as_deref()) {
-        Reply::Page => Ok(Fetched::Html(response.text()?)),
-        Reply::SessionExpired => Ok(Fetched::SignedOut),
+    let html = match classify(response.status, response.location().as_deref()) {
+        Reply::Page => response.text()?,
+        Reply::SessionExpired => return Err(NetError::SignInRequired),
         Reply::Unexpected(status) if (300..400).contains(&status) => {
             log::warn!(
                 target: "app_core::kyomu",
@@ -368,17 +290,21 @@ async fn send(
                 url.path(),
                 redirect_target(response.location().as_deref())
             );
-            Ok(Fetched::Redirected(status))
+            return Err(NetError::Http(status));
         }
-        // A maintenance page may come with an error status: it is the page,
-        // for the caller's maintenance check.
+        // A maintenance page may come with an error status.
         Reply::Unexpected(status) => match response.text() {
-            Ok(html) if adpt_isct::maintenance_notice(url, &html).is_some() => {
-                Ok(Fetched::Html(html))
-            }
-            _ => Err(NetError::Http(status)),
+            Ok(html) if adpt_isct::maintenance_notice(url, &html).is_some() => html,
+            _ => return Err(NetError::Http(status)),
         },
+    };
+    if let Some(notice) = adpt_isct::maintenance_notice(url, &html) {
+        return Err(attempt.maintenance(Some(notice)));
     }
+    if kyomu::is_login_page(url, &html) {
+        return Err(NetError::SignInRequired);
+    }
+    Ok(html)
 }
 
 #[cfg(test)]

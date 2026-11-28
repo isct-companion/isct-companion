@@ -464,7 +464,7 @@ impl DownloadTransport for HttpTransport {
             if Scope::School.signed_out(&final_url) {
                 return Err(FetchError::Login);
             }
-            if status.is_server_error() {
+            if crate::net::host_failing(status.as_u16()) {
                 return Err(FetchError::Network);
             }
             if !status.is_success() {

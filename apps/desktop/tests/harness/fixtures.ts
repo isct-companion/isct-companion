@@ -244,19 +244,6 @@ export function lectureListFor(workspace: Workspace) {
   };
 }
 
-export function scheduleViewFor(
-  workspace: Workspace,
-  overrides: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return {
-    ...overviewFor(workspace),
-    agendas: [],
-    exams: [],
-    problems: [],
-    ...overrides,
-  };
-}
-
 /**
  * Answers `lectureSearch` from the workspace's course titles and codes, scoped
  * to the request's quarter when it names one. Core owns the real lookup policy

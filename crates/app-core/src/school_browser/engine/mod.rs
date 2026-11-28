@@ -71,6 +71,8 @@ struct Inner {
     next_action: AtomicU64,
     listener: Mutex<Option<Arc<dyn SchoolBrowserListener>>>,
     restore_io: Mutex<()>,
+    /// Told when the person leaves the 教務 site's page.
+    kyomu_left: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -354,6 +356,7 @@ impl SchoolBrowserEngine {
             next_action: AtomicU64::new(1),
             listener: Mutex::new(None),
             restore_io: Mutex::new(()),
+            kyomu_left: Mutex::new(None),
         });
         let listener: Arc<dyn SchoolBrowserListener> = Arc::new(Listener(Arc::downgrade(&inner)));
         browser.attach(Arc::downgrade(&listener))?;
@@ -363,18 +366,31 @@ impl SchoolBrowserEngine {
         Ok(Arc::new(Self(inner)))
     }
 
+    /// Who to tell when the person leaves the 教務 site's page.
+    pub(crate) fn on_kyomu_left(&self, hook: Arc<dyn Fn() + Send + Sync>) {
+        self.0.kyomu_left.guard().replace(hook);
+    }
+
     /// Which site is on screen, the one whose page Core publishes.
     pub fn user_browsing(&self, site: Option<SchoolSite>) -> Result<(), SchoolBrowserError> {
-        {
+        let left_kyomu = {
             let mut state = self.0.state.guard();
             if state.browsing == site {
                 return Ok(());
             }
+            let left_kyomu = state.browsing == Some(SchoolSite::Kyomu);
             state.browsing = site;
             if site != Some(SchoolSite::SciencePortal) {
                 if let Some(otp) = state.otp.as_mut() {
                     otp.stop();
                 }
+            }
+            left_kyomu
+        };
+        if left_kyomu {
+            let hook = self.0.kyomu_left.guard().clone();
+            if let Some(hook) = hook {
+                hook();
             }
         }
         // Changes made while the site was off screen were not published.

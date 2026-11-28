@@ -109,8 +109,11 @@ impl MoodleError {
                 | Self::ServiceUnavailable(_)
                 | Self::Api(_)
                 | Self::Malformed(_)
-                // A gateway or a disabled web service answering the REST path.
-                | Self::Net(NetError::Http(400..=499))
+        ) || matches!(
+            // A gateway or a disabled web service answering the REST path;
+            // a busy host is retried, not read another way.
+            self,
+            Self::Net(NetError::Http(status @ 400..=499)) if !crate::net::host_failing(*status)
         )
     }
 }
@@ -125,6 +128,21 @@ pub(crate) struct KeyError {
     /// Failed on the session cookie (dashboard, timetable): reading it again
     /// over the cookie transport cannot help.
     cookie_side: bool,
+}
+
+/// A list a response must hold for its read to say what is no longer there
+/// (`d/sgfx8a`): a missing or mistyped field is a malformed answer, never an
+/// empty list. A complete empty list is `Ok(&[])`.
+pub(crate) fn required_list<'v>(
+    value: &'v Value,
+    field: &'static str,
+    function: MoodleFunction,
+) -> Result<&'v [Value], KeyError> {
+    value
+        .get(field)
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .ok_or_else(|| KeyError::new(function.name(), MoodleError::Malformed(field)))
 }
 
 impl KeyError {
@@ -782,6 +800,14 @@ impl MoodleClient {
             .map_err(|_| MoodleError::Malformed("launch URL"))?;
         let response =
             Self::cookie_send(attempt, Method::GET, url.clone(), Body::None, Limits::page).await?;
+        // A failing or busy host (5xx, 408, 429) says nothing about whether
+        // this account may have a token: it is retried after a backoff like
+        // any other LMS read (`d/wm1bwz`). Only an answer of the launch
+        // itself (a page instead of the redirect, a redirect elsewhere, a bad
+        // signature) says the LMS offers none.
+        if crate::net::host_failing(response.status) {
+            return Err(MoodleError::Net(NetError::Http(response.status)));
+        }
         if !(300..400).contains(&response.status) {
             return Err(MoodleError::ServiceUnavailable(format!(
                 "launch HTTP {}",

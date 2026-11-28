@@ -80,11 +80,16 @@ fn exercise_and_lab_share_their_slot_without_a_schedule() {
             .find(|row| row.course_id.as_deref() == Some("ex"))
             .unwrap();
         assert_eq!(blocks.len(), 2, "the lab folds into the exercise block");
-        assert_eq!(
-            shared.title,
-            "Exercises in Physics II English Class / Physics Experiment II"
-        );
-        assert_eq!(shared.room, "M-B107 / S-B101");
+        // One block names both courses and both rooms.
+        for part in [
+            "Exercises in Physics II English Class",
+            "Physics Experiment II",
+        ] {
+            assert!(shared.title.contains(part), "{}", shared.title);
+        }
+        for room in ["M-B107", "S-B101"] {
+            assert!(shared.room.contains(room), "{}", shared.room);
+        }
         // Without a published schedule the shared block stays weekly.
         assert!(!alternation(shared).scheduled && alternation(shared).turn.is_none());
         let pair = alternation(shared).pair.as_ref().unwrap();

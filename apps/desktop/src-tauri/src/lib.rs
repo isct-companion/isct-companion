@@ -499,7 +499,7 @@ pub fn run() {
                 .authorized_providers()
                 .unwrap_or_default();
             app.manage(
-                cloud_sync::CloudSync::new(app_data_dir.join("cloud-sync.json"), &authorized)
+                cloud_sync::CloudSync::new(app_data_dir.join("cloud-sync.sqlite"), &authorized)
                     .map_err(std::io::Error::other)?,
             );
             core_ports::runtime(app.handle())

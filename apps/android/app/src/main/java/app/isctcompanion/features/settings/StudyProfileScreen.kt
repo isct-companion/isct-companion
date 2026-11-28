@@ -46,14 +46,11 @@ internal fun StudyProfilePage() {
     }
     LaunchedEffect(model.contentRevision) { load() }
 
-    // The stored department, matched like the desktop's `departmentById`
-    // (a plain id or a subscription-scoped "2026:cs").
-    val raw = model.records.settings.optString("departmentId")
-    val departmentId = departments.firstOrNull { raw == it.id || raw.endsWith(":${it.id}") }?.id ?: raw
+    // Core stores only ids of its department table, so the stored id is a
+    // picker value as it is.
+    val departmentId = model.records.settings.optString("departmentId")
     val departmentOptions = listOf("" to t("settings.studyProfile.notSet")) +
-        departments.map { it.id to it.name } +
-        // A stored id this list does not hold still shows.
-        listOfNotNull(departmentId.takeIf { id -> id.isNotEmpty() && departments.none { it.id == id } }?.let { it to it })
+        departments.map { it.id to it.name }
     // The desktop's choices: the ten years up to next year, plus a stored one.
     val now = currentYear ?: Format.today().year
     val years = ((0 until 10).map { now + 1 - it } + listOfNotNull(year)).distinct().sortedDescending()

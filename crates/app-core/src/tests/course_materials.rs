@@ -448,12 +448,13 @@ fn binary_preview_is_optional_and_text_preview_is_bounded() {
 #[tokio::test]
 async fn cleanup_removes_only_stale_complete_material_cache_files() {
     let root = root("cleanup");
-    let current = root.join("2026-3Q/CSC.T251/materials");
-    let legacy = root.join("2026-3Q/CSC.T251/section-1/materials");
-    let notes = root.join("2026-3Q/CSC.T251/section-1/notes");
-    let workspace = root.join("workspaces/local/materials");
-    let nested_notes_materials = root.join("2026-3Q/CSC.T251/notes/materials");
-    let nested_workspace_materials = root.join("2026-3Q/CSC.T251/workspace/materials");
+    let course = root.join("material/2026-3Q/CSC.T251");
+    let current = course.join("materials");
+    let legacy = course.join("section-1/materials");
+    let notes = course.join("section-1/notes");
+    let workspace = root.join("workspace/2026-3Q/CSC.T251/Report 3/materials");
+    let nested_notes_materials = course.join("notes/materials");
+    let nested_workspace_materials = course.join("workspace/materials");
     for directory in [
         &current,
         &legacy,
@@ -499,22 +500,10 @@ async fn cleanup_removes_only_stale_complete_material_cache_files() {
     }
     let service = CourseMaterials::new(store("cleanup"), root.clone(), Downloader::default());
     assert_eq!(service.clean(1).await.unwrap(), 2);
-    // The files above sit in the layout before the trees: the first use moved
-    // every quarter folder into `material/`, and cleanup ran there. A folder
-    // not named like a quarter stays where it was.
-    let moved = |path: &Path| {
-        root.join("material")
-            .join(path.strip_prefix(&root).unwrap())
-    };
-    assert!(stale
-        .iter()
-        .all(|path| !path.exists() && !moved(path).exists()));
-    assert!(!root.join("2026-3Q").exists());
-    assert!(moved(&part).exists());
-    assert!(moved(&note).exists());
-    assert!(workspace_file.exists());
-    assert!(moved(&nested_note).exists());
-    assert!(moved(&nested_workspace).exists());
+    assert!(stale.iter().all(|path| !path.exists()));
+    for kept in [part, note, workspace_file, nested_note, nested_workspace] {
+        assert!(kept.exists(), "{}", kept.display());
+    }
 }
 
 #[tokio::test]

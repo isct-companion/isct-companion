@@ -1,70 +1,57 @@
+//! The pages on the way into the campus VPN follow a sign-in, so none is
+//! committed. This test reads pages saved off campus from a browser signed in
+//! to the portal, from the directory in `VPN_CAPTURES`, kept outside the
+//! repository, and is compiled only when that directory exists, and a file
+//! missing from it fails its test
+//! (`vpn_captures`, `build.rs`). Open <https://apm.nap.gsic.titech.ac.jp/>
+//! from the portal's resource menu with the developer tools' network log kept
+//! across pages, and save these responses' bodies:
+//!
+//! - `apm-handoff.html`: the APM's `GET https://apm.nap.gsic.titech.ac.jp/my.policy`,
+//!   the form its script points at the proxy;
+//! - `proxy-password.html`: the proxy's answer to that form's post to
+//!   `https://rp.nap.gsic.titech.ac.jp/vpnaccess_apm/service/`, the
+//!   password page;
+//! - `getaccess-login.html`: the portal's account and password form (the
+//!   page with `usr_name`), reached from
+//!   <https://portal.nap.gsic.titech.ac.jp/GetAccess/ResourceList> in a
+//!   browser not signed in, through the agreement page's button.
+//!
+//! `VPN_CAPTURES=/path/to/dir cargo test -p adpt-isct --features campus-vpn --lib login::tests`
 use super::*;
 
+const APM_POLICY: &str = "https://apm.nap.gsic.titech.ac.jp/my.policy";
 const PROXY: &str = "https://rp.nap.gsic.titech.ac.jp/vpnaccess_apm/service/";
+const PORTAL_LOGIN: &str = "https://portal.nap.gsic.titech.ac.jp/GetAccess/Login";
 
-/// The proxy page as GetAccess serves it in front of the campus VPN: one
-/// password field, no account field, the session id in the action.
+fn capture(name: &str) -> String {
+    let path = std::path::Path::new(env!("VPN_CAPTURES")).join(name);
+    std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
+}
+
+/// The walk's three kinds of page as the school serves them: the APM's
+/// hand-off posts on to the address its script sets (the form's own action
+/// is empty), the proxy asks for the password alone, and the portal's
+/// account form, which also has a password field, is not that step: filling
+/// only its password would send a sign-in without the account.
 #[test]
-fn the_vpn_proxy_password_form_is_recognised_by_its_markup() {
-    let html = r#"<html><body><form method="post" action="/vpnaccess_apm/service/post;jsessionid=ABC">
-        <input type="password" id="password" name="password" autocomplete="current-password">
-        <button type="submit">OK</button></form></body></html>"#;
-    let VpnPage::Password(form) = vpn(html, PROXY) else {
-        panic!("not read as the password step");
+fn captured_vpn_pages_are_the_hand_off_the_password_step_and_not_the_portal() {
+    let VpnPage::Relay(relay) = vpn(&capture("apm-handoff.html"), APM_POLICY) else {
+        panic!("the APM's hand-off was not read as a relay");
     };
-    assert_eq!(
-        form.action,
-        "https://rp.nap.gsic.titech.ac.jp/vpnaccess_apm/service/post;jsessionid=ABC"
-    );
+    assert_eq!(relay.action, PROXY);
+    assert!(!relay.fields().is_empty());
+
+    let VpnPage::Password(form) = vpn(&capture("proxy-password.html"), PROXY) else {
+        panic!("the proxy's page was not read as the password step");
+    };
+    assert!(form.action.starts_with(PROXY), "{}", form.action);
     assert_eq!(form.get("password"), Some(""));
-}
 
-/// The GetAccess account form also has a password field; filling it with
-/// only the password would send a sign-in without the account.
-#[test]
-fn the_portal_account_form_is_not_the_vpn_password_step() {
-    let html = r#"<form name="login" method="post" action="/GetAccess/Login">
-        <input name="usr_name"><input type="password" name="usr_password"></form>"#;
-    assert_eq!(vpn(html, PROXY), VpnPage::Other);
-}
-
-/// A hand-off page posts hidden fields onward on load; a form with a visible
-/// field is something for a person and is not submitted on their behalf.
-#[test]
-fn only_a_hidden_only_post_form_is_a_relay() {
-    let relay = r#"<form method="POST" action="https://apm.nap.gsic.titech.ac.jp/my.policy">
-        <input type="hidden" name="token" value="t1"></form>"#;
-    let VpnPage::Relay(form) = vpn(relay, PROXY) else {
-        panic!("not read as a relay");
-    };
-    assert_eq!(form.action, "https://apm.nap.gsic.titech.ac.jp/my.policy");
-    assert_eq!(form.get("token"), Some("t1"));
-
-    let visible = r#"<form method="post" action="/x"><input type="hidden" name="a" value="1">
-        <input type="text" name="b"></form>"#;
-    assert_eq!(vpn(visible, PROXY), VpnPage::Other);
-}
-
-/// The APM's own hand-off, as it serves it: an empty action that its script
-/// replaces with the proxy's address before submitting.
-#[test]
-fn the_apm_hand_off_posts_to_the_address_its_script_sets() {
-    let html = r#"<html><body>
-        <FORM name=external_data_post_cls method=post action="">
-            <input type=hidden name=client_data value="SecurityDevice">
-            <input type=hidden name=post_url value="https://apm.nap.gsic.titech.ac.jp/my.policy">
-        </FORM>
-        <script>
-        document.external_data_post_cls.action = unescape("https://rp.nap.gsic.titech.ac.jp/vpnaccess_apm/service/");
-        document.external_data_post_cls.submit();
-        </script></body></html>"#;
-    let VpnPage::Relay(form) = vpn(html, "https://apm.nap.gsic.titech.ac.jp/my.policy") else {
-        panic!("not read as a relay");
-    };
-    assert_eq!(form.action, PROXY);
-    assert_eq!(form.get("client_data"), Some("SecurityDevice"));
-    assert_eq!(
-        form.get("post_url"),
-        Some("https://apm.nap.gsic.titech.ac.jp/my.policy")
-    );
+    let portal = capture("getaccess-login.html");
+    assert_eq!(vpn(&portal, PORTAL_LOGIN), VpnPage::Other);
+    assert!(matches!(
+        tokyo(&portal, PORTAL_LOGIN),
+        TokyoPage::Credentials(_)
+    ));
 }

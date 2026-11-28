@@ -1,52 +1,36 @@
 // @vitest-environment jsdom
-import { Activity, act, useState } from "react";
+import { Activity, act, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   advance,
   buttonByText,
   click,
-  chooseOption,
-  courseFor,
-  emptySchoolRecords,
-  installFakeCore,
+  installComponentHost,
   mount,
-  mountApp,
-  offering,
-  overviewFor,
-  lectureListFor,
   typeInto,
   until,
   workspaceFixture,
-  type FakeCore,
-  type FakeCoreOptions,
   type Mounted,
-  type MountedApp,
 } from "@tests/harness";
-import type { Assignment, Course, Material, Workspace } from "@app/lib/model";
-import type { LmsCourseRecord, LmsSection } from "@app/platform/desktop-bridge";
-import type { CourseContent, LessonItemKind } from "@app/generated/persistence";
-import type { CourseEntry } from "@app/features/lms";
 
 /**
- * The LMS reading workspace and the readers it opens, over the scripted host.
+ * The LMS reading workspace's own paths, over the scripted host.
  *
- * The reading behaviours mount the real `LmsWorkspace` with the harness: the
- * legacy suite drove that component with props, and every guarantee here is
- * about what the workspace renders, not about which route reached it. The
- * behaviour that is about the shell itself — an opened document surviving a
- * move to another lecture — mounts the real shell.
+ * Each case mounts the production component that owns one path — the
+ * assignment footer, the file preview, the reader's LMS view, the note
+ * editor, the PDF viewer, the course HTML renderer — and checks where the
+ * person's data and the host end up: the folder Core reports, the note on
+ * disk, the page Core is asked to open. None of them needs an LMS course: the
+ * outline itself is Core's `courseContent` over a real enrolment, and what it
+ * draws is checked by hand (`COURSE-LESSON-SERIES-LABELS`,
+ * `DESKTOP-PDF-TOOLBAR` in docs/verification/manual-checks.yaml).
  *
- * `pdfjs-dist` has no headless mode (it needs a worker and a canvas) and the
- * Milkdown/Crepe editor is driven through its real ProseMirror transactions, so
- * only `pdfjs-dist` is mocked; `PdfDocument` itself stays real.
+ * `pdfjs-dist` has no headless mode (it needs a worker and a canvas), so it
+ * alone is mocked; `PdfDocument` stays real. The Milkdown editor is driven
+ * through its real ProseMirror transactions.
  */
 
-const pdfjs = vi.hoisted(() => ({
-  load: vi.fn(),
-  destroy: vi.fn(),
-  cancel: vi.fn(),
-  render: vi.fn(),
-}));
+const pdfjs = vi.hoisted(() => ({ load: vi.fn(), render: vi.fn() }));
 
 vi.mock("pdfjs-dist/legacy/build/pdf.mjs", () => ({
   GlobalWorkerOptions: {},
@@ -66,811 +50,414 @@ vi.mock("pdfjs-dist/legacy/build/pdf.worker.min.mjs?url", () => ({
 const LIMIT = 20 * 1024 * 1024;
 const COURSE_ID = "test-course";
 const CONTEXT = { courseId: COURSE_ID, section: "section-91" };
-const SOURCE = { provider: "lms" as const, externalId: "42" };
 
-let app: MountedApp | undefined;
 let views: Mounted[] = [];
-let deviceCounter = 0;
-
-afterEach(async () => {
-  await app?.unmount().catch(() => undefined);
-  app = undefined;
-  for (const view of views.splice(0)) {
-    await view.unmount().catch(() => undefined);
-  }
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  localStorage.clear();
-  sessionStorage.clear();
-});
 
 beforeEach(() => {
   localStorage.clear();
   sessionStorage.clear();
 });
 
-/**
- * Installs the scripted host, then loads the real module. `platform/native` captures
- * its bridge at first import, so the fake host has to be in place first —
- * `mountApp` does the same thing for the shell.
- */
-async function scriptedHost<T>(
-  options: FakeCoreOptions,
-  load: () => Promise<T>,
-): Promise<{ core: FakeCore; real: T }> {
-  const core = installFakeCore(options);
-  // A component-level mount never goes through the shell, so the workspace
-  // store would keep the first test's `contentRevision` — half of the
-  // read-model cache key in `platform/core-query` — and hand a later test the
-  // previous host's answer. Publishing this host's snapshot mirrors launch.
-  const { workspaceStore } = await import("@app/store/workspace");
-  await workspaceStore.reload();
-  return { core, real: await load() };
-}
+afterEach(async () => {
+  for (const mounted of views.splice(0)) {
+    await mounted.unmount().catch(() => undefined);
+  }
+  vi.restoreAllMocks();
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
 /**
  * Waits generously: the gate runs every suite, and this file shares the machine
  * with sibling suites, so a 5s poll is not enough when the box is loaded.
  */
-function waitFor<T>(
-  check: () => T,
-  options?: { timeout?: number },
-): Promise<T> {
-  return until(check, { timeout: options?.timeout ?? 15_000 });
+function waitFor<T>(check: () => T): Promise<T> {
+  return until(check, { timeout: 15_000 });
 }
 
-async function release(view: Mounted): Promise<void> {
-  const index = views.indexOf(view);
+/** The element, or an error naming what has not appeared yet. */
+function required<T>(value: T | null | undefined, what: string): T {
+  if (value == null) throw new Error(`${what} is not there yet.`);
+  return value;
+}
+
+async function view(element: ReactElement): Promise<Mounted> {
+  const mounted = await mount(element);
+  views.push(mounted);
+  return mounted;
+}
+
+async function release(mounted: Mounted): Promise<void> {
+  const index = views.indexOf(mounted);
   if (index >= 0) views.splice(index, 1);
-  await view.unmount();
+  await mounted.unmount();
 }
 
-function material(overrides: Partial<Material> = {}) {
-  return {
-    rev: 1,
-    updatedAt: "2026-10-05T00:00:00Z",
-    updatedBy: "test",
-    source: SOURCE,
-    id: "m1",
-    kind: "material",
-    courseId: "test-course",
-    title: "Lecture file",
-    type: "link",
-    session: 9,
-    sectionNumber: 9,
-    sectionTitle: "Duplicate",
-    bodyHtml: "<p>Readable file body</p>",
-    module: "resource",
-    ...overrides,
-  } as Material;
-}
-
-function assignment(overrides: Partial<Assignment> = {}) {
-  return {
-    rev: 1,
-    updatedAt: "2026-10-05T00:00:00Z",
-    updatedBy: "test",
-    source: SOURCE,
-    id: "a1",
-    kind: "assignment",
-    courseId: "test-course",
-    lmsCmid: 100,
-    title: "Report",
-    details: "Requirement body",
-    dueAt: "2026-10-10T00:00:00Z",
-    submission: "open",
-    sourceUrl: "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100",
-    ...overrides,
-  } as Assignment;
-}
-
-function courseRow(overrides: Partial<Course> = {}) {
-  return courseFor(offering("202602421", "TEST", "Test course"), {
-    id: "test-course",
-    code: "TEST",
-    title: "Test course",
-    instructor: "",
-    url: undefined,
-    offeringId: undefined,
-    source: SOURCE,
-    meetings: [],
-    ...overrides,
-  } as Partial<Course>) as Course;
-}
-
-type LectureFixture = {
-  workspace: Workspace;
-  course: Course;
-  record: LmsCourseRecord;
-};
-
-/** The legacy suite's course: three ordinary sections, one file, one report. */
-function lectureFixture(): LectureFixture {
-  const course = courseRow();
-  const record: LmsCourseRecord = {
-    id: "lms42",
-    lmsId: 42,
-    shortname: "TEST[2026]",
-    title: { en: "Test" },
-    quarters: ["3Q"],
-    url: "https://lms.s.isct.ac.jp/2025/course/view.php?id=42",
-    sections: [
-      {
-        id: 91,
-        number: 9,
-        title: "Duplicate",
-        visible: true,
-        bodyHtml: `<p>${"Earlier text ".repeat(30)}searchable tail</p>`,
-      },
-      {
-        id: 81,
-        number: 8,
-        title: "Duplicate",
-        visible: true,
-        bodyHtml: "<p>Text-only lesson</p>",
-      },
-      { id: 71, number: 7, title: "Empty section", visible: true },
-    ],
-  };
-  const workspace = workspaceFixture({ courses: [course] });
-  workspace.deviceId = `device:lms-${++deviceCounter}`;
-  workspace.materials = [material()];
-  workspace.assignments = [assignment()];
-  return { workspace, course, record };
-}
-
-const KINDS: Record<string, LessonItemKind> = {
-  resource: "file",
-  url: "link",
-  folder: "folder",
-  page: "page",
-  label: "label",
-  forum: "forum",
-};
-
-/**
- * Core's `courseContent` answer for a fixture's records, as the scripted host
- * gives it: each LMS section with the materials and assignments set in it,
- * none of them lessons. Core's own rules (order, the syllabus link, rail
- * labels, schedule marks, pictures-only labels) are tested in
- * `course_content_follows_the_desktop_lecture_desk`; this suite checks what
- * the workspace renders of the answer.
- */
-function contentFor(
-  f: LectureFixture,
-  imageOnly: string[] = [],
-): CourseContent {
-  const materials = f.workspace.materials.filter(
-    (m) => m.courseId === f.course.id,
+/** A button whose label starts with `label` (the rest is a size). */
+function buttonStarting(host: ParentNode, label: string) {
+  return [...host.querySelectorAll("button")].find((button) =>
+    (button.textContent ?? "").trim().startsWith(label),
   );
-  const inSection = (m: Material, section: LmsSection) =>
-    m.sectionId != null
-      ? Number(m.sectionId) === Number(section.id)
-      : m.sectionNumber === section.number;
-  const placed = (a: Assignment, section?: LmsSection) =>
-    materials.some(
-      (m) =>
-        a.lmsCmid != null &&
-        m.cmid === a.lmsCmid &&
-        (!section || inSection(m, section)),
-    );
-  return {
-    courseId: f.course.id,
-    lessons: (f.record.sections ?? []).map((section) => {
-      const items = materials.filter(
-        (m) =>
-          inSection(m, section) && !["assign", "quiz"].includes(m.module ?? ""),
-      );
-      return {
-        section: section.number,
-        sectionId: Number(section.id),
-        title: section.title,
-        number: null,
-        label: section.title,
-        summaryHtml: section.bodyHtml ?? "",
-        originalSummaryHtml: null,
-        summary: "",
-        items: items.map((m) => ({
-          materialId: m.id,
-          kind: KINDS[m.module ?? "resource"] ?? "other",
-          title: m.title,
-          bodyHtml: ["page", "label", "forum"].includes(m.module ?? "")
-            ? (m.bodyHtml ?? null)
-            : null,
-          originalBodyHtml: null,
-          source: m.url ?? m.resourceUrl ?? null,
-          imageOnly: imageOnly.includes(m.id),
-        })),
-        assignmentIds: f.workspace.assignments
-          .filter((a) => placed(a, section))
-          .map((a) => a.id),
-        posted: items.length > 0,
-      };
-    }),
-    materialReaderHtml: Object.fromEntries(
-      materials.flatMap((m) =>
-        m.bodyHtml &&
-        !["page", "label", "forum", "assign", "quiz"].includes(m.module ?? "")
-          ? [[m.id, { preferred: m.bodyHtml, original: null }]]
-          : [],
-      ),
-    ),
-    otherAssignmentIds: f.workspace.assignments
-      .filter((a) => !placed(a))
-      .map((a) => a.id),
-    currentSection: null,
-    classAt: null,
-  };
-}
-
-/**
- * The fixture's answer with Core's lesson rail on it: rail labels and lesson
- * numbers by section id, where the course is and the class a mark is for.
- */
-function lessonContent(
-  f: LectureFixture,
-  rail: Record<number, [label: string, number: number]>,
-  currentSection: number,
-  classAt: string | null = null,
-): CourseContent {
-  const content = contentFor(f);
-  for (const lesson of content.lessons) {
-    const [label, number] = rail[lesson.sectionId!] ?? [lesson.label, null];
-    Object.assign(lesson, { label, number });
-  }
-  return { ...content, currentSection, classAt };
-}
-
-type WorkspaceOptions = {
-  entry?: Partial<CourseEntry>;
-  active?: boolean;
-  markLesson?: (sectionId: number, occurrence: string, label: string) => void;
-  /** Core's `courseContent` answer, or how it answers each read; by
-   * default the fixture's (`contentFor`). */
-  content?: CourseContent | (() => CourseContent);
-  tasks?: unknown;
-  /** Core's `courseDetail` answer, which carries the course's syllabus link. */
-  detail?: unknown;
-  handle?: FakeCoreOptions["handle"];
-  /** The resident school view is available (the native desktop app). */
-  schoolWebAvailable?: boolean;
-};
-
-/** Mounts the real reading workspace over the scripted host. */
-async function openWorkspace(
-  fixture: LectureFixture,
-  options: WorkspaceOptions = {},
-) {
-  const { core, real } = await scriptedHost(
-    {
-      workspace: fixture.workspace,
-      schoolRecords: {
-        ...emptySchoolRecords(),
-        lmsCourses: [fixture.record],
-      },
-      queries: {
-        courseContent: () =>
-          typeof options.content === "function"
-            ? options.content()
-            : (options.content ?? contentFor(fixture)),
-        taskView: () => options.tasks ?? null,
-        courseDetail: () => options.detail ?? null,
-      },
-      handle: (command, args) => {
-        if (command === "list_course_notes") return [];
-        // The harness also offers the fake store; this suite's handlers ignore it.
-        const custom = options.handle as
-          | ((command: string, args: Record<string, unknown>) => unknown)
-          | undefined;
-        return custom?.(command, args) ?? undefined;
-      },
-    },
-    // The shell renders the in-app confirmations beside every page; load them
-    // with the workspace so both share one confirmation store.
-    async () => ({
-      ...(await import("@app/features/lms/LmsWorkspace")),
-      ...(await import("@app/components/confirm")),
-    }),
-  );
-  const props = {
-    course: fixture.course,
-    data: fixture.workspace,
-    entry: { courseId: fixture.course.id, request: 1, ...options.entry },
-    active: options.active ?? true,
-    schoolWebAvailable: options.schoolWebAvailable ?? false,
-    markLesson: options.markLesson,
-  };
-  const view = await mount(
-    <>
-      <real.LmsWorkspaceBody {...props} />
-      <real.ConfirmDialogs />
-    </>,
-  );
-  views.push(view);
-  await waitFor(() =>
-    expect(view.host.querySelector(".lmsWorkspace")).not.toBeNull(),
-  );
-  await advance(25);
-  return {
-    core,
-    view,
-    host: view.host,
-    render: async (overrides: Partial<typeof props> = {}) => {
-      await act(async () =>
-        view.root.render(
-          <>
-            <real.LmsWorkspaceBody {...props} {...overrides} />
-            <real.ConfirmDialogs />
-          </>,
-        ),
-      );
-    },
-  };
-}
-
-function scheduleQueryNow(core: FakeCore): string | undefined {
-  for (const call of [...core.commands("schedule_query")].reverse()) {
-    const queries = call.args.queries as
-      { kind?: string; now?: string }[] | undefined;
-    const found = queries?.find((query) => query.kind === "courseContent");
-    if (found) return found.now;
-  }
-  return undefined;
 }
 
 function itemRow(host: HTMLElement, text: string): HTMLElement {
   const row = [...host.querySelectorAll<HTMLElement>(".lmsItemRow")].find(
     (item) => item.textContent?.includes(text),
   );
-  if (!row) throw new Error(`no outline row for ${text}`);
+  if (!row) throw new Error(`no row for ${text}`);
   return row;
 }
 
-const lectureRoute = (courseId: string) =>
-  `/lectures/${encodeURIComponent(courseId)}`;
+const lmsPage = (url: string) => ({ site: "science-lms", url });
 
-describe("the LMS reading workspace", () => {
-  it("restores a saved reader when the workspace pane starts narrow", async () => {
-    const fixture = lectureFixture();
-    sessionStorage.setItem(
-      `lms-reading:${fixture.workspace.deviceId}:${fixture.course.id}`,
-      JSON.stringify({
-        version: 3,
-        expanded: [],
-        scroll: 0,
-        opened: { id: "m1", title: "Lecture file", kind: "material" },
-      }),
-    );
-    // jsdom has no layout; report the narrow width the outline and viewer
-    // switch at, as a Windows snap or a side panel leaves the pane.
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
-    vi.stubGlobal(
-      "ResizeObserver",
-      class implements ResizeObserver {
-        constructor(private callback: ResizeObserverCallback) {}
-        observe(target: Element) {
-          if (!target.matches(".lmsWorkspaceBody")) return;
-          queueMicrotask(() =>
-            this.callback(
-              [
-                {
-                  target,
-                  contentRect: new DOMRect(0, 0, 600, 700),
-                  borderBoxSize: [{ inlineSize: 600, blockSize: 700 }],
-                } as unknown as ResizeObserverEntry,
-              ],
-              this,
-            ),
-          );
+/** A file Core has in the course folder. */
+const storedFile = (path: string, viewer: string, text?: string) => ({
+  id: path,
+  name: path.split("/").pop(),
+  section: "",
+  path,
+  bytes: 10,
+  cached: true,
+  viewer,
+  ...(text === undefined ? {} : { text }),
+});
+
+/** One PDF page as PDF.js describes it. */
+const sheet = () => ({
+  getViewport: ({ scale }: { scale: number }) => ({
+    width: 600 * scale,
+    height: 800 * scale,
+  }),
+  render: pdfjs.render,
+  cleanup: () => {},
+  streamTextContent: () => ({}),
+});
+
+describe("an assignment's workspace folder", () => {
+  it("hands its files to the LMS draft, survives the folder vanishing, and is deleted only once confirmed", async () => {
+    const report = {
+      path: "/courses/Report",
+      name: "Report",
+      submitFiles: ["report.pdf"],
+      zip: false,
+      zipName: "Report.zip",
+    };
+    const draft =
+      "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission";
+    // The person's folder on disk, as Core reports it.
+    let folder: typeof report | null = report;
+    let submitEmpty = false;
+    await installComponentHost({
+      workspace: workspaceFixture(),
+      handle: (command, args) => {
+        switch (command) {
+          case "assignment_workspace":
+            return folder
+              ? { workspace: folder, handIn: "prepareDraft" }
+              : { workspace: null, handIn: "openLms" };
+          case "prepare_workspace_submission":
+            if (args.path !== folder?.path)
+              return Promise.reject({
+                code: "workspace-folder-missing",
+                detail: "The workspace folder no longer exists",
+              });
+            if (submitEmpty)
+              return Promise.reject({
+                code: "hand-in-empty",
+                detail: "The submit folder is empty",
+              });
+            return { workspace: folder, url: draft };
+          case "create_assignment_workspace":
+            folder = report;
+            return { workspace: folder, missing: [] };
+          case "delete_workspace":
+            if (args.path === folder?.path) folder = null;
+            return null;
         }
-        unobserve() {}
-        disconnect() {}
+        return undefined;
       },
-    );
-
-    const { host } = await openWorkspace(fixture);
-    const workspace = () => host.querySelector(".lmsWorkspace");
-    await waitFor(() =>
-      expect(workspace()?.classList.contains("narrowReader")).toBe(true),
-    );
-    expect(workspace()?.classList.contains("viewing")).toBe(true);
-    expect(host.querySelector(".lmsViewerBody")?.textContent).toContain(
-      "Readable file body",
-    );
-  }, 30_000);
-
-  it("lays out every lesson as a page and opens the outline where the course is", async () => {
-    const f = lectureFixture();
-    f.record.sections = [
-      { id: 10, number: 0, title: "一般", visible: true },
-      {
-        id: 11,
-        number: 1,
-        title: "第1回",
-        visible: true,
-        bodyHtml: "<p>授業計画: 導入</p>",
-      },
-      {
-        id: 12,
-        number: 2,
-        title: "第2回",
-        visible: true,
-        bodyHtml: "<p>授業計画: Java の基本</p>",
-      },
-      {
-        id: 13,
-        number: 3,
-        title: "演習第1回",
-        visible: true,
-        bodyHtml: "<p>授業計画: 演習</p>",
-      },
-    ];
-    f.workspace.materials = [11, 12].map((sectionId) =>
-      material({
-        id: `m${sectionId}`,
-        title: `File ${sectionId}`,
-        sectionId,
-        sectionNumber: sectionId - 10,
-        sectionTitle: `第${sectionId - 10}回`,
-        bodyHtml: undefined,
-      }),
-    );
-    const { host } = await openWorkspace(f, {
-      entry: { request: 97 },
-      content: lessonContent(
-        f,
-        { 11: ["1", 1], 12: ["2", 2], 13: ["演習 1", 1] },
-        2,
-      ),
     });
+    const { AssignmentWorkspaceFooter } =
+      await import("@app/features/lms/AssignmentWorkspaceCard");
+    const { ConfirmDialogs } = await import("@app/components/confirm");
+    // What the shell is asked to open: the prepared draft, or the plain page.
+    const lms: (string | undefined)[] = [];
+    const { host } = await view(
+      <>
+        <AssignmentWorkspaceFooter
+          assignment={{ id: "a1" }}
+          state={undefined}
+          submit={(url) => lms.push(url)}
+        />
+        <ConfirmDialogs />
+      </>,
+    );
+    const button = (label: string) =>
+      waitFor(() => required(buttonByText(host, label), label));
+    const trash = () =>
+      waitFor(() =>
+        required(
+          host.querySelector<HTMLButtonElement>(
+            '[aria-label="Delete workspace"]',
+          ),
+          "the workspace card",
+        ),
+      );
+    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+    const answer = (label: string) =>
+      waitFor(() =>
+        required(
+          dialog() && buttonByText(dialog()!, label),
+          "the confirmation",
+        ),
+      );
 
-    const rail = () => [
-      ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button",
-      ),
-    ];
-    // Core's labels, as they are: a recitation keeps its own word.
+    // The files go to the requested assignment's draft, which the shell opens.
+    await click(await button("Upload to LMS draft"));
+    await waitFor(() => expect(lms).toEqual([draft]));
+
+    // Core refuses an empty submit folder: nothing opens.
+    submitEmpty = true;
+    await click(await button("Upload to LMS draft"));
     await waitFor(() =>
-      expect(rail().map((button) => button.textContent)).toEqual([
-        "1",
-        "2",
-        "演習 1",
-      ]),
+      expect(host.querySelector('[role="alert"]')).not.toBeNull(),
     );
-    // The outline opens where Core puts the course.
-    expect(rail()[1].getAttribute("aria-current")).toBe("step");
-    // Every lesson is laid out at once, each as a page of the outline.
-    expect(
-      [...host.querySelectorAll(".lmsLessonPage")].map((page) =>
-        page.getAttribute("data-page"),
-      ),
-    ).toEqual(["11", "12", "13"]);
-    expect(host.querySelector('[data-page="11"]')?.textContent).toContain(
-      "File 11",
-    );
-    expect(host.querySelector('[data-page="12"]')?.textContent).toContain(
-      "File 12",
-    );
-    // 一般 has no number, and the report belongs to no lesson: both are tabs.
-    expect(
-      [...host.querySelectorAll(".lmsSectionTab")].map((tab) => tab.textContent),
-    ).toEqual(["一般", "Activities"]);
+    expect(lms).toEqual([draft]);
 
-    await click(rail()[0]);
-    expect(rail()[0].getAttribute("aria-current")).toBe("step");
+    // Deleted in Finder: the next upload finds the folder gone, Core offers a
+    // new one, and the LMS page still opens without it.
+    submitEmpty = false;
+    folder = null;
+    await click(await button("Upload to LMS draft"));
+    const create = await button("Create workspace");
+    await click(await button("View in LMS"));
+    expect(lms).toEqual([draft, undefined]);
+
+    // Made again, the folder goes only after the in-app confirmation.
+    await click(create);
+    await click(await trash());
+    await click(await answer("Cancel"));
+    await waitFor(() => expect(dialog()).toBeNull());
+    expect(folder).toBe(report);
+    await click(await trash());
+    await click(await answer("Delete"));
+    await waitFor(() => expect(folder).toBeNull());
   }, 30_000);
+});
 
-  it("searches the full collapsed body of a lesson and collapses every section", async () => {
-    const f = lectureFixture();
-    const { host } = await openWorkspace(f, {
-      entry: { request: 1, date: "2026-10-05" },
+describe("a course file", () => {
+  async function openPreview(
+    url: string,
+    handle: (command: string, args: Record<string, unknown>) => unknown,
+    props: {
+      openPage?: (page: unknown) => void;
+      openWeb?: (url: string) => void;
+      openFile?: (url: string, name: string) => void;
+    } = {},
+  ) {
+    const core = await installComponentHost({
+      workspace: workspaceFixture(),
+      handle: (command, args) => handle(command, args),
     });
+    const { FilePreview } = await import("@app/features/lms/FilePreview");
+    const mounted = await view(
+      <FilePreview
+        url={url}
+        title="File"
+        courseId={COURSE_ID}
+        limit={LIMIT}
+        openPage={props.openPage ?? (() => undefined)}
+        openWeb={props.openWeb ?? (() => undefined)}
+        openFile={props.openFile}
+      />,
+    );
+    return { core, mounted, host: mounted.host };
+  }
 
-    expect(
-      [...host.querySelectorAll(".lmsSection")].map((section) =>
-        section.getAttribute("data-reading-section"),
+  it("previews what Core prepared: past the download limit only on request, a ZIP's files each on its own, a protected PDF once unlocked", async () => {
+    // Core reports a file over the request's limit by its size; only a
+    // request without one prepares it.
+    const big = "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/big.txt";
+    const text = await openPreview(big, (command, args) =>
+      command !== "open_course_material"
+        ? undefined
+        : args.limit != null
+          ? { state: "tooLarge", bytes: 45 * 1024 * 1024, page: lmsPage(big) }
+          : {
+              state: "ready",
+              file: storedFile("/course/big.txt", "text", "Chapter 1"),
+              page: lmsPage(big),
+            },
+    );
+    await click(
+      await waitFor(() =>
+        required(buttonStarting(text.host, "Preview"), "the size card"),
       ),
-    ).toEqual(["section:91", "section:81", "section:71"]);
-    expect(host.querySelectorAll(".lmsSectionBody")).toHaveLength(3);
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-
-    await click(buttonByText(host, "Collapse all"));
-    expect(host.querySelector(".lmsSectionBody")).toBeNull();
-
-    const search = host.querySelector<HTMLInputElement>("input")!;
-    await typeInto(search, "searchable tail");
+    );
+    // Prepared on request, the copy Core stored is the one revealed.
+    await click(
+      await waitFor(() =>
+        required(buttonByText(text.host, "Show in folder"), "the preview"),
+      ),
+    );
     await waitFor(() =>
-      expect(host.querySelectorAll(".lmsSection")).toHaveLength(1),
+      expect(text.core.commands("open_course_file").at(-1)?.args).toMatchObject(
+        { path: "/course/big.txt", reveal: true },
+      ),
     );
-    expect(host.querySelector(".lmsSectionBody")?.textContent).toContain(
-      "searchable tail",
-    );
-  }, 30_000);
+    await release(text.mounted);
 
-  it("opens a folder in the outline with the files Core lists for it", async () => {
-    const f = lectureFixture();
-    const folder = "https://lms.s.isct.ac.jp/2025/mod/folder/view.php?id=9";
-    Object.assign(f.workspace.materials[0], {
-      title: "講義資料",
-      module: "folder",
-      url: folder,
-    });
-    const { host } = await openWorkspace(f, {
-      entry: { request: 96 },
-      handle: (command) =>
+    // A ZIP lists its files; each opens in the reader as a course file.
+    const zip =
+      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/OOP-2A-problem.zip";
+    const makefile = `${zip}#entry=OOP-2A/Makefile`;
+    const entries: [string, string][] = [];
+    const archive = await openPreview(
+      zip,
+      (command) =>
         command === "open_course_material"
           ? {
-              state: "folder",
+              state: "archive",
+              file: storedFile(
+                "/course/OOP-2A-problem-0011aabb.zip",
+                "external",
+              ),
               files: [
                 {
-                  name: "20260928.zip",
-                  url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_folder/content/0/20260928.zip?forcedownload=1",
+                  name: "OOP-2A/README.md",
+                  url: `${zip}#entry=OOP-2A/README.md`,
+                  bytes: 2048,
                 },
+                { name: "OOP-2A/Makefile", url: makefile, bytes: 4 },
               ],
-              page: { site: "science-lms", url: folder },
+              page: lmsPage(zip),
             }
           : undefined,
-    });
-
-    const row = host.querySelector<HTMLButtonElement>(
-      '.lmsFolder > [aria-expanded="false"]',
-    )!;
-    await click(row);
-    await waitFor(() =>
-      expect(host.querySelector(".lmsFolderFile")?.textContent).toContain(
-        "20260928.zip",
-      ),
+      { openFile: (url, name) => entries.push([url, name]) },
     );
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-  }, 30_000);
+    await click(await waitFor(() => itemRow(archive.host, "Makefile")));
+    expect(entries).toEqual([[makefile, "OOP-2A/Makefile"]]);
+    await release(archive.mounted);
 
-  it("opens every ZIP in the outline with its files, each opening like an item", async () => {
-    const f = lectureFixture();
-    const zip =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/7/mod_resource/content/1/OOP-2A-problem.zip";
-    const readme = `${zip}#entry=OOP-2A/README.md`;
-    const report = `${zip}#entry=OOP-2A/report.docx`;
-    // An assignment's attachment in the section text, and a resource whose
-    // address does not say it is a ZIP until Core opens it.
-    const attached =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/OOP-1B-problem.zip";
-    const resource =
-      "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=55";
-    f.record.sections![0].bodyHtml = `<p><a href="${attached}">OOP 1B problem</a></p>`;
-    f.workspace.materials = [
-      material({ bodyHtml: undefined, title: "OOP 2A", resourceUrl: zip }),
-      material({
-        id: "m2",
-        bodyHtml: undefined,
-        title: "Day 3 handout",
-        resourceUrl: resource,
-      }),
-    ];
-    const { core, host } = await openWorkspace(f, {
-      entry: { request: 97 },
-      handle: (command, args) => {
-        if (command !== "open_course_material") return undefined;
-        const page = { site: "science-lms", url: zip };
-        if (args.url === readme)
-          return {
+    // A protected PDF asks for its password, again after a wrong one, and
+    // opens with the one the person typed.
+    pdfjs.load.mockReset();
+    pdfjs.render.mockReset();
+    pdfjs.render.mockReturnValue({
+      promise: Promise.resolve(),
+      cancel: () => {},
+    });
+    let opened: (doc: unknown) => void = () => undefined;
+    const task: {
+      promise: Promise<unknown>;
+      destroy: () => Promise<void>;
+      onPassword?: (unlock: (password: string) => void, reason: number) => void;
+    } = {
+      promise: new Promise((resolve) => (opened = resolve)),
+      destroy: async () => undefined,
+    };
+    pdfjs.load.mockReturnValue(task);
+    const exam = "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/exam.pdf";
+    const pdf = await openPreview(exam, (command) =>
+      command === "open_course_material"
+        ? {
             state: "ready",
-            file: {
-              id: readme,
-              name: "README-1a2b3c4d.md",
-              section: "",
-              path: "/course/README-1a2b3c4d.md",
-              bytes: 6,
-              cached: true,
-              viewer: "markdown",
-              text: "# Task",
-            },
-            page,
-          };
-        if (args.url === report) return { state: "missing", page };
-        return {
-          state: "archive",
-          file: {
-            id: zip,
-            name: "OOP-2A-problem-0011aabb.zip",
-            section: "",
-            path: "/course/OOP-2A-problem-0011aabb.zip",
-            bytes: 4096,
-            cached: true,
-            viewer: "external",
-          },
-          files: [
-            { name: "OOP-2A/README.md", url: readme, bytes: 6 },
-            { name: "OOP-2A/report.docx", url: report, bytes: 9000 },
-          ],
-          page,
-        };
-      },
-    });
-    const folder = (title: string) =>
-      [...host.querySelectorAll(".lmsFolder")].find(
-        (row) => row.querySelector(":scope > button b")?.textContent === title,
+            file: storedFile("/course/exam-1a2b3c4d.pdf", "pdf"),
+            page: lmsPage(exam),
+          }
+        : undefined,
+    );
+    await waitFor(() => expect(task.onPassword).toBeTypeOf("function"));
+    const unlock = vi.fn();
+    const field = () =>
+      waitFor(() =>
+        required(
+          pdf.host.querySelector<HTMLInputElement>(".lmsPdfPassword input"),
+          "the password field",
+        ),
       );
-    const toggle = (title: string) =>
-      click(
-        folder(title)!.querySelector<HTMLButtonElement>(":scope > button")!,
+    await act(async () => task.onPassword!(unlock, 1));
+    await typeInto(await field(), "wrong");
+    await click(buttonByText(pdf.host, "Open"));
+    await act(async () => task.onPassword!(unlock, 2));
+    await typeInto(await field(), "secret");
+    await click(buttonByText(pdf.host, "Open"));
+    expect(unlock).toHaveBeenLastCalledWith("secret");
+    await act(async () =>
+      opened({ numPages: 1, getPage: async () => sheet() }),
+    );
+    await waitFor(() =>
+      expect(pdf.host.querySelector("canvas")).not.toBeNull(),
+    );
+  }, 30_000);
+
+  it("sends a file Core cannot show here where Core says it belongs", async () => {
+    const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
+    // A download that failed only this time is asked for again.
+    let failures = 1;
+    const flaky = await openPreview(source, (command) => {
+      if (command !== "open_course_material") return undefined;
+      if (failures-- > 0)
+        return { state: "failed", reason: "network", page: lmsPage(source) };
+      return {
+        state: "ready",
+        file: storedFile("/course/handout.txt", "text", "Handout"),
+        page: lmsPage(source),
+      };
+    });
+    await click(
+      await waitFor(() => required(buttonByText(flaky.host, "Retry"), "Retry")),
+    );
+    await waitFor(() =>
+      required(buttonByText(flaky.host, "Show in folder"), "the prepared file"),
+    );
+    await release(flaky.mounted);
+
+    // Signing in, or a source Core could not resolve, happens on the LMS page
+    // Core names.
+    for (const [reason, label] of [
+      ["login", "Sign in to LMS"],
+      ["unresolved", "Open in LMS"],
+    ] as const) {
+      const page = lmsPage(source);
+      const pages: unknown[] = [];
+      const failed = await openPreview(
+        source,
+        (command) =>
+          command === "open_course_material"
+            ? { state: "failed", reason, page }
+            : undefined,
+        { openPage: (next) => pages.push(next) },
       );
-    const listed = (title: string) =>
-      folder(title)?.querySelectorAll(".lmsFolderFiles > .lmsFolderFile")
-        .length ?? 0;
+      await click(
+        await waitFor(() => required(buttonByText(failed.host, label), label)),
+      );
+      expect(pages).toEqual([page]);
+      await release(failed.mounted);
+    }
 
-    // Every ZIP is a folder row: the resource, and the attachment linked in
-    // the section text in place of its card.
-    for (const title of ["OOP 2A", "OOP 1B problem"])
-      expect(
-        folder(title)
-          ?.querySelector(".lmsFileTile")
-          ?.getAttribute("data-family"),
-        title,
-      ).toBe("folder");
-    expect(
-      [...host.querySelectorAll("a")].some(
-        (a) => a.getAttribute("href") === attached,
-      ),
-    ).toBe(false);
-
-    await toggle("OOP 2A");
-    await waitFor(() => expect(listed("OOP 2A")).toBe(2));
-    // The archive is downloaded to read its files, within the automatic limit.
-    expect(core.commands("open_course_material")[0].args).toMatchObject({
-      url: zip,
-      download: true,
-      limit: LIMIT,
-    });
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-
-    // A file the reader cannot show is its card at the row…
-    const [readmeRow, reportRow] = folder(
-      "OOP 2A",
-    )!.querySelectorAll<HTMLButtonElement>(".lmsFolderFiles > .lmsFolderFile");
-    await click(reportRow);
-    await waitFor(() =>
-      expect(
-        host.querySelector(".lmsFilePopover .lmsFileCard h3")?.textContent,
-      ).toBe("OOP-2A/report.docx"),
+    // A page outside the school sites goes to the reader's web view.
+    const outside = "https://example.org/lecture-video";
+    const web: string[] = [];
+    await openPreview(
+      outside,
+      (command) =>
+        command === "open_course_material"
+          ? { state: "external", url: outside }
+          : undefined,
+      { openWeb: (url) => web.push(url) },
     );
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    });
-    // …and one it can opens in the reader.
-    await click(readmeRow);
-    await waitFor(() =>
-      expect(host.querySelector(".lmsViewer h1")?.textContent).toBe("Task"),
-    );
-    await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
-    await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
-
-    // The linked ZIP opens and folds like the folder it is.
-    await toggle("OOP 1B problem");
-    await waitFor(() => expect(listed("OOP 1B problem")).toBe(2));
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-    expect(
-      core
-        .commands("open_course_material")
-        .some(({ args }) => args.url === attached && args.download === true),
-    ).toBe(true);
-    await toggle("OOP 1B problem");
-    expect(listed("OOP 1B problem")).toBe(0);
-
-    // A resource Core answers as a ZIP leaves the reader for its row, which
-    // now opens and folds like a folder.
-    await click(itemRow(host, "Day 3 handout"));
-    await waitFor(() =>
-      expect(
-        folder("Day 3 handout")
-          ?.querySelector(":scope > button")
-          ?.getAttribute("aria-expanded"),
-      ).toBe("true"),
-    );
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-    await waitFor(() => expect(listed("Day 3 handout")).toBe(2));
+    await waitFor(() => expect(web).toEqual([outside]));
   }, 30_000);
+});
 
-  it("shows a label's own text without the name Moodle derives from it, keeping Core's schedule marks", async () => {
-    const f = lectureFixture();
-    Object.assign(f.workspace.materials[0], {
-      module: "label",
-      title: "日付 授業回目 内容…",
-      bodyHtml:
-        '<table><tr><td>日付</td><td>授業回目</td><td>内容</td></tr><tr class="lmsRowNow"><td>10/20</td><td>2回目</td><td>行列</td></tr></table>',
-    });
-    const { host } = await openWorkspace(f, { entry: { request: 98 } });
-
-    const label = host.querySelector(".lmsSectionBody .lmsInlineActivity")!;
-    expect(label.querySelector("table")).not.toBeNull();
-    expect(label.querySelector("h4")).toBeNull();
-    // The workspace's own sanitising keeps the row Core marked as current.
-    expect(label.querySelector("tr.lmsRowNow")?.textContent).toContain("2回目");
-  }, 30_000);
-
-  it("renders a page activity inline without opening a document panel", async () => {
-    const f = lectureFixture();
-    f.workspace.materials[0].module = "page";
-    const { host } = await openWorkspace(f, { entry: { request: 99 } });
-
-    expect(
-      host.querySelector(".lmsSectionBody .lmsInlineActivity")?.textContent,
-    ).toContain("Readable file body");
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-  }, 30_000);
-
-  it("shows Core’s preferred course text and opens the original on request", async () => {
-    const f = lectureFixture();
-    f.workspace.settings.locale = "en";
-    f.workspace.settings.lmsBilingualFilter = true;
-    const content = contentFor(f);
-    content.lessons[0].originalSummaryHtml =
-      '<p lang="en">English summary</p><p lang="ja">日本語の概要</p>';
-    content.lessons[0].summaryHtml = '<p lang="ja">日本語の概要</p>';
-    const { host } = await openWorkspace(f, {
-      entry: { request: 700 },
-      content,
-    });
-
-    const body = () => host.querySelector(".lmsSectionBody")?.textContent ?? "";
-    expect(body()).toContain("日本語の概要");
-    expect(body()).not.toContain("English summary");
-
-    await click(buttonByText(host, "Show original"));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsSectionBody")?.textContent).toContain(
-        "English summary",
-      ),
-    );
-  }, 30_000);
-
-  it("opens an announcement in the reader without expanding its body in the outline", async () => {
-    const f = lectureFixture();
-    f.workspace.settings.locale = "en";
-    Object.assign(f.workspace.materials[0], {
-      module: "forum",
-      bodyHtml:
-        '<article id="announcement-p42" data-source-url="https://lms.s.isct.ac.jp/2025/mod/forum/discuss.php?d=42"><h5>Classroom change</h5><time>1 October</time><p>Please meet in W3-707. Bring your notes.</p></article>',
-    });
-    const { host } = await openWorkspace(f, { entry: { request: 600 } });
-
-    expect(
-      host
-        .querySelector(".lmsOutline")
-        ?.contains(host.querySelector('[aria-label="Search course content"]')),
-    ).toBe(true);
-    expect(host.querySelector(".lmsLessonRail input")).toBeNull();
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-    const card = host.querySelector<HTMLElement>(".lmsAnnouncementCard")!;
-    expect(card.textContent).toContain("Classroom change");
-    await click(card);
-    await waitFor(() =>
-      expect(
-        host.querySelector(".lmsViewer .lmsRichContent")?.textContent,
-      ).toContain("Bring your notes."),
-    );
-    expect(
-      host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
-    ).toContain("Classroom change");
-  }, 30_000);
-
-  it("shows an announcement forum without posts as empty, with its official page", async () => {
-    const f = lectureFixture();
-    f.workspace.settings.locale = "en";
-    const forumUrl = "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7";
-    Object.assign(f.workspace.materials[0], {
-      title: "アナウンスメント",
-      module: "forum",
-      bodyHtml: "",
-      url: forumUrl,
-    });
+describe("the LMS view in the reader", () => {
+  it("follows Core's page: the newest revision, a return when shown again, and a popup a later reader finds", async () => {
+    const forum = "https://lms.s.isct.ac.jp/2025/mod/forum/view.php?id=7";
     const page = {
       site: "science-lms",
       revision: 3,
-      url: forumUrl,
+      url: forum,
       popups: 0,
       back: "no",
       forward: "unknown",
@@ -880,10 +467,9 @@ describe("the LMS reading workspace", () => {
       outside: false,
       otp: null,
     };
-    let snapshot: unknown = page;
-    const { host, core, render } = await openWorkspace(f, {
-      entry: { request: 610 },
-      schoolWebAvailable: true,
+    let snapshot: Record<string, unknown> = page;
+    const core = await installComponentHost({
+      workspace: workspaceFixture(),
       handle: (command, args) => {
         switch (command) {
           case "school_web_page":
@@ -891,1188 +477,147 @@ describe("the LMS reading workspace", () => {
           case "open_school_site":
             return {
               site: "science-lms",
-              url: (args.entry as { url?: string }).url ?? forumUrl,
+              url: (args.entry as { url?: string }).url ?? forum,
               phase: "pageLoaded",
             };
           case "hide_school_web":
           case "set_school_web_bounds":
+          case "school_web_back":
+          case "close_school_web_popup":
+          case "navigate_school_web":
             return true;
         }
         return undefined;
       },
     });
-
-    const forum = [...host.querySelectorAll(".lmsInlineActivity")].find(
-      (item) => item.textContent?.includes("アナウンスメント"),
-    )!;
-    expect(forum.textContent).toContain("No announcements yet.");
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-
-    await click(buttonByText(host, "Open in LMS"));
-    // The reader's tool row carries the page's address, as a browser's does,
-    // and Back is off only while Core says it would do nothing.
-    await waitFor(() =>
-      expect(host.querySelector(".lmsWebAddress small")?.textContent).toBe(
-        "/2025/mod/forum/view.php",
-      ),
+    const { OfficialLmsView } =
+      await import("@app/features/lms/OfficialLmsView");
+    const reader = (active: boolean) => (
+      <OfficialLmsView url={forum} active={active} available />
     );
-    const openInBrowser = () =>
-      host.querySelector('.lmsWebToolbar a[aria-label="Open in browser"]');
-    // On a school page Open in browser is an icon…
-    expect(openInBrowser()?.textContent).toBe("");
-    const back = () =>
-      host.querySelector<HTMLButtonElement>(
-        '.lmsWebToolbar button[aria-label="Previous page"]',
-      );
-    await waitFor(() => expect(back()?.disabled).toBe(true));
-    const opened = core.commands("open_school_site");
-    expect(opened.at(-1)?.args.entry).toEqual({ kind: "go", url: forumUrl });
-    const reader = opened.at(-1)?.args.surface;
-    expect(reader).toMatch(/^reader-/);
+    const opens = () =>
+      core.commands("open_school_site").map(({ args }) => args);
+    const lastArgs = (command: string) => core.commands(command).at(-1)?.args;
 
-    // Every later change arrives as `school-web-page`; an older revision
-    // never replaces a newer one.
-    const form = "https://docs.google.com/forms/d/test/viewform";
+    const first = await view(reader(true));
+    const opened = await waitFor(() => required(opens()[0], "the LMS view"));
+    expect(opened).toMatchObject({ entry: { kind: "go", url: forum } });
+    const surface = opened.surface;
+
+    // Of the snapshot and the events, the newest revision wins: Core now says
+    // Back does something, and a late older page does not take that back.
+    await waitFor(() =>
+      expect(core.listenerCount("school-web-page")).toBeGreaterThan(0),
+    );
     await act(async () => {
-      core.emit("school-web-page", {
-        ...page,
-        revision: 5,
-        url: form,
-        back: "yes",
-        outside: true,
-      });
+      core.emit("school-web-page", { ...page, revision: 5, back: "yes" });
       core.emit("school-web-page", { ...page, revision: 4 });
     });
+    await click(first.host.querySelector('button[aria-label="Previous page"]'));
     await waitFor(() =>
-      expect(host.querySelector(".lmsWebAddress span")?.textContent).toBe(
-        "docs.google.com",
-      ),
-    );
-    expect(back()?.disabled).toBe(false);
-    expect(openInBrowser()?.getAttribute("href")).toBe(form);
-    // …and named outside the school, where the view has none of the
-    // person's own accounts.
-    expect(openInBrowser()?.textContent).toBe("Open in browser");
-
-    // Covered and shown again, the reader returns to its activity; Core
-    // decides whether that leaves the view as it is.
-    await render({ active: false });
-    await render({ active: true });
-    await waitFor(() =>
-      expect(core.commands("open_school_site").at(-1)?.args).toMatchObject({
-        surface: reader,
-        entry: { kind: "return", url: forumUrl },
+      expect(lastArgs("school_web_back")).toMatchObject({
+        site: "science-lms",
       }),
     );
 
-    // A reader that mounts after the popup opened and the load failed reads
-    // both from the snapshot; no event reaches it.
-    await click(host.querySelector<HTMLButtonElement>(".lmsViewerClose")!);
-    await waitFor(() => expect(host.querySelector(".lmsViewer")).toBeNull());
+    // Covered and shown again, the reader asks Core to return to its page.
+    await act(async () => first.root.render(reader(false)));
+    await act(async () => first.root.render(reader(true)));
+    await waitFor(() =>
+      expect(opens().at(-1)).toMatchObject({
+        surface,
+        entry: { kind: "return", url: forum },
+      }),
+    );
+    await release(first);
+
+    // A reader opened after a popup and a failed load reads both from the
+    // snapshot; no event tells it.
     snapshot = {
       ...page,
       revision: 9,
-      url: "https://lms.s.isct.ac.jp/2025/pluginfile.php/9/report.pdf",
       popups: 1,
       back: "yes",
-      notice: { url: forumUrl, reason: "unreachable" },
+      notice: { url: forum, reason: "unreachable" },
     };
-    await click(buttonByText(host, "Open in LMS"));
+    const later = await view(reader(true));
     await waitFor(() =>
-      expect(host.querySelector(".lmsViewer")?.textContent).toContain(
-        "Popup window",
-      ),
+      expect(opens().at(-1)).toMatchObject({
+        entry: { kind: "go", url: forum },
+      }),
     );
-    const viewer = host.querySelector(".lmsViewer")!;
-    expect(buttonByText(viewer, "Close window")).toBeTruthy();
-    expect(viewer.querySelector('[role="alert"]')).not.toBeNull();
-    expect(buttonByText(viewer, "Retry")).toBeTruthy();
-    expect(core.commands("open_school_site").at(-1)?.args.surface).not.toBe(
-      reader,
-    );
-  }, 30_000);
-
-  it("opens the syllabus in its own panel", async () => {
-    const f = lectureFixture();
-    const { host } = await openWorkspace(f, {
-      entry: { request: 502 },
-      detail: {
-        syllabusUrl: "https://syllabus.s.isct.ac.jp/courses/-/-/-/202600001",
-      },
-    });
-
+    expect(opens().at(-1)?.surface).not.toBe(surface);
     await click(
-      [...host.querySelectorAll("button")].find(
-        (button) => button.textContent?.trim() === "Syllabus",
-      )!,
+      await waitFor(() =>
+        required(buttonByText(later.host, "Close window"), "the popup line"),
+      ),
     );
     await waitFor(() =>
-      expect(
-        host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
-      ).toContain("Syllabus"),
+      expect(lastArgs("close_school_web_popup")).toMatchObject({
+        site: "science-lms",
+      }),
     );
-  }, 30_000);
-
-  it("keeps an unpreviewable attachment in the outline as a popover card", async () => {
-    const f = lectureFixture();
-    const url =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_assign/introattachment/0/report.rar?forcedownload=1";
-    f.record.sections![0].bodyHtml = `<p><a href="${url}">Report RAR</a></p>`;
-    const popup = vi.spyOn(window, "open").mockReturnValue(null);
-    const { host } = await openWorkspace(f, { entry: { request: 601 } });
-
     await click(
-      [...host.querySelectorAll("a")].find(
-        (link) =>
-          link.querySelector(".lmsAttachmentName")?.textContent ===
-          "Report RAR",
-      )!,
+      required(buttonByText(later.host, "Retry"), "the failure line"),
     );
     await waitFor(() =>
-      expect(
-        host.querySelector(".lmsOutline .lmsFilePopover .lmsFileCard h3")
-          ?.textContent,
-      ).toBe("Report RAR"),
-    );
-    expect(popup).not.toHaveBeenCalled();
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    });
-    await waitFor(() =>
-      expect(host.querySelector(".lmsFilePopover")).toBeNull(),
+      expect(lastArgs("navigate_school_web")).toMatchObject({
+        site: "science-lms",
+        url: forum,
+      }),
     );
   }, 30_000);
+});
 
-  it("marks the lesson a coming class covers when its rail entry is double-clicked", async () => {
-    const f = lectureFixture();
-    f.record.sections = [1, 2, 3].map((number) => ({
-      id: 10 + number,
-      number,
-      title: `第${number}回`,
-      visible: true,
-    }));
-    f.workspace.materials = [];
-    const markLesson = vi.fn();
-    const { host } = await openWorkspace(f, {
-      entry: { request: 95 },
-      markLesson,
-      content: lessonContent(
-        f,
-        { 11: ["1", 1], 12: ["2", 2], 13: ["3", 3] },
-        2,
-        "2026-10-08T10:45:00+09:00",
-      ),
+describe("a course note", () => {
+  it("keeps every draft: not saved on open, through a hidden editor, a failed save and a delete", async () => {
+    const original =
+      "# Notes\n\nInline $E=mc^2$\n\n$$\nx^2+y^2=z^2\n$$\n\n- First\n- Second\n\n```js\nconst a = 1;\n```\n";
+    // The note's file on disk and the deleted-notes store, as the host keeps
+    // them. A held save lands only when the test releases it.
+    const disk = {
+      text: original as string | null,
+      deleted: null as string | null,
+      failing: false,
+      holding: false,
+    };
+    const held: (() => void)[] = [];
+    const file = () => ({
+      id: "n1",
+      section: CONTEXT.section,
+      name: "Note",
+      path: "note",
+      bytes: 7,
+      cached: true,
+      viewer: "markdown",
     });
-
-    await waitFor(() =>
-      expect(
-        host.querySelectorAll(".lmsLessonRail button"),
-      ).toHaveLength(3),
-    );
-    const rail = [
-      ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button",
-      ),
-    ];
-    // Core puts the course at 第2回: it and the lessons before it are held.
-    expect(rail[1].getAttribute("aria-current")).toBe("step");
-    expect(rail.map((button) => button.classList.contains("held"))).toEqual([
-      true,
-      true,
-      false,
-    ]);
-
-    await act(async () => {
-      rail[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    expect(markLesson).toHaveBeenCalledWith(
-      13,
-      "2026-10-08T10:45:00+09:00",
-      "Lesson 3",
-    );
-  }, 30_000);
-
-  it("moves the course to a lesson once its double-click mark is committed", async () => {
-    const f = lectureFixture();
-    f.record.sections = [1, 2, 3].map((number) => ({
-      id: 10 + number,
-      number,
-      title: `第${number}回`,
-      visible: true,
-    }));
-    f.workspace.materials = [];
-    const classAt = "2026-10-08T10:45:00+09:00";
-    const labels = { 11: ["1", 1], 12: ["2", 2], 13: ["3", 3] } as Record<
-      number,
-      [string, number]
-    >;
-    // Core answers from what is stored: the lesson the last mark names
-    // (section ids 11–13 are lessons 1–3).
-    let marked = 2;
-    const { workspaceActions } = await import("@app/store/workspace");
-    const { host } = await openWorkspace(f, {
-      entry: { request: 96 },
-      content: () => lessonContent(f, labels, marked, classAt),
+    await installComponentHost({
+      workspace: workspaceFixture(),
       handle: (command, args) => {
-        if (command !== "mutate_workspace") return undefined;
-        const intent = (args.mutation as { intent: { sectionId?: number } })
-          .intent;
-        if (intent.sectionId != null) marked = intent.sectionId - 10;
+        if (command === "read_course_note")
+          return { ...file(), text: disk.text };
+        if (command === "save_course_note") {
+          const text = String(args.text);
+          if (disk.failing)
+            return Promise.reject(new Error("Disk unavailable"));
+          if (disk.holding)
+            return new Promise((resolve) =>
+              held.push(() => {
+                disk.text = text;
+                resolve(file());
+              }),
+            );
+          disk.text = text;
+          return file();
+        }
+        if (command === "move_course_note") {
+          if (!args.restore) [disk.deleted, disk.text] = [disk.text, null];
+          return null;
+        }
         return undefined;
       },
-      // The shell's own wiring (App): the mark is a recordLesson intent.
-      markLesson: (sectionId, occurrence) =>
-        void workspaceActions.mutate({
-          kind: "recordLesson",
-          courseId: f.course.id,
-          occurrence,
-          sectionId,
-        }),
     });
-    const rail = () => [
-      ...host.querySelectorAll<HTMLElement>(
-        ".lmsLessonRail button",
-      ),
-    ];
-    const held = () =>
-      rail().map((button) => button.classList.contains("held"));
-    await waitFor(() => expect(held()).toEqual([true, true, false]));
-
-    await act(async () => {
-      rail()[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-
-    // The commit names courses, so the content is read again and the rail
-    // holds every lesson up to the one just marked.
-    await waitFor(() => expect(held()).toEqual([true, true, true]));
-  }, 30_000);
-
-  it("shows an assignment as submitted when Core's task view says so, whatever the LMS field", async () => {
-    const f = lectureFixture();
-    // The LMS reported only `submissionStatus`; Core's TaskView owns the rule.
-    f.workspace.assignments[0].submissionStatus = "submitted";
-    const { host } = await openWorkspace(f, {
-      entry: { request: 3, assignmentId: "a1" },
-      tasks: {
-        states: { a1: "submitted" },
-        deadlines: {
-          a1: {
-            at: "2026-10-10T09:00:00+09:00",
-            units: [{ unit: "days", count: 2 }],
-            state: "remaining",
-            countdownTone: "soon",
-            nextChangeAt: null,
-          },
-        },
-        nearestByCourse: {},
-        byTerm: {},
-      },
-    });
-
-    const card = host.querySelector(".lmsAssignmentCard")!;
-    expect(card.className).toContain("done");
-    expect(card.querySelector(".lmsAssignmentState")?.textContent).toBe(
-      "Submitted",
-    );
-    expect(card.querySelector(".dueChip")).toBeNull();
-  }, 30_000);
-
-  it("opens exact assignment requirements first, and the official LMS only after View in LMS", async () => {
-    const f = lectureFixture();
-    const { host, render } = await openWorkspace(f, {
-      entry: { request: 2, assignmentId: "a1" },
-    });
-
-    expect(host.querySelector(".lmsAssignmentCard")?.textContent).toContain(
-      "Requirement body",
-    );
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-    expect(host.querySelector(".lmsOfficialHost")).toBeNull();
-
-    // Without a workspace there is no draft to prepare.
-    await click(buttonByText(host, "View in LMS"));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-        "opens the signed-in LMS here",
-      ),
-    );
-    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
-    expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-    // A retained page hides and returns with the page open; the viewer must
-    // render the same hooks either way (React #311 on the first return).
-    await render({ active: false });
-    await render({ active: true });
-    expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-      "opens the signed-in LMS here",
-    );
-
-    await click(host.querySelector(".lmsViewerClose"));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsOfficialHost")).toBeNull(),
-    );
-  }, 30_000);
-
-  it.each(["ready", "failed", "missing"] as const)(
-    "prepares workspace files in the right LMS pane, and stops if preparation fails (%s)",
-    async (outcome) => {
-      const f = lectureFixture();
-      f.workspace.assignments = [assignment()];
-      const workspace = {
-        path: "/courses/Report",
-        name: "Report",
-        submitFiles: ["report.pdf"],
-        zip: false,
-        zipName: "Report.zip",
-      };
-      let present = true;
-      const url =
-        "https://lms.s.isct.ac.jp/2025/mod/assign/view.php?id=100&action=editsubmission";
-      const { host, core } = await openWorkspace(f, {
-        handle: (command) => {
-          if (command === "assignment_workspace")
-            return present
-              ? { workspace, handIn: "prepareDraft" }
-              : { workspace: null, handIn: "openLms" };
-          if (command === "prepare_workspace_submission") {
-            if (outcome === "failed")
-              return Promise.reject({
-                code: "hand-in-empty",
-                detail: "The submit folder is empty",
-              });
-            if (outcome === "missing") {
-              // Deleted in Finder after the card was shown.
-              present = false;
-              return Promise.reject({
-                code: "workspace-folder-missing",
-                detail: "The workspace folder no longer exists",
-              });
-            }
-            return { workspace, url };
-          }
-          return undefined;
-        },
-      });
-      await waitFor(() =>
-        expect(host.querySelector(".lmsWorkspaceCard")).not.toBeNull(),
-      );
-      await click(buttonByText(host, "Upload to LMS draft"));
-      expect(
-        core.commands("prepare_workspace_submission")[0].args,
-      ).toMatchObject({
-        path: workspace.path,
-        assignment: "a1",
-      });
-      if (outcome === "failed") {
-        expect(host.textContent).toContain("The submit folder is empty.");
-        expect(host.querySelector(".lmsViewer")).toBeNull();
-      } else if (outcome === "missing") {
-        // The card gives way to a notice; the page still opens.
-        await waitFor(() =>
-          expect(host.querySelector(".lmsWorkspaceCard")).toBeNull(),
-        );
-        expect(host.textContent).toContain(
-          "The workspace folder “Report” is gone.",
-        );
-        expect(host.querySelector(".lmsWorkspaceError")).toBeNull();
-        await click(buttonByText(host, "View in LMS"));
-        await waitFor(() =>
-          expect(
-            host.querySelector(".lmsOfficialHost a")?.getAttribute("href"),
-          ).toBe(f.workspace.assignments[0].sourceUrl),
-        );
-      } else {
-        await waitFor(() =>
-          expect(
-            host.querySelector(".lmsOfficialHost a")?.getAttribute("href"),
-          ).toBe(url),
-        );
-        expect(host.querySelectorAll(".lmsViewer")).toHaveLength(1);
-      }
-    },
-  );
-
-  it("deletes a workspace only after the in-app confirmation", async () => {
-    // The shell's window.confirm is asynchronous, so a `!confirm()` guard
-    // never stopped the delete; the in-app dialog has to answer first.
-    const f = lectureFixture();
-    f.workspace.assignments = [assignment()];
-    const workspace = {
-      path: "/courses/Report",
-      name: "Report",
-      submitFiles: [],
-      zip: false,
-      zipName: "Report.zip",
-    };
-    const { host, core } = await openWorkspace(f, {
-      handle: (command) =>
-        command === "assignment_workspace"
-          ? { workspace, handIn: "prepareDraft" }
-          : undefined,
-    });
-    const trash = await waitFor(() => {
-      const button = host.querySelector<HTMLButtonElement>(
-        '[aria-label="Delete workspace"]',
-      );
-      if (!button) throw new Error("The workspace card has no delete button.");
-      return button;
-    });
-    const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
-
-    await click(trash);
-    await waitFor(() =>
-      expect(dialog()?.textContent).toContain(
-        "Delete the workspace “Report” and everything in it?",
-      ),
-    );
-    await click(buttonByText(dialog()!, "Cancel"));
-    await waitFor(() => expect(dialog()).toBeNull());
-    expect(core.commands("delete_workspace")).toHaveLength(0);
-
-    await click(trash);
-    await waitFor(() => expect(dialog()).not.toBeNull());
-    await click(buttonByText(dialog()!, "Delete"));
-    await waitFor(() =>
-      expect(core.commands("delete_workspace")[0]?.args).toMatchObject({
-        path: workspace.path,
-      }),
-    );
-  }, 30_000);
-
-  it("renders course HTML inert: tables and safe links stay, active content and unsafe URLs do not", async () => {
-    const f = lectureFixture();
-    f.record.sections![0].bodyHtml =
-      '<script>steal()</script><form>submit</form><p onclick="steal()">Text<a href="javascript:steal()">bad</a><a href="https://lms.s.isct.ac.jp/2025/">good</a></p><table><tr><td colspan="2">Date</td></tr></table>';
-    const { host } = await openWorkspace(f, { entry: { request: 603 } });
-
-    const body = host.querySelector(
-      '.lmsSection[data-reading-section="section:91"] .lmsSectionBody',
-    )!;
-    expect(body.textContent).toContain("Text");
-    expect(body.querySelector("script")).toBeNull();
-    expect(body.querySelector("form")).toBeNull();
-    expect(body.querySelector("[onclick]")).toBeNull();
-    expect(body.innerHTML).not.toContain("javascript:");
-    expect(body.querySelector("td")?.getAttribute("colspan")).toBe("2");
-    expect(
-      [...body.querySelectorAll("a")].map((link) => link.getAttribute("href")),
-    ).toContain("https://lms.s.isct.ac.jp/2025/");
-  }, 30_000);
-
-  it("replaces the current document, pins PDF tools above it, and releases hidden readers", async () => {
-    const f = lectureFixture();
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 1,
-        getPage: vi.fn(async () => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: 600 * scale,
-            height: 800 * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({}),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
-    f.workspace.materials = Array.from({ length: 6 }, (_, index) =>
-      material({
-        id: `file-${index}`,
-        title: `File ${index}`,
-        bodyHtml: undefined,
-        resourceUrl: `https://lms.s.isct.ac.jp/2025/pluginfile.php/42/file${index}.pdf`,
-      }),
-    );
-    const { host, view, render } = await openWorkspace(f, {
-      entry: { request: 20 },
-      handle: (command, args) =>
-        command === "open_course_material"
-          ? {
-              state: "ready",
-              file: {
-                id: "f",
-                name: "file.pdf",
-                section: "section-0",
-                path: `/course/${String(args.url).split("/").pop()}`,
-                bytes: 10,
-                cached: true,
-                viewer: "pdf",
-              },
-            }
-          : undefined,
-    });
-
-    for (let index = 0; index < 6; index += 1) {
-      await click(itemRow(host, `File ${index}`));
-      await waitFor(() =>
-        expect(host.querySelectorAll("canvas")).toHaveLength(1),
-      );
-    }
-    expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
-    expect(
-      host.querySelector('.lmsReaderToolSlot [aria-label="PDF tools"]'),
-    ).not.toBeNull();
-    expect(
-      host.querySelector('.lmsViewerBody [aria-label="PDF tools"]'),
-    ).toBeNull();
-    expect(
-      host.querySelector(".lmsViewerClose")?.getAttribute("aria-label"),
-    ).toBe("Close File 5");
-
-    await render({ active: false });
-    await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(0),
-    );
-    await render({ active: true });
-    await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(1),
-    );
-
-    await click(host.querySelector(".lmsViewerClose"));
-    await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(0),
-    );
-    expect(host.querySelector(".lmsViewer")).toBeNull();
-
-    await release(view);
-    const stored = JSON.parse(
-      sessionStorage.getItem(
-        `lms-reading:${f.workspace.deviceId}:${f.course.id}`,
-      ) ?? "null",
-    );
-    expect(stored.opened).toBeUndefined();
-    expect(stored).not.toHaveProperty("tabs");
-  }, 60_000);
-
-  it("restores the centered section-relative reading position after content height changes", async () => {
-    const f = lectureFixture();
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-      frames.push(callback);
-      return frames.length;
-    });
-    vi.stubGlobal("cancelAnimationFrame", () => {});
-
-    const rect = (top: number, height: number) => ({
-      top,
-      bottom: top + height,
-      height,
-      left: 0,
-      right: 300,
-      width: 300,
-      x: 0,
-      y: top,
-      toJSON() {},
-    });
-
-    const first = await openWorkspace(f, { entry: { request: 10 } });
-    const scroller =
-      first.host.querySelector<HTMLDivElement>(".lmsOutlineScroll")!;
-    vi.spyOn(scroller, "getBoundingClientRect").mockReturnValue(rect(0, 400));
-    [...first.host.querySelectorAll<HTMLElement>(".lmsSection")].forEach(
-      (section, index) =>
-        vi
-          .spyOn(section, "getBoundingClientRect")
-          .mockReturnValue(
-            rect(index ? 600 + index * 100 : -150, index ? 100 : 500),
-          ),
-    );
-    scroller.scrollTop = 150;
-    await act(async () => {
-      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-    });
-    await release(first.view);
-
-    const second = await openWorkspace(f, { entry: { request: 11 } });
-    const reopened =
-      second.host.querySelector<HTMLDivElement>(".lmsOutlineScroll")!;
-    vi.spyOn(reopened, "getBoundingClientRect").mockReturnValue(rect(0, 400));
-    vi.spyOn(
-      second.host.querySelector<HTMLElement>(".lmsSection")!,
-      "getBoundingClientRect",
-    ).mockReturnValue(rect(0, 1000));
-    await act(async () => {
-      frames.at(-1)!(0);
-    });
-    expect(reopened.scrollTop).toBe(500);
-  }, 30_000);
-
-  it("refreshes the course content when the retained reader is resumed, and keeps ticking while active", async () => {
-    const f = lectureFixture();
-    const { core, real } = await scriptedHost(
-      {
-        workspace: f.workspace,
-        schoolRecords: {
-          ...emptySchoolRecords(),
-          lmsCourses: [f.record],
-        },
-        handle: (command) => (command === "list_course_notes" ? [] : undefined),
-      },
-      () => import("@app/features/lms/LmsWorkspace"),
-    );
-    vi.useFakeTimers({ now: new Date("2026-10-08T00:00:00Z") });
-
-    const node = (active: boolean) => (
-      <real.LmsWorkspaceBody
-        course={f.course}
-        data={f.workspace}
-        entry={{ courseId: f.course.id, request: 1 }}
-        active={active}
-        schoolWebAvailable={false}
-      />
-    );
-    const view = await mount(node(false));
-    views.push(view);
-    await waitFor(() =>
-      expect(scheduleQueryNow(core)).toBe("2026-10-08T00:00:00.000Z"),
-    );
-
-    // A hidden reader is idle: two minutes pass without another query.
-    await act(async () => {
-      vi.advanceTimersByTime(120_000);
-    });
-    expect(scheduleQueryNow(core)).toBe("2026-10-08T00:00:00.000Z");
-
-    await act(async () => {
-      view.root.render(node(true));
-    });
-    await waitFor(() =>
-      expect(scheduleQueryNow(core)).toBe("2026-10-08T00:02:00.000Z"),
-    );
-
-    await act(async () => {
-      vi.advanceTimersByTime(60_000);
-    });
-    await waitFor(() =>
-      expect(scheduleQueryNow(core)).toBe("2026-10-08T00:03:00.000Z"),
-    );
-  }, 30_000);
-});
-
-describe("the reading workspace on its lecture route", () => {
-  it("keeps an opened document when the reader moves to another lecture and back", async () => {
-    const f = lectureFixture();
-    const other = courseRow({
-      id: "other-course",
-      code: "OTHER",
-      title: "Other course",
-      source: { provider: "lms", externalId: "99" },
-    });
-    f.workspace.courses.push(other);
-
-    app = await mountApp(
-      {
-        workspace: f.workspace,
-        schoolRecords: {
-          ...emptySchoolRecords(),
-          lmsCourses: [f.record],
-        },
-        queries: {
-          workspaceOverview: (_query, core) => overviewFor(core.workspace),
-          lectureList: (_query, core) => lectureListFor(core.workspace),
-          courseContent: (query) =>
-            (query as { courseId: string }).courseId === f.course.id
-              ? contentFor(f)
-              : null,
-        },
-        handle: (command) => (command === "list_course_notes" ? [] : undefined),
-      },
-      { route: lectureRoute(f.course.id) },
-    );
-    const { host } = app;
-
-    await waitFor(() =>
-      expect(host.querySelector(".lmsWorkspace")).not.toBeNull(),
-    );
-    const row = itemRow(host, "Lecture file");
-    await click(row);
-    await click(row);
-    await waitFor(() =>
-      expect(host.querySelector(".lmsDocument")?.textContent).toContain(
-        "Readable file body",
-      ),
-    );
-    expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-    expect(host.querySelectorAll('[role="tab"]')).toHaveLength(0);
-
-    await app.go(lectureRoute(other.id));
-    await waitFor(() =>
-      expect(host.querySelectorAll(".lmsWorkspace")).toHaveLength(2),
-    );
-    // The hidden reader released its document, but kept the open tab.
-    await waitFor(() =>
-      expect(host.querySelectorAll(".lmsDocument")).toHaveLength(0),
-    );
-    expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-
-    await app.go(lectureRoute(f.course.id));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsDocument")?.textContent).toContain(
-        "Readable file body",
-      ),
-    );
-    expect(host.querySelectorAll(".lmsViewerClose")).toHaveLength(1);
-  }, 40_000);
-});
-
-describe("the file preview pipeline", () => {
-  async function openPreview(
-    url: string,
-    handle: (command: string, args: Record<string, unknown>) => unknown,
-    props: {
-      title?: string;
-      openPage?: (page: unknown) => void;
-      openWeb?: (url: string) => void;
-      openFile?: (url: string, name: string) => void;
-    } = {},
-  ) {
-    const { core, real } = await scriptedHost(
-      {
-        workspace: workspaceFixture(),
-        handle: (command, args) => {
-          if (command === "list_course_notes") return [];
-          return handle?.(command, args) ?? undefined;
-        },
-      },
-      () => import("@app/features/lms/FilePreview"),
-    );
-    const view = await mount(
-      <real.FilePreview
-        url={url}
-        title={props.title ?? "Notes"}
-        courseId={COURSE_ID}
-        limit={LIMIT}
-        openPage={props.openPage ?? (() => undefined)}
-        openWeb={props.openWeb ?? (() => undefined)}
-        openFile={props.openFile}
-      />,
-    );
-    views.push(view);
-    return { core, view, host: view.host };
-  }
-
-  it("prepares the file through the host and previews the local copy", async () => {
-    const { core, host } = await openPreview(
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/a.txt",
-      (command) =>
-        command === "open_course_material"
-          ? {
-              state: "ready",
-              file: {
-                id: "f1",
-                name: "a.txt",
-                section: "section-91",
-                path: "/course/a.txt",
-                bytes: 14,
-                cached: true,
-                viewer: "text",
-                text: "Lecture notes",
-              },
-            }
-          : undefined,
-      { title: "Notes" },
-    );
-
-    await waitFor(() => expect(host.textContent).toContain("Lecture notes"));
-    expect(core.commands("open_course_material")[0].args).toMatchObject({
-      courseId: COURSE_ID,
-      url: expect.stringContaining("a.txt"),
-      download: true,
-      readText: true,
-      limit: LIMIT,
-    });
-
-    await click(buttonByText(host, "Show in folder"));
-    await waitFor(() =>
-      expect(core.commands("open_course_file")).toHaveLength(1),
-    );
-    expect(core.commands("open_course_material").at(-1)?.args).toMatchObject({
-      download: true,
-    });
-    expect(core.commands("open_course_file")[0].args).toMatchObject({
-      path: "/course/a.txt",
-      reveal: true,
-    });
-  }, 30_000);
-
-  it("asks for a protected PDF's password, again when it is wrong, then shows its pages", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: vi.fn(),
-    });
-    let opened: (doc: unknown) => void = () => undefined;
-    const task: {
-      promise: Promise<unknown>;
-      destroy: () => Promise<void>;
-      onPassword?: (unlock: (password: string) => void, reason: number) => void;
-    } = {
-      promise: new Promise((resolve) => (opened = resolve)),
-      destroy: vi.fn(async () => undefined),
-    };
-    pdfjs.load.mockReturnValue(task);
-    const { host } = await openPreview(
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/exam.pdf",
-      (command) =>
-        command === "open_course_material"
-          ? {
-              state: "ready",
-              file: {
-                id: "f1",
-                name: "exam-1a2b3c4d.pdf",
-                section: "section-91",
-                path: "/course/exam-1a2b3c4d.pdf",
-                bytes: 10,
-                cached: true,
-                viewer: "pdf",
-              },
-            }
-          : undefined,
-    );
-    await waitFor(() => expect(task.onPassword).toBeTypeOf("function"));
-    const unlock = vi.fn();
-    // PDF.js asks for the open password as a browser's viewer does.
-    await act(async () => task.onPassword!(unlock, 1));
-    const field = () =>
-      host.querySelector<HTMLInputElement>(".lmsPdfPassword input")!;
-    await waitFor(() => expect(field()).not.toBeNull());
-    expect(host.querySelector(".lmsPdfPassword [role=alert]")).toBeNull();
-    await typeInto(field(), "wrong");
-    await click(buttonByText(host, "Open"));
-    expect(unlock).toHaveBeenLastCalledWith("wrong");
-    await act(async () => task.onPassword!(unlock, 2));
-    await waitFor(() =>
-      expect(
-        host.querySelector(".lmsPdfPassword [role=alert]")?.textContent,
-      ).toContain("not right"),
-    );
-    await typeInto(field(), "secret");
-    await click(buttonByText(host, "Open"));
-    expect(unlock).toHaveBeenLastCalledWith("secret");
-    await act(async () =>
-      opened({
-        numPages: 1,
-        getPage: vi.fn(async () => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: 600 * scale,
-            height: 800 * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({}),
-        })),
-      }),
-    );
-    await waitFor(() =>
-      expect(host.querySelectorAll("canvas")).toHaveLength(1),
-    );
-    expect(host.querySelector(".lmsPdfPassword")).toBeNull();
-  }, 30_000);
-
-  it("renders a previewable image from the local file URL", async () => {
-    const { host } = await openPreview(
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/pic.png",
-      (command) =>
-        command === "open_course_material"
-          ? {
-              state: "ready",
-              file: {
-                id: "f1",
-                name: "pic.png",
-                section: "section-91",
-                path: "/course/pic.png",
-                bytes: 10,
-                cached: true,
-                viewer: "image",
-              },
-            }
-          : undefined,
-      { title: "Picture" },
-    );
-
-    await waitFor(() =>
-      expect(host.querySelector("img.lmsImagePreview")).not.toBeNull(),
-    );
-    expect(
-      host.querySelector("img.lmsImagePreview")?.getAttribute("src"),
-    ).toContain("/course/pic.png");
-  }, 30_000);
-
-  it("lists a ZIP's files and opens each as a course file of its own", async () => {
-    const zip =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/OOP-2A-problem.zip";
-    const makefile = `${zip}#entry=OOP-2A/Makefile`;
-    const openFile = vi.fn();
-    const { core, host } = await openPreview(
-      zip,
-      (command, args) => {
-        if (command !== "open_course_material") return undefined;
-        if (args.url === makefile)
-          return {
-            state: "ready",
-            file: {
-              id: makefile,
-              name: "Makefile-1a2b3c4d",
-              section: "",
-              path: "/course/Makefile-1a2b3c4d",
-              bytes: 4,
-              cached: true,
-              viewer: "text",
-              text: "all:",
-            },
-            page: { site: "science-lms", url: zip },
-          };
-        return {
-          state: "archive",
-          file: {
-            id: zip,
-            name: "OOP-2A-problem-0011aabb.zip",
-            section: "",
-            path: "/course/OOP-2A-problem-0011aabb.zip",
-            bytes: 4096,
-            cached: true,
-            viewer: "external",
-          },
-          files: [
-            {
-              name: "OOP-2A/README.md",
-              url: `${zip}#entry=OOP-2A/README.md`,
-              bytes: 2048,
-            },
-            { name: "OOP-2A/Makefile", url: makefile, bytes: 4 },
-          ],
-          page: { site: "science-lms", url: zip },
-        };
-      },
-      { title: "Problem", openFile },
-    );
-
-    await waitFor(() => expect(host.textContent).toContain("README.md"));
-    expect(host.textContent).toContain("OOP-2A · MD · 2 KB");
-    await click(itemRow(host, "Makefile"));
-    expect(openFile).toHaveBeenCalledWith(makefile, "OOP-2A/Makefile");
-    // The archive itself keeps its file actions.
-    await click(buttonByText(host, "Show in folder"));
-    await waitFor(() =>
-      expect(core.commands("open_course_file")[0]?.args).toMatchObject({
-        path: "/course/OOP-2A-problem-0011aabb.zip",
-        reveal: true,
-      }),
-    );
-
-    // A file of no known type that reads as text shows as text.
-    const entry = await openPreview(makefile, (command, args) =>
-      command === "open_course_material" && args.url === makefile
-        ? {
-            state: "ready",
-            file: {
-              id: makefile,
-              name: "Makefile-1a2b3c4d",
-              section: "",
-              path: "/course/Makefile-1a2b3c4d",
-              bytes: 4,
-              cached: true,
-              viewer: "text",
-              text: "all:",
-            },
-            page: { site: "science-lms", url: zip },
-          }
-        : undefined,
-    );
-    await waitFor(() => expect(entry.host.textContent).toContain("all:"));
-  }, 30_000);
-
-  it("shows an oversized file's size and previews it explicitly on request", async () => {
-    let attempts = 0;
-    const { core, host } = await openPreview(
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/1/big.txt",
-      (command) => {
-        if (command !== "open_course_material") return undefined;
-        attempts += 1;
-        return attempts === 1
-          ? { state: "tooLarge", bytes: 45 * 1024 * 1024 }
-          : {
-              state: "ready",
-              file: {
-                id: "f1",
-                name: "big.txt",
-                section: "section-91",
-                path: "/course/big.txt",
-                bytes: 9,
-                cached: true,
-                viewer: "text",
-                text: "Chapter 1",
-              },
-            };
-      },
-      { title: "Big" },
-    );
-
-    await waitFor(() => expect(host.textContent).toContain("45 MB"));
-    await click(buttonByText(host, "Preview · 45 MB"));
-    await waitFor(() => expect(host.textContent).toContain("Chapter 1"));
-    expect(
-      core.commands("open_course_material").at(-1)?.args.limit,
-    ).toBeUndefined();
-  }, 30_000);
-
-  it("falls back to the official LMS in the reader when a file cannot be prepared", async () => {
-    const f = lectureFixture();
-    const slides =
-      "https://lms.s.isct.ac.jp/2025/pluginfile.php/42/mod_resource/content/1/slides.pdf";
-    f.workspace.materials = [
-      material({ bodyHtml: undefined, resourceUrl: slides }),
-    ];
-    const { host } = await openWorkspace(f, {
-      entry: { request: 604 },
-      handle: (command) =>
-        command === "open_course_material"
-          ? {
-              state: "failed",
-              reason: "network",
-              page: { site: "science-lms", url: slides },
-            }
-          : undefined,
-    });
-
-    await click(itemRow(host, "Lecture file"));
-    await waitFor(() => expect(buttonByText(host, "Open in LMS")).toBeTruthy());
-    await click(buttonByText(host, "Open in LMS"));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsOfficialHost")?.textContent).toContain(
-        "opens the signed-in LMS here",
-      ),
-    );
-  }, 30_000);
-
-  it("opens a page outside the school sites in the reader's web view", async () => {
-    const f = lectureFixture();
-    const outside = "https://example.org/lecture-video";
-    f.workspace.materials = [
-      material({ bodyHtml: undefined, module: "url", resourceUrl: outside }),
-    ];
-    const popup = vi.spyOn(window, "open").mockReturnValue(null);
-    const { host } = await openWorkspace(f, {
-      entry: { request: 605 },
-      handle: (command) =>
-        command === "open_course_material"
-          ? { state: "external", url: outside }
-          : undefined,
-    });
-
-    await click(itemRow(host, "Lecture file"));
-    await waitFor(() =>
-      expect(host.querySelector(".lmsWebAddress")?.textContent).toContain(
-        "example.org",
-      ),
-    );
-    expect(host.querySelector(".lmsOfficialHost")).not.toBeNull();
-    expect(popup).not.toHaveBeenCalled();
-  }, 30_000);
-
-  it.each([
-    ["login", "Sign in to LMS"],
-    ["unresolved", "Open in LMS"],
-  ] as const)(
-    "cannot prepare a file (%s) and offers “%s” on the page Core names",
-    async (reason, label) => {
-      const source =
-        "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
-      const page = { site: "science-lms", url: source };
-      const openPage = vi.fn();
-      const { host } = await openPreview(
-        source,
-        (command) =>
-          command === "open_course_material"
-            ? { state: "failed", reason, page }
-            : undefined,
-        { title: "File", openPage },
-      );
-
-      await waitFor(() => expect(buttonByText(host, label)).toBeTruthy());
-      expect(host.querySelector('[role="alert"]')).not.toBeNull();
-      await click(buttonByText(host, label));
-      expect(openPage).toHaveBeenCalledWith(page);
-    },
-    30_000,
-  );
-
-  it("asks Core again when a download failed only this time", async () => {
-    const source = "https://lms.s.isct.ac.jp/2025/mod/resource/view.php?id=42";
-    const { core, host } = await openPreview(source, (command) =>
-      command === "open_course_material"
-        ? {
-            state: "failed",
-            reason: "network",
-            page: { site: "science-lms", url: source },
-          }
-        : undefined,
-    );
-
-    await waitFor(() => expect(buttonByText(host, "Retry")).toBeTruthy());
-    await click(buttonByText(host, "Retry"));
-    await waitFor(() =>
-      expect(core.commands("open_course_material")).toHaveLength(2),
-    );
-  }, 30_000);
-});
-
-describe("the note editor", () => {
-  async function openNote(
-    options: {
-      save?: (attempt: number) => unknown;
-      onDeleted?: () => void;
-    } = {},
-  ) {
-    let attempts = 0;
-    const { core, real } = await scriptedHost(
-      {
-        workspace: workspaceFixture(),
-        handle: (command) => {
-          if (command === "read_course_note")
-            return {
-              id: "n1",
-              section: "section-91",
-              name: "Note",
-              path: "note",
-              bytes: 7,
-              cached: true,
-              viewer: "markdown",
-              text: "initial",
-            };
-          if (command === "save_course_note") {
-            attempts += 1;
-            return options.save
-              ? options.save(attempts)
-              : {
-                  id: "n1",
-                  section: "section-91",
-                  name: "Note",
-                  path: "note",
-                  bytes: 7,
-                  cached: false,
-                  viewer: "markdown",
-                };
-          }
-          if (command === "move_course_note") return null;
-          return undefined;
-        },
-      },
-      () => import("@app/features/lms/NoteEditor"),
-    );
-
+    const { NoteEditor } = await import("@app/features/lms/NoteEditor");
     // The editor the note really renders: drive its ProseMirror transactions.
     const { Editor, editorViewCtx } = await import("@milkdown/kit/core");
     const editors: InstanceType<typeof Editor>[] = [];
@@ -2082,587 +627,181 @@ describe("the note editor", () => {
       editors.push(editor);
       return editor;
     });
-
-    const element = (mode: "visible" | "hidden") => (
+    const note = (mode: "visible" | "hidden") => (
       <Activity mode={mode}>
-        <real.NoteEditor
+        <NoteEditor
           context={CONTEXT}
           id="n1"
           onSaved={() => {}}
-          onDeleted={options.onDeleted}
+          onDeleted={() => {}}
         />
       </Activity>
     );
-    const view = await mount(element("visible"));
-    views.push(view);
-    await waitFor(
-      () => expect(view.host.querySelector(".ProseMirror")).not.toBeNull(),
-      { timeout: 15_000 },
-    );
-    await waitFor(() => expect(editors.length).toBeGreaterThan(0));
-
-    return {
-      core,
-      view,
-      host: view.host,
-      unmount: () => release(view),
-      reload: async (mode: "visible" | "hidden") => {
-        await act(async () => view.root.render(element(mode)));
-      },
-      edit: async (text: string) => {
-        await act(async () => {
-          editors.at(-1)!.action((ctx) => {
-            const prose = ctx.get(editorViewCtx);
-            prose.dispatch(
-              prose.state.tr.insertText(text, prose.state.doc.content.size),
-            );
-          });
-        });
-      },
+    const mounted = await view(note("visible"));
+    const { host, root } = mounted;
+    // A hidden editor is torn down; each showing builds the next one.
+    const editorReady = async (count: number) => {
+      await waitFor(() => expect(editors.length).toBeGreaterThanOrEqual(count));
+      await waitFor(() =>
+        expect(host.querySelector(".ProseMirror")).not.toBeNull(),
+      );
     };
-  }
+    const edit = (text: string) =>
+      act(async () => {
+        editors.at(-1)!.action((ctx) => {
+          const prose = ctx.get(editorViewCtx);
+          prose.dispatch(
+            prose.state.tr.insertText(text, prose.state.doc.content.size),
+          );
+        });
+      });
+    const hideAndShow = async () => {
+      await act(async () => root.render(note("hidden")));
+      await act(async () => root.render(note("visible")));
+    };
+    const recovery = () =>
+      (
+        JSON.parse(localStorage.getItem("lms-note-recovery:n1") ?? "null") as {
+          text: string;
+        } | null
+      )?.text ?? null;
 
-  it("flushes the current draft when the editor closes before autosave", async () => {
-    const note = await openNote();
-    await note.edit(" and more");
-    await note.unmount();
+    // Opening is not an edit: hidden and shown again, the file is untouched.
+    await editorReady(1);
+    await hideAndShow();
+    await editorReady(2);
+    expect(disk.text).toBe(original);
 
-    await waitFor(() =>
-      expect(note.core.commands("save_course_note")).toHaveLength(1),
-    );
-    const save = note.core.commands("save_course_note")[0];
-    expect(save.args).toMatchObject({ context: CONTEXT, id: "n1" });
-    expect(String(save.args.text)).toContain("and more");
-  }, 40_000);
-
-  it("keeps a failed save as a recovery draft and clears it after a successful retry", async () => {
-    const note = await openNote({
-      save: (attempt) =>
-        attempt === 1
-          ? Promise.reject(new Error("Disk unavailable"))
-          : {
-              id: "n1",
-              section: "section-91",
-              name: "Note",
-              path: "note",
-              bytes: 7,
-              cached: false,
-              viewer: "markdown",
-            },
+    // A save still pending when the editor hides does not cost what is typed
+    // after it shows again: the note is not read back over the live draft.
+    disk.holding = true;
+    await edit(" before hiding");
+    await hideAndShow();
+    await editorReady(3);
+    await edit(" and more");
+    disk.holding = false;
+    await act(async () => {
+      for (const land of held.splice(0)) land();
     });
-    await note.edit(" keep me");
-    await click(buttonByText(note.host, "Save"));
-    await waitFor(() =>
-      expect(note.host.textContent).toContain("Disk unavailable"),
-    );
-
-    const recovery = JSON.parse(
-      localStorage.getItem("lms-note-recovery:n1") ?? "null",
-    );
-    expect(recovery.text).toContain("keep me");
-
-    await click(buttonByText(note.host, "Retry save"));
-    await waitFor(() =>
-      expect(note.host.textContent).toContain("Saved locally"),
-    );
-    expect(localStorage.getItem("lms-note-recovery:n1")).toBeNull();
-  }, 40_000);
-
-  it("saves the final draft before moving the note to the deleted store", async () => {
-    const deleted = vi.fn();
-    const note = await openNote({ onDeleted: deleted });
-    await note.edit(" last draft");
-    await click(buttonByText(note.host, "Delete note"));
-    await waitFor(() => expect(deleted).toHaveBeenCalled());
-
-    const saves = note.core.commands("save_course_note");
-    const moves = note.core.commands("move_course_note");
-    expect(saves).toHaveLength(1);
-    expect(String(saves[0].args.text)).toContain("last draft");
-    expect(moves[0].args).toMatchObject({ context: CONTEXT, id: "n1" });
-    expect(note.core.calls.indexOf(saves[0])).toBeLessThan(
-      note.core.calls.indexOf(moves[0]),
-    );
-
-    await note.unmount();
-    expect(note.core.commands("save_course_note")).toHaveLength(1);
-  }, 40_000);
-
-  it("keeps the live draft across an Activity hide and does not read the note again", async () => {
-    const note = await openNote();
-    await note.edit(" before hiding");
-    await note.reload("hidden");
-
-    await waitFor(() =>
-      expect(note.core.commands("save_course_note").length).toBeGreaterThan(0),
-    );
-    expect(
-      String(note.core.commands("save_course_note").at(-1)?.args.text),
-    ).toContain("before hiding");
-
-    await note.reload("visible");
-    await waitFor(
-      () => expect(note.host.querySelector(".ProseMirror")).not.toBeNull(),
-      { timeout: 15_000 },
-    );
-    expect(note.host.querySelector(".ProseMirror")?.textContent).toContain(
+    await click(buttonByText(host, "Save"));
+    await waitFor(() => expect(disk.text).toContain("and more"));
+    // Formulas, lists and code come back as the Markdown they were.
+    for (const kept of [
       "before hiding",
+      "$E=mc^2$",
+      "x^2+y^2=z^2",
+      "```js",
+      "Second",
+    ])
+      expect(disk.text).toContain(kept);
+
+    // A failed save keeps a recovery draft until a retry lands.
+    disk.failing = true;
+    await edit(" keep me");
+    await click(buttonByText(host, "Save"));
+    const retry = await waitFor(() =>
+      required(buttonByText(host, "Retry save"), "the failed save"),
     );
-    expect(note.core.commands("read_course_note")).toHaveLength(1);
-  }, 40_000);
+    expect(disk.text).not.toContain("keep me");
+    expect(recovery()).toContain("keep me");
+    disk.failing = false;
+    await click(retry);
+    await waitFor(() => expect(disk.text).toContain("keep me"));
+    await waitFor(() => expect(recovery()).toBeNull());
+
+    // Deleting saves the last draft first; closing afterwards writes nothing
+    // back.
+    await edit(" last draft");
+    await click(buttonByText(host, "Delete note"));
+    await waitFor(() => expect(disk.deleted).toContain("last draft"));
+    expect(disk.deleted).toContain("keep me");
+    await release(mounted);
+    await advance(50);
+    expect(disk.text).toBeNull();
+  }, 60_000);
 });
 
-describe("the PDF viewer", () => {
-  async function openPdf() {
-    const { real } = await scriptedHost(
-      { workspace: workspaceFixture() },
-      () => import("@app/components/files/PdfDocument"),
-    );
+describe("a PDF in a retained reader", () => {
+  it("closes its PDF.js document while hidden and draws again from a fresh one when shown", async () => {
+    pdfjs.load.mockReset();
+    pdfjs.render.mockReset();
+    // The first page is still drawing when the reader hides.
+    pdfjs.render
+      .mockReturnValueOnce({ promise: new Promise(() => {}), cancel: () => {} })
+      .mockReturnValue({ promise: Promise.resolve(), cancel: () => {} });
+    // PDF.js documents the viewer holds open; a destroyed one throws
+    // synchronously when its transport is reused.
+    let open = 0;
+    pdfjs.load.mockImplementation(() => {
+      let destroyed = false;
+      open += 1;
+      return {
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: () => {
+            if (destroyed)
+              throw new TypeError(
+                "Cannot read properties of null (reading 'sendWithPromise')",
+              );
+            return Promise.resolve(sheet());
+          },
+        }),
+        destroy: async () => {
+          if (!destroyed) open -= 1;
+          destroyed = true;
+        },
+      };
+    });
+    await installComponentHost({ workspace: workspaceFixture() });
+    const { PdfDocument } = await import("@app/components/files/PdfDocument");
     function RetainedPdf() {
       const [visible, setVisible] = useState(true);
       return (
         <>
           <button onClick={() => setVisible(!visible)}>Switch page</button>
           <Activity mode={visible ? "visible" : "hidden"}>
-            <real.PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
+            <PdfDocument src="asset://localhost/a.pdf" title="Lecture" />
           </Activity>
         </>
       );
     }
-    const view = await mount(<RetainedPdf />);
-    views.push(view);
-    return { view, host: view.host };
-  }
-
-  it("releases the worker on hide and draws the retained PDF when the viewer returns", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    const sheet = {
-      getViewport: ({ scale }: { scale: number }) => ({
-        width: 600 * scale,
-        height: 800 * scale,
-      }),
-      render: pdfjs.render,
-      cleanup: vi.fn(),
-      streamTextContent: vi.fn(),
-    };
-    pdfjs.render
-      .mockReturnValueOnce({
-        promise: new Promise(() => {}),
-        cancel: pdfjs.cancel,
-      })
-      .mockReturnValue({
-        promise: Promise.resolve(),
-        cancel: pdfjs.cancel,
-      });
-    pdfjs.load.mockImplementation(() => {
-      let destroyed = false;
-      return {
-        promise: Promise.resolve({
-          numPages: 1,
-          getPage: () => {
-            // PDF.js throws synchronously when its destroyed transport is reused.
-            if (destroyed)
-              throw new TypeError(
-                "Cannot read properties of null (reading 'sendWithPromise')",
-              );
-            return Promise.resolve(sheet);
-          },
-        }),
-        destroy: async () => {
-          destroyed = true;
-          pdfjs.destroy();
-        },
-      };
-    });
-
-    const { view, host } = await openPdf();
-    // Only the first page renders, off-screen until it is complete.
+    const pdf = await view(<RetainedPdf />);
     await waitFor(() => expect(pdfjs.render).toHaveBeenCalled());
-    expect(host.querySelectorAll("canvas")).toHaveLength(0);
 
-    await click(buttonByText(host, "Switch page"));
-    expect(pdfjs.cancel).toHaveBeenCalledTimes(1);
-    expect(pdfjs.destroy).toHaveBeenCalledTimes(1);
+    await click(buttonByText(pdf.host, "Switch page"));
+    expect(open).toBe(0);
 
-    await click(buttonByText(host, "Switch page"));
-    await waitFor(() => expect(host.querySelector("canvas")).not.toBeNull());
-    await release(view);
-    expect(pdfjs.destroy).toHaveBeenCalledTimes(2);
-  }, 30_000);
-
-  it("finds text in a later page and zooms without mounting every canvas", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 3,
-        getPage: vi.fn(async (number: number) => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: 600 * scale,
-            height: 800 * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({
-            getReader: () => {
-              let done = false;
-              return {
-                read: async () =>
-                  done
-                    ? { done: true }
-                    : ((done = true),
-                      {
-                        done: false,
-                        value: {
-                          items: [
-                            {
-                              str:
-                                number === 3
-                                  ? "Java object inheritance"
-                                  : "Introduction",
-                            },
-                          ],
-                        },
-                      }),
-                releaseLock() {},
-                cancel: async () => {},
-              };
-            },
-          }),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
-    const scroll = vi
-      .spyOn(HTMLElement.prototype, "scrollIntoView")
-      .mockImplementation(() => {});
-
-    const { view, host } = await openPdf();
-    expect(host.querySelector("form")).toBeNull();
-    await click(host.querySelector<HTMLButtonElement>(".lmsPdfFindToggle"));
-
-    const search = host.querySelector<HTMLInputElement>(
-      'input[aria-label="Find in document"]',
-    )!;
-    await typeInto(search, "inheritance");
-    await act(async () => {
-      host
-        .querySelector("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
+    await click(buttonByText(pdf.host, "Switch page"));
     await waitFor(() =>
-      expect(
-        host.querySelector<HTMLInputElement>('input[aria-label="Page"]')!.value,
-      ).toBe("3"),
+      expect(pdf.host.querySelector("canvas")).not.toBeNull(),
     );
-    expect(scroll).toHaveBeenCalled();
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
+    expect(open).toBe(1);
 
-    const zoom = host.querySelector<HTMLInputElement>(
-      '[role="combobox"][aria-label="Zoom"]',
-    )!;
-    await chooseOption(zoom, "1.5");
-    expect(
-      (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
-    ).toBe("150%");
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
-
-    vi.useFakeTimers();
-    const viewport = host.querySelector(".lmsPdfDocument")!;
-    const gesture = new WheelEvent("wheel", {
-      ctrlKey: true,
-      deltaY: -20,
-      bubbles: true,
-      cancelable: true,
-    });
-    await act(async () => {
-      viewport.dispatchEvent(gesture);
-    });
-    expect(gesture.defaultPrevented).toBe(true);
-    expect(
-      (host.querySelector(".lmsPdfPages") as HTMLElement).style.transform,
-    ).toContain("scale");
-    await act(async () => {
-      vi.advanceTimersByTime(150);
-    });
-    expect(
-      parseFloat(
-        (host.querySelector(".lmsPdfPages") as HTMLElement).style.width,
-      ),
-    ).toBeGreaterThan(150);
-    expect(
-      (host.querySelector(".lmsPdfPages") as HTMLElement).style.transform,
-    ).toBe("");
-
-    await release(view);
-  }, 30_000);
-
-  it("sizes every page from its own viewport in a mixed portrait and landscape deck", async () => {
-    pdfjs.load.mockReset();
-    pdfjs.destroy.mockReset();
-    pdfjs.cancel.mockReset();
-    pdfjs.render.mockReset();
-    pdfjs.render.mockReturnValue({
-      promise: Promise.resolve(),
-      cancel: pdfjs.cancel,
-    });
-    const sizes = [
-      [600, 800],
-      [800, 450],
-      [600, 800],
-    ];
-    pdfjs.load.mockReturnValue({
-      promise: Promise.resolve({
-        numPages: 3,
-        getPage: vi.fn(async (number: number) => ({
-          getViewport: ({ scale }: { scale: number }) => ({
-            width: sizes[number - 1][0] * scale,
-            height: sizes[number - 1][1] * scale,
-          }),
-          render: pdfjs.render,
-          cleanup: vi.fn(),
-          streamTextContent: () => ({}),
-        })),
-      }),
-      destroy: pdfjs.destroy,
-    });
-
-    const { view, host } = await openPdf();
-    // jsdom does not expose `aspectRatio` on CSSStyleDeclaration; read the
-    // serialized style the way a person would inspect the page.
-    const aspects = () =>
-      [...host.querySelectorAll<HTMLElement>("[data-pdf-page]")].map((page) =>
-        Number(
-          page.getAttribute("style")?.match(/aspect-ratio:\s*([\d.]+)/)?.[1],
-        ).toFixed(3),
-      );
-    await waitFor(() => expect(aspects()).toEqual(["0.750", "1.778", "0.750"]));
-    // The rendered first page has been swapped in.
-    expect(host.querySelectorAll("canvas")).toHaveLength(1);
-
-    await release(view);
+    await release(pdf);
+    expect(open).toBe(0);
   }, 30_000);
 });
 
-describe("a past exam's Markdown document", () => {
-  it("opens formatted, read-only, with every formula set by KaTeX", async () => {
-    await scriptedHost(
-      { workspace: workspaceFixture() },
-      async () => undefined,
-    );
-    const source = [
-      "# 問1",
-      "",
-      "Inline $E=mc^2$ and \\(x^2\\).",
-      "",
-      "\\[",
-      "\\int_0^1 x\\,dx",
-      "\\]",
-      "",
-      // Written for Markdown to unescape: every backslash doubled.
-      "Velocity \\\\(v^{\\\\prime} \\\\rightarrow v\\\\).",
-    ].join("\n");
-    const fetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(new Response(source));
-    const { ExamReader } = await import("@app/pages/past-exams/ExamReader");
-    const view = await mount(
-      <ExamReader
-        file={{
-          document: {
-            id: "exam-1",
-            subjects: [],
-            teachers: [],
-            allTeachers: false,
-            academicYear: 2025,
-            occasion: null,
-            occasionText: "",
-            occasionNumber: 1,
-            variant: "",
-            role: null,
-            roleText: "",
-            note: null,
-            fileName: "midterm.md",
-            fileType: "text/plain",
-            number: null,
-          },
-          path: "/cache/exam-1",
-          downloaded: false,
-          saved: null,
-          offline: true,
-          webUrl: "https://example.test/exam-1",
-          viewer: "markdown",
-          exportName: "midterm.md",
-        }}
-        title="Midterm"
-        call={async () => undefined}
-        setFile={() => undefined}
-        onLibraryChanged={() => undefined}
-        close={() => undefined}
+describe("course HTML", () => {
+  it("renders inert: active content and unsafe addresses never reach the page", async () => {
+    await installComponentHost({ workspace: workspaceFixture() });
+    const { RichContent } = await import("@app/features/lms/RichContent");
+    const safe = "https://lms.s.isct.ac.jp/2025/";
+    const opened: string[] = [];
+    const { host } = await view(
+      <RichContent
+        html={`<script>steal()</script><form>submit</form><iframe src="https://evil.example/"></iframe><img src="x" onerror="steal()"><p onclick="steal()">Text<a href="javascript:steal()">bad</a><a href="${safe}">good</a></p>`}
+        files={{ courseId: COURSE_ID }}
+        openLink={(url) => opened.push(url)}
       />,
     );
-    views.push(view);
-    const prose = await waitFor(() => {
-      const found = view.host.querySelector(
-        ".lmsMarkdownDocument .ProseMirror",
-      );
-      expect(found).not.toBeNull();
-      return found!;
-    });
-    expect(fetch).toHaveBeenCalled();
-    expect(prose.querySelector("h1")?.textContent).toBe("問1");
-    // Both inline forms render; the display formula is a LaTeX block.
-    expect(prose.querySelectorAll("p .katex")).toHaveLength(3);
-    // KaTeX set the arrow, not the command's name as italic letters.
-    const doubled = [...prose.querySelectorAll("p")].at(-1)!;
-    expect(doubled.querySelector(".katex-mathml annotation")?.textContent).toBe(
-      "v^{\\prime} \\rightarrow v",
-    );
-    expect(doubled.querySelector(".katex-html")?.textContent).toContain("→");
-    expect(prose.querySelector(".milkdown-code-block")?.textContent).toContain(
-      "\\int_0^1 x\\,dx",
-    );
-    expect(prose.getAttribute("contenteditable")).toBe("false");
-    expect(view.host.querySelector(".examDocumentText")).toBeNull();
-    fetch.mockRestore();
-  }, 40_000);
-});
 
-describe("the markdown editor", () => {
-  async function openMarkdown(
-    value: string,
-    onChange?: (value: string) => void,
-  ) {
-    await scriptedHost(
-      { workspace: workspaceFixture() },
-      async () => undefined,
-    );
-    const { Editor, editorViewCtx } = await import("@milkdown/kit/core");
-    const { MarkdownDocument } =
-      await import("@app/components/files/MarkdownDocument");
-    const editors: InstanceType<typeof Editor>[] = [];
-    const make = Editor.make.bind(Editor);
-    vi.spyOn(Editor, "make").mockImplementation(() => {
-      const editor = make();
-      editors.push(editor);
-      return editor;
-    });
-    const view = await mount(
-      <MarkdownDocument value={value} onChange={onChange} />,
-    );
-    views.push(view);
-    await waitFor(
-      () => expect(view.host.querySelector(".ProseMirror")).not.toBeNull(),
-      { timeout: 15_000 },
-    );
-    await waitFor(() => expect(editors.length).toBeGreaterThan(0));
-    return {
-      view,
-      host: view.host,
-      editors,
-      rerender: async (next: string, onChange?: (value: string) => void) => {
-        await act(async () =>
-          view.root.render(
-            <MarkdownDocument value={next} onChange={onChange} />,
-          ),
-        );
-      },
-      editable: () =>
-        editors.at(-1)!.action((ctx) => ctx.get(editorViewCtx).editable),
-      edit: async (text: string) => {
-        await act(async () => {
-          editors.at(-1)!.action((ctx) => {
-            const prose = ctx.get(editorViewCtx);
-            prose.dispatch(
-              prose.state.tr.insertText(text, prose.state.doc.content.size),
-            );
-          });
-        });
-      },
-    };
-  }
-
-  it("keeps formulas, lists and code through an edit, without saving on load", async () => {
-    const source =
-      "# Notes\n\nInline $E=mc^2$\n\n$$\nx^2+y^2=z^2\n$$\n\n- First\n- Second\n\n```js\nconst a = 1;\n```\n";
-    const change = vi.fn();
-    const editor = await openMarkdown(source, change);
-
-    // Loading a saved document is not an edit.
-    expect(change).not.toHaveBeenCalled();
-    expect(editor.host.querySelector(".ProseMirror")?.textContent).toContain(
-      "Notes",
-    );
-    expect(editor.host.querySelectorAll(".ProseMirror li")).toHaveLength(2);
-
-    await editor.edit(" updated");
-    await waitFor(() => expect(change).toHaveBeenCalledTimes(1));
-    const saved = change.mock.calls[0][0] as string;
-    expect(saved).toContain("updated");
-    expect(saved).toContain("$E=mc^2$");
-    expect(saved).toContain("x^2+y^2=z^2");
-    expect(saved).toContain("```js");
-    expect(saved).toContain("Second");
-
-    const prose = editor.host.querySelector(".ProseMirror");
-    await editor.rerender(saved, change);
-    // The same editor takes the controlled value back; no extra edit is emitted.
-    expect(editor.host.querySelector(".ProseMirror")).toBe(prose);
-    expect(change).toHaveBeenCalledTimes(1);
-  }, 40_000);
-
-  it("applies an external value to a live editor without emitting an edit", async () => {
-    const change = vi.fn();
-    const editor = await openMarkdown("# Attachment\n\nRead me", change);
-    await editor.rerender("# Replacement", change);
-    await waitFor(() =>
-      expect(editor.host.textContent).toContain("Replacement"),
-    );
-    expect(change).not.toHaveBeenCalled();
-  }, 40_000);
-
-  it("formats the selected text from the Markdown tool panel", async () => {
-    const change = vi.fn();
-    const editor = await openMarkdown("Plain", change);
-    const { editorViewCtx } = await import("@milkdown/kit/core");
-    const { TextSelection } = await import("@milkdown/kit/prose/state");
-    await act(async () =>
-      editor.editors.at(-1)!.action((ctx) => {
-        const view = ctx.get(editorViewCtx);
-        view.dispatch(
-          view.state.tr.setSelection(
-            TextSelection.create(view.state.doc, 1, 6),
-          ),
-        );
-      }),
-    );
-    await click(editor.host.querySelector('[aria-label="Bold"]'));
-    await waitFor(() =>
-      expect(change.mock.calls.at(-1)?.[0]).toContain("**Plain**"),
-    );
-  }, 40_000);
-
-  it("renders an attachment read-only", async () => {
-    const editor = await openMarkdown("# Attachment\n\nRead me");
-    expect(editor.editable()).toBe(false);
     expect(
-      editor.host.querySelector('[aria-label="Markdown tools"]'),
+      host.querySelector("script, form, iframe, [onclick], [onerror]"),
     ).toBeNull();
-    expect(
-      editor.host
-        .querySelector(".ProseMirror")
-        ?.getAttribute("contenteditable"),
-    ).toBe("false");
-  }, 40_000);
+    expect(host.innerHTML).not.toContain("javascript:");
+    // Every link a person can click asks the shell to open a safe address only.
+    for (const link of host.querySelectorAll("a")) await click(link);
+    expect(opened).toEqual([safe]);
+  }, 30_000);
 });

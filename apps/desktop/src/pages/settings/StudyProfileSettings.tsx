@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { desktopBridge } from "../../platform/native";
 import { t } from "../../i18n";
 import type { StudyEnrollment, Workspace } from "../../lib/model";
-import { departmentById } from "../../lib/departments";
 import { tokyoDate } from "../../lib/civil-date";
 import { UiButton, UiSelect } from "../../components/ui";
 import { Row, SettingsGroup, SettingsHeader } from "../../components/forms";
@@ -57,7 +56,9 @@ export function StudyProfileSettings({
         };
       },
     ).value ?? [];
-  const department = departmentById(departments, data.settings.departmentId);
+  const department = departments.find(
+    (entry) => entry.id === data.settings.departmentId,
+  );
   const admissionYear = data.academicProfile.admissionYear;
   const studyEnrollments = data.academicProfile.studyEnrollments ?? [];
   const committedKey = JSON.stringify([admissionYear, studyEnrollments]);
