@@ -264,26 +264,37 @@
 /* ---------- Lessons: a rail of 第N回, one lesson open, the rest folded ---------- */
 /* The lessons as a quiet scrubber down the outline's edge: one short tick
    per lesson, brighter once held, warm while work is open, accent and
-   numbered where the reading is; a lesson's number shows on hover. */
+   numbered where the reading is; a lesson's number shows on hover.
+   Labels come from Core and are not only numbers (演習 3), so the rail is as
+   wide as its longest row. Each row reserves what its widest state needs, the
+   full tick and the bold label, so hovering or moving the current lesson
+   never changes the rail's width. */
 .lmsLessonRail {
-  position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 0; flex: 0 0 40px; width: 40px; min-height: 0;
+  position: relative; display: flex; flex-direction: column; justify-content: safe center; gap: 0;
+  flex: 0 0 auto; width: max-content; min-height: 0;
   padding: var(--space-6) 0; overflow: hidden auto; scrollbar-width: none;
 }
 .lmsLessonRail button {
-  position: relative; display: flex; align-items: center; gap: var(--space-3); flex: 0 0 18px; width: 100%; min-width: 0; padding: 0 0 0 var(--space-5);
-  border: 0; background: none; white-space: nowrap;
+  position: relative; display: flex; align-items: center; gap: var(--space-3); flex: 0 0 18px; width: 100%; min-width: 0;
+  padding: 0 var(--space-3) 0 var(--space-5); border: 0; background: none; white-space: nowrap;
   color: transparent !important; font-size: calc(var(--type-tick-size) * var(--text)) !important; font-variant-numeric: tabular-nums; text-align: left;
 }
+/* The tick keeps the current tick's 16px and draws shorter by scaling. */
 .lmsLessonRail button::before {
-  content: ""; flex: 0 0 auto; width: 10px; height: 2px; border-radius: 1px; background: var(--line);
-  transition: width var(--motion-duration-base) var(--motion-easing-standard), background-color var(--motion-duration-base);
+  content: ""; flex: 0 0 16px; height: 2px; border-radius: 1px; background: var(--line);
+  transform: scaleX(.625); transform-origin: left;
+  transition: transform var(--motion-duration-base) var(--motion-easing-standard), background-color var(--motion-duration-base);
 }
+/* The label sits over a hidden bold copy of itself, so it is always as wide as when current. */
+.lmsRailLabel { display: inline-grid; }
+.lmsRailLabel::after { content: attr(data-label); grid-area: 1 / 1; height: 0; font-weight: 700; visibility: hidden; overflow: hidden; }
+.lmsRailLabel > span { grid-area: 1 / 1; }
 .lmsLessonRail button.held::before { background: color-mix(in srgb, var(--ink) 45%, transparent); }
 .lmsLessonRail button.due::before { background: var(--warn); }
 .lmsLessonRail button:hover { color: var(--muted) !important; }
-.lmsLessonRail button:hover::before { width: 14px; background: var(--lms-hover-line, var(--muted)); }
+.lmsLessonRail button:hover::before { transform: scaleX(.875); background: var(--lms-hover-line, var(--muted)); }
 .lmsLessonRail button.current { color: var(--accent) !important; font-weight: 700; }
-.lmsLessonRail button.current::before { width: 16px; background: var(--accent); }
+.lmsLessonRail button.current::before { transform: none; background: var(--accent); }
 /* The tick itself marks the page being read; the sliding bar is not drawn. */
 .lmsRailIndicator { display: none; }
 /* Sections without a number (一般, 連絡先 …) and Activities: one row of
