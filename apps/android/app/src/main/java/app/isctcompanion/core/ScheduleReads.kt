@@ -62,12 +62,12 @@ internal class ScheduleReads {
 /** The pager keeps its last answer for each Monday while Core recomputes it. */
 internal class TimetableWeeks {
     private val reads = ScheduleReads()
-    private val shown = mutableStateMapOf<LocalDate, ScheduleView>()
+    private val shown = mutableStateMapOf<LocalDate, TimetablePage>()
     private val fresh = mutableSetOf<LocalDate>()
     var revision by mutableLongStateOf(0L)
         private set
 
-    operator fun get(monday: LocalDate): ScheduleView? = shown[monday]
+    operator fun get(monday: LocalDate): TimetablePage? = shown[monday]
 
     /** A week on screen reads again when a commit touched what it read, or
      * when its last read did not finish. */
@@ -84,35 +84,26 @@ internal class TimetableWeeks {
 
     suspend fun week(
         monday: LocalDate,
-        term: String,
         session: Session,
         read: suspend (WorkspaceQuery) -> ScheduleSnapshot?,
-    ): ScheduleView? {
+    ): TimetablePage? {
         if (monday in fresh && reads.current(session)) return shown[monday]
 
         val generation = reads.generation
-        // A cold read fills the swipe window. Refreshing a shown week only
-        // queries that week, and its neighbours refresh as they become current.
-        val reach = if (shown[monday] == null) 4L else 0L
-        val first = Format.civil(monday.minusWeeks(reach))
-        val last = Format.civil(monday.plusWeeks(reach).plusDays(4))
-        val query = WorkspaceQuery.ScheduleView(term, first, last, false)
+        // A cold read fills the swipe window. Refreshes cover the pages visible while swiping.
+        val reach: UByte = if (shown[monday] == null) 4u else 1u
+        val query = WorkspaceQuery.TimetableWeeks(Format.civil(monday), reach, TimetableMode.CLASSES)
 
         while (generation == reads.generation) {
             val snapshot = read(query) ?: return null
             currentCoroutineContext().ensureActive()
-            val view = (snapshot.values.single() as WorkspaceQueryResult.ScheduleView).v1
+            val weeks = (snapshot.values.single() as WorkspaceQueryResult.TimetableWeeks).v1
             val previousVersion = reads.publishedVersion
             if (!reads.accept(snapshot, generation, session)) continue
 
             // A commit may already be visible to Core before its event arrives.
             if (reads.publishedVersion != previousVersion) fresh.clear()
-            val loaded = (-reach..reach).associate { offset ->
-                val start = monday.plusWeeks(offset)
-                val from = Format.civil(start)
-                val to = Format.civil(start.plusDays(4))
-                start to view.copy(agendas = view.agendas.filter { it.date >= from && it.date <= to })
-            }
+            val loaded = weeks.associateBy { LocalDate.parse(it.monday) }
             shown.putAll(loaded)
             fresh.addAll(loaded.keys)
             return shown[monday]

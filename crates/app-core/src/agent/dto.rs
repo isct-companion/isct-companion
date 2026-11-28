@@ -225,6 +225,7 @@ impl Day {
             important_dates,
             no_classes,
             calendar_notice,
+            exam_period: _,
         } = agenda;
         Ok(Self {
             date,

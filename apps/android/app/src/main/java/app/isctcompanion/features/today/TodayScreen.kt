@@ -126,8 +126,6 @@ fun TodayScreen() {
     val navigator = LocalNavigator.current
     val now = rememberNow(30)
     LaunchedEffect(Unit) { model.open(SyncView.Today) }
-    // Core's upcoming exams for the next two weeks.
-    val exams = model.upcomingExams
     TabPage(
         t("common.today"),
         actions = {
@@ -165,7 +163,7 @@ fun TodayScreen() {
                     }
                     val today = model.today
                     if (today != null) {
-                        TodayContent(today, now, exams)
+                        TodayContent(today, now)
                     } else if (!model.needsAccount) {
                         // Before Core's first answer: the shape of a class card and a list.
                         Skeleton(Modifier.fillMaxWidth().height(140.dp), RoundedCornerShape(Theme.radiusPanel))
@@ -190,11 +188,11 @@ private fun subtitle(today: TodayView?): String {
 }
 
 @Composable
-private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) {
+private fun TodayContent(today: TodayView, now: Instant) {
     when (today.phase) {
         TodayPhase.BEFORE_CLASSES, TodayPhase.BETWEEN_CLASSES -> {
             ClassStack(today.upcoming, now)
-            UpcomingExams(exams)
+            UpcomingExams(today.upcomingExams)
         }
         TodayPhase.IN_CLASS -> {
             today.hero?.let { CurrentClassHero(it, now) }
@@ -207,10 +205,10 @@ private fun TodayContent(today: TodayView, now: Instant, exams: List<ExamView>) 
         TodayPhase.AFTER_CLASSES -> {
             today.deadlineHero?.let { TonightHero(it, now) }
             ClassStack(today.upcoming, now)
-            UpcomingExams(exams)
+            UpcomingExams(today.upcomingExams)
         }
         TodayPhase.NO_CLASSES -> {
-            UpcomingExams(exams)
+            UpcomingExams(today.upcomingExams)
             ClassStack(today.upcoming, now)
             if (today.recent.isNotEmpty()) {
                 RecentLabel()

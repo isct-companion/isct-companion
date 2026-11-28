@@ -1579,6 +1579,8 @@
   "today.quizInProgress": "小测进行中",
   "today.readsYourTimetableAssignmentsAnd": "从学校网站读取课表、作业和资料。密码保存在钥匙串中，只会发送给学校网站。",
   "today.readsYourTimetableAssignmentsAndMaterials": "从学校网站读取课表、作业和资料。密码在此设备的密钥库中加密保存，只会发送给学校网站。",
+  "today.examPeriod": "考试期间",
+  "today.noClasses": "无课",
   "today.teachingDay": "上课日",
   "today.thisClass": "本节课",
   "today.tomorrowsClass": "明天的课",

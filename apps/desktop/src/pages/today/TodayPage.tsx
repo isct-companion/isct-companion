@@ -8,22 +8,24 @@ import {
   type TermId,
   type Workspace,
 } from "../../lib/model";
-import { civilWeekday, formatJst, tokyoDate } from "../../lib/civil-date";
-import {
-  useScheduleQueries,
-  useScheduleQuery,
-  type DatedAgenda,
-  type TaskView,
-} from "../../platform/core-query";
-import { useClock } from "../../platform/use-clock";
+import { formatJst, tokyoDate } from "../../lib/civil-date";
+import { wallNow } from "../../platform/use-clock";
 import { AnnouncementBanners } from "../../components/notifications/AnnouncementBanners";
 import type {
+  AgendaDayKind,
   AnnouncementView,
-  ExamView,
-  TodayView,
 } from "../../generated/persistence";
+import type { ImportantDateView } from "../../platform/core-query";
+import { useTodayAgenda } from "./use-today-agenda";
 import { TodayAssignments } from "./TodayAssignments";
 import { TodayAgenda } from "./TodayAgenda";
+
+const teachingLabel = {
+  teachingDay: "today.teachingDay",
+  weekend: "today.weekend",
+  examPeriod: "today.examPeriod",
+  noClasses: "today.noClasses",
+} as const satisfies Record<AgendaDayKind, Parameters<typeof t>[0]>;
 
 export function Today({
   data,
@@ -67,36 +69,19 @@ export function Today({
         ?.querySelector(`[data-today-section="${focusSection.section}"]`)
         ?.scrollIntoView?.({ block: "start" });
   }, [focusSection]);
-  const nowIso = useClock(active);
-  const now = new Date(nowIso);
-  const todayIso = tokyoDate(now);
+  const dashboard = useTodayAgenda(null, active);
+  const todayIso = tokyoDate(new Date(wallNow()));
+  const agenda =
+    dashboard.value?.today === todayIso ? dashboard.value : undefined;
   const viewDate = new Date(`${todayIso}T12:00:00+09:00`);
-  // Apart from the rest: the day's classes stay on screen while the answers
-  // below re-read each minute.
-  const dayQuery = useScheduleQuery<DatedAgenda[]>(
-    { kind: "calendarRange", from: todayIso, to: todayIso },
-    active,
-  );
-  const dashboard = useScheduleQueries<[ExamView[], TodayView, TaskView]>(
-    [
-      { kind: "upcomingExams", from: todayIso, to: null, now: nowIso },
-      { kind: "today", now: nowIso },
-      { kind: "taskView", now: nowIso },
-    ],
-    active,
-  );
-  const [exams, today, taskView] = dashboard.value ?? [];
-  const scheduleLoading = dayQuery.pending && !dayQuery.value;
-  const scheduleReveal = useReveal(scheduleLoading);
-  const agenda = dayQuery.value?.find((day) => day.date === todayIso);
-  const teachingState = agenda?.calendarState;
-  const effectiveDay = civilWeekday(todayIso);
-  const importantDates = agenda?.importantDates ?? [];
-  const tasksLoading = dashboard.pending && !taskView;
+  const importantDates = (agenda?.importantDates ?? []) as ImportantDateView[];
+  const scheduleLoading = dashboard.pending && !agenda;
+  const reveal = useReveal(scheduleLoading);
+  const tasks = agenda?.tasks;
+  const tasksLoading = dashboard.pending && !tasks;
   const tasksReveal = useReveal(tasksLoading);
   const stateLabel =
-    teachingState?.label ||
-    t(effectiveDay > 5 ? "today.weekend" : "today.teachingDay");
+    agenda?.calendarNotice || (agenda ? t(teachingLabel[agenda.dayKind]) : "");
 
   return (
     <div className="page todayPage" ref={page}>
@@ -135,7 +120,7 @@ export function Today({
             ))}
           </aside>
         )}
-        {Boolean(exams?.length) && (
+        {agenda && agenda.exams.length > 0 && (
           <section
             className="todaySection"
             aria-label={t("today.upcomingExams")}
@@ -144,7 +129,7 @@ export function Today({
               <h2>{t("today.upcomingExams")}</h2>
             </header>
             <ExamCards
-              exams={exams?.slice(0, 3) ?? []}
+              exams={agenda.exams}
               open={(id) => open(id)}
               openExam={openExam}
             />
@@ -152,12 +137,11 @@ export function Today({
         )}
         <TodayAgenda
           data={data}
-          agenda={agenda}
-          today={today?.date === todayIso ? today : undefined}
-          now={now}
+          rows={agenda?.rows}
+          nextClass={agenda?.nextClass}
           todayIso={todayIso}
           scheduleLoading={scheduleLoading}
-          scheduleReveal={scheduleReveal}
+          scheduleReveal={reveal}
           selection={selection}
           open={open}
           openExam={openExam}
@@ -166,7 +150,7 @@ export function Today({
         <TodayAssignments
           data={data}
           term={term}
-          taskView={taskView}
+          taskView={tasks}
           tasksLoading={tasksLoading}
           tasksReveal={tasksReveal}
           selection={selection}

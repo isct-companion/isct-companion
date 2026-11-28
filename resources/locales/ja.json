@@ -1579,6 +1579,8 @@
   "today.quizInProgress": "小テスト中",
   "today.readsYourTimetableAssignmentsAnd": "時間割・課題・資料を学校のサイトから読み込みます。パスワードはキーチェーンに保存され、学校のサイトにだけ送られます。",
   "today.readsYourTimetableAssignmentsAndMaterials": "時間割・課題・資料を学校のサイトから読み込みます。パスワードはこの端末のキーストアで暗号化して保存され、学校のサイトにだけ送られます。",
+  "today.examPeriod": "試験期間",
+  "today.noClasses": "授業なし",
   "today.teachingDay": "授業日",
   "today.thisClass": "この授業",
   "today.tomorrowsClass": "明日の授業",

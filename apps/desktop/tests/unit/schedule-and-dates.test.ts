@@ -7,7 +7,7 @@ import {
   parseIsoTimestamp,
   tokyoDate,
 } from "@app/lib/civil-date";
-import { axisPosition, axisSpan, nowPercent } from "@app/lib/timetable-layout";
+import { axisPosition, nowPercent } from "@app/lib/timetable-layout";
 import {
   agendaColumns,
   planningColumns,
@@ -197,18 +197,6 @@ describe("timetable axis placement", () => {
     expect(planningColumns(planning).some((column) => column.isToday)).toBe(
       false,
     );
-  });
-
-  it("asks Core to widen the axis around the week's earliest and latest class", () => {
-    expect(
-      axisSpan([
-        { startTime: "10:45", endTime: "12:25" },
-        { startTime: "07:30", endTime: "09:00" },
-        { startTime: "19:05", endTime: "22:00" },
-        { startTime: "later", endTime: "never" },
-      ]),
-    ).toEqual({ earliest: "07:30", latest: "22:00" });
-    expect(axisSpan([])).toEqual({});
   });
 });
 

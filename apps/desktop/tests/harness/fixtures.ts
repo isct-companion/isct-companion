@@ -220,6 +220,7 @@ export function planningWeekFor(
     ),
   );
   return {
+    axis: DEFAULT_TIMETABLE_AXIS,
     courses: active,
     days: Array.from({ length: 7 }, (_, index) => ({
       day: index + 1,

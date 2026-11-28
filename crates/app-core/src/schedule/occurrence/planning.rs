@@ -4,6 +4,7 @@ use super::{
 };
 use crate::schedule::{
     add_days, alternation, array, teaching_periods, text, visible, ScheduleError, Term,
+    TimetableAxis,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -25,6 +26,7 @@ pub struct PlanningWeek {
     #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
     pub courses: Vec<Value>,
     pub days: Vec<PlanningDay>,
+    pub axis: TimetableAxis,
     pub conflict_count: usize,
     /// Every clash, once per course involved, so a shell can explain a
     /// red block without re-deriving overlaps.
@@ -114,7 +116,7 @@ pub(crate) fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWee
         alternation::pair_blocks(&mut blocks)?;
         for event in &events {
             if occurs_on_weekday(event, day) {
-                blocks.push(personal_occurrence(event, &date, day));
+                blocks.extend(personal_occurrence(event, &date, day));
             }
         }
         for left in 0..blocks.len() {
@@ -170,9 +172,14 @@ pub(crate) fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWee
     } else {
         None
     };
+    let axis = crate::schedule::timing::axis_for_occurrences(
+        &teaching_periods,
+        days.iter().flat_map(|day| &day.blocks),
+    )?;
     Ok(PlanningWeek {
         courses,
         days,
+        axis,
         conflict_count,
         conflicts,
         carry_over,

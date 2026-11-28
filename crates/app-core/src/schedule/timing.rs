@@ -137,11 +137,38 @@ fn clock_minutes(raw: &str) -> Result<u32, ScheduleError> {
     Ok(time.hour() * 60 + time.minute())
 }
 
+pub(super) fn canonical_clock(raw: &str) -> Option<String> {
+    NaiveTime::parse_from_str(raw, "%H:%M")
+        .ok()
+        .map(|time| time.format("%H:%M").to_string())
+}
+
+pub(super) fn axis_for_occurrences<'a>(
+    periods: &[TeachingPeriod],
+    blocks: impl Iterator<Item = &'a super::Occurrence>,
+) -> Result<TimetableAxis, ScheduleError> {
+    let mut earliest: Option<(u32, &str)> = None;
+    let mut latest: Option<(u32, &str)> = None;
+    for block in blocks {
+        let start = block.start_time.as_str();
+        let end = block.end_time.as_str();
+        let start_minutes = clock_minutes(start)?;
+        let end_minutes = clock_minutes(end)?;
+        if earliest.is_none_or(|(minutes, _)| start_minutes < minutes) {
+            earliest = Some((start_minutes, start));
+        }
+        if latest.is_none_or(|(minutes, _)| end_minutes > minutes) {
+            latest = Some((end_minutes, end));
+        }
+    }
+    timetable_axis(periods, earliest.map(|(_, at)| at), latest.map(|(_, at)| at))
+}
+
 /// Every period is one row; a block of two periods is two rows. A class
 /// outside the teaching day (`earliest`, `latest`: the week's first start and
 /// last end) widens the axis at the first or last block's pace instead of
 /// being cut off.
-pub(crate) fn timetable_axis(
+pub(super) fn timetable_axis(
     periods: &[TeachingPeriod],
     earliest: Option<&str>,
     latest: Option<&str>,

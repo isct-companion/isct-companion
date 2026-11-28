@@ -27,7 +27,7 @@ export function agendaColumns(
  * weekday is marked as today.
  */
 export function planningColumns(
-  view?: PlanningWeek,
+  view?: Pick<PlanningWeek, "days">,
   today?: string,
 ): DayColumn[] {
   const weekday = today ? civilWeekday(today) : undefined;

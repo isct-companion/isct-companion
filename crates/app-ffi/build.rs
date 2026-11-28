@@ -172,6 +172,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "schedule/alternation.rs",
         "schedule/tasks.rs",
         "schedule/today.rs",
+        "schedule/today_agenda.rs",
+        "schedule/range.rs",
         "schedule/reminders/mod.rs",
         "schedule/reminders/mobile.rs",
         "schedule/ics.rs",

@@ -50,7 +50,7 @@ under any id not ending in `.demo`, and the other way round. Commands are in
 
 | Path | Content |
 |---|---|
-| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents and lifecycle facts |
+| `IsctCompanion/Core/AppModel.swift` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `timetableWeeks`, `courseDetail`), intents and lifecycle facts |
 | `IsctCompanion/Core/AppModel*.swift` | Campus map, hand-in, cloud backup and school account adapters for the same session |
 | `IsctCompanion/Core/SchoolBrowserHost.swift` | `NativeBrowser`: one resident WKWebView per school site, driven by Core |
 | `IsctCompanion/Core/WebRouter.swift` | Which school page is on screen; `openSchool` and the visibility fact |

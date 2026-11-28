@@ -14,11 +14,7 @@ import type { WorkspaceQuery } from "../generated/persistence";
 // Fields with serde defaults may be omitted by shells; all other request fields
 // are checked against the generated Core protocol.
 type Defaulted =
-  | "includePersonal"
   | "options"
-  | "beforeDays"
-  | "afterDays"
-  | "limit"
   | "scope"
   | "locale";
 type OptionalDefaults<T> = T extends { kind: string }
@@ -40,12 +36,6 @@ export type ImportantDateView = Omit<ImportantDate, "label"> & {
 export type DatedAgenda = {
   date: string;
   occurrences: ScheduleOccurrence[];
-  /** Its label is in the content language. */
-  calendarState?: {
-    label: string;
-    type?: string;
-    replacementDay?: number;
-  } | null;
   importantDates: ImportantDateView[];
   noClasses: boolean;
   calendarNotice?: string;
@@ -72,11 +62,9 @@ export type WorkspaceOverview = Omit<
   };
 export type LectureList = Omit<Protocol.LectureList, "allTerms"> &
   Pick<ScheduleOverviewFields, "allTerms">;
-export type ScheduleView = Omit<
-  Protocol.ScheduleView,
-  keyof ScheduleOverviewFields | "agendas"
-> &
-  ScheduleOverviewFields & { agendas: DatedAgenda[] };
+export type TimetablePage = Omit<Protocol.TimetablePage, "agendas"> & {
+  agendas: DatedAgenda[];
+};
 export type PlanningWeek = Omit<Protocol.PlanningWeek, "courses" | "days"> & {
   courses: Course[];
   days: { day: number; blocks: ScheduleOccurrence[] }[];
@@ -168,7 +156,7 @@ export function useScheduleQueries<T extends unknown[]>(
     ["schedule", queries],
     () => scheduleAnswers<T>(queries),
     enabled,
-    !queries.some((query) => query.kind === "calendarRange"),
+    !queries.some((query) => query.kind === "timetableWeeks"),
   );
 }
 

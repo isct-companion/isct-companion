@@ -57,18 +57,17 @@ fn planning_template_and_dated_festival_view_keep_distinct_semantics() {
     let view = query(
         &data,
         &SchoolReads::fixture(&data),
-        WorkspaceQuery::ScheduleView {
-            term: "2026-3Q".into(),
-            from: "2026-10-05".into(),
-            to: "2026-10-11".into(),
-            include_personal: false,
+        WorkspaceQuery::TimetableWeeks {
+            monday: "2026-10-05".into(),
+            reach: 0,
+            mode: TimetableMode::Classes,
         },
     )
     .unwrap();
-    let WorkspaceQueryResult::ScheduleView(view) = view else {
+    let WorkspaceQueryResult::TimetableWeeks(weeks) = view else {
         panic!("expected schedule view")
     };
-    let friday = view
+    let friday = weeks[0]
         .agendas
         .iter()
         .find(|day| day.date == "2026-10-09")
@@ -1117,6 +1116,45 @@ fn phone_workspace() -> Value {
 }
 
 #[test]
+fn today_surfaces_expire_the_same_exam_and_keep_overlapping_classes_running() {
+    let mut data = phone_workspace();
+    data["courses"][1]["meetings"][0]["startTime"] = json!("9:00");
+    data["courses"][1]["meetings"][0]["endTime"] = json!("10:00");
+    data["courses"][1]["meetings"].as_array_mut().unwrap().push(json!({
+        "days":[1], "startTime":"13:30", "endTime":"15:10"
+    }));
+    let exam_key = "afternoon-weekly-0-2026-04-13";
+    mark_session(&mut data, exam_key, "exam");
+    let school = SchoolReads::fixture(&data);
+    let read = |time| {
+        let now = parse_timestamp(time).unwrap();
+        (
+            super::today_agenda::read(&data, &school, None, now).unwrap(),
+            today_view(&data, &school, now).unwrap(),
+        )
+    };
+    let (before, mobile) = read("2026-04-12T23:55:00Z");
+    assert_eq!(before.today, "2026-04-13");
+    assert_eq!(mobile.upcoming[0].occurrence.key, exam_key);
+    assert!(before.rows.iter().any(|row| {
+        row.occurrence.key == exam_key && row.status == Some(super::today_agenda::AgendaStatus::Next)
+    }));
+    let (desktop, mobile) = read("2026-04-13T09:30:00+09:00");
+    assert_eq!(desktop.exams[0].key, exam_key);
+    assert_eq!(mobile.upcoming_exams[0].key, exam_key);
+    assert_eq!(desktop.next_boundary, "2026-04-13T10:00:00+09:00");
+    assert_eq!(mobile.next_boundary.as_deref(), Some(desktop.next_boundary.as_str()));
+    let row = |desktop: &super::today_agenda::TodayAgenda| {
+        desktop.rows.iter().find(|row| row.occurrence.key == exam_key).unwrap().status
+    };
+    assert_eq!(row(&desktop), Some(super::today_agenda::AgendaStatus::Now));
+    let (desktop, mobile) = read(&desktop.next_boundary);
+    assert!(desktop.exams.is_empty());
+    assert!(mobile.upcoming_exams.is_empty());
+    assert_eq!(row(&desktop), Some(super::today_agenda::AgendaStatus::Earlier));
+}
+
+#[test]
 fn today_moves_through_the_day_and_board_resolves_the_task_timeline() {
     let data = phone_workspace();
     let today = |raw: &str| {
@@ -1758,11 +1796,13 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
     // Only planned for 4Q: on the timetable, without a membership there.
     data["planItems"] = json!([{"id":"p4","courseId":"maybe","termId":"2026-4Q"}]);
     data["events"] = json!([
-        {"id":"weekly3","termId":"2026-3Q","title":"Third-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
+        {"id":"weekly3","termId":"2026-3Q","title":"Third-quarter event","days":[1],"startTime":"07:10","endTime":"08:00"},
         {"id":"weekly4","termId":"2026-4Q","title":"Fourth-quarter event","days":[1],"startTime":"12:30","endTime":"13:00"},
-        {"id":"dated","termId":"2026-4Q","title":"Dated event","date":"2026-12-02","startTime":"12:30","endTime":"13:00"}
+        {"id":"dated","termId":"2026-4Q","title":"Dated event","date":"2026-12-02","startTime":"12:30","endTime":"13:00"},
+        {"id":"bad-clock","termId":"2026-3Q","title":"Imported event","days":[1],"startTime":"09:00","endTime":"24:00"}
     ]);
     data["scheduleOverrides"] = json!([{"id":"move","targetKind":"course","targetKey":"course-weekly-1-2026-12-02","date":"2026-12-04","periods":[3,4]}]);
+    mark_session(&mut data, "fourth-weekly-0-2026-12-04", "cancelled");
     let agendas = calendar_between(
         &data,
         &SchoolReads::fixture(&data),
@@ -1801,6 +1841,10 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
         .occurrences
         .iter()
         .any(|b| b.id == "course" && b.overridden == Some(true)));
+    assert!(agendas[4]
+        .occurrences
+        .iter()
+        .any(|b| b.id == "fourth" && b.mark == Some(SessionMark::Cancelled)));
     assert_eq!(
         agendas[0]
             .occurrences
@@ -1809,26 +1853,49 @@ fn date_range_unifies_cross_quarter_view_and_ics_with_cancelled_context() {
             .count(),
         1
     );
-    // Changing the selected quarter must never change a date's content.
-    for term in ["2026-3Q", "2026-4Q"] {
-        let WorkspaceQueryResult::ScheduleView(view) = query(
+    let today = |date: &str| {
+        let WorkspaceQueryResult::TodayAgenda(view) = query(
             &data,
             &SchoolReads::fixture(&data),
-            WorkspaceQuery::ScheduleView {
-                term: term.into(),
-                from: "2026-11-30".into(),
-                to: "2026-12-06".into(),
-                include_personal: true,
-            },
+            serde_json::from_value(json!({
+                "kind": "todayAgenda", "date": date, "now": "2026-11-30T08:00:00+09:00"
+            }))
+            .unwrap(),
         )
         .unwrap() else {
-            panic!("view expected")
+            panic!("Today agenda expected")
         };
-        assert_eq!(
-            serde_json::to_value(view.agendas).unwrap(),
-            serde_json::to_value(&agendas).unwrap()
-        );
-    }
+        view
+    };
+    let ids = |date| {
+        today(date).rows.into_iter().map(|row| row.occurrence.id).collect::<Vec<_>>()
+    };
+    assert_eq!(ids("2026-11-30"), ["weekly3", "course"]);
+    let holiday = today("2026-12-01");
+    assert!(holiday.rows.is_empty());
+    assert_eq!(holiday.calendar_notice.as_deref(), Some("Rest day"));
+    assert_eq!(ids("2026-12-04"), ["course"]);
+
+    // The dated calendar keeps the same cross-quarter content as ICS.
+    let WorkspaceQueryResult::TimetableWeeks(weeks) = query(
+        &data,
+        &SchoolReads::fixture(&data),
+        WorkspaceQuery::TimetableWeeks {
+            monday: "2026-11-30".into(),
+            reach: 1,
+            mode: TimetableMode::Calendar,
+        },
+    )
+    .unwrap() else {
+        panic!("timetable weeks expected")
+    };
+    assert_eq!(
+        serde_json::to_value(&weeks[1].agendas).unwrap(),
+        serde_json::to_value(&agendas).unwrap()
+    );
+    // The Monday event widens its own week's axis, not the adjacent week.
+    assert_eq!(weeks[1].axis.stops[0].minutes, 7 * 60 + 10);
+    assert_eq!(weeks[2].axis.stops[0].minutes, 8 * 60 + 50);
     let ics = export_calendar_ics(
         &data,
         &SchoolReads::fixture(&data),
@@ -2341,27 +2408,30 @@ fn exam_timetable_rows_replace_the_weekly_sessions_of_their_day_but_not_manual_e
         ]
     );
     assert_eq!(
-        super::exams::upcoming_exams(&data, &SchoolReads::fixture(&data), "2026-04-01")
+        super::exams::upcoming_exams(
+            &data,
+            &SchoolReads::fixture(&data),
+            parse_timestamp("2026-04-01T00:00:00+09:00").unwrap(),
+            "2026-04-01",
+            None,
+        )
             .into_iter()
-            .map(|view| view.id)
+            .map(|(view, _)| view.id)
             .collect::<Vec<_>>(),
         ["final", "monday-exam", "edited-monday-exam"]
     );
     // Today's upcoming exams drop one the moment it ends.
     let upcoming_at = |now: &str| {
-        let WorkspaceQueryResult::UpcomingExams(exams) = query(
+        super::exams::upcoming_exams(
             &data,
             &SchoolReads::fixture(&data),
-            WorkspaceQuery::UpcomingExams {
-                from: "2026-04-13".into(),
-                to: None,
-                now: now.into(),
-            },
+            parse_timestamp(now).unwrap(),
+            "2026-04-13",
+            None,
         )
-        .unwrap() else {
-            panic!("upcoming exams expected")
-        };
-        exams.into_iter().map(|view| view.id).collect::<Vec<_>>()
+        .into_iter()
+        .map(|(view, _)| view.id)
+        .collect::<Vec<_>>()
     };
     assert_eq!(
         upcoming_at("2026-04-13T15:09:00+09:00"),
@@ -2487,9 +2557,15 @@ fn a_user_mark_decides_what_a_session_is() {
     );
     assert!(listed(&data).contains(&session("course-weekly-0-2026-04-27", "quiz")));
     let upcoming = |data: &Value| {
-        super::exams::upcoming_exams(data, &SchoolReads::fixture(data), "2026-04-01")
+        super::exams::upcoming_exams(
+            data,
+            &SchoolReads::fixture(data),
+            parse_timestamp("2026-04-01T00:00:00+09:00").unwrap(),
+            "2026-04-01",
+            None,
+        )
             .into_iter()
-            .map(|view| view.key)
+            .map(|(view, _)| view.key)
             .collect::<Vec<_>>()
     };
     assert_eq!(
@@ -2972,11 +3048,6 @@ fn timetable_axis_gives_every_period_one_row_and_lunch_half_a_row() {
         timetable_axis(&default_teaching_periods(), Some("09:00"), Some("20:00")).unwrap(),
         axis
     );
-    let request: WorkspaceQuery = serde_json::from_value(json!({"kind":"timetableAxis"})).unwrap();
-    assert!(matches!(
-        query(&workspace(), &SchoolReads::default(), request).unwrap(),
-        WorkspaceQueryResult::TimetableAxis(view) if view.length == 12.5
-    ));
 }
 
 /// Generic markup only: teacher HTML is a course's own, so none is committed
@@ -3125,7 +3196,8 @@ fn every_query_lists_the_changes_its_result_reads() {
     let queries = [
         json!({"kind":"workspaceOverview","term":"2026-1Q"}),
         json!({"kind":"planningWeek","term":"2026-1Q"}),
-        json!({"kind":"scheduleView","term":"2026-1Q","from":"2026-04-12","to":"2026-04-25"}),
+        json!({"kind":"timetableWeeks","monday":"2026-04-13","reach":1,"mode":"calendar"}),
+        json!({"kind":"todayAgenda","date":null,"now":now}),
         json!({"kind":"dayAgenda","term":"2026-1Q","date":"2026-04-13"}),
         json!({"kind":"taskView","now":now}),
         json!({"kind":"today","now":now}),

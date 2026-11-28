@@ -9,7 +9,10 @@ import {
   type BlockAction,
 } from "../../components/timetable/timetable";
 import { agendaColumns } from "../../components/timetable/workspace";
-import { useScheduleQuery, type DatedAgenda } from "../../platform/core-query";
+import {
+  useScheduleQuery,
+  type TimetablePage,
+} from "../../platform/core-query";
 import { useClock } from "../../platform/use-clock";
 import {
   addCivilDays,
@@ -69,14 +72,15 @@ export function CalendarView({
   };
   const date = anchor ?? today;
   const from = addCivilDays(date, 1 - civilWeekday(date));
-  const to = addCivilDays(from, 6);
-  const view = useScheduleQuery<DatedAgenda[]>({
-    kind: "calendarRange",
-    from,
-    to,
+  const view = useScheduleQuery<TimetablePage[]>({
+    kind: "timetableWeeks",
+    monday: from,
+    reach: 0,
+    mode: "calendar",
   });
-  const visibleFrom = view.value?.[0]?.date ?? from;
-  const visibleTo = view.value?.at(-1)?.date ?? to;
+  const week = view.value?.[0];
+  const visibleFrom = week?.monday ?? from;
+  const visibleTo = week?.agendas.at(-1)?.date ?? addCivilDays(from, 6);
   return (
     <section className="calendarWorkspace" aria-label={t("today.calendar")}>
       <TitleRow className="calendarTitle">
@@ -140,7 +144,8 @@ export function CalendarView({
             style={{ "--slide": slide } as React.CSSProperties}
           >
             <WeekTimetable
-              days={agendaColumns(view.value ?? [], today)}
+              days={agendaColumns(week?.agendas ?? [], today)}
+              axis={week?.axis}
               onSelect={open}
               actionsFor={actionsFor}
               now={now}

@@ -165,22 +165,22 @@ impl Occurrence {
     }
 }
 
+#[cfg(any(test, feature = "agent"))]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub enum ScheduleProblemKind {
+pub(crate) enum ScheduleProblemKind {
     CourseMeeting,
     ScheduleOverride,
 }
 
+#[cfg(any(test, feature = "agent"))]
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub struct ScheduleProblem {
-    pub kind: ScheduleProblemKind,
-    pub id: String,
-    pub title: String,
-    pub message: String,
+pub(crate) struct ScheduleProblem {
+    pub(crate) kind: ScheduleProblemKind,
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) message: String,
 }
 
 #[derive(Clone, Debug)]
@@ -639,7 +639,7 @@ pub(crate) fn personal_occurrences(
     Ok(events
         .iter()
         .filter(|event| visible(event) && occurs_on_weekday(event, day))
-        .map(|event| personal_occurrence(event, date, date))
+        .filter_map(|event| personal_occurrence(event, date, date))
         .collect())
 }
 
@@ -649,9 +649,14 @@ fn occurs_on_weekday(row: &Value, day: u8) -> bool {
         .is_some_and(|days| days.iter().any(|v| v.as_u64() == Some(u64::from(day))))
 }
 
-fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -> Occurrence {
+fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -> Option<Occurrence> {
     let id = text(event, "id").unwrap_or_default();
-    Occurrence {
+    let start_time = super::timing::canonical_clock(text(event, "startTime")?)?;
+    let end_time = super::timing::canonical_clock(text(event, "endTime")?)?;
+    if end_time <= start_time {
+        return None;
+    }
+    Some(Occurrence {
         key: format!("{id}-{key}"),
         id: id.into(),
         kind: OccurrenceKind::Event,
@@ -661,8 +666,8 @@ fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -
         title: text(event, "title").unwrap_or_default().into(),
         subtitle: None,
         room: text(event, "room").unwrap_or_default().into(),
-        start_time: text(event, "startTime").unwrap_or_default().into(),
-        end_time: text(event, "endTime").unwrap_or_default().into(),
+        start_time,
+        end_time,
         end_date: None,
         color: super::event_color(event),
         conflict: None,
@@ -677,11 +682,13 @@ fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -
         source_changed: None,
         grid: None,
         mark: None,
-    }
+    })
 }
 
 /// Stored user records the schedule skips or leaves unapplied. Read models
-/// stay available; shells list these so the person can repair or delete them.
+/// stay available; the agent lists these so the person can repair or delete
+/// them.
+#[cfg(any(test, feature = "agent"))]
 pub(crate) fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
     let mut problems = Vec::new();
     if let Ok(teaching_periods) = teaching_periods(workspace) {
@@ -843,11 +850,12 @@ fn published_block(exam: &super::ExamView, include_cancelled: bool) -> Option<Oc
     if cancelled && !(include_cancelled && exam.mark.as_deref() == Some("cancelled")) {
         return None;
     }
-    let (id, start, end) = (
-        exam.course_id.as_ref()?,
-        exam.start_time.as_ref()?,
-        exam.end_time.as_ref()?,
-    );
+    let id = exam.course_id.as_ref()?;
+    let start = super::timing::canonical_clock(exam.start_time.as_deref()?)?;
+    let end = super::timing::canonical_clock(exam.end_time.as_deref()?)?;
+    if start >= end {
+        return None;
+    }
     Some(Occurrence {
         key: exam.key.clone(),
         id: id.clone(),
@@ -905,6 +913,10 @@ fn apply_override(
     teaching_periods: &[TeachingPeriod],
 ) -> Result<(), ScheduleError> {
     let clock = override_clock(row, teaching_periods)?;
+    let canonical = |raw| super::timing::canonical_clock(raw)
+        .ok_or_else(|| ScheduleError::InvalidInput("Override time is invalid.".into()));
+    let start = text(row, "startTime").or_else(|| clock.map(|v| v.0)).map(canonical).transpose()?;
+    let end = text(row, "endTime").or_else(|| clock.map(|v| v.1)).map(canonical).transpose()?;
     if let Some(v) = text(row, "date") {
         block.date = v.into()
     }
@@ -917,11 +929,11 @@ fn apply_override(
     if let Some(v) = text(row, "courseId") {
         block.course_id = Some(v.into())
     }
-    if let Some(v) = text(row, "startTime").or_else(|| clock.map(|v| v.0)) {
-        block.start_time = v.into()
+    if let Some(v) = start {
+        block.start_time = v
     }
-    if let Some(v) = text(row, "endTime").or_else(|| clock.map(|v| v.1)) {
-        block.end_time = v.into()
+    if let Some(v) = end {
+        block.end_time = v
     }
     block.overridden = Some(true);
     Ok(())
@@ -965,12 +977,12 @@ fn meeting_clock(
         let parsed = NaiveTime::parse_from_str(start, "%H:%M")
             .ok()
             .zip(NaiveTime::parse_from_str(end, "%H:%M").ok());
-        if !parsed.is_some_and(|(start, end)| start < end) {
+        let Some((start, end)) = parsed.filter(|(start, end)| start < end) else {
             return Err(ScheduleError::InvalidInput(
                 "Meeting start and end times are invalid.".into(),
             ));
-        }
-        Ok((start.to_string(), end.to_string()))
+        };
+        Ok((start.format("%H:%M").to_string(), end.format("%H:%M").to_string()))
     };
     let Some(values) = meeting.get("periods").and_then(Value::as_array) else {
         return stored();

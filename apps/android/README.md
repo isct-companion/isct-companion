@@ -43,7 +43,7 @@ UniFFI checks signatures when the library loads.
 
 | Path | Content |
 |---|---|
-| `core/AppModel.kt` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `scheduleView`, `courseDetail`), intents and lifecycle facts |
+| `core/AppModel.kt` | Owns the `Session`: subscription, read models (`today`, `assignmentBoard`, `timetableWeeks`, `courseDetail`), intents and lifecycle facts |
 | `core/AppModel*.kt` | Campus map, hand-in, cloud backup and school account adapters for the same session |
 | `core/SchoolBrowserHost.kt` | `NativeBrowser`: one resident WebView per school site, driven by Core; injects Core's scripts after each load |
 | `core/WebRouter.kt` | Which school page is on screen; `openSchool` and the visibility fact |
