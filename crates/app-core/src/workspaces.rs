@@ -20,7 +20,10 @@ use std::{
     time::{Duration, SystemTime},
 };
 
-pub use crate::school_browser::{SubmissionFile, MAX_SUBMISSION_BYTES, MAX_SUBMISSION_FILES};
+pub(crate) use {
+    crate::school_browser::SubmissionFile, crate::school_browser::MAX_SUBMISSION_BYTES,
+    crate::school_browser::MAX_SUBMISSION_FILES,
+};
 
 const META: &str = ".workspace.json";
 pub(crate) const SUBMIT_DIR: &str = "submit";
@@ -87,7 +90,7 @@ pub struct WorkspaceInfo {
     pub path: String,
     pub name: String,
     /// Names directly inside `submit/`.
-    pub submit_files: Vec<String>,
+    pub(crate) submit_files: Vec<String>,
     pub zip: bool,
     pub zip_name: String,
 }
@@ -121,13 +124,13 @@ pub struct Attachment {
 }
 
 #[derive(Clone, Debug)]
-pub enum SubmissionTarget {
+pub(crate) enum SubmissionTarget {
     Folder(PathBuf),
     Archive(PathBuf),
 }
 
 #[derive(Clone, Debug)]
-pub struct PreparedSubmission {
+pub(crate) struct PreparedSubmission {
     pub info: WorkspaceInfo,
     pub target: SubmissionTarget,
 }
@@ -228,7 +231,7 @@ impl Workspaces {
         Ok(info(&dir, &meta))
     }
 
-    pub fn prepare(&self, path: &str) -> Result<PreparedSubmission, HandInError> {
+    pub(crate) fn prepare(&self, path: &str) -> Result<PreparedSubmission, HandInError> {
         let (dir, meta) = self.workspace_dir(path)?;
         let current = info(&dir, &meta);
         if current.submit_files.is_empty() {
@@ -249,7 +252,7 @@ impl Workspaces {
     }
 
     /// Read only the files explicitly placed in this assignment's submission area.
-    pub fn prepare_upload(
+    pub(crate) fn prepare_upload(
         &self,
         path: &str,
         assignment: &str,
@@ -438,7 +441,7 @@ pub struct AssignmentWorkspaces {
 /// An attachment `create` could not save into the new workspace.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MissingAttachment {
+pub(crate) struct MissingAttachment {
     pub name: String,
     pub reason: String,
 }
@@ -449,17 +452,17 @@ pub struct CreatedWorkspace {
     pub workspace: WorkspaceInfo,
     /// Listed in `ASSIGNMENT.md` as not downloaded; creating again does not
     /// fetch them, opening them in the app does.
-    pub missing: Vec<MissingAttachment>,
+    pub(crate) missing: Vec<MissingAttachment>,
 }
 
 /// One file of `submit/`, with what an agent needs to tell versions apart.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SubmitFile {
+pub(crate) struct SubmitFile {
     pub name: String,
     /// `None` for a folder, which is handed in only as ZIP.
     pub bytes: Option<u64>,
-    pub sha256: Option<String>,
+    pub(crate) sha256: Option<String>,
 }
 
 impl AssignmentWorkspaces {
@@ -502,7 +505,7 @@ impl AssignmentWorkspaces {
     /// The assignment's LMS module as its stored row names it, for the
     /// submission service to read and write the LMS with.
     #[cfg(feature = "agent")]
-    pub fn lms_module(
+    pub(crate) fn lms_module(
         &self,
         assignment: &str,
     ) -> Result<crate::submissions::LmsModule, WorkspaceError> {
@@ -649,7 +652,7 @@ impl AssignmentWorkspaces {
     }
 
     /// `submit/` with each file's size and digest; `None` without a workspace.
-    pub fn status(
+    pub(crate) fn status(
         &self,
         assignment: &str,
     ) -> Result<Option<(WorkspaceInfo, Vec<SubmitFile>)>, WorkspaceError> {
@@ -695,7 +698,11 @@ fn digest(path: &Path, name: &str) -> Result<SubmitFile, WorkspaceError> {
 /// `ASSIGNMENT.md`: what an editor or AI agent opened on the folder needs to
 /// know. The description comes from the LMS page as plain text; the
 /// attachments are those copied in, plus any listed in `missing`.
-pub fn brief(detail: &AssignmentDetail, course: &str, missing: &[MissingAttachment]) -> String {
+pub(crate) fn brief(
+    detail: &AssignmentDetail,
+    course: &str,
+    missing: &[MissingAttachment],
+) -> String {
     let due = detail.due_at.as_deref().map(|due| {
         chrono::DateTime::parse_from_rfc3339(due)
             .ok()

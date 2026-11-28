@@ -14,7 +14,7 @@ fn time(row: &Value) -> Option<chrono::DateTime<chrono::FixedOffset>> {
         .max()
 }
 
-pub fn compare(a: &Value, b: &Value) -> Ordering {
+pub(crate) fn compare(a: &Value, b: &Value) -> Ordering {
     // Revisions advance from the imported record, so a subsequent edit still
     // wins if the device clock moved backwards. Concurrent equal revisions
     // use timestamps and a deterministic actor tie-break.
@@ -58,7 +58,7 @@ fn rows(a: &Value, b: &Value, table: &str, key: &str) -> Value {
 
 /// The content fingerprint of a document. Only records count: the export time
 /// of two otherwise equal snapshots must not make them different versions.
-pub fn version(document: &Value) -> Result<String, DataError> {
+pub(crate) fn version(document: &Value) -> Result<String, DataError> {
     let normalized = merge(document, document);
     crate::data::versioned::content_hash(&normalized["tables"]).map(|hash| format!("v1-{hash}"))
 }
@@ -66,7 +66,7 @@ pub fn version(document: &Value) -> Result<String, DataError> {
 /// Every copy, from any device and after any restore, merges record by
 /// record. A restore writes newer revisions, so nothing needs to be replaced
 /// wholesale (slotledger approach/cloud-recovery-retention).
-pub fn merge(a: &Value, b: &Value) -> Value {
+pub(crate) fn merge(a: &Value, b: &Value) -> Value {
     let mut tables = serde_json::Map::new();
     // This whitelist is also used by backup/import: device state and school
     // caches cannot enter sync even through an older or foreign cloud copy.
@@ -93,7 +93,7 @@ pub fn merge(a: &Value, b: &Value) -> Value {
     crate::data::backup_document(exported_at, Value::Object(tables))
 }
 
-pub fn sanitize_setting(row: &mut Value) {
+pub(crate) fn sanitize_setting(row: &mut Value) {
     if row["key"] == "userPreferences" {
         if let Some(value) = row["value"].as_object_mut() {
             value.retain(|key, _| {

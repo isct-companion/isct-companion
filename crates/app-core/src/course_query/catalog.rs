@@ -29,9 +29,9 @@ pub struct FinderDepartment {
 pub(crate) struct SyllabusDepartment {
     pub id: String,
     pub name: Localized,
-    pub unit_code: String,
+    pub(crate) unit_code: String,
     #[serde(default)]
-    pub code_prefix: String,
+    pub(crate) code_prefix: String,
     #[serde(default)]
     pub scope: Option<String>,
 }
@@ -66,14 +66,14 @@ impl SyllabusDepartment {
     }
 }
 
-pub fn department_name_ja(id: &str) -> Option<String> {
+pub(crate) fn department_name_ja(id: &str) -> Option<String> {
     SyllabusDepartment::by_id(id).and_then(|department| department.name.ja.clone())
 }
 
 /// One year's stored catalog prepared for the finder: the rows it can list,
 /// with syllabus links and search text, and the 教務 guide fields of every
 /// stored row, listable or not.
-pub struct FinderCatalog {
+pub(crate) struct FinderCatalog {
     pub(super) courses: Vec<IndexedCourse>,
     pub(super) guide: Vec<GuideRow>,
     pub(super) language: ContentLanguage,
@@ -85,7 +85,7 @@ pub(super) struct GuideRow {
     pub(super) mark: Option<String>,
 }
 impl FinderCatalog {
-    pub fn new(offerings: Vec<Value>, language: ContentLanguage) -> Self {
+    pub(crate) fn new(offerings: Vec<Value>, language: ContentLanguage) -> Self {
         let guide = offerings
             .iter()
             .filter_map(|r| {
@@ -128,7 +128,7 @@ impl FinderCatalog {
     }
 }
 
-pub fn normalize_offering(mut row: Value) -> Option<Value> {
+pub(crate) fn normalize_offering(mut row: Value) -> Option<Value> {
     if !row.is_object()
         || !row.get("id").is_some_and(Value::is_string)
         || !row.get("code").is_some_and(Value::is_string)

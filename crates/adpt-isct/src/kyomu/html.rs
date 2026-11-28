@@ -9,7 +9,7 @@ use serde_json::Value;
 use unicode_normalization::UnicodeNormalization;
 
 /// `String(value).normalize("NFKC").replace(/\s+/g, " ").trim()`.
-pub fn clean(value: &str) -> String {
+pub(super) fn clean(value: &str) -> String {
     let normalized: String = value.nfkc().collect();
     normalized
         .split(|c: char| c.is_whitespace() || c == '\u{feff}')
@@ -19,64 +19,64 @@ pub fn clean(value: &str) -> String {
 }
 
 /// A capture group's text, "" when the group did not take part.
-pub fn group<'t>(captures: &regex::Captures<'t>, index: usize) -> &'t str {
+pub(super) fn group<'t>(captures: &regex::Captures<'t>, index: usize) -> &'t str {
     captures.get(index).map_or("", |found| found.as_str())
 }
 
 /// `element.textContent`.
-pub fn text_content(element: ElementRef<'_>) -> String {
+pub(crate) fn text_content(element: ElementRef<'_>) -> String {
     element.text().collect()
 }
 
-pub fn clean_text(element: ElementRef<'_>) -> String {
+pub(crate) fn clean_text(element: ElementRef<'_>) -> String {
     clean(&text_content(element))
 }
 
 /// `root.querySelectorAll(css)`; the selectors are constants, so a selector
 /// that fails to parse reads as "nothing found" rather than panicking.
-pub fn select<'a>(root: ElementRef<'a>, css: &str) -> Vec<ElementRef<'a>> {
+pub(super) fn select<'a>(root: ElementRef<'a>, css: &str) -> Vec<ElementRef<'a>> {
     Selector::parse(css)
         .map(|selector| root.select(&selector).collect())
         .unwrap_or_default()
 }
 
 /// `root.querySelector(css)`.
-pub fn first<'a>(root: ElementRef<'a>, css: &str) -> Option<ElementRef<'a>> {
+pub(super) fn first<'a>(root: ElementRef<'a>, css: &str) -> Option<ElementRef<'a>> {
     let selector = Selector::parse(css).ok()?;
     let found = root.select(&selector).next();
     found
 }
 
 /// `clean(root.querySelector(css)?.textContent)`.
-pub fn text_at(root: ElementRef<'_>, css: &str) -> String {
+pub(crate) fn text_at(root: ElementRef<'_>, css: &str) -> String {
     first(root, css).map(clean_text).unwrap_or_default()
 }
 
 /// `document.getElementById(id)`.
-pub fn by_id<'a>(document: &'a Html, id: &str) -> Option<ElementRef<'a>> {
+pub(crate) fn by_id<'a>(document: &'a Html, id: &str) -> Option<ElementRef<'a>> {
     document
         .root_element()
         .descendent_elements()
         .find(|element| element.value().id() == Some(id))
 }
 
-pub fn body(document: &Html) -> Option<ElementRef<'_>> {
+pub(super) fn body(document: &Html) -> Option<ElementRef<'_>> {
     document
         .root_element()
         .child_elements()
         .find(|element| is(*element, "body"))
 }
 
-pub fn is(element: ElementRef<'_>, name: &str) -> bool {
+pub(super) fn is(element: ElementRef<'_>, name: &str) -> bool {
     element.value().name() == name
 }
 
-pub fn has_class(element: ElementRef<'_>, class: &str) -> bool {
+pub(super) fn has_class(element: ElementRef<'_>, class: &str) -> bool {
     element.value().classes().any(|name| name == class)
 }
 
 /// `element.closest(...)`: the element itself or its nearest matching ancestor.
-pub fn closest<'a>(
+pub(super) fn closest<'a>(
     element: ElementRef<'a>,
     test: impl Fn(ElementRef<'a>) -> bool,
 ) -> Option<ElementRef<'a>> {
@@ -85,22 +85,22 @@ pub fn closest<'a>(
         .find(|candidate| test(*candidate))
 }
 
-pub fn next_element_sibling(element: ElementRef<'_>) -> Option<ElementRef<'_>> {
+pub(crate) fn next_element_sibling(element: ElementRef<'_>) -> Option<ElementRef<'_>> {
     element.next_siblings().find_map(ElementRef::wrap)
 }
 
 /// `/対象データはありません/` over the cleaned text: the page says in words that
 /// a list is empty, which is the only thing that proves an empty result.
-pub fn explicit_empty(text: &str) -> bool {
+pub(crate) fn explicit_empty(text: &str) -> bool {
     clean(text).contains("対象データはありません")
 }
 
-pub fn explicit_empty_element(element: ElementRef<'_>) -> bool {
+pub(crate) fn explicit_empty_element(element: ElementRef<'_>) -> bool {
     explicit_empty(&text_content(element))
 }
 
 /// Text split on `<br>` and line breaks, each line cleaned, empty ones dropped.
-pub fn lines(element: Option<ElementRef<'_>>) -> Vec<String> {
+pub(super) fn lines(element: Option<ElementRef<'_>>) -> Vec<String> {
     let Some(element) = element else {
         return Vec::new();
     };
@@ -156,7 +156,7 @@ const BLOCK_ELEMENTS: [&str; 30] = [
 
 /// An approximation of `innerText`: no script, style or form-control text,
 /// and block boundaries separate words the way rendered lines do.
-pub fn rendered_text(element: ElementRef<'_>) -> String {
+pub(crate) fn rendered_text(element: ElementRef<'_>) -> String {
     let mut out = String::new();
     let mut stack: Vec<_> = element.children().rev().map(|node| (node, false)).collect();
     while let Some((node, closing)) = stack.pop() {
@@ -187,7 +187,7 @@ pub fn rendered_text(element: ElementRef<'_>) -> String {
 /// page. Only a heading saying maintenance is happening *now* counts: a
 /// future notice on a working page, or a course mentioning maintenance, must
 /// not stop the service. No calendar is inferred; the school's text is kept.
-pub fn maintenance_notice(document: &Html) -> Option<String> {
+pub(super) fn maintenance_notice(document: &Html) -> Option<String> {
     let root = document.root_element();
     let pattern = regex!(
         r"(?i)(?:ただいま|現在).*(?:メンテナンス中)|under maintenance|maintenance in progress"
@@ -216,7 +216,7 @@ pub fn maintenance_notice(document: &Html) -> Option<String> {
 
 /// `HTMLTableElement.rows`: head rows, then body and direct rows in tree
 /// order, then foot rows. Rows of nested tables are not included.
-pub fn table_rows(table: ElementRef<'_>) -> Vec<ElementRef<'_>> {
+pub(super) fn table_rows(table: ElementRef<'_>) -> Vec<ElementRef<'_>> {
     fn section_rows(section: ElementRef<'_>) -> Vec<ElementRef<'_>> {
         section
             .child_elements()
@@ -239,7 +239,7 @@ pub fn table_rows(table: ElementRef<'_>) -> Vec<ElementRef<'_>> {
 }
 
 /// `table.tHead?.rows.length || 0`.
-pub fn thead_rows(table: ElementRef<'_>) -> usize {
+pub(crate) fn thead_rows(table: ElementRef<'_>) -> usize {
     table
         .child_elements()
         .find(|child| is(*child, "thead"))
@@ -249,7 +249,7 @@ pub fn thead_rows(table: ElementRef<'_>) -> usize {
 }
 
 /// `row.cells`.
-pub fn cells(row: ElementRef<'_>) -> Vec<ElementRef<'_>> {
+pub(super) fn cells(row: ElementRef<'_>) -> Vec<ElementRef<'_>> {
     row.child_elements()
         .filter(|cell| is(*cell, "td") || is(*cell, "th"))
         .collect()
@@ -275,7 +275,7 @@ fn span(value: Option<&str>, max: usize) -> usize {
 /// A table expanded to a rectangular text matrix. Values covered by rowspan
 /// or colspan are repeated so header lookup works for multi-row heads. A
 /// rowspan never extends past the table's last row.
-pub fn matrix(table: ElementRef<'_>) -> Vec<Vec<String>> {
+pub(super) fn matrix(table: ElementRef<'_>) -> Vec<Vec<String>> {
     let rows = table_rows(table);
     let mut output: Vec<Vec<Option<String>>> = vec![Vec::new(); rows.len()];
     for (row_index, row) in rows.iter().enumerate() {
@@ -309,14 +309,14 @@ pub fn matrix(table: ElementRef<'_>) -> Vec<Vec<String>> {
         .collect()
 }
 
-pub struct TableData {
+pub(crate) struct TableData {
     pub headers: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
 
 /// `tableData(table, knownHeaderRows)`: the semantic header of each column
 /// and the data rows below the header.
-pub fn table_data(table: ElementRef<'_>, known_header_rows: usize) -> TableData {
+pub(crate) fn table_data(table: ElementRef<'_>, known_header_rows: usize) -> TableData {
     let first_data_row = table_rows(table)
         .iter()
         .position(|row| first(*row, "td").is_some());
@@ -325,7 +325,7 @@ pub fn table_data(table: ElementRef<'_>, known_header_rows: usize) -> TableData 
 }
 
 /// `knownHeaderRows || tHead?.rows.length || (firstDataRow > 0 ? firstDataRow : 1)`.
-pub fn header_depth(known: usize, thead: usize, first_data_row: Option<usize>) -> usize {
+pub(crate) fn header_depth(known: usize, thead: usize, first_data_row: Option<usize>) -> usize {
     if known > 0 {
         known
     } else if thead > 0 {
@@ -337,7 +337,7 @@ pub fn header_depth(known: usize, thead: usize, first_data_row: Option<usize>) -
 
 /// Each column's header is the distinct non-empty values of the header rows
 /// above it, joined with " / ".
-pub fn split_header(mut grid: Vec<Vec<String>>, depth: usize) -> TableData {
+pub(crate) fn split_header(mut grid: Vec<Vec<String>>, depth: usize) -> TableData {
     let width = grid.iter().map(Vec::len).max().unwrap_or(0);
     let rows = grid.split_off(depth.min(grid.len()));
     let headers = (0..width)
@@ -357,7 +357,7 @@ pub fn split_header(mut grid: Vec<Vec<String>>, depth: usize) -> TableData {
 /// The live requirement tables have no `<thead>`, and their first row
 /// already contains a `<td>`; the header is as deep as the top-left corner
 /// cell spans. Zero when the corner does not span (no evidence of depth).
-pub fn corner_depth(grid: &[Vec<String>]) -> usize {
+pub(crate) fn corner_depth(grid: &[Vec<String>]) -> usize {
     let corner = grid.first().and_then(|row| row.first());
     grid.iter()
         .position(|row| row.first() != corner)
@@ -365,7 +365,7 @@ pub fn corner_depth(grid: &[Vec<String>]) -> usize {
 }
 
 /// The caption, else the text of the last `h1`–`h5` before the table.
-pub fn heading_before(document: &Html, table: ElementRef<'_>) -> String {
+pub(crate) fn heading_before(document: &Html, table: ElementRef<'_>) -> String {
     if let Some(caption) = table.child_elements().find(|child| is(*child, "caption")) {
         let caption = clean_text(caption);
         if !caption.is_empty() {
@@ -388,7 +388,7 @@ pub fn heading_before(document: &Html, table: ElementRef<'_>) -> String {
 
 /// `Number(raw)` as JSON: an integer when integral, `null` when not a number
 /// (JSON.stringify(NaN) is null), so stored rows keep the shape they had.
-pub fn js_number(raw: &str) -> Value {
+pub(crate) fn js_number(raw: &str) -> Value {
     let trimmed = raw.trim();
     let parsed = if trimmed.is_empty() {
         Some(0.0)
@@ -405,7 +405,7 @@ pub fn js_number(raw: &str) -> Value {
 }
 
 /// The `jwc` query value of a link resolved against the page URL, or "".
-pub fn jwc(base: Option<&url::Url>, href: Option<&str>) -> String {
+pub(super) fn jwc(base: Option<&url::Url>, href: Option<&str>) -> String {
     base.and_then(|base| base.join(href.unwrap_or("")).ok())
         .and_then(|url| {
             url.query_pairs()
@@ -415,13 +415,13 @@ pub fn jwc(base: Option<&url::Url>, href: Option<&str>) -> String {
         .unwrap_or_default()
 }
 
-pub fn nine_digits(value: &str) -> bool {
+pub(crate) fn nine_digits(value: &str) -> bool {
     value.len() == 9 && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 /// Whether a control is disabled, directly or by a disabled fieldset it is
 /// not inside the first legend of (`:disabled`).
-pub fn disabled(element: ElementRef<'_>) -> bool {
+pub(super) fn disabled(element: ElementRef<'_>) -> bool {
     if element.attr("disabled").is_some() {
         return true;
     }

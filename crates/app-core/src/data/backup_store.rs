@@ -2,7 +2,7 @@ use super::*;
 
 impl DataStore {
     /// Read every backup table from one SQLite snapshot.
-    pub fn export_document(&self) -> Result<Value, DataError> {
+    pub(crate) fn export_document(&self) -> Result<Value, DataError> {
         let mut database = self.open()?;
         let connection = database.transaction()?;
         let mut tables = Map::new();
@@ -26,7 +26,7 @@ impl DataStore {
 
     /// Merge under an IMMEDIATE transaction, including edits committed during
     /// the network round trip. Never replace the device's settings or identity.
-    pub fn merge_cloud_data(
+    pub(crate) fn merge_cloud_data(
         &self,
         remote: &Value,
         source: WorkspaceChangeSource,
@@ -41,7 +41,7 @@ impl DataStore {
     /// revision seen here, and each record it lacks is deleted. Other devices
     /// then merge it record by record, so edits they made meanwhile to other
     /// records survive.
-    pub fn restore_records(
+    pub(crate) fn restore_records(
         &self,
         old: &Value,
         source: WorkspaceChangeSource,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::course_query::catalog::normalize_offering;
 use crate::study_profile::CourseEligibilityStatus;
 fn eligibility_offering(id: &str, code: &str) -> Value {
     json!({

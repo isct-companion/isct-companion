@@ -6,13 +6,13 @@
 mod breaker;
 pub mod cookies;
 mod http;
-pub mod kyomu;
-pub mod moodle;
-pub mod redact;
+pub(crate) mod kyomu;
+pub(crate) mod moodle;
+pub(crate) mod redact;
 mod tls;
 
 pub(crate) use http::classify;
-pub use http::Http;
+pub(crate) use http::Http;
 
 use std::{future::Future, pin::Pin, time::Duration};
 use url::Url;
@@ -20,11 +20,11 @@ use url::Url;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Sent on every request: reqwest sends no User-Agent of its own.
-pub const USER_AGENT: &str = "Mozilla/5.0 (compatible; IsctCompanion/0.1)";
+pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (compatible; IsctCompanion/0.1)";
 /// A desktop Safari's, for the campus VPN's APM: its access policy sends any
 /// other agent, ours included, to its refusal page.
 #[cfg(feature = "campus-vpn")]
-pub const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
+pub(crate) const BROWSER_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) \
     AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15";
 
 /// A `reqwest` client builder with the TLS every Core and shell client uses:
@@ -57,7 +57,7 @@ pub enum Host {
 }
 
 impl Host {
-    pub const ALL: &[Host] = &[
+    pub(crate) const ALL: &[Host] = &[
         Host::Moodle,
         Host::Kyomu,
         Host::GetAccess,
@@ -95,13 +95,13 @@ impl Host {
     }
 
     /// Concurrent requests and the fixed spacing between request starts.
+    #[cfg(any(test, not(feature = "demo")))]
     pub(crate) const fn budget(self) -> (usize, Duration) {
         match self {
             Host::Moodle => (4, Duration::from_millis(60)),
-            Host::Kyomu
-            | Host::GetAccess
-            | Host::GetAccessRouter
-            | Host::ScienceAccount => (1, Duration::from_millis(300)),
+            Host::Kyomu | Host::GetAccess | Host::GetAccessRouter | Host::ScienceAccount => {
+                (1, Duration::from_millis(300))
+            }
             #[cfg(feature = "campus-vpn")]
             Host::CampusVpn => (1, Duration::from_millis(300)),
             Host::IsctData => (2, Duration::ZERO),
@@ -110,7 +110,7 @@ impl Host {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-pub enum NetError {
+pub(crate) enum NetError {
     #[error("offline")]
     Offline,
     #[error("DNS lookup failed")]
@@ -140,7 +140,7 @@ pub enum NetError {
 impl NetError {
     /// Short code for `sync_runs.error_kind` and backoff records; never
     /// response text.
-    pub fn kind(&self) -> String {
+    pub(crate) fn kind(&self) -> String {
         match self {
             Self::Offline => "offline".into(),
             Self::Dns => "dns".into(),
@@ -159,14 +159,14 @@ impl NetError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Limits {
-    pub max_bytes: usize,
+pub(crate) struct Limits {
+    pub(crate) max_bytes: usize,
     pub deadline: Duration,
 }
 
 impl Limits {
     /// One HTML page or API call.
-    pub const fn page() -> Self {
+    pub(crate) const fn page() -> Self {
         Self {
             max_bytes: 4 * 1024 * 1024,
             deadline: Duration::from_secs(60),
@@ -174,7 +174,7 @@ impl Limits {
     }
 
     /// A large listing, such as a whole-department catalog search.
-    pub const fn bulk() -> Self {
+    pub(crate) const fn bulk() -> Self {
         Self {
             max_bytes: 16 * 1024 * 1024,
             deadline: Duration::from_secs(180),
@@ -199,7 +199,7 @@ pub enum Body {
 }
 
 #[derive(Clone, Debug)]
-pub struct NetRequest {
+pub(crate) struct NetRequest {
     pub host: Host,
     pub method: reqwest::Method,
     /// Must belong to `host`; https only.
@@ -207,12 +207,13 @@ pub struct NetRequest {
     /// Includes Cookie, Referer and Range when the caller needs them.
     pub headers: Vec<(reqwest::header::HeaderName, String)>,
     pub body: Body,
-    pub limits: Limits,
+    pub(crate) limits: Limits,
 }
 
 impl NetRequest {
+    #[cfg(test)]
     /// A GET with page limits and no extra headers.
-    pub fn get(host: Host, url: Url) -> Self {
+    pub(crate) fn get(host: Host, url: Url) -> Self {
         Self {
             host,
             method: reqwest::Method::GET,
@@ -254,7 +255,7 @@ impl Response {
     }
 
     /// Raw `Set-Cookie` values, in the order the response carried them.
-    pub fn set_cookies(&self) -> Vec<String> {
+    pub(crate) fn set_cookies(&self) -> Vec<String> {
         self.headers
             .get_all(reqwest::header::SET_COOKIE)
             .iter()
@@ -274,7 +275,7 @@ impl Response {
     /// declared. A byte-order mark wins over the declaration, and malformed
     /// sequences become U+FFFD, as in a browser. An unknown charset is an
     /// error rather than a guess.
-    pub fn text(&self) -> Result<String, NetError> {
+    pub(crate) fn text(&self) -> Result<String, NetError> {
         let encoding = match self.content_type().as_deref().and_then(charset) {
             Some(label) => encoding_rs::Encoding::for_label(label.as_bytes())
                 .ok_or_else(|| NetError::Invalid(format!("unsupported charset {label}")))?,
@@ -298,7 +299,7 @@ fn charset(content_type: &str) -> Option<String> {
 
 /// What a transport managed to read for one dataset key.
 #[derive(Clone, Debug, PartialEq)]
-pub enum KeyOutcome<T> {
+pub(crate) enum KeyOutcome<T> {
     Complete(T),
     /// The school does not offer this data now.
     Unavailable(&'static str),

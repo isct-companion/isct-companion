@@ -66,7 +66,7 @@ pub struct Factor {
 }
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
-pub struct Factors {
+pub(crate) struct Factors {
     pub factors: Vec<Factor>,
     pub duplicates: usize,
 }
@@ -372,7 +372,7 @@ fn recognize(word: &str, ctx: &FinderContext, next: Option<&str>) -> Condition {
     make("text", w, w, json!(lw))
 }
 
-pub fn condition(key: &str, ctx: &FinderContext) -> Condition {
+pub(crate) fn condition(key: &str, ctx: &FinderContext) -> Condition {
     let excluded = key.starts_with('!') && key.len() > 1;
     let raw = if excluded {
         key.strip_prefix('!').unwrap_or(key)
@@ -394,7 +394,7 @@ pub fn condition(key: &str, ctx: &FinderContext) -> Condition {
     }
     c
 }
-pub fn factors_of(keys: &[String], ctx: &FinderContext) -> Factors {
+pub(crate) fn factors_of(keys: &[String], ctx: &FinderContext) -> Factors {
     let mut result = Factors {
         factors: Vec::new(),
         duplicates: 0,
@@ -593,7 +593,7 @@ pub(super) fn vocabulary(ctx: &FinderContext) -> Vec<(String, Vec<String>)> {
 /// is offered). None where text matching means nothing: an empty input, an
 /// official category such as `level:`, an exclusion, or the syntax of a
 /// condition itself (`4Q`, `火3-4`).
-pub fn live_text(input: &str, ctx: &FinderContext) -> String {
+pub(crate) fn live_text(input: &str, ctx: &FinderContext) -> String {
     let value = input.trim();
     if value.is_empty()
         || official_group(value).is_some()

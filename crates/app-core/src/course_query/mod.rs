@@ -5,12 +5,16 @@ mod contracts;
 mod matching;
 
 pub(crate) use catalog::SyllabusDepartment;
-pub use catalog::{department_name_ja, normalize_offering, FinderCatalog, FinderDepartment};
-pub use conditions::{condition, factors_of, live_text, Condition, Factor, Factors};
+pub(crate) use conditions::{condition, factors_of, live_text, Condition, Factor};
 pub use contracts::*;
-pub use matching::{run, suggest, FinderMatch, IndexedCourse};
+pub(crate) use matching::run;
 pub(crate) use personal::replaceable_drafts;
-pub use personal::{clashes, clashing_courses, total_credits, BusySlot, FinderPersonal};
+pub(crate) use {catalog::department_name_ja, catalog::FinderCatalog, catalog::FinderDepartment};
+pub(crate) use {matching::suggest, matching::IndexedCourse};
+pub(crate) use {
+    personal::clashes, personal::clashing_courses, personal::total_credits, personal::BusySlot,
+    personal::FinderPersonal,
+};
 
 use conditions::normalized;
 
@@ -27,7 +31,6 @@ use std::{
 use ts_rs::TS;
 
 use crate::schedule::{array, text_or_empty as text};
-pub use crate::study_profile::catalog_course_eligibility;
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
@@ -42,7 +45,7 @@ pub struct FinderContext {
     #[serde(default)]
     pub official_options: Vec<OfficialFilterOption>,
 }
-pub use adpt_isct::kyomu::search::OfficialFilterOption;
+pub(crate) use adpt_isct::kyomu::search::OfficialFilterOption;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
@@ -136,7 +139,7 @@ pub struct FinderPage {
 
 /// What a finder page reads besides the catalog: placed and registered
 /// courses, earned credits, terms, plans, busy events and settings.
-pub const FINDER_READS: &[WorkspaceChange] = &[
+pub(crate) const FINDER_READS: &[WorkspaceChange] = &[
     WorkspaceChange::Courses,
     WorkspaceChange::Registrations,
     WorkspaceChange::Grades,
@@ -167,14 +170,14 @@ pub enum FinderError {
 /// once and the later ones reuse it. The two locks are never held together,
 /// and a build reads only pooled store connections, which never wait.
 #[derive(Default)]
-pub struct FinderCache {
+pub(crate) struct FinderCache {
     catalog: Mutex<Option<CatalogEntry>>,
     personal: Mutex<Option<PersonalEntry>>,
 }
 type CatalogEntry = ((u16, u64, ContentLanguage), Arc<FinderCatalog>);
 type PersonalEntry = (Arc<FinderCatalog>, (String, String), Arc<FinderPersonal>);
 impl FinderCache {
-    pub fn page(
+    pub(crate) fn page(
         &self,
         store: &crate::data::DataStore,
         workspace: &Value,
@@ -280,9 +283,10 @@ fn parse_options(options: Option<&Value>) -> Result<Vec<OfficialFilterOption>, F
         .unwrap_or_default())
 }
 
+#[cfg(test)]
 /// The finder over offerings prepared for this one call; Core keeps them
 /// in a [`FinderCache`] instead. The page names no stored data version.
-pub fn finder_page(
+pub(crate) fn finder_page(
     workspace: &Value,
     offerings: Vec<Value>,
     request: FinderRequest,
@@ -478,7 +482,7 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         BusySlot::decl(cfg),
         Condition::decl(cfg),
         Factor::decl(cfg),
-        Factors::decl(cfg),
+        conditions::Factors::decl(cfg),
         FinderRequest::decl(cfg),
         FinderAction::decl(cfg),
         FinderPage::decl(cfg),

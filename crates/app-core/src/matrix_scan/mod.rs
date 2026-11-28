@@ -7,7 +7,7 @@ use std::{
 };
 use thiserror::Error;
 
-pub const CELLS: usize = 70;
+pub(crate) const CELLS: usize = 70;
 const HIGH_CONFIDENCE: f64 = 0.8;
 const CELL_WINDOW: usize = 6;
 const MIN_CELL_SAMPLES: usize = 3;
@@ -72,7 +72,7 @@ pub struct MatrixVote {
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct MatrixScanOutline {
+pub(crate) struct MatrixScanOutline {
     pub bounds: [MatrixPoint; 4],
 }
 
@@ -82,11 +82,11 @@ pub struct MatrixScanOutline {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 pub struct MatrixCaptureMetrics {
     pub elapsed_ms: f64,
-    pub tracked_ms: Option<f64>,
+    pub(crate) tracked_ms: Option<f64>,
     pub frames: usize,
-    pub frame_ms: Vec<f64>,
+    pub(crate) frame_ms: Vec<f64>,
     #[serde(default)]
-    pub timeline: Vec<MatrixFrameTimeline>,
+    pub(crate) timeline: Vec<MatrixFrameTimeline>,
 }
 /// Webview clock (`performance.now()`, ms) for one frame sent for analysis.
 /// `media_ms` is the video position of the analysed frame. `painted_ms` is
@@ -95,18 +95,18 @@ pub struct MatrixCaptureMetrics {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-pub struct MatrixFrameTimeline {
+pub(crate) struct MatrixFrameTimeline {
     pub frame_id: u32,
-    pub media_ms: f64,
+    pub(crate) media_ms: f64,
     pub captured_ms: f64,
-    pub sent_ms: f64,
-    pub responded_ms: f64,
+    pub(crate) sent_ms: f64,
+    pub(crate) responded_ms: f64,
     pub sequence: u32,
     pub bounds_frame_id: Option<u32>,
-    pub painted_ms: Option<f64>,
-    pub painted_media_ms: Option<f64>,
+    pub(crate) painted_ms: Option<f64>,
+    pub(crate) painted_media_ms: Option<f64>,
     #[serde(default)]
-    pub live_media_ms: Option<f64>,
+    pub(crate) live_media_ms: Option<f64>,
 }
 #[derive(Debug, Error, Serialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "camelCase")]

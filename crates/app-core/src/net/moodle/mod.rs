@@ -31,7 +31,7 @@ mod rest;
 mod submission;
 mod token;
 
-pub use functions::MoodleFunction;
+pub(crate) use functions::MoodleFunction;
 pub(crate) use mapping::months_to_read;
 pub(crate) use reader::{LmsReader, Via};
 #[cfg(feature = "agent")]
@@ -348,7 +348,7 @@ pub(crate) struct Dashboard {
 }
 
 /// Reads LMS data for the signed-in Science account.
-pub struct MoodleClient {
+pub(crate) struct MoodleClient {
     auth: Arc<SchoolAuthService>,
     /// One load or launch of the token at a time (held across the launch).
     flight: tokio::sync::Mutex<()>,

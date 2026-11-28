@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use std::num::NonZeroU32;
 use thiserror::Error;
 
-pub const FILE_NAME: &str = "IsctCompanion.credentials.json";
-pub const PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
+pub(crate) const FILE_NAME: &str = "IsctCompanion.credentials.json";
+pub(crate) const PASSWORD_ACCOUNT: &str = "cloud-credential-sync";
 const FORMAT: &str = "IsctCompanion.credentials";
 const FORMAT_VERSION: u64 = 1;
 const KDF: &str = "pbkdf2-sha256";
@@ -109,7 +109,7 @@ fn unlockable(password: &str) -> bool {
         && !password.chars().any(char::is_control)
 }
 
-pub fn encrypt(payload: &str, password: &str) -> Result<Vec<u8>, CredentialEncryptionError> {
+pub(crate) fn encrypt(payload: &str, password: &str) -> Result<Vec<u8>, CredentialEncryptionError> {
     validate_password(password)?;
     let random = SystemRandom::new();
     let mut salt = [0u8; SALT_BYTES];
@@ -164,7 +164,7 @@ fn encrypt_bytes_with_parameters(
     .map_err(|_| CredentialEncryptionError::Encoding)
 }
 
-pub fn decrypt(bytes: &[u8], password: &str) -> Result<String, CredentialDecryptionError> {
+pub(crate) fn decrypt(bytes: &[u8], password: &str) -> Result<String, CredentialDecryptionError> {
     if !unlockable(password) {
         return Err(CredentialDecryptionError::InvalidPassword);
     }

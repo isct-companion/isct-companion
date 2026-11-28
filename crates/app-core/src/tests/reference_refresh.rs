@@ -1,6 +1,6 @@
 use super::*;
 use crate::data::DataStore;
-use crate::subscriptions::DateRange;
+use crate::subscriptions::feeds::DateRange;
 use std::{
     collections::{BTreeMap, VecDeque},
     sync::{

@@ -26,15 +26,18 @@ use records::*;
 pub(crate) use records::{lms_course_code, offering_course_id, resolve_course_id};
 use settings::*;
 
-pub mod cloud_merge;
+pub(crate) mod cloud_merge;
 mod error;
 pub mod migrations;
 pub(crate) mod root;
 pub mod versioned;
 
-pub use root::{StoreKind, StoreOpenError, StorePaths, StoreRoot};
+#[cfg(feature = "agent")]
+pub(crate) use root::StoreKind;
+pub(crate) use {root::StoreOpenError, root::StorePaths, root::StoreRoot};
 
-pub use changes::{CommitObserver, WorkspaceChangeSource};
+pub(crate) use changes::CommitObserver;
+pub use changes::WorkspaceChangeSource;
 pub(crate) use connection::{commit_on, commit_then};
 pub use error::DataError;
 
@@ -300,7 +303,7 @@ pub fn parse_import(document: &str) -> Result<Value, DataError> {
     Ok(parsed)
 }
 
-pub fn validate_sync_document(document: &Value) -> Result<(), DataError> {
+pub(crate) fn validate_sync_document(document: &Value) -> Result<(), DataError> {
     parse_import(&document.to_string())?;
     for table in USER_BACKUP_TABLES {
         for row in document["tables"][table].as_array().into_iter().flatten() {
@@ -626,6 +629,7 @@ impl WorkspaceWrite<'_, '_> {
     }
 }
 
+#[cfg(feature = "agent")]
 /// Every live catalog row.
 fn catalog_list(connection: &Connection) -> Result<Vec<Value>, DataError> {
     let mut statement = connection
@@ -758,10 +762,10 @@ pub struct DataStore {
 /// result the one read after its commit, and a shell drops a result older
 /// than the newest change it has heard of.
 #[derive(Clone, Default)]
-pub struct CommitSeq(Arc<AtomicU64>);
+pub(crate) struct CommitSeq(Arc<AtomicU64>);
 
 impl CommitSeq {
-    pub fn get(&self) -> u64 {
+    pub(crate) fn get(&self) -> u64 {
         self.0.load(Ordering::Acquire)
     }
 
@@ -814,7 +818,7 @@ impl DataStore {
     }
 
     /// The data folder this store owns.
-    pub fn root(&self) -> &Arc<StoreRoot> {
+    pub(crate) fn root(&self) -> &Arc<StoreRoot> {
         &self.root
     }
 
@@ -904,7 +908,7 @@ impl DataStore {
     }
 
     /// The sequence of the latest commit that changed rows (`CommitSeq`).
-    pub fn commit_seq(&self) -> u64 {
+    pub(crate) fn commit_seq(&self) -> u64 {
         self.commit_seq.get()
     }
 
@@ -972,13 +976,13 @@ impl DataStore {
     /// Test shorthand for an unchecked user write; production writers pass
     /// the revision they read to `put_user_record_checked`.
     #[cfg(test)]
-    pub fn put_user_record(&self, table: &str, value: Value) -> Result<Value, DataError> {
+    pub(crate) fn put_user_record(&self, table: &str, value: Value) -> Result<Value, DataError> {
         self.put_user_record_checked(table, value, WorkspaceChangeSource::UserIntent, None)
     }
 
     /// User-owned records are changed one row at a time. The database owns
     /// IDs and revisions; callers cannot accidentally roll them backwards.
-    pub fn put_user_record_checked(
+    pub(crate) fn put_user_record_checked(
         &self,
         table: &str,
         value: Value,
@@ -991,13 +995,13 @@ impl DataStore {
     }
 
     #[cfg(test)]
-    pub fn delete_user_record(&self, table: &str, id: &str) -> Result<bool, DataError> {
+    pub(crate) fn delete_user_record(&self, table: &str, id: &str) -> Result<bool, DataError> {
         self.delete_user_record_checked(table, id, None)
     }
 
     /// A user delete, as a test stands in for one racing background work.
     #[cfg(test)]
-    pub fn delete_user_record_checked(
+    pub(crate) fn delete_user_record_checked(
         &self,
         table: &str,
         id: &str,
@@ -1010,7 +1014,7 @@ impl DataStore {
         })
     }
 
-    pub fn user_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
+    pub(crate) fn user_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         if !Self::user_table(table) {
             return Err("table is not user-owned".into());
         }
@@ -1032,7 +1036,7 @@ impl DataStore {
 
     /// Whether agents may write to the LMS, read at each write.
     #[cfg(feature = "agent")]
-    pub fn lms_writes_enabled(&self) -> Result<bool, DataError> {
+    pub(crate) fn lms_writes_enabled(&self) -> Result<bool, DataError> {
         lms_writes_enabled_in(&*self.open()?)
     }
 
@@ -1059,7 +1063,7 @@ impl DataStore {
     }
 
     /// Patch only the poll clock under the same SQL lock as local preferences.
-    pub fn record_reference_poll(&self) -> Result<(), DataError> {
+    pub(crate) fn record_reference_poll(&self) -> Result<(), DataError> {
         self.write(Some(WorkspaceChangeSource::ReferencePoll), |transaction| {
             let key = if read_setting(transaction, "devicePreferences")?.is_some() {
                 "devicePreferences"
@@ -1093,7 +1097,8 @@ impl DataStore {
         })
     }
 
-    pub fn table_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
+    #[cfg(any(test, feature = "agent"))]
+    pub(crate) fn table_rows(&self, table: &str) -> Result<Vec<Value>, DataError> {
         const READABLE: &[&str] = &[
             "registrations",
             "registration_states",
@@ -1113,9 +1118,10 @@ impl DataStore {
         read_visible_rows(&connection, table)
     }
 
+    #[cfg(test)]
     /// Freshness of every key of `dataset`, or of all datasets
     /// (`crate::sync_state::list`): the only record of when data was read.
-    pub fn freshness(
+    pub(crate) fn freshness(
         &self,
         dataset: Option<crate::sync_state::Dataset>,
     ) -> Result<Vec<crate::sync_state::KeyState>, DataError> {

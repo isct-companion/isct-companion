@@ -18,21 +18,21 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 use url::Url;
 
-pub use app_core::school_browser::SchoolWebResult;
+pub(crate) use app_core::school_browser::SchoolWebResult;
 #[cfg(target_os = "macos")]
 pub(crate) const SCHOOL_DATA_STORE: [u8; 16] = [
     0x63, 0x61, 0x6d, 0x70, 0x75, 0x73, 0x2d, 0x6c, 0x69, 0x66, 0x65, 0x2d, 0x77, 0x65, 0x62, 0x31,
 ];
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SchoolWebPolicy {
+pub(crate) struct SchoolWebPolicy {
     pub restore_across_restarts: bool,
 }
 /// A school view's rectangle in the main window's client area: physical
 /// pixels on Windows, logical points on macOS (`school-web-bounds.ts`,
 /// `school_web::apply_bounds`).
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-pub struct WebBounds {
+pub(crate) struct WebBounds {
     pub x: f64,
     pub y: f64,
     pub width: f64,
@@ -103,7 +103,7 @@ enum Operation {
     Dispose(BrowserId),
 }
 /// This queue serializes native dispatch only. It has no login/pull/session policy.
-pub struct NativeBrowser {
+pub(crate) struct NativeBrowser {
     app: Mutex<Option<AppHandle>>,
     listener: Mutex<Option<Weak<dyn SchoolBrowserListener>>>,
     pub(crate) presentation: Mutex<Presentation>,
@@ -112,7 +112,7 @@ pub struct NativeBrowser {
     downloads: crate::school_downloads::SchoolDownloads,
 }
 impl NativeBrowser {
-    pub fn new(app: AppHandle) -> Result<Arc<Self>, BrowserError> {
+    pub(crate) fn new(app: AppHandle) -> Result<Arc<Self>, BrowserError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let this = Arc::new(Self {
             app: Mutex::new(Some(app)),
@@ -745,7 +745,7 @@ impl SchoolBrowser for NativeBrowser {
 
 /// Command-facing presentation adapter. Session and pull state lives in Core.
 #[derive(Clone)]
-pub struct SchoolWebController {
+pub(crate) struct SchoolWebController {
     native: Arc<NativeBrowser>,
     pub(crate) engine: Arc<SchoolBrowserEngine>,
 }
@@ -753,7 +753,11 @@ impl SchoolWebController {
     pub(crate) fn new(native: Arc<NativeBrowser>, engine: Arc<SchoolBrowserEngine>) -> Self {
         Self { native, engine }
     }
-    pub fn configure(&self, app: &AppHandle, policy: SchoolWebPolicy) -> Result<bool, String> {
+    pub(crate) fn configure(
+        &self,
+        app: &AppHandle,
+        policy: SchoolWebPolicy,
+    ) -> Result<bool, String> {
         use tauri::Manager;
         self.engine
             .configure_restore(
@@ -765,7 +769,7 @@ impl SchoolWebController {
             )
             .map_err(|e| e.to_string())
     }
-    pub fn set_bounds(&self, bounds: WebBounds) -> Result<bool, String> {
+    pub(crate) fn set_bounds(&self, bounds: WebBounds) -> Result<bool, String> {
         let bounds = bounds.sanitized();
         let view = {
             let mut state = self
@@ -785,12 +789,12 @@ impl SchoolWebController {
         }
         Ok(true)
     }
-    pub fn hide_all(&self) -> Result<bool, String> {
+    pub(crate) fn hide_all(&self) -> Result<bool, String> {
         self.native.visible(None, None)?;
         self.engine.user_browsing(None).map_err(|e| e.to_string())?;
         Ok(true)
     }
-    pub async fn open(
+    pub(crate) async fn open(
         &self,
         site: SchoolSite,
         css: String,
@@ -817,10 +821,10 @@ impl SchoolWebController {
         // Coded, so the page shows why in the person's language.
         result.map_err(crate::coded)
     }
-    pub fn close_popup(&self, site: SchoolSite) -> Result<bool, String> {
+    pub(crate) fn close_popup(&self, site: SchoolSite) -> Result<bool, String> {
         self.engine.close_popup(site).map_err(|e| e.to_string())
     }
-    pub fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
+    pub(crate) fn set_zoom(&self, site: SchoolSite, scale: f64) -> Result<bool, String> {
         if !scale.is_finite() {
             return Err("School view scale must be finite.".into());
         }

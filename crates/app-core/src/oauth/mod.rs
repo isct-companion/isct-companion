@@ -70,7 +70,7 @@ const AUTHORIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_sec
 /// One interactive authorization on iOS: the system session returns through
 /// the client's own URL scheme. Cancelling or timing out closes the sheet.
 #[cfg(target_os = "ios")]
-pub async fn authorize(
+pub(crate) async fn authorize(
     client: &code_exchange::OAuthClient,
     options: Options<'_>,
     browser: &dyn NativeBrowserAuth,
@@ -96,7 +96,7 @@ pub async fn authorize(
 /// One interactive authorization elsewhere: the browser returns to a
 /// loopback listener on `port` (0 for an ephemeral one).
 #[cfg(not(target_os = "ios"))]
-pub async fn authorize(
+pub(crate) async fn authorize(
     client_id: &str,
     port: u16,
     options: Options<'_>,

@@ -50,7 +50,7 @@ use tokio_util::sync::CancellationToken;
 /// The longest one key may take, from its start, sign-in included. A key
 /// over it fails as `timeout`; a reset waits at most this long for commits
 /// in progress.
-pub const KEY_DEADLINE: Duration = Duration::from_secs(3 * 60);
+pub(crate) const KEY_DEADLINE: Duration = Duration::from_secs(3 * 60);
 /// A whole-department 教務 search is one GET and one 3 MB postback.
 const BULK_DEADLINE: Duration = Duration::from_secs(6 * 60);
 /// A second press of a refresh button within this time joins the first.
@@ -262,20 +262,21 @@ struct Shared {
 
 /// The sync planner and runner. Cheap to clone.
 #[derive(Clone)]
-pub struct PlanEngine(Arc<Shared>);
+pub(crate) struct PlanEngine(Arc<Shared>);
 
 /// A weak handle for components the engine itself owns (the school
 /// browser), so hints never keep the engine alive.
 #[derive(Clone)]
-pub struct PlanHints(Weak<Shared>);
+pub(crate) struct PlanHints(Weak<Shared>);
 
 impl PlanHints {
+    #[cfg(test)]
     /// Hints sent to nothing; for components built without an engine.
-    pub fn detached() -> Self {
+    pub(crate) fn detached() -> Self {
         Self(Weak::new())
     }
 
-    pub fn send(&self, hint: Hint) {
+    pub(crate) fn send(&self, hint: Hint) {
         if let Some(shared) = self.0.upgrade() {
             PlanEngine(shared).hint(hint);
         }
@@ -317,7 +318,7 @@ impl PlanHints {
     }
 
     /// Folds a Core event (the session snapshot) into the snapshot.
-    pub fn observe(&self, event: &CoreEvent) {
+    pub(crate) fn observe(&self, event: &CoreEvent) {
         if let Some(shared) = self.0.upgrade() {
             PlanEngine(shared).observe(event);
         }
@@ -325,7 +326,7 @@ impl PlanHints {
 }
 
 /// Admission stays closed while this lives; dropping it reopens.
-pub struct AdmissionGuard {
+pub(crate) struct AdmissionGuard {
     engine: PlanEngine,
 }
 
@@ -363,7 +364,7 @@ fn shown(snapshot: &SchoolSessionSnapshot) -> HashMap<SchoolAuthProfile, Shown> 
 }
 
 impl PlanEngine {
-    pub fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: Network) -> Self {
+    pub(crate) fn new(store: DataStore, auth: Arc<SchoolAuthService>, network: Network) -> Self {
         let facts = Facts {
             network,
             ..Facts::default()
@@ -427,7 +428,7 @@ impl PlanEngine {
 
     /// The shell's timer for `revision` fired. A stale revision only costs
     /// one look; the plan is evaluated again only when its own time came.
-    pub fn deadline_reached(&self, revision: u64) {
+    pub(crate) fn deadline_reached(&self, revision: u64) {
         self.ensure_started();
         {
             let mut state = guard(&self.0.state);
@@ -445,12 +446,12 @@ impl PlanEngine {
     }
 
     /// The directive as last published.
-    pub fn wake_directive(&self) -> WakeDirective {
+    pub(crate) fn wake_directive(&self) -> WakeDirective {
         self.0.directive.borrow().clone()
     }
 
     /// Every directive from now on, for a shell timer in this process.
-    pub fn wake_directives(&self) -> watch::Receiver<WakeDirective> {
+    pub(crate) fn wake_directives(&self) -> watch::Receiver<WakeDirective> {
         self.0.directive.subscribe()
     }
 
@@ -628,7 +629,7 @@ impl PlanEngine {
         suspended
     }
 
-    pub fn hints(&self) -> PlanHints {
+    pub(crate) fn hints(&self) -> PlanHints {
         PlanHints(Arc::downgrade(&self.0))
     }
 
@@ -706,7 +707,7 @@ impl PlanEngine {
     }
 
     /// Starts the driver on the shell's runtime. Later calls do nothing.
-    pub fn start(&self, handle: &tokio::runtime::Handle) -> Result<(), RuntimeTaskError> {
+    pub(crate) fn start(&self, handle: &tokio::runtime::Handle) -> Result<(), RuntimeTaskError> {
         let _ = self.0.runtime.set(handle.clone());
         if self.0.driving.swap(true, Ordering::AcqRel) {
             return Ok(());
@@ -740,7 +741,7 @@ impl PlanEngine {
     }
 
     /// Takes in one shell fact or intent. Never blocks on I/O.
-    pub fn hint(&self, hint: Hint) {
+    pub(crate) fn hint(&self, hint: Hint) {
         self.ensure_started();
         let now = Instant::now();
         // A press or a way to the school that came back may probe a paused
@@ -834,7 +835,7 @@ impl PlanEngine {
 
     /// Folds the session snapshot into the status line; the planner never
     /// reads it. The facade's event relay calls this for every event.
-    pub fn observe(&self, event: &CoreEvent) {
+    pub(crate) fn observe(&self, event: &CoreEvent) {
         let CoreEvent::SchoolSession(snapshot) = event else {
             return;
         };
@@ -854,7 +855,7 @@ impl PlanEngine {
     }
 
     /// The current snapshot, as last sent or newer.
-    pub fn snapshot(&self) -> SyncSnapshot {
+    pub(crate) fn snapshot(&self) -> SyncSnapshot {
         let state = guard(&self.0.state);
         let generation = self.0.gate.generation();
         let leased: HashSet<Key> = state.leases.keys().cloned().collect();
@@ -870,14 +871,14 @@ impl PlanEngine {
         })
     }
 
-    pub fn generation(&self) -> u64 {
+    pub(crate) fn generation(&self) -> u64 {
         self.0.gate.generation()
     }
 
     /// Stops leasing, cancels in-flight reads, bumps the generation. Every
     /// commit checks its lease's generation inside the write gate, so a task
     /// of an old generation never writes. Dropping the guard reopens.
-    pub async fn close_admission(&self) -> AdmissionGuard {
+    pub(crate) async fn close_admission(&self) -> AdmissionGuard {
         {
             // Bumped under the state lock: no lease of the new generation
             // can start before admission is closed.
@@ -905,8 +906,9 @@ impl PlanEngine {
         }
     }
 
+    #[cfg(test)]
     /// Whether the shell last reported its app in front and running.
-    pub fn in_front(&self) -> bool {
+    pub(crate) fn in_front(&self) -> bool {
         let state = guard(&self.0.state);
         state.facts.foreground && !state.facts.suspended
     }
@@ -915,7 +917,7 @@ impl PlanEngine {
     /// facts allow is left to lease, no one-off read is queued or running
     /// and no duty the facts allow runs or is due, at most `limit`. An OS
     /// background opportunity holds the process open this long.
-    pub async fn wait_quiet(&self, limit: Duration) -> bool {
+    pub(crate) async fn wait_quiet(&self, limit: Duration) -> bool {
         let since = Instant::now();
         let deadline = tokio::time::Instant::now() + limit;
         // Subscribed before the first look, so no change is missed.
@@ -972,7 +974,7 @@ impl PlanEngine {
     }
 
     /// Waits until no commit is in progress, at most `limit`.
-    pub async fn wait_idle(&self, limit: Duration) -> bool {
+    pub(crate) async fn wait_idle(&self, limit: Duration) -> bool {
         let mut committing = self.0.gate.committing.subscribe();
         tokio::time::timeout(limit, committing.wait_for(|count| *count == 0))
             .await
@@ -980,7 +982,7 @@ impl PlanEngine {
     }
 
     /// Cancels every read and waits for the driver and workers to stop.
-    pub async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) {
         self.stop();
         self.0.tasks.wait().await;
     }

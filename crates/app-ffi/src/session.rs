@@ -705,12 +705,12 @@ pub fn decode_school_session(payload: JsonValue) -> Result<SchoolSessionSnapshot
 }
 /// Decodes the payload of an `exam-account` stream event.
 #[uniffi::export]
-pub fn decode_exam_account(payload: JsonValue) -> Result<ExamAccount, SdkError> {
+pub(crate) fn decode_exam_account(payload: JsonValue) -> Result<ExamAccount, SdkError> {
     project_input(payload.0)
 }
 /// Decodes the payload of a `wake-directive` stream event.
 #[uniffi::export]
-pub fn decode_wake_directive(payload: JsonValue) -> Result<WakeDirective, SdkError> {
+pub(crate) fn decode_wake_directive(payload: JsonValue) -> Result<WakeDirective, SdkError> {
     project_input(payload.0)
 }
 pub(crate) fn unavailable(name: &str) -> SdkError {

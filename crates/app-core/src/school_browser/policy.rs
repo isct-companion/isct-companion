@@ -36,7 +36,7 @@ pub(crate) fn domain_under(domain: &str, registrable: &str) -> bool {
 /// (`SchoolSite::for_url`) or a school identity provider, without embedded
 /// credentials. Core's own school requests and page scripts are bounded by
 /// this; what the person browses is not.
-pub fn automation_target(raw: &str) -> Option<Url> {
+pub(crate) fn automation_target(raw: &str) -> Option<Url> {
     let url = Url::parse(raw).ok()?;
     let host = url.host_str()?;
     (url.scheme() == "https"
@@ -52,7 +52,7 @@ pub fn automation_target(raw: &str) -> Option<Url> {
 /// `www.isct.ac.jp`, which has no adapter but is still a school host, and
 /// school hosts are reached only through a WebView or Core
 /// (`constraint/school-network-two-stacks`). Every redirect hop is checked.
-pub fn school_file_url(raw: &str) -> Option<Url> {
+pub(crate) fn school_file_url(raw: &str) -> Option<Url> {
     let url = Url::parse(raw).ok()?;
     (url.scheme() == "https"
         && url.port().is_none()
@@ -68,7 +68,7 @@ pub fn school_file_url(raw: &str) -> Option<Url> {
 /// An automation target in the form that may be written to disk or compared
 /// as a page identity: no fragment, and only bounded identifying query
 /// parameters, so SSO tokens and session state never reach a restore record.
-pub fn restore_record(raw: &str) -> Option<String> {
+pub(crate) fn restore_record(raw: &str) -> Option<String> {
     let mut url = automation_target(raw)?;
     url.set_fragment(None);
     let kept: Vec<(String, String)> = url
@@ -191,7 +191,7 @@ pub fn browsing_target(
 /// provider's credential step, or a service's own login or SSO hand-off route
 /// such as the LMS `/login/` and `/auth/` pages. This is the single sign-in
 /// detector shared by the browser engine and the LMS downloaders.
-pub fn is_login_url(url: &Url) -> bool {
+pub(crate) fn is_login_url(url: &Url) -> bool {
     is_identity_login(url)
         || url.path_segments().is_some_and(|mut segments| {
             segments.any(|segment| segment == "login" || segment == "auth")

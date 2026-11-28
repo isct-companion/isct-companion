@@ -3,6 +3,11 @@ resolver = "2"
 members = ["apps/desktop/src-tauri", "crates/adpt-isct", "crates/adpt-printer", "crates/app-core", "crates/app-ocr", "crates/app-ocr-adapter", "crates/app-ffi", "crates/capture-gate", "crates/vpn-helper", "crates/vpn-protocol"]
 default-members = ["apps/desktop/src-tauri"]
 
+# pub is for API another crate really uses; everything else is pub(crate) or
+# private, so rustc can report dead code (see slotledger fkep3x).
+[workspace.lints.rust]
+unreachable_pub = "warn"
+
 [profile.release]
 panic = "unwind"
 codegen-units = 1

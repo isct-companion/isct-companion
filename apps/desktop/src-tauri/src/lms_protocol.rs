@@ -236,7 +236,10 @@ fn request_input(request: &http::Request<Vec<u8>>) -> Result<(String, String, bo
 
 /// Serves a course file to the page (`<img>`, media): only a file Core has
 /// on disk is an answer; anything else is the reason it is not.
-pub async fn handle(app: AppHandle, request: http::Request<Vec<u8>>) -> http::Response<Vec<u8>> {
+pub(crate) async fn handle(
+    app: AppHandle,
+    request: http::Request<Vec<u8>>,
+) -> http::Response<Vec<u8>> {
     if let Some(response) = preflight(&request) {
         return response;
     }

@@ -97,3 +97,6 @@ ipp = { version = "8", default-features = false, optional = true }
 [[example]]
 name = "export-types"
 required-features = ["ts"]
+
+[lints]
+workspace = true

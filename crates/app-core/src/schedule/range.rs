@@ -16,7 +16,7 @@ use crate::locale::ContentLanguage;
 
 /// Inclusive civil-date range. Cancelled classes remain in the content so each
 /// consumer can present or omit them without recomputing calendar policy.
-pub fn calendar_between(
+pub(crate) fn calendar_between(
     workspace: &Value,
     school: &SchoolReads,
     from: &str,

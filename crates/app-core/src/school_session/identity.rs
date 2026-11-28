@@ -386,7 +386,8 @@ impl Identity {
         }
         if let Some(pause) = state.paused() {
             let left = pause.until.saturating_duration_since(Instant::now());
-            let retry_at = crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default();
+            let retry_at =
+                crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default();
             return (
                 SchoolSessionState::Unavailable,
                 Some(pause.problem.clone()),
@@ -709,7 +710,8 @@ impl Inner {
                     .map(|pause| pause.until.saturating_duration_since(Instant::now()))
                     .unwrap_or_default();
                 SignInAdmission::Paused {
-                    until: crate::clock::now() + chrono::Duration::from_std(left).unwrap_or_default(),
+                    until: crate::clock::now()
+                        + chrono::Duration::from_std(left).unwrap_or_default(),
                 }
             }
             Err(_) => SignInAdmission::Person,

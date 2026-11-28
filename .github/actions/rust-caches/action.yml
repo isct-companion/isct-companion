@@ -10,6 +10,9 @@ inputs:
   cache-on-failure:
     description: Save the dependency cache even when the job fails
     default: 'false'
+  dependency-cache-save:
+    description: Allow main to save this dependency cache
+    default: 'true'
   compiler-cache:
     description: Also cache workspace crates by compiler input (sccache)
     default: 'false'
@@ -22,7 +25,7 @@ runs:
         workspaces: . -> target
         key: ${{ inputs.key }}
         cache-on-failure: ${{ inputs.cache-on-failure }}
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.dependency-cache-save == 'true' }}
     # Workspace libraries, keyed by content so a fresh checkout's mtimes do not
     # force unchanged crates through code generation.
     - if: inputs.compiler-cache == 'true'

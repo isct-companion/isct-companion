@@ -33,7 +33,7 @@ where
 }
 
 #[tauri::command]
-pub async fn assignment_workspace(
+pub(crate) async fn assignment_workspace(
     webview: tauri::Webview,
     app: AppHandle,
     assignment: String,
@@ -46,7 +46,7 @@ pub async fn assignment_workspace(
 /// Core downloads the attachments, writes `ASSIGNMENT.md` and creates the
 /// folder once; attachments it could not fetch come back as `missing`.
 #[tauri::command]
-pub async fn create_assignment_workspace(
+pub(crate) async fn create_assignment_workspace(
     webview: tauri::Webview,
     app: AppHandle,
     assignment: String,
@@ -61,7 +61,7 @@ pub async fn create_assignment_workspace(
 
 /// `finder`: the workspace in the file manager; `vscode`: the whole folder.
 #[tauri::command]
-pub async fn open_workspace(
+pub(crate) async fn open_workspace(
     webview: tauri::Webview,
     app: AppHandle,
     path: String,
@@ -83,7 +83,7 @@ pub async fn open_workspace(
 }
 
 #[tauri::command]
-pub async fn set_workspace_submission(
+pub(crate) async fn set_workspace_submission(
     webview: tauri::Webview,
     app: AppHandle,
     path: String,
@@ -96,14 +96,14 @@ pub async fn set_workspace_submission(
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SubmissionReady {
+pub(crate) struct SubmissionReady {
     workspace: WorkspaceInfo,
     url: String,
 }
 
 #[tauri::command]
 #[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-pub async fn prepare_workspace_submission(
+pub(crate) async fn prepare_workspace_submission(
     webview: tauri::Webview,
     app: AppHandle,
     controller: tauri::State<'_, crate::school_web::SchoolWebController>,
@@ -134,7 +134,7 @@ pub async fn prepare_workspace_submission(
 }
 
 #[tauri::command]
-pub async fn delete_workspace(
+pub(crate) async fn delete_workspace(
     webview: tauri::Webview,
     app: AppHandle,
     path: String,
@@ -144,7 +144,7 @@ pub async fn delete_workspace(
 }
 
 #[tauri::command]
-pub async fn clean_workspaces(
+pub(crate) async fn clean_workspaces(
     webview: tauri::Webview,
     app: AppHandle,
 ) -> Result<usize, CommandError> {

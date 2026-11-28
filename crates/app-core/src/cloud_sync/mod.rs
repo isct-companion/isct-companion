@@ -335,7 +335,7 @@ impl CloudSync {
 
     /// Local content changed: a pass a few seconds on captures it, so a
     /// burst of commits makes one capture.
-    pub fn request_capture(&self) {
+    pub(crate) fn request_capture(&self) {
         let soon = crate::clock::now() + CAPTURE_DELAY;
         if let Ok(mut at) = self.0.capture_at.lock() {
             *at = Some(at.map_or(soon, |at| at.min(soon)));

@@ -35,6 +35,6 @@ fn only_a_student_id_passes_and_comes_out_in_capitals() {
 fn the_address_is_the_printers_host_and_port() {
     assert_eq!(
         crate::ADDRESS.to_string(),
-        format!("{}:{}", crate::HOST, crate::PORT)
+        format!("{}:{}", crate::endpoint::HOST, crate::endpoint::PORT)
     );
 }

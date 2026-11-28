@@ -1,5 +1,8 @@
-pub use super::profile_validation::validate_academic_profile;
-pub use planning::{planning_week, CourseConflict, EventCarryOver, PlanningDay, PlanningWeek};
+pub(crate) use super::profile_validation::validate_academic_profile;
+pub(crate) use planning::planning_week;
+pub use planning::PlanningWeek;
+#[cfg(feature = "ts")]
+pub(crate) use {planning::CourseConflict, planning::EventCarryOver, planning::PlanningDay};
 
 use super::SchoolReads;
 use std::collections::{HashMap, HashSet};
@@ -120,8 +123,8 @@ pub struct GridSlot {
 
 pub(crate) struct CourseSlot<'a> {
     pub course_id: &'a str,
-    pub start_time: &'a str,
-    pub end_time: &'a str,
+    pub(crate) start_time: &'a str,
+    pub(crate) end_time: &'a str,
     pub room: &'a str,
 }
 
@@ -157,7 +160,7 @@ impl Occurrence {
             }))
     }
 
-    pub fn course_ids(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn course_ids(&self) -> impl Iterator<Item = &str> {
         self.course_slots().map(|slot| slot.course_id)
     }
 }
@@ -181,9 +184,9 @@ pub struct ScheduleProblem {
 }
 
 #[derive(Clone, Debug)]
-pub struct AgendaOptions {
+pub(crate) struct AgendaOptions {
     pub include_personal: bool,
-    pub include_cancelled_courses: bool,
+    pub(crate) include_cancelled_courses: bool,
     pub courses: Option<Arc<[Value]>>,
     pub events: Option<Vec<Value>>,
 }
@@ -193,7 +196,7 @@ mod planning;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub struct CourseTimeline {
+pub(crate) struct CourseTimeline {
     pub last_started: Option<String>,
     pub next: Option<String>,
     pub class_at: Option<String>,
@@ -212,7 +215,7 @@ impl Default for AgendaOptions {
 
 /// The course's meetings around `now` across every quarter it belongs to, so a
 /// 3Q–4Q course keeps its class times when the quarter changes.
-pub fn course_timeline(
+pub(crate) fn course_timeline(
     workspace: &Value,
     school: &SchoolReads,
     course_id: &str,
@@ -281,7 +284,7 @@ pub fn course_timeline(
 /// Courses on the timetable of `term`: those with a live membership or plan
 /// item there. A course running 3Q–4Q is one course (its `termId` is where it
 /// was added) with a row in each quarter.
-pub fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
+pub(crate) fn scheduled_courses(workspace: &Value, term: &str) -> Vec<Value> {
     let clock = teaching_periods(workspace).unwrap_or_default();
     let ids: HashSet<&str> = placements(workspace)
         .filter(|row| text(row, "termId") == Some(term))
@@ -679,7 +682,7 @@ fn personal_occurrence(event: &Value, date: &str, key: impl std::fmt::Display) -
 
 /// Stored user records the schedule skips or leaves unapplied. Read models
 /// stay available; shells list these so the person can repair or delete them.
-pub fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
+pub(crate) fn schedule_problems(workspace: &Value) -> Vec<ScheduleProblem> {
     let mut problems = Vec::new();
     if let Ok(teaching_periods) = teaching_periods(workspace) {
         for course in array(workspace, "courses")
@@ -823,7 +826,7 @@ pub(crate) fn overlap(a: &Occurrence, b: &Occurrence) -> Result<bool, ScheduleEr
         && format!("{}T{}", b.date, b.start_time) < end_a)
 }
 
-pub fn resolve_day_agenda(
+pub(crate) fn resolve_day_agenda(
     workspace: &Value,
     school: &SchoolReads,
     term: &str,
@@ -998,7 +1001,7 @@ fn meeting_clock(
     Ok((start.into(), end.into()))
 }
 
-pub fn intensive_days(
+pub(crate) fn intensive_days(
     teaching_periods: &[TeachingPeriod],
     from: &str,
     to: &str,

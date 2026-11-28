@@ -159,7 +159,7 @@ impl SchoolAuthService {
 }
 
 /// Codes for the current step and up to three successors for school sign-in.
-pub fn upcoming_otps(raw: &str) -> Result<Vec<OtpWindow>, SchoolAuthError> {
+pub(crate) fn upcoming_otps(raw: &str) -> Result<Vec<OtpWindow>, SchoolAuthError> {
     let config = otp_config(raw)?;
     let now = unix_seconds()?;
     let start = now - now % config.period;

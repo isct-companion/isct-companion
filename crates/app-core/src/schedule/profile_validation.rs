@@ -2,7 +2,7 @@ use super::{parse_civil_date, ScheduleError, TeachingPeriod};
 use serde_json::{Map, Value};
 use std::collections::HashSet;
 
-pub fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError> {
+pub(crate) fn validate_academic_profile(profile: &Value) -> Result<Value, ScheduleError> {
     let input = profile
         .as_object()
         .ok_or_else(|| ScheduleError::InvalidInput("Academic profile must be an object".into()))?;

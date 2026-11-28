@@ -5,12 +5,12 @@
 //! so those settings use the standard HP PJL variables instead.
 
 const JOB_BEGIN: &[u8] = b"\x1b%-12345X@PJL JOB\n";
-pub const JOB_END: &[u8] = b"\x1b%-12345X@PJL EOJ\n\x1b%-12345X";
+pub(crate) const JOB_END: &[u8] = b"\x1b%-12345X@PJL EOJ\n\x1b%-12345X";
 /// How far into a file the `%PDF-` header may start (ISO 32000 readers' limit).
 const PDF_HEADER_WINDOW: usize = 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Language {
+pub(crate) enum Language {
     Pdf,
     PostScript,
 }
@@ -19,7 +19,7 @@ impl Language {
     /// PDF readers accept the `%PDF-` header anywhere in the first 1024
     /// bytes (a BOM or a mail gateway's junk before it); the bytes are sent
     /// unchanged, so the file's own offsets stay valid.
-    pub fn detect(head: &[u8]) -> Option<Language> {
+    pub(crate) fn detect(head: &[u8]) -> Option<Language> {
         let window = &head[..head.len().min(PDF_HEADER_WINDOW)];
         if window.windows(5).any(|bytes| bytes == b"%PDF-") {
             Some(Language::Pdf)
@@ -59,7 +59,7 @@ pub struct Settings {
     pub color: ColorMode,
 }
 
-pub fn header(language: Language, settings: &Settings) -> Vec<u8> {
+pub(crate) fn header(language: Language, settings: &Settings) -> Vec<u8> {
     let mut out = JOB_BEGIN.to_vec();
     out.extend_from_slice(match settings.sides {
         Sides::OneSided => b"@PJL SET DUPLEX=OFF\n".as_slice(),

@@ -8,16 +8,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct SavedSession {
-    pub uid: String,
+    pub(crate) uid: String,
     pub email: String,
-    pub refresh_token: String,
+    pub(crate) refresh_token: String,
     pub registered: bool,
 }
 
 #[derive(Clone)]
 pub(super) struct SessionToken {
     pub saved: SavedSession,
-    pub id_token: String,
+    pub(crate) id_token: String,
     pub expires: i64,
 }
 

@@ -19,7 +19,7 @@ pub(super) fn alias_key(raw: &str) -> String {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Mention {
     /// A building code: `W9`, `S4`, `M`.
-    pub building: Option<String>,
+    pub(crate) building: Option<String>,
     /// A room id in the data's form: `W9-202`, `M-B07`.
     pub room: Option<String>,
     /// A floor's short name: `3F`, `B1`.

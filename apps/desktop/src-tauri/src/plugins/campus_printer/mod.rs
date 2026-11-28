@@ -14,7 +14,7 @@ mod cups;
 #[cfg(windows)]
 pub(crate) mod queue;
 
-pub fn init() -> TauriPlugin<tauri::Wry> {
+pub(crate) fn init() -> TauriPlugin<tauri::Wry> {
     Builder::new("campus-printer")
         .invoke_handler(tauri::generate_handler![
             status,
@@ -45,7 +45,7 @@ async fn status(
 /// How adding the printer to the system ended.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum CampusPrinterSetup {
+pub(crate) enum CampusPrinterSetup {
     Added,
     /// The person dismissed the administrator prompt.
     Cancelled,
@@ -60,4 +60,4 @@ pub enum CampusPrinterSetup {
 
 /// Serialises clicks: one setup at a time.
 #[derive(Default)]
-pub struct Setup(pub(crate) tokio::sync::Mutex<()>);
+pub(crate) struct Setup(pub(crate) tokio::sync::Mutex<()>);

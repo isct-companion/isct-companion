@@ -35,7 +35,7 @@ pub fn default_teaching_periods() -> Vec<TeachingPeriod> {
     .collect()
 }
 
-pub fn validate_teaching_periods(periods: &[TeachingPeriod]) -> Result<(), ScheduleError> {
+pub(crate) fn validate_teaching_periods(periods: &[TeachingPeriod]) -> Result<(), ScheduleError> {
     if periods.len() != 6 {
         return Err(ScheduleError::InvalidInput(
             "Teaching periods must define all pairs from 1–2 through 11–12.".into(),
@@ -74,7 +74,7 @@ pub fn validate_teaching_periods(periods: &[TeachingPeriod]) -> Result<(), Sched
 
 /// Missing legacy data selects the product's official table. Once a table is
 /// stored, the whole table must be valid; individual entries never fall back.
-pub fn teaching_periods(workspace: &Value) -> Result<Vec<TeachingPeriod>, ScheduleError> {
+pub(crate) fn teaching_periods(workspace: &Value) -> Result<Vec<TeachingPeriod>, ScheduleError> {
     let Some(value) = workspace
         .pointer("/academicProfile/teachingPeriods")
         .filter(|value| !value.is_null())
@@ -141,7 +141,7 @@ fn clock_minutes(raw: &str) -> Result<u32, ScheduleError> {
 /// outside the teaching day (`earliest`, `latest`: the week's first start and
 /// last end) widens the axis at the first or last block's pace instead of
 /// being cut off.
-pub fn timetable_axis(
+pub(crate) fn timetable_axis(
     periods: &[TeachingPeriod],
     earliest: Option<&str>,
     latest: Option<&str>,

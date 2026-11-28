@@ -48,17 +48,18 @@ mod web;
 pub(crate) use identity::{Ended, SignInAdmission};
 pub(crate) use login::fresh_otp;
 pub(crate) use owner::Permit;
-pub use presentation::{
-    SchoolConnectOutcome, SchoolSessionState, SchoolSignInProblem, SchoolSignInProblemKind,
-    SignInPresentation, SignInRecovery,
-};
+pub use presentation::SchoolConnectOutcome;
 pub(crate) use site::{Attempt, Blocked, OpError, Operation, RunError, Site};
-pub use snapshot::{
-    SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
-};
-#[cfg(feature = "campus-vpn")]
-pub use vpn::{CampusVpnError, CampusVpnLogin, APM_ENTRY};
 pub use web::{is_school_domain, WebCookie, WebCookieSeed};
+pub use {
+    presentation::SchoolSessionState, presentation::SchoolSignInProblem,
+    presentation::SchoolSignInProblemKind, presentation::SignInPresentation,
+    presentation::SignInRecovery,
+};
+pub use {snapshot::SchoolMaintenance, snapshot::SchoolSessionSnapshot};
+pub use {snapshot::SchoolProfileSession, snapshot::SchoolSessionProfiles};
+#[cfg(feature = "campus-vpn")]
+pub use {vpn::CampusVpnError, vpn::CampusVpnLogin};
 
 use self::{
     identity::{Checked, Identity},
@@ -90,27 +91,27 @@ use url::Url;
 /// One account sign-in, waiting for the one-time password window included.
 /// A sign-in does not stop when the caller that started it stops waiting,
 /// so it needs its own bound.
-pub const SIGN_IN_DEADLINE: Duration = Duration::from_secs(60);
+pub(crate) const SIGN_IN_DEADLINE: Duration = Duration::from_secs(60);
 /// A one-time password window with less left than this is skipped for the
 /// next one (Extic's clock runs a little ahead).
-pub const OTP_MARGIN: Duration = Duration::from_secs(8);
+pub(crate) const OTP_MARGIN: Duration = Duration::from_secs(8);
 /// After a network failure, the earliest the next sign-in may start.
-pub const RETRY_NOT_BEFORE: Duration = Duration::from_secs(60);
+pub(crate) const RETRY_NOT_BEFORE: Duration = Duration::from_secs(60);
 /// The longest a web operation waits for the shell to write the identity
 /// cookies into the web view. Only the caller stops waiting: the write stays
 /// queued, and nothing behind it overtakes it.
-pub const SEED_WAIT: Duration = Duration::from_secs(10);
+pub(crate) const SEED_WAIT: Duration = Duration::from_secs(10);
 /// A web cookie call the platform has not answered after this makes the
 /// store unusable until it does: no write is admitted meanwhile. Within it,
 /// shutdown waits for the answer.
-pub const WEB_STORE_LIMIT: Duration = Duration::from_secs(10);
+pub(crate) const WEB_STORE_LIMIT: Duration = Duration::from_secs(10);
 /// One verification of an identity, everything included.
-pub const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
+pub(crate) const VERIFY_DEADLINE: Duration = Duration::from_secs(30);
 /// A web operation uses an identity verified less long ago as it is.
-pub const VERIFIED_FRESH: Duration = Duration::from_secs(5 * 60);
+pub(crate) const VERIFIED_FRESH: Duration = Duration::from_secs(5 * 60);
 /// One web operation, everything included: getting the identity ready (a
 /// verification, a sign-in), its writes and its page loads.
-pub const WEB_OPERATION_DEADLINE: Duration = Duration::from_secs(150);
+pub(crate) const WEB_OPERATION_DEADLINE: Duration = Duration::from_secs(150);
 
 const _: () = assert!(SEED_WAIT.as_secs() <= WEB_STORE_LIMIT.as_secs());
 const _: () = assert!(
@@ -448,7 +449,7 @@ impl WebWrite {
 impl SchoolSessions {
     /// Sessions over `http`; without one (it could not be built) every
     /// request fails as offline.
-    pub fn new(http: Option<Http>, auth: Arc<SchoolAuthService>) -> Self {
+    pub(crate) fn new(http: Option<Http>, auth: Arc<SchoolAuthService>) -> Self {
         let transport: Arc<dyn Transport> = match http {
             Some(http) => Arc::new(http),
             None => Arc::new(Offline),
@@ -534,7 +535,7 @@ impl SchoolSessions {
     }
 
     /// The shell's write-only web cookie port. Set once.
-    pub fn attach_web(&self, seed: Arc<dyn WebCookieSeed>) -> bool {
+    pub(crate) fn attach_web(&self, seed: Arc<dyn WebCookieSeed>) -> bool {
         self.0.web.attach(seed)
     }
 
@@ -811,7 +812,7 @@ impl SchoolSessions {
 
     /// The verified credentials as the synchronized bundle, for an
     /// encrypted credential backup. Never crosses the WebView IPC boundary.
-    pub fn export_credentials(&self) -> Result<String, SchoolAuthError> {
+    pub(crate) fn export_credentials(&self) -> Result<String, SchoolAuthError> {
         self.0.auth.export_sync_payload()
     }
 

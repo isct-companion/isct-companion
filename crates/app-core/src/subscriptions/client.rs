@@ -56,11 +56,11 @@ struct SubscriptionIndex {
 }
 
 #[derive(Clone, Debug)]
-pub struct ReferenceFetch<T> {
+pub(crate) struct ReferenceFetch<T> {
     pub value: Option<T>,
-    pub data_url: String,
-    pub remote_hash: String,
-    pub source_ts: String,
+    pub(crate) data_url: String,
+    pub(crate) remote_hash: String,
+    pub(crate) source_ts: String,
 }
 
 impl<T> ReferenceFetch<T> {
@@ -152,12 +152,12 @@ fn exam_scope(path: &str, year: i32, kind: ExamFeedKind) -> Option<(String, Stri
     Some((parts[1].to_string(), quarter.to_string()))
 }
 
-pub struct SubscriptionClient {
+pub(crate) struct SubscriptionClient {
     client: Client,
 }
 
 impl SubscriptionClient {
-    pub fn new() -> Result<Self, SubscriptionError> {
+    pub(crate) fn new() -> Result<Self, SubscriptionError> {
         let client = crate::net::client_builder()
             .timeout(std::time::Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::limited(3))
@@ -167,7 +167,10 @@ impl SubscriptionClient {
     }
     /// Reads and validates the single repository entry point. Its raw hash is
     /// used to skip dataset requests when no metadata changed.
-    pub async fn probe_index_source(&self, index_url: &str) -> Result<String, SubscriptionError> {
+    pub(crate) async fn probe_index_source(
+        &self,
+        index_url: &str,
+    ) -> Result<String, SubscriptionError> {
         let (_, _, hash) = self.fetch_index(index_url, None).await?;
         Ok(hash)
     }
@@ -257,7 +260,7 @@ impl SubscriptionClient {
         Ok(ReferenceFetch::from_source(url, source, value))
     }
 
-    pub async fn fetch_calendar(
+    pub(crate) async fn fetch_calendar(
         &self,
         index_url: &str,
         year: i32,
@@ -280,7 +283,7 @@ impl SubscriptionClient {
                 Ok(calendar)
             })
     }
-    pub async fn fetch_departments(
+    pub(crate) async fn fetch_departments(
         &self,
         index_url: &str,
         year: i32,
@@ -303,7 +306,7 @@ impl SubscriptionClient {
                 Ok(departments)
             })
     }
-    pub async fn fetch_important_dates(
+    pub(crate) async fn fetch_important_dates(
         &self,
         index_url: &str,
         year: i32,
@@ -323,7 +326,7 @@ impl SubscriptionClient {
 
     /// A year without published class schedules yields an empty feed, so
     /// rows of a withdrawn file are marked missing instead of lingering.
-    pub async fn fetch_class_schedules(
+    pub(crate) async fn fetch_class_schedules(
         &self,
         index_url: &str,
         year: i32,
@@ -362,7 +365,7 @@ impl SubscriptionClient {
     /// anything is stored. An index without format 2, a bad hash or a file
     /// of another format fails the read and keeps the stored copy.
     #[cfg(feature = "campus-map")]
-    pub async fn fetch_campus_map(
+    pub(crate) async fn fetch_campus_map(
         &self,
         index_url: &str,
         expected_index_hash: Option<&str>,
@@ -393,7 +396,7 @@ impl SubscriptionClient {
         Ok(ReferenceFetch::from_source(url, source, Some(file)))
     }
 
-    pub async fn fetch_exams(
+    pub(crate) async fn fetch_exams(
         &self,
         index_url: &str,
         year: i32,

@@ -140,7 +140,7 @@ pub(crate) fn teaching_week(range: &QuarterRange, date: NaiveDate) -> Option<u32
         .then(|| ((date - monday_of(from)).num_days() / 7 + 1) as u32)
 }
 
-pub fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, ScheduleError> {
+pub(crate) fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, ScheduleError> {
     if !(1900..=9998).contains(&year) {
         return Err(ScheduleError::InvalidInput("Invalid academic year.".into()));
     }
@@ -204,7 +204,7 @@ pub fn timetable_year(workspace: &Value, year: i32) -> Result<TimetableYear, Sch
 
 /// The exception or official calendar row for `date`, its label in the
 /// content language.
-pub fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
+pub(crate) fn calendar_state(workspace: &Value, date: &str) -> Option<Value> {
     let row = array(workspace, "exceptions")
         .iter()
         .find(|row| visible(row) && text(row, "date") == Some(date))
@@ -325,7 +325,7 @@ fn boundary<'a>(workspace: &'a Value, year: i32, quarter: &str, kind: &str) -> O
         .filter(|date| parse_civil_date(date).is_ok())
 }
 
-pub fn academic_year_of(date: &str) -> Result<i32, ScheduleError> {
+pub(crate) fn academic_year_of(date: &str) -> Result<i32, ScheduleError> {
     let date = parse_civil_date(date)?;
     Ok(if date.month() >= 4 {
         date.year()
@@ -334,7 +334,7 @@ pub fn academic_year_of(date: &str) -> Result<i32, ScheduleError> {
     })
 }
 
-pub fn academic_year_calendar(
+pub(crate) fn academic_year_calendar(
     workspace: &Value,
     year: i32,
 ) -> Result<AcademicYearCalendar, ScheduleError> {
@@ -457,7 +457,7 @@ pub fn academic_year_calendar(
     })
 }
 
-pub fn academic_term_for_date(
+pub(crate) fn academic_term_for_date(
     date: &str,
     profile: &Value,
 ) -> Result<Option<String>, ScheduleError> {

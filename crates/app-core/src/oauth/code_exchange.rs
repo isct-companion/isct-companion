@@ -26,7 +26,7 @@ impl OAuthClient {
     }
 
     #[cfg(target_os = "ios")]
-    pub fn ios_redirect(&self) -> Result<Url, OAuthError> {
+    pub(crate) fn ios_redirect(&self) -> Result<Url, OAuthError> {
         let scheme = self.id.rsplit('.').collect::<Vec<_>>().join(".");
         Url::parse(&format!("{scheme}:/oauthredirect")).map_err(|_| OAuthError::Configuration)
     }
@@ -50,11 +50,11 @@ pub struct Options<'a> {
     pub scope: &'a str,
     pub prompt: &'a str,
     pub offline: bool,
-    pub hosted_domain: Option<&'a str>,
-    pub nonce: Option<&'a str>,
+    pub(crate) hosted_domain: Option<&'a str>,
+    pub(crate) nonce: Option<&'a str>,
 }
 
-pub struct PendingAuthorization {
+pub(crate) struct PendingAuthorization {
     pub url: Url,
     redirect: Url,
     verifier: String,
@@ -65,15 +65,15 @@ pub struct PendingAuthorization {
 #[derive(Deserialize)]
 pub struct Tokens {
     pub access_token: String,
-    pub refresh_token: Option<String>,
-    pub id_token: Option<String>,
-    pub expires_in: Option<u64>,
+    pub(crate) refresh_token: Option<String>,
+    pub(crate) id_token: Option<String>,
+    pub(crate) expires_in: Option<u64>,
 }
 
-pub struct CodeExchange(reqwest::Client);
+pub(crate) struct CodeExchange(reqwest::Client);
 
 impl CodeExchange {
-    pub fn new() -> Result<Self, OAuthError> {
+    pub(crate) fn new() -> Result<Self, OAuthError> {
         crate::net::client_builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(45))
@@ -82,7 +82,7 @@ impl CodeExchange {
             .map_err(|_| OAuthError::Configuration)
     }
 
-    pub async fn exchange(
+    pub(crate) async fn exchange(
         &self,
         client: &OAuthClient,
         pending: &PendingAuthorization,
@@ -162,7 +162,7 @@ struct Rejection {
     error: String,
 }
 
-pub fn begin(
+pub(crate) fn begin(
     client_id: &str,
     redirect: Url,
     options: Options<'_>,
@@ -234,7 +234,7 @@ impl PendingAuthorization {
     }
 }
 
-pub fn random_urlsafe<const N: usize>() -> Result<String, OAuthError> {
+pub(crate) fn random_urlsafe<const N: usize>() -> Result<String, OAuthError> {
     let mut value = [0; N];
     ring::rand::SystemRandom::new()
         .fill(&mut value)

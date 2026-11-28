@@ -25,7 +25,7 @@ struct UploadRun<'a> {
 }
 
 impl UploadTracker {
-    pub fn new(publisher: Arc<Publisher>, status: ExamUploadStatus) -> Self {
+    pub(super) fn new(publisher: Arc<Publisher>, status: ExamUploadStatus) -> Self {
         Self {
             progress: Mutex::new(Progress {
                 status,
@@ -35,7 +35,7 @@ impl UploadTracker {
         }
     }
 
-    pub fn cancel(&self) -> Result<(), ExamError> {
+    pub(super) fn cancel(&self) -> Result<(), ExamError> {
         let progress = self.progress.lock().map_err(|_| ExamError::Storage)?;
         if progress.status.cancellable {
             if let Some(cancel) = &progress.cancel {
@@ -45,7 +45,7 @@ impl UploadTracker {
         Ok(())
     }
 
-    pub fn settled(&self, pending: bool) {
+    pub(super) fn settled(&self, pending: bool) {
         self.set(settled_status(pending), None);
     }
 

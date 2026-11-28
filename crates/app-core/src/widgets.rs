@@ -76,7 +76,11 @@ impl Core {
         self.widgets.refresh();
     }
 
-    pub fn widget_publication(&self, now: DateTime<Utc>) -> Result<WidgetPublication, WidgetError> {
+    #[cfg(test)]
+    pub(crate) fn widget_publication(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<WidgetPublication, WidgetError> {
         publication(&self.store, now)
     }
 

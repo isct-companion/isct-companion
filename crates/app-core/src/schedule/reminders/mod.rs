@@ -22,12 +22,12 @@ use crate::locale::{pick, ContentLanguage};
 #[cfg(any(test, feature = "mobile-reminders"))]
 mod mobile;
 #[cfg(any(test, feature = "mobile-reminders"))]
-pub use mobile::{
-    PendingReminder, PendingReminderState, ReminderDeliveryPlan, ReminderPort, ReminderPortFacts,
-    ReminderReceipt,
+pub use {
+    mobile::ReminderDeliveryPlan, mobile::ReminderPort, mobile::ReminderPortFacts,
+    mobile::ReminderReceipt,
 };
 
-pub const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
+pub(crate) const DEFAULT_ASSIGNMENT_LEADS: [i64; 2] = [1440, 60];
 
 const CLASS_LEAD_PRESETS: [u32; 4] = [5, 10, 15, 30];
 const EXAM_LEAD_PRESETS: [u32; 5] = [10, 30, 60, 1440, 2880];
@@ -111,10 +111,10 @@ pub enum ReminderError {
 }
 
 #[derive(Clone)]
-pub struct ReminderService(Arc<ReminderInner>);
+pub(crate) struct ReminderService(Arc<ReminderInner>);
 
 /// The reminder log's file name in `StorePaths::local`.
-pub const REMINDER_LOG: &str = "reminders-fired.json";
+pub(crate) const REMINDER_LOG: &str = "reminders-fired.json";
 /// How far ahead a pass looks for the next reminder; with none in it, the
 /// next pass is this far out. A workspace change brings it forward.
 const LOOKAHEAD_HOURS: i64 = 36;
@@ -135,7 +135,7 @@ struct ReminderInner {
 }
 
 impl ReminderService {
-    pub fn new(store: crate::data::DataStore) -> Self {
+    pub(crate) fn new(store: crate::data::DataStore) -> Self {
         let fired_path = store.paths().local(REMINDER_LOG);
         Self(Arc::new(ReminderInner {
             store,
@@ -150,7 +150,7 @@ impl ReminderService {
     }
 
     /// The shell's notifications, for every later pass.
-    pub fn attach(&self, sink: Arc<dyn NotificationSink>) {
+    pub(crate) fn attach(&self, sink: Arc<dyn NotificationSink>) {
         if let Ok(mut slot) = self.0.sink.lock() {
             *slot = Some(sink);
         }
@@ -193,7 +193,7 @@ impl ReminderService {
     /// Claims and delivers reminders due within the five-minute grace
     /// window, and notes when the next one is due. Concurrent passes
     /// coalesce into one.
-    pub async fn deliver_due(
+    pub(crate) async fn deliver_due(
         &self,
         sink: Arc<dyn NotificationSink>,
         now: DateTime<FixedOffset>,
@@ -272,7 +272,7 @@ impl ReminderService {
             .await?
     }
 
-    pub async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) {
         self.0.tasks.close();
         self.0.tasks.wait().await;
         if let Ok(mut sink) = self.0.sink.lock() {
@@ -513,13 +513,13 @@ pub fn glance(
 /// reads plain values.
 pub(crate) struct NotificationPreferences {
     pub classes: bool,
-    pub class_lead_minutes: i64,
+    pub(crate) class_lead_minutes: i64,
     /// Older installations delivered exams with class reminders; an unset
     /// exam switch and time follow the class ones.
-    pub exams: bool,
-    pub exam_lead_minutes: i64,
+    pub(crate) exams: bool,
+    pub(crate) exam_lead_minutes: i64,
     /// Quizzes count as exams on Today and in exam reminders.
-    pub quizzes: bool,
+    pub(crate) quizzes: bool,
     pub assignments: bool,
 }
 
@@ -568,7 +568,7 @@ pub(crate) fn assignment_lead_minutes(settings: &Value) -> Result<Vec<i64>, Sche
     Ok(leads)
 }
 
-pub fn notification_plan(
+pub(crate) fn notification_plan(
     workspace: &Value,
     school: &SchoolReads,
     now: DateTime<FixedOffset>,

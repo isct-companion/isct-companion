@@ -37,7 +37,7 @@ impl WorkspaceChangeSource {
 /// Hears every commit that changed workspace rows. Core installs one to
 /// publish the change and schedule cloud capture, so no caller of the store
 /// has to remember either.
-pub trait CommitObserver: Send + Sync {
+pub(crate) trait CommitObserver: Send + Sync {
     /// After the commit, outside the transaction. `revision` is the
     /// user-intent revision when the write was a workspace intent. `tables`
     /// are the tables the transaction inserted into, updated or deleted from

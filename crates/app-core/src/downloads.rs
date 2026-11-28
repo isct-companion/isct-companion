@@ -15,7 +15,7 @@ use crate::{
         Attempt, Blocked, OpError, Operation, Permit, RunError, SchoolSessions, Site,
     },
 };
-pub use adpt_isct::lms::ResolvedResource;
+pub(crate) use adpt_isct::lms::ResolvedResource;
 use adpt_isct::lms::{is_lms_origin, is_plugin_file_url, parse_resource_page};
 use reqwest::header::{
     CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, COOKIE, LOCATION, RANGE,
@@ -50,7 +50,7 @@ const RUN_DEADLINE: Duration = Duration::from_secs(
 const MAX_RESOURCE_PAGE: u64 = 1_000_000;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Fetched {
+pub(crate) enum Fetched {
     Saved,
     TooLarge(u64),
 }
@@ -682,7 +682,7 @@ impl Downloader {
             .ok_or(FetchError::Cancelled)
     }
 
-    pub async fn fetch(
+    pub(crate) async fn fetch(
         &self,
         url: &Url,
         target: PathBuf,

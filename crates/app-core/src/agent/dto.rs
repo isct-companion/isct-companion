@@ -24,15 +24,15 @@ pub(super) struct Text {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ja: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub en: Option<String>,
+    pub(crate) en: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
 pub(super) struct Credits {
-    pub lecture: f64,
-    pub exercise: f64,
-    pub lab: f64,
+    pub(crate) lecture: f64,
+    pub(crate) exercise: f64,
+    pub(crate) lab: f64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
@@ -45,18 +45,18 @@ pub(super) struct Meeting {
     pub days: Vec<u8>,
     pub periods: Vec<u8>,
     /// HH:MM, Japan time.
-    pub start_time: String,
-    pub end_time: String,
+    pub(crate) start_time: String,
+    pub(crate) end_time: String,
     pub room: String,
     /// The quarters it applies to, when not every quarter of the course.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub term_ids: Option<Vec<String>>,
+    pub(crate) term_ids: Option<Vec<String>>,
     /// First date it applies, YYYY-MM-DD; absent means from the quarter's start.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_from: Option<String>,
+    pub(crate) valid_from: Option<String>,
     /// Last date it applies; absent means to the quarter's end.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub valid_to: Option<String>,
+    pub(crate) valid_to: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
@@ -66,13 +66,13 @@ pub(super) struct Course {
     /// YYYY-nQ.
     pub term_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub offering_id: Option<String>,
+    pub(crate) offering_id: Option<String>,
     pub code: String,
     pub title: String,
-    pub instructor: String,
-    pub credits: f64,
-    pub instruction_language: String,
-    pub meetings: Vec<Meeting>,
+    pub(crate) instructor: String,
+    pub(crate) credits: f64,
+    pub(crate) instruction_language: String,
+    pub(crate) meetings: Vec<Meeting>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
@@ -87,23 +87,23 @@ pub(super) struct Assignment {
     pub details: String,
     /// RFC 3339 with offset.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub due_at: Option<String>,
+    pub(crate) due_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source_url: Option<String>,
+    pub(crate) source_url: Option<String>,
     /// The LMS state: unknown, open, submitted or graded.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub submission: Option<String>,
+    pub(crate) submission: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub submission_status: Option<String>,
+    pub(crate) submission_status: Option<String>,
     /// The grade as the LMS displays it.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub grade: Option<String>,
+    pub(crate) grade: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pinned: Option<bool>,
 }
 
 impl Assignment {
-    pub fn from_row(row: &Value) -> Result<Self, AgentError> {
+    pub(crate) fn from_row(row: &Value) -> Result<Self, AgentError> {
         let mut assignment: Self = pick(row)?;
         assignment.details = plain_text(&assignment.details);
         Ok(assignment)
@@ -126,26 +126,26 @@ pub(super) struct LmsItem {
     pub title: String,
     /// pdf, link or video.
     #[serde(rename = "type")]
-    pub item_type: String,
+    pub(crate) item_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub section_number: Option<i32>,
+    pub(crate) section_number: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub section_title: Option<String>,
+    pub(crate) section_title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub module: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_url: Option<String>,
+    pub(crate) resource_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub folder_files: Option<Vec<FolderFile>>,
+    pub(crate) folder_files: Option<Vec<FolderFile>>,
     /// The page body, as plain text.
     #[serde(alias = "bodyHtml", skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
 }
 
 impl LmsItem {
-    pub fn from_row(row: &Value) -> Result<Self, AgentError> {
+    pub(crate) fn from_row(row: &Value) -> Result<Self, AgentError> {
         let mut item: Self = pick(row)?;
         item.body = item
             .body
@@ -166,8 +166,8 @@ pub(super) struct Event {
     pub title: String,
     /// 1 = Monday … 7 = Sunday.
     pub days: Vec<u8>,
-    pub start_time: String,
-    pub end_time: String,
+    pub(crate) start_time: String,
+    pub(crate) end_time: String,
     pub room: String,
 }
 
@@ -178,22 +178,22 @@ pub(super) struct Event {
 pub(super) struct CalendarDay {
     pub date: String,
     #[serde(rename = "type")]
-    pub day_type: String,
+    pub(crate) day_type: String,
     /// Plain text, or `{ja, en}`.
     pub label: Value,
     /// The weekday whose timetable runs, 1 = Monday.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub replacement_day: Option<u8>,
+    pub(crate) replacement_day: Option<u8>,
 }
 
 /// An entry of the school's important-dates list covering a date.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub(super) struct ImportantDate {
-    pub start_date: String,
-    pub end_date: String,
+    pub(crate) start_date: String,
+    pub(crate) end_date: String,
     pub label: Text,
-    pub category: String,
+    pub(crate) category: String,
 }
 
 /// One date as Core computes it for the app's calendar, with every personal
@@ -206,18 +206,18 @@ pub(super) struct Day {
     /// The weekly class pattern stops on this date (holiday, break, outside
     /// teaching weeks) and no class or exam is held. Personal events may
     /// still fall on it.
-    pub no_classes: bool,
+    pub(crate) no_classes: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub calendar_notice: Option<String>,
+    pub(crate) calendar_notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarDay>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub important_dates: Vec<ImportantDate>,
+    pub(crate) important_dates: Vec<ImportantDate>,
     pub occurrences: Vec<Occurrence>,
 }
 
 impl Day {
-    pub fn from_agenda(agenda: crate::schedule::DatedAgenda) -> Result<Self, AgentError> {
+    pub(crate) fn from_agenda(agenda: crate::schedule::DatedAgenda) -> Result<Self, AgentError> {
         let crate::schedule::DatedAgenda {
             date,
             occurrences,
@@ -259,37 +259,37 @@ pub(super) struct Occurrence {
     pub code: Option<String>,
     pub room: String,
     /// HH:MM, Japan time.
-    pub start_time: String,
-    pub end_time: String,
+    pub(crate) start_time: String,
+    pub(crate) end_time: String,
     /// Set when it ends on a later date than `date`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_date: Option<String>,
+    pub(crate) end_date: Option<String>,
     /// Cancelled (休講) by the school or the person; kept so it can be
     /// explained, but it is not held.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub cancelled: bool,
     /// An exam block the person marked as a quiz (小テスト).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub quiz: bool,
+    pub(crate) quiz: bool,
     /// The person changed its date, time or room.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub overridden: bool,
+    pub(crate) overridden: bool,
     /// The published exam changed after the person corrected it, or left the
     /// exam timetable; the person's values stay until they choose.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub source_changed: bool,
+    pub(crate) source_changed: bool,
     /// A course only planned for its quarter, with no registration there.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub planned: bool,
+    pub(crate) planned: bool,
     /// It overlaps another class or exam.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub conflict: bool,
     /// The keys of what it overlaps.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub conflict_with: Vec<String>,
+    pub(crate) conflict_with: Vec<String>,
     /// 物理学演習・実験, which meets in turns.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub alternation: Option<Alternation>,
+    pub(crate) alternation: Option<Alternation>,
 }
 
 impl From<crate::schedule::Occurrence> for Occurrence {
@@ -368,7 +368,7 @@ pub(super) struct Alternation {
     pub number: Option<String>,
     /// The 演習 and 実験 sharing this block, exercise first.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub pair: Vec<PairedCourse>,
+    pub(crate) pair: Vec<PairedCourse>,
 }
 
 impl From<crate::schedule::Alternation> for Alternation {
@@ -405,8 +405,8 @@ pub(super) struct PairedCourse {
     pub code: Option<String>,
     pub room: String,
     /// This course's own meeting, which may be shorter than the block.
-    pub start_time: String,
-    pub end_time: String,
+    pub(crate) start_time: String,
+    pub(crate) end_time: String,
 }
 
 impl From<crate::schedule::PairedCourse> for PairedCourse {
@@ -480,15 +480,15 @@ pub(super) struct Exam {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub course_id: Option<String>,
     /// The course came from code matching, not from the person's link.
-    pub auto_linked: bool,
+    pub(crate) auto_linked: bool,
     pub code: String,
     pub title: String,
     /// The date in effect, after the person's correction.
     pub date: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<String>,
+    pub(crate) start_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
+    pub(crate) end_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub periods: Option<[u8; 2]>,
     pub room: String,
@@ -571,9 +571,9 @@ impl From<crate::schedule::ExamView> for Exam {
 pub(super) struct ExamSchedule {
     pub date: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_time: Option<String>,
+    pub(crate) start_time: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_time: Option<String>,
+    pub(crate) end_time: Option<String>,
     pub room: String,
 }
 
@@ -616,10 +616,10 @@ fn wire_name<T: Serialize>(value: &T) -> String {
 pub(super) struct GpaSummary {
     pub scope: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpa: Option<f64>,
+    pub(crate) gpa: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub gpt: Option<f64>,
-    pub earned_credits: f64,
+    pub(crate) gpt: Option<f64>,
+    pub(crate) earned_credits: f64,
 }
 
 /// One row of the 教務 GPA-by-term table, cell by cell.
@@ -633,8 +633,8 @@ pub(super) struct GpaTerm {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default)]
 pub(super) struct Requirement {
-    pub table: u32,
-    pub category: String,
+    pub(crate) table: u32,
+    pub(crate) category: String,
     pub label: String,
     pub value: Value,
 }
@@ -644,18 +644,18 @@ pub(super) struct Requirement {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub(super) struct Grade {
-    pub category: Text,
+    pub(crate) category: Text,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructor: Option<String>,
+    pub(crate) instructor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<String>,
+    pub(crate) recommended: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub credits: Option<String>,
+    pub(crate) credits: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub effective_credits: Option<f64>,
+    pub(crate) effective_credits: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -668,16 +668,16 @@ pub(super) struct Grade {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub(super) struct Registration {
-    pub offering_id: String,
+    pub(crate) offering_id: String,
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instructor: Option<String>,
+    pub(crate) instructor: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub term_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub quarters: Option<Vec<u8>>,
+    pub(crate) quarters: Option<Vec<u8>>,
     /// Quarter, weekday and periods as the page lists them.
     #[serde(skip_serializing_if = "Value::is_null")]
     pub schedule: Value,
@@ -685,15 +685,15 @@ pub(super) struct Registration {
     #[serde(skip_serializing_if = "Value::is_null")]
     pub requirement: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub course_state: Option<String>,
+    pub(crate) course_state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub declared_only: Option<bool>,
+    pub(crate) declared_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub credits: Option<Credits>,
+    pub(crate) credits: Option<Credits>,
     #[serde(skip_serializing_if = "Value::is_null")]
-    pub unit: Value,
+    pub(crate) unit: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub unit_total: Option<f64>,
+    pub(crate) unit_total: Option<f64>,
 }
 
 /// A course offering in the local catalog.
@@ -702,24 +702,24 @@ pub(super) struct Registration {
 pub(super) struct Offering {
     pub id: String,
     pub year: i32,
-    pub quarters: Vec<String>,
+    pub(crate) quarters: Vec<String>,
     pub code: String,
     pub title: Text,
-    pub instructors: Vec<Text>,
-    pub instruction_language: String,
-    pub credits: Credits,
+    pub(crate) instructors: Vec<Text>,
+    pub(crate) instruction_language: String,
+    pub(crate) credits: Credits,
     /// Weekly slots, intensive dates or registration-only rows.
     pub schedule: Value,
-    pub intensive: bool,
-    pub syllabus_url: String,
+    pub(crate) intensive: bool,
+    pub(crate) syllabus_url: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(default, rename_all = "camelCase")]
 pub(super) struct RecommendedCourse {
-    pub admission_year: i32,
-    pub department_id: String,
-    pub category: Text,
+    pub(crate) admission_year: i32,
+    pub(crate) department_id: String,
+    pub(crate) category: Text,
     pub level: i32,
     pub code: String,
     pub group: String,
@@ -728,7 +728,7 @@ pub(super) struct RecommendedCourse {
     pub mark: Option<String>,
     pub title: Text,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub credits: Option<Credits>,
+    pub(crate) credits: Option<Credits>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
 }

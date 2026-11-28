@@ -10,17 +10,17 @@ const MAX_ITEMS: usize = 40;
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GuideItem {
-    pub offering_id: String,
+    pub(crate) offering_id: String,
     pub code: String,
     pub title: String,
     /// 1 = Monday … 5 = Friday; absent for intensive / declaration-only.
-    pub day: Option<u8>,
+    pub(crate) day: Option<u8>,
     /// Human-readable slot, e.g. `3Q 月3-4`.
     pub slot: String,
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
-pub enum GuideError {
+pub(crate) enum GuideError {
     #[error("Too many courses for the registration guide.")]
     TooManyCourses,
     #[error("A registration guide item is invalid.")]
@@ -32,7 +32,7 @@ fn bounded(value: &str, max: usize) -> bool {
 }
 
 /// Rejects anything that is not a plain, bounded course row.
-pub fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, GuideError> {
+pub(crate) fn validate(items: Vec<GuideItem>) -> Result<Vec<GuideItem>, GuideError> {
     if items.len() > MAX_ITEMS {
         return Err(GuideError::TooManyCourses);
     }

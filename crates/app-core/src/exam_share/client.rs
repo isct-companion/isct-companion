@@ -39,7 +39,7 @@ pub(super) fn site_pages() -> ExamSitePages {
 }
 
 impl Endpoint {
-    pub const fn host(self) -> &'static str {
+    pub(super) const fn host(self) -> &'static str {
         match self {
             Self::Site => "sciencetokyoexam.com",
             Self::IdentityToolkit => "identitytoolkit.googleapis.com",
@@ -55,7 +55,7 @@ pub(super) struct Client {
 }
 
 impl Client {
-    pub fn new(version: String) -> Result<Self, ExamError> {
+    pub(super) fn new(version: String) -> Result<Self, ExamError> {
         Ok(Self {
             http: client_builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -71,7 +71,7 @@ impl Client {
         Url::parse(&format!("https://{}/", endpoint.host())).map_err(|_| ExamError::Unavailable)
     }
 
-    pub fn request(
+    pub(super) fn request(
         &self,
         endpoint: Endpoint,
         method: Method,
@@ -99,7 +99,7 @@ impl Client {
 
     /// Send a site request whose answer has no body Core reads: any 2xx,
     /// 204 included, is success.
-    pub async fn fire(&self, request: RequestBuilder) -> Result<(), ExamError> {
+    pub(crate) async fn fire(&self, request: RequestBuilder) -> Result<(), ExamError> {
         self.space().await;
         let response = request.send().await.map_err(network)?;
         if response.status().is_success() {
@@ -109,7 +109,7 @@ impl Client {
         }
     }
 
-    pub async fn service<T: DeserializeOwned>(
+    pub(super) async fn service<T: DeserializeOwned>(
         &self,
         request: RequestBuilder,
     ) -> Result<T, ExamError> {
@@ -184,7 +184,7 @@ impl Client {
         }
     }
 
-    pub async fn firebase<T: DeserializeOwned>(
+    pub(crate) async fn firebase<T: DeserializeOwned>(
         &self,
         request: RequestBuilder,
     ) -> Result<T, ExamError> {
@@ -219,7 +219,12 @@ impl Client {
 
     /// Stream a signed file URL into `path`, refusing more than `limit`
     /// bytes, the service's own limit for one material.
-    pub async fn fetch_file(&self, url: Url, path: &Path, limit: u64) -> Result<(), ExamError> {
+    pub(crate) async fn fetch_file(
+        &self,
+        url: Url,
+        path: &Path,
+        limit: u64,
+    ) -> Result<(), ExamError> {
         if !is_file_url(&url) {
             return Err(ExamError::Response);
         }

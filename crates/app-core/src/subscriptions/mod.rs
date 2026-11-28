@@ -1,21 +1,23 @@
 mod apply;
 mod client;
-mod feeds;
+pub(crate) mod feeds;
 
-pub use apply::{apply_class_schedules, apply_exam_feed, apply_important_dates, apply_reference};
-pub use client::{ReferenceFetch, SubscriptionClient};
-pub use feeds::{
-    validate_academic_calendar, validate_class_schedules, validate_departments, validate_exam_feed,
-    validate_important_dates, AcademicCalendar, CalendarDay, CalendarDayType, ClassScheduleEntry,
-    ClassSchedules, ClassSession, Credits, DateRange, Department, Departments, ExamEntry, ExamFeed,
-    ExamFeedKind, FeedSource, ImportantDateEntry, ImportantDates, PublishedExamFeed,
-    RecommendationMark, RecommendedCourse, SourceLink,
+pub(crate) use {
+    apply::apply_class_schedules, apply::apply_exam_feed, apply::apply_important_dates,
+    apply::apply_reference,
+};
+pub(crate) use {client::ReferenceFetch, client::SubscriptionClient};
+pub(crate) use {
+    feeds::validate_academic_calendar, feeds::validate_class_schedules,
+    feeds::validate_departments, feeds::validate_exam_feed, feeds::validate_important_dates,
+    feeds::AcademicCalendar, feeds::ClassSchedules, feeds::Departments, feeds::ExamFeedKind,
+    feeds::ImportantDates, feeds::PublishedExamFeed,
 };
 
 use crate::data::DataError;
 
 #[derive(Debug, thiserror::Error)]
-pub enum SubscriptionError {
+pub(crate) enum SubscriptionError {
     #[error("{0}")]
     Validation(String),
     #[error("{0}")]

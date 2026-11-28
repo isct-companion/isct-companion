@@ -1,10 +1,12 @@
 //! `Http`: one long-lived client per host with that host's budget, timeouts,
 //! byte cap and circuit breaker.
 
+#[cfg(any(test, not(feature = "demo")))]
+use super::USER_AGENT;
 use super::{
     breaker::{Admission, Breaker, Outcome},
     redact::redact_text,
-    Body, Host, NetError, NetRequest, Response, USER_AGENT,
+    Body, Host, NetError, NetRequest, Response,
 };
 use std::{collections::HashMap, error::Error as _, sync::Arc, time::Duration};
 use tokio::{
@@ -14,6 +16,7 @@ use tokio::{
 
 /// No bytes (headers or body) for this long fails the request as stalled.
 const STALL: Duration = Duration::from_secs(20);
+#[cfg(any(test, not(feature = "demo")))]
 const CONNECT: Duration = Duration::from_secs(5);
 
 struct Lane {
@@ -52,14 +55,15 @@ struct Inner {
 }
 
 #[derive(Clone)]
-pub struct Http(Arc<Inner>);
+pub(crate) struct Http(Arc<Inner>);
 
 fn now_unix() -> i64 {
     crate::clock::now().timestamp()
 }
 
 impl Http {
-    pub fn new() -> Result<Self, NetError> {
+    #[cfg(any(test, not(feature = "demo")))]
+    pub(crate) fn new() -> Result<Self, NetError> {
         let mut lanes = HashMap::new();
         for &host in Host::ALL {
             let builder = super::client_builder()
@@ -107,7 +111,7 @@ impl Http {
     /// 503 means. Statuses [`super::host_failing`] names still count as host
     /// failures. The deadline
     /// starts when the request leaves the host queue.
-    pub async fn send(&self, request: NetRequest) -> Result<Response, NetError> {
+    pub(crate) async fn send(&self, request: NetRequest) -> Result<Response, NetError> {
         if Host::of(&request.url) != Some(request.host) {
             return Err(NetError::Invalid(format!(
                 "URL does not belong to {}",
@@ -149,18 +153,18 @@ impl Http {
     }
 
     /// The caller saw a maintenance page: pause the host now.
-    pub fn report_maintenance(&self, host: Host) {
+    pub(crate) fn report_maintenance(&self, host: Host) {
         self.0.breaker.trip(host, now_unix());
     }
 
     /// The end of the host's current pause, while it lasts.
-    pub fn paused_until(&self, host: Host) -> Option<i64> {
+    pub(crate) fn paused_until(&self, host: Host) -> Option<i64> {
         self.0.breaker.paused_until(host, now_unix())
     }
 
     /// Lets the next request to a paused host be its probe now
     /// (`Breaker::probe_early`); returns whether it did.
-    pub fn probe_early(&self, host: Host) -> bool {
+    pub(crate) fn probe_early(&self, host: Host) -> bool {
         self.0.breaker.probe_early(host, now_unix())
     }
 

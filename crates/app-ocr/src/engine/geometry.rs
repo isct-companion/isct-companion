@@ -1,10 +1,10 @@
 #[derive(Clone, Copy, Debug)]
-pub struct Point {
+pub(crate) struct Point {
     pub x: f64,
     pub y: f64,
 }
 
-pub fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
+pub(super) fn project(corners: &[Point; 4], u: f64, v: f64) -> Point {
     let [a, b, c, d] = *corners;
     let (dx, dy) = (a.x - b.x + c.x - d.x, a.y - b.y + c.y - d.y);
     let (bx, by, cx, cy) = (b.x - c.x, b.y - c.y, d.x - c.x, d.y - c.y);

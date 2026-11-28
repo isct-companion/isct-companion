@@ -28,7 +28,7 @@ pub(super) fn overlap(slot: &Value, from: u64, to: u64) -> bool {
     let p = array(slot, "periods");
     matches!((p.first().and_then(Value::as_u64),p.get(1).and_then(Value::as_u64)),(Some(a),Some(b)) if a<=to && from<=b)
 }
-pub fn total_credits(course: &Value) -> f64 {
+pub(crate) fn total_credits(course: &Value) -> f64 {
     ["lecture", "exercise", "lab"]
         .iter()
         .map(|key| {
@@ -39,7 +39,7 @@ pub fn total_credits(course: &Value) -> f64 {
         })
         .sum()
 }
-pub fn clashes(course: &Value, busy: &[BusySlot]) -> bool {
+pub(crate) fn clashes(course: &Value, busy: &[BusySlot]) -> bool {
     weekly(course).any(|s| {
         busy.iter().any(|b| {
             s.get("day").and_then(Value::as_u64) == Some(u64::from(b.day))
@@ -54,7 +54,7 @@ fn same_offering(placed: &Value, offering: &Value) -> bool {
     }
 }
 
-pub fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
+pub(crate) fn clashing_courses(course: &Value, placed: &[Value]) -> Vec<Value> {
     placed
         .iter()
         .filter(|p| {
@@ -111,7 +111,7 @@ pub(crate) fn replaceable_drafts(
 /// What a search reads from the workspace for one term and catalog,
 /// whatever is typed: recommendations, the timetable, and each row's
 /// eligibility, clashes and replacements.
-pub struct FinderPersonal {
+pub(crate) struct FinderPersonal {
     pub(super) current_quarter: u8,
     pub(super) recommended: BTreeMap<String, Recommendation>,
     pub(super) busy: Vec<BusySlot>,
@@ -124,7 +124,7 @@ pub struct FinderPersonal {
     pub(super) placed_offerings: BTreeSet<String>,
 }
 impl FinderPersonal {
-    pub fn new(
+    pub(crate) fn new(
         workspace: &Value,
         catalog: &FinderCatalog,
         year: u16,

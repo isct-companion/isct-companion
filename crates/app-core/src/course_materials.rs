@@ -111,7 +111,7 @@ const ENTRY_PATH: &percent_encoding::AsciiSet = &percent_encoding::NON_ALPHANUME
     .remove(b'~');
 
 /// The source of the file `name` inside the archive at `archive`.
-pub fn archive_entry_source(archive: &str, name: &str) -> String {
+pub(crate) fn archive_entry_source(archive: &str, name: &str) -> String {
     format!(
         "{archive}{ENTRY_MARK}{}",
         percent_encoding::utf8_percent_encode(name, ENTRY_PATH)
@@ -595,7 +595,11 @@ fn bounded_download_limit(limit: Option<u64>) -> Option<u64> {
     limit.map(|bytes| bytes.clamp(1, MAX_AUTO_DOWNLOAD_BYTES))
 }
 
-pub fn material_path(root: &Path, course: &CourseKey, url: &Url) -> Result<PathBuf, MaterialError> {
+pub(crate) fn material_path(
+    root: &Path,
+    course: &CourseKey,
+    url: &Url,
+) -> Result<PathBuf, MaterialError> {
     let path = storage_dir(
         &crate::storage::material_root(root),
         &[&course.term, &course.course, "materials"],
@@ -613,7 +617,7 @@ pub fn material_path(root: &Path, course: &CourseKey, url: &Url) -> Result<PathB
 }
 
 /// `<file name>-<digest>.<ext>` preserves the desktop cache byte-for-byte.
-pub fn material_name(url: &Url) -> String {
+pub(crate) fn material_name(url: &Url) -> String {
     let segment = url
         .path_segments()
         .and_then(|mut segments| segments.next_back())
@@ -688,7 +692,7 @@ fn lms_resource_url(raw: &str) -> Option<(Url, LmsResourceKind)> {
     Some((url, LmsResourceKind::View { module, cmid }))
 }
 
-pub fn folder_contract(files: &[ResolvedFile]) -> Vec<FolderFile> {
+pub(crate) fn folder_contract(files: &[ResolvedFile]) -> Vec<FolderFile> {
     files
         .iter()
         .map(|file| FolderFile {
@@ -698,7 +702,7 @@ pub fn folder_contract(files: &[ResolvedFile]) -> Vec<FolderFile> {
         .collect()
 }
 
-pub fn stored_folder_files(row: Option<&serde_json::Value>) -> Option<Vec<ResolvedFile>> {
+pub(crate) fn stored_folder_files(row: Option<&serde_json::Value>) -> Option<Vec<ResolvedFile>> {
     let files: Vec<ResolvedFile> = serde_json::from_value(row?.get("folderFiles")?.clone()).ok()?;
     (!files.is_empty() && valid_folder_files(&files)).then_some(files)
 }
@@ -743,7 +747,7 @@ fn clean_materials(root: &Path, days: u64) -> Result<usize, MaterialError> {
 
 /// Files a sweep removed, or would remove.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct RemovedFiles {
+pub(crate) struct RemovedFiles {
     pub files: usize,
     pub bytes: u64,
 }
@@ -753,7 +757,7 @@ pub struct RemovedFiles {
 /// another process under `root`, whatever its age. Notes, workspaces,
 /// symlinks and this process's partial downloads are never traversed or
 /// removed.
-pub fn purge_downloads(root: &Path, delete: bool) -> Result<RemovedFiles, MaterialError> {
+pub(crate) fn purge_downloads(root: &Path, delete: bool) -> Result<RemovedFiles, MaterialError> {
     let mut removed = RemovedFiles::default();
     for directory in material_directories(root)? {
         let swept = sweep_material_directory(&directory, None, delete)?;

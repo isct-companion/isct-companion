@@ -40,7 +40,7 @@ const PROBE_URL: &str = "http://captive.apple.com/hotspot-detect.html";
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum CampusWifiOutcome {
+pub(crate) enum CampusWifiOutcome {
     SignedIn,
     /// The network was already open; nothing was submitted.
     AlreadyOnline,
@@ -53,7 +53,7 @@ pub enum CampusWifiOutcome {
 /// What the Wi-Fi interface is on right now, checked when the page opens.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum CampusWifiStatus {
+pub(crate) enum CampusWifiStatus {
     /// ScienceTokyo with the splash already passed.
     SignedIn,
     /// ScienceTokyo, still behind the splash.
@@ -66,7 +66,7 @@ pub enum CampusWifiStatus {
 /// needed (already on ScienceTokyo) is skipped.
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum CampusWifiStep {
+pub(crate) enum CampusWifiStep {
     Joining,
     OpeningPortal,
     SigningIn,
@@ -77,7 +77,7 @@ pub enum CampusWifiStep {
 #[derive(Default)]
 struct CampusWifi(tokio::sync::Mutex<()>);
 
-pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+pub(crate) fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("campus-wifi")
         .invoke_handler(tauri::generate_handler![status, connect])
         .setup(|app, _| {

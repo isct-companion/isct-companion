@@ -129,3 +129,6 @@ webview2-com = "0.39"
 tauri = { version = "2.12", features = ["protocol-asset", "tray-icon"] }
 [dev-dependencies]
 adpt-isct = { path = "../../../crates/adpt-isct" }
+
+[lints]
+workspace = true

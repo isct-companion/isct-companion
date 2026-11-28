@@ -5,16 +5,16 @@ use sha2::{Digest, Sha256};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VersionedValue {
+pub(crate) struct VersionedValue {
     pub value: Value,
     pub hash: String,
-    pub updated_at: String,
-    pub updated_by: String,
+    pub(crate) updated_at: String,
+    pub(crate) updated_by: String,
     pub rev: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deleted_at: Option<String>,
+    pub(crate) deleted_at: Option<String>,
 }
 
 fn canonical_number(number: &Number) -> Value {
@@ -53,7 +53,7 @@ fn canonical_json(value: &Value) -> Result<String, DataError> {
         .map_err(|_| DataError::storage("value cannot be serialized as canonical JSON"))
 }
 
-pub fn content_hash(value: &Value) -> Result<String, DataError> {
+pub(crate) fn content_hash(value: &Value) -> Result<String, DataError> {
     let bytes = canonical_json(value)?;
     Ok(data_encoding::HEXLOWER.encode(&Sha256::digest(bytes.as_bytes())))
 }

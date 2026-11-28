@@ -29,7 +29,7 @@ pub struct FinderCourse {
     pub id: String,
     pub code: String,
     pub year: i32,
-    pub quarters: Vec<Quarter>,
+    pub(crate) quarters: Vec<Quarter>,
     pub title: String,
     pub instructors: Vec<String>,
     pub credits: CreditSplit,

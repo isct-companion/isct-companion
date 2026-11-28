@@ -16,21 +16,21 @@ fn blank(ja: Option<&str>) -> bool {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct SourceLink {
+pub(crate) struct SourceLink {
     pub title: String,
     pub url: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct DateRange {
+pub(crate) struct DateRange {
     pub start: String,
     pub end: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
-pub enum CalendarDayType {
+pub(crate) enum CalendarDayType {
     Holiday,
     NoClass,
     Replacement,
@@ -38,48 +38,48 @@ pub enum CalendarDayType {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct CalendarDay {
+pub(crate) struct CalendarDay {
     pub date: String,
     #[serde(rename = "type")]
-    pub day_type: CalendarDayType,
+    pub(crate) day_type: CalendarDayType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub replacement_day: Option<u8>,
+    pub(crate) replacement_day: Option<u8>,
     pub label: Localized,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct AcademicCalendar {
-    pub schema_version: u32,
-    pub academic_year: i32,
+pub(crate) struct AcademicCalendar {
+    pub(crate) schema_version: u32,
+    pub(crate) academic_year: i32,
     pub source: Vec<SourceLink>,
-    pub quarters: BTreeMap<String, DateRange>,
+    pub(crate) quarters: BTreeMap<String, DateRange>,
     pub days: Vec<CalendarDay>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub teaching_ranges: BTreeMap<String, Vec<DateRange>>,
+    pub(crate) teaching_ranges: BTreeMap<String, Vec<DateRange>>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub exam_ranges: BTreeMap<String, Vec<DateRange>>,
+    pub(crate) exam_ranges: BTreeMap<String, Vec<DateRange>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Credits {
-    pub lecture: f64,
-    pub exercise: f64,
-    pub lab: f64,
+pub(crate) struct Credits {
+    pub(crate) lecture: f64,
+    pub(crate) exercise: f64,
+    pub(crate) lab: f64,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum RecommendationMark {
+pub(crate) enum RecommendationMark {
     Required,
     Recommended,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct RecommendedCourse {
-    pub category: Localized,
+pub(crate) struct RecommendedCourse {
+    pub(crate) category: Localized,
     pub level: u16,
     pub code: String,
     #[serde(default)]
@@ -88,114 +88,114 @@ pub struct RecommendedCourse {
     pub mark: Option<RecommendationMark>,
     pub title: Localized,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credits: Option<Credits>,
+    pub(crate) credits: Option<Credits>,
     #[serde(default)]
-    pub competencies: Vec<u8>,
+    pub(crate) competencies: Vec<u8>,
     #[serde(default)]
     pub content: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub source_pages: Vec<u16>,
+    pub(crate) source_pages: Vec<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source_kind: Option<String>,
+    pub(crate) source_kind: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Department {
+pub(crate) struct Department {
     pub id: String,
     pub name: Localized,
-    pub syllabus_scope: String,
-    pub unit_code: String,
-    pub guide_pdf: String,
-    pub recommended: Vec<RecommendedCourse>,
+    pub(crate) syllabus_scope: String,
+    pub(crate) unit_code: String,
+    pub(crate) guide_pdf: String,
+    pub(crate) recommended: Vec<RecommendedCourse>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Departments {
-    pub schema_version: u32,
-    pub admission_year: i32,
+pub(crate) struct Departments {
+    pub(crate) schema_version: u32,
+    pub(crate) admission_year: i32,
     pub source: Vec<SourceLink>,
-    pub departments: Vec<Department>,
+    pub(crate) departments: Vec<Department>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct FeedSource {
+pub(crate) struct FeedSource {
     pub id: String,
     pub title: String,
     pub url: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub landing_page_url: Option<String>,
+    pub(crate) landing_page_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub published_at: Option<String>,
+    pub(crate) published_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retrieved_at: Option<String>,
+    pub(crate) retrieved_at: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sha256: Option<String>,
+    pub(crate) sha256: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ImportantDateEntry {
+pub(crate) struct ImportantDateEntry {
     pub id: String,
-    pub start_date: String,
-    pub end_date: String,
+    pub(crate) start_date: String,
+    pub(crate) end_date: String,
     pub label: Localized,
-    pub category: String,
-    pub source_ids: Vec<String>,
+    pub(crate) category: String,
+    pub(crate) source_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label_english_source: Option<String>,
+    pub(crate) label_english_source: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ImportantDates {
-    pub schema_version: u32,
-    pub academic_year: i32,
-    pub timezone: String,
+pub(crate) struct ImportantDates {
+    pub(crate) schema_version: u32,
+    pub(crate) academic_year: i32,
+    pub(crate) timezone: String,
     pub source: Vec<FeedSource>,
     pub entries: Vec<ImportantDateEntry>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExamEntry {
+pub(crate) struct ExamEntry {
     pub id: String,
     pub kind: String,
     pub status: String,
     pub quarter: String,
-    pub course_code: String,
+    pub(crate) course_code: String,
     pub date: String,
     pub label: Localized,
-    pub source_ids: Vec<String>,
+    pub(crate) source_ids: Vec<String>,
     pub room: Option<Localized>,
     #[serde(default)]
     pub periods: Option<Vec<u8>>,
     #[serde(default)]
-    pub start_time: Option<String>,
+    pub(crate) start_time: Option<String>,
     #[serde(default)]
-    pub end_time: Option<String>,
+    pub(crate) end_time: Option<String>,
     #[serde(default)]
-    pub syllabus_course_id: Option<String>,
+    pub(crate) syllabus_course_id: Option<String>,
     #[serde(default)]
-    pub class_label: Option<Localized>,
+    pub(crate) class_label: Option<Localized>,
     #[serde(default)]
     pub notes: Option<Localized>,
     #[serde(default)]
-    pub source_pages: Vec<u32>,
+    pub(crate) source_pages: Vec<u32>,
     #[serde(default)]
-    pub rooms: Vec<Localized>,
+    pub(crate) rooms: Vec<Localized>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ExamFeed {
-    pub schema_version: u32,
-    pub academic_year: i32,
-    pub timezone: String,
+pub(crate) struct ExamFeed {
+    pub(crate) schema_version: u32,
+    pub(crate) academic_year: i32,
+    pub(crate) timezone: String,
     pub source: Vec<FeedSource>,
     pub entries: Vec<ExamEntry>,
 }
@@ -203,7 +203,7 @@ pub struct ExamFeed {
 /// The two datasets cut from the central exam timetable: its final-exam rows,
 /// and its class rows (授業, including make-up classes) in the exam period.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExamFeedKind {
+pub(crate) enum ExamFeedKind {
     Exams,
     ExamWeekClasses,
 }
@@ -216,7 +216,7 @@ impl ExamFeedKind {
         }
     }
     /// The `kind` every entry of this dataset carries.
-    pub fn entry_kind(self) -> &'static str {
+    pub(crate) fn entry_kind(self) -> &'static str {
         match self {
             Self::Exams => "exam",
             Self::ExamWeekClasses => "class",
@@ -237,18 +237,18 @@ impl ExamFeedKind {
 }
 
 #[derive(Clone, Debug)]
-pub struct PublishedExamFeed {
+pub(crate) struct PublishedExamFeed {
     pub kind: ExamFeedKind,
     pub level: String,
     pub quarter: String,
     pub url: String,
-    pub feed: ExamFeed,
+    pub(crate) feed: ExamFeed,
 }
 
 /// One dated session of a course that does not meet every week.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ClassSession {
+pub(crate) struct ClassSession {
     pub date: String,
     /// `orientation` and `exam` are for every group, `no-class` cancels the
     /// slot, `exercise` and `lab` are for `group` only.
@@ -261,23 +261,23 @@ pub struct ClassSession {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ClassScheduleEntry {
+pub(crate) struct ClassScheduleEntry {
     pub id: String,
-    pub course_code: String,
+    pub(crate) course_code: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub class_label: Option<Localized>,
-    pub offering_ids: Vec<String>,
-    pub quarters: Vec<String>,
-    pub source_ids: Vec<String>,
+    pub(crate) class_label: Option<Localized>,
+    pub(crate) offering_ids: Vec<String>,
+    pub(crate) quarters: Vec<String>,
+    pub(crate) source_ids: Vec<String>,
     pub sessions: Vec<ClassSession>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ClassSchedules {
-    pub schema_version: u32,
-    pub academic_year: i32,
-    pub timezone: String,
+pub(crate) struct ClassSchedules {
+    pub(crate) schema_version: u32,
+    pub(crate) academic_year: i32,
+    pub(crate) timezone: String,
     pub source: Vec<FeedSource>,
     pub entries: Vec<ClassScheduleEntry>,
 }
@@ -300,7 +300,7 @@ fn validate_sources(sources: &[SourceLink]) -> Result<(), SubscriptionError> {
     Ok(())
 }
 
-pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, SubscriptionError> {
+pub(crate) fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("academic calendar exceeds the size limit".into());
     }
@@ -390,7 +390,7 @@ pub fn validate_academic_calendar(raw: &str) -> Result<AcademicCalendar, Subscri
     Ok(value)
 }
 
-pub fn validate_departments(raw: &str) -> Result<Departments, SubscriptionError> {
+pub(crate) fn validate_departments(raw: &str) -> Result<Departments, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("departments data exceeds the size limit".into());
     }
@@ -524,7 +524,10 @@ pub(super) fn object_mut<'a>(
     })
 }
 
-pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, SubscriptionError> {
+pub(crate) fn validate_important_dates(
+    raw: &str,
+    year: i32,
+) -> Result<ImportantDates, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("important dates exceed the size limit".into());
     }
@@ -564,7 +567,10 @@ pub fn validate_important_dates(raw: &str, year: i32) -> Result<ImportantDates, 
     Ok(value)
 }
 
-pub fn validate_class_schedules(raw: &str, year: i32) -> Result<ClassSchedules, SubscriptionError> {
+pub(crate) fn validate_class_schedules(
+    raw: &str,
+    year: i32,
+) -> Result<ClassSchedules, SubscriptionError> {
     if raw.len() > MAX_DATA_BYTES {
         return Err("class schedules exceed the size limit".into());
     }
@@ -622,7 +628,7 @@ pub fn validate_class_schedules(raw: &str, year: i32) -> Result<ClassSchedules, 
     Ok(value)
 }
 
-pub fn validate_exam_feed(
+pub(crate) fn validate_exam_feed(
     raw: &str,
     year: i32,
     quarter: &str,

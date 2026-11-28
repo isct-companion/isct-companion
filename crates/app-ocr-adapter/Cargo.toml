@@ -28,3 +28,6 @@ required-features = ["engine"]
 [[example]]
 name = "matrix_session_replay"
 required-features = ["engine"]
+
+[lints]
+workspace = true

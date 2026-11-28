@@ -79,11 +79,11 @@ syncs it when the catalog changes on `main`. When moving a feature, update its p
 1. Read [AGENTS.md](AGENTS.md) and the [development guide](docs/development.md).
 2. Create a branch from the current `main`, install dependencies with `yarn install --immutable`, and run `yarn desktop:dev`.
 3. Keep domain rules, persistence and mutations in `crates/app-core`; the desktop interface renders Core read models and forwards intents.
-4. Run `yarn test`, `yarn test:types`, `yarn backend:test` and `yarn build` for changes that cross the UI/Core boundary. See the [test guide](apps/desktop/tests/README.md) for narrower checks and existing suites.
-5. Open a pull request to `main` explaining the user-visible result and verification. Include screenshots for visible interface changes. Its title and description become the commit message.
+4. Open a draft pull request to `main` early to get checks on the proposed merge. Explain the user-visible result and verification. Include screenshots for visible interface changes. Its title and description become the commit message.
+5. Use the `Platform checks` result to choose any narrower local checks you need. Try UI changes in the affected apps. See the [test guide](apps/desktop/tests/README.md) for the CI suites.
 6. Fix problems on the same branch until `Platform checks` passes, updating the branch if `main` moved. The pull request is then squashed into one commit on `main`.
 
-Every push to a branch runs `Platform checks`; a merge into `main` does not. `Native Core SDK` runs on pull requests touching Core, the native apps or their SDKs. It does not block the merge, so look at its result first.
+A branch without a PR gets quick checks on push. Once a PR is open, its checks cover subsequent pushes. A PR can also reuse a successful push plan for the same source tree. Core and FFI changes select their Rust contracts. Android app and SDK changes select Kotlin compilation with the arm64 SDK. Run the full suite, including native integration and simulators, on the release candidate.
 
 For work spread over several branches:
 

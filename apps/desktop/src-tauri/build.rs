@@ -4,11 +4,21 @@
 /// (`#[cfg(tool = "campus-printer")]`), and the page lists what the binary
 /// reports (`__ISCT_COMPANION_TOOLS__`).
 const TOOLS: &[(&str, &[&str])] = &[
-    ("campus-wifi", &["aarch64-apple-darwin", "x86_64-apple-darwin"]),
-    ("campus-vpn", &["aarch64-apple-darwin", "x86_64-pc-windows-msvc"]),
+    (
+        "campus-wifi",
+        &["aarch64-apple-darwin", "x86_64-apple-darwin"],
+    ),
+    (
+        "campus-vpn",
+        &["aarch64-apple-darwin", "x86_64-pc-windows-msvc"],
+    ),
     (
         "campus-printer",
-        &["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"],
+        &[
+            "aarch64-apple-darwin",
+            "x86_64-apple-darwin",
+            "x86_64-pc-windows-msvc",
+        ],
     ),
 ];
 

@@ -20,14 +20,14 @@ const MAX_LISTED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// One file inside an archive: its path there, with `/` separators, and its
 /// unpacked size.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
-pub struct ArchiveEntry {
+pub(crate) struct ArchiveEntry {
     pub name: String,
     pub bytes: u64,
 }
 
 /// What extracting one file gave.
 #[derive(Debug, PartialEq, Eq)]
-pub enum Extracted {
+pub(crate) enum Extracted {
     Saved,
     /// The file is larger than the limit; nothing was written.
     TooLarge(u64),
@@ -41,7 +41,7 @@ pub enum Extracted {
 /// files or `MAX_LISTED_BYTES` unpacked. Folders, symbolic links, unsafe
 /// paths, system leftovers (`__MACOSX`, `.DS_Store`) and a second file of
 /// the same path are left out.
-pub fn list(archive: &Path) -> Option<Vec<ArchiveEntry>> {
+pub(crate) fn list(archive: &Path) -> Option<Vec<ArchiveEntry>> {
     let mut zip = open(archive).ok()?;
     if zip.len() > MAX_LISTED_FILES * 2 {
         return None;
@@ -69,7 +69,7 @@ pub fn list(archive: &Path) -> Option<Vec<ArchiveEntry>> {
 
 /// Extracts the file `name` of the ZIP at `archive` to `target`, unless it
 /// is larger than `limit` bytes.
-pub fn extract(
+pub(crate) fn extract(
     archive: &Path,
     name: &str,
     target: &Path,

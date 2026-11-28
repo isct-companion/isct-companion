@@ -54,7 +54,7 @@ jobs:
           sparse-checkout: .github/labels.yml
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: EndBug/label-sync@2f0dca846207aa9095344c7aa7d3574d81ab0833 # Node.js 24
+      - uses: crazy-max/ghaction-github-labeler@548a7c3603594ec17c819e1239f281a3b801ab4d # v6.0.0
         with:
-          config-file: .github/labels.yml
-          delete-other-labels: false
+          yaml-file: .github/labels.yml
+          skip-delete: true

@@ -165,12 +165,13 @@ impl DataStore {
 
     /// The user-intent revision a mutation is checked against, without the
     /// workspace.
-    pub fn intent_revision(&self) -> Result<String, DataError> {
+    pub(crate) fn intent_revision(&self) -> Result<String, DataError> {
         intent_revision(&*self.open()?)
     }
 
+    #[cfg(test)]
     /// Every workspace field, owned (`load_reads`).
-    pub fn load_workspace(&self) -> Result<Value, DataError> {
+    pub(crate) fn load_workspace(&self) -> Result<Value, DataError> {
         Ok(Value::clone(&self.load_reads()?.0))
     }
 

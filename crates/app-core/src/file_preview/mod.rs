@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use std::{fs, io::Read, path::Path};
 
 /// The most a text or Markdown file may hold to be read in the app.
-pub const MAX_TEXT_BYTES: u64 = 1_000_000;
+pub(crate) const MAX_TEXT_BYTES: u64 = 1_000_000;
 /// How much of a file is read to tell text from binary.
 const SNIFF_BYTES: usize = 1024;
 
@@ -115,7 +115,7 @@ const KINDS: &[(FileKind, &[&str])] = &[
 ];
 
 /// The kind a file name says, if any.
-pub fn kind_of(name: &str) -> Option<FileKind> {
+pub(crate) fn kind_of(name: &str) -> Option<FileKind> {
     let extension = Path::new(name).extension()?.to_str()?.to_ascii_lowercase();
     KINDS
         .iter()
@@ -139,7 +139,7 @@ fn kind_of_type(mime: &str) -> Option<FileKind> {
 }
 
 /// How this platform shows a file of `kind`, before its size is known.
-pub fn viewer_of_kind(kind: FileKind) -> Viewer {
+pub(crate) fn viewer_of_kind(kind: FileKind) -> Viewer {
     match kind {
         FileKind::Pdf => Viewer::Pdf,
         FileKind::Markdown => Viewer::Markdown,
@@ -190,7 +190,7 @@ pub fn viewer(name: &str, mime: Option<&str>, bytes: u64, head: &[u8]) -> Viewer
 
 /// [`viewer`] of the file at `path`, reading its first bytes; a file that
 /// cannot be read opens in another app.
-pub fn viewer_of_file(path: &Path, name: &str, mime: Option<&str>) -> Viewer {
+pub(crate) fn viewer_of_file(path: &Path, name: &str, mime: Option<&str>) -> Viewer {
     let mut head = Vec::with_capacity(SNIFF_BYTES);
     let bytes = fs::File::open(path)
         .and_then(|file| {

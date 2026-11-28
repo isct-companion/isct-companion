@@ -86,7 +86,7 @@ pub enum StoreKind {
 }
 
 impl StoreKind {
-    pub const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::Index => "index",
             Self::Store => "store",
@@ -154,14 +154,14 @@ impl StorePaths {
     }
 
     /// The directory of one generation of `kind`.
-    pub fn generation(&self, kind: StoreKind, generation: &str) -> PathBuf {
+    pub(crate) fn generation(&self, kind: StoreKind, generation: &str) -> PathBuf {
         self.root.join(kind.name()).join(generation)
     }
 }
 
 /// One store generation the index selects.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Generation {
+pub(crate) struct Generation {
     pub id: String,
     pub format: i64,
 }
@@ -173,7 +173,7 @@ pub(crate) struct Candidate {
 }
 
 /// The owner of one data folder. See the module comment.
-pub struct StoreRoot {
+pub(crate) struct StoreRoot {
     paths: StorePaths,
     /// Names this process's run: staging and operation owners carry it.
     boot: String,
@@ -196,7 +196,7 @@ impl std::fmt::Debug for StoreRoot {
 
 impl StoreRoot {
     /// Takes the folder and makes its store generation ready.
-    pub fn open(directory: PathBuf) -> Result<Arc<Self>, StoreOpenError> {
+    pub(crate) fn open(directory: PathBuf) -> Result<Arc<Self>, StoreOpenError> {
         fs::create_dir_all(&directory)?;
         let lock = fs::OpenOptions::new()
             .read(true)
@@ -224,11 +224,12 @@ impl StoreRoot {
         Ok(Arc::new(root))
     }
 
-    pub fn paths(&self) -> &StorePaths {
+    pub(crate) fn paths(&self) -> &StorePaths {
         &self.paths
     }
 
-    pub fn boot(&self) -> &str {
+    #[cfg(feature = "agent")]
+    pub(crate) fn boot(&self) -> &str {
         &self.boot
     }
 

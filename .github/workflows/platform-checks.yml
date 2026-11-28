@@ -1,8 +1,6 @@
 name: Platform checks
 
 on:
-  # Warm caches dispatches both suites on main, the only branch that saves
-  # caches.
   workflow_dispatch:
     inputs:
       full:
@@ -11,6 +9,9 @@ on:
   workflow_call:
     inputs:
       full:
+        type: boolean
+        default: false
+      warm:
         type: boolean
         default: false
   # Work branches and PRs run the quick checks.
@@ -24,9 +25,10 @@ on:
 permissions:
   contents: read
 
-# A newer commit supersedes the run still in progress.
+# A newer branch commit supersedes CI. Main prewarms each push delta, so
+# a later push cannot discard an earlier dependency change.
 concurrency:
-  group: platform-checks-${{ inputs.full && 'full' || 'quick' }}-${{ github.ref }}
+  group: platform-checks-${{ inputs.full && 'full' || inputs.warm && 'warm' || 'quick' }}-${{ inputs.warm && github.event_name == 'push' && github.sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -46,6 +48,8 @@ jobs:
       windows: ${{ steps.route.outputs.windows }}
       app-store-tools: ${{ steps.route.outputs.app-store-tools }}
       rust: ${{ steps.route.outputs.rust }}
+      core-contracts: ${{ steps.route.outputs.core-contracts }}
+      plan: ${{ steps.route.outputs.plan }}
       ios-syntax: ${{ steps.route.outputs.ios-syntax }}
       android-config: ${{ steps.route.outputs.android-config }}
       native-sdk: ${{ steps.route.outputs.native-sdk }}
@@ -73,10 +77,12 @@ jobs:
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BEFORE: ${{ github.event.before }}
           FULL: ${{ inputs.full }}
+          WARM: ${{ inputs.warm }}
         run: |
           route=scripts/checks/route-platform-checks.sh
           mode=()
           if [[ "$FULL" == true ]]; then mode=(--full); fi
+          if [[ "$WARM" == true ]]; then mode+=(--warm); fi
           for branch in "$BRANCH" "$PR_HEAD" "$PR_BASE"; do
             if [[ "$branch" == release/* ]]; then
               bash scripts/release/verify-candidate.sh version "$branch"
@@ -92,17 +98,29 @@ jobs:
               range=(HEAD^1 HEAD)
               ;;
             push)
-              open=$(gh api "repos/$GH_REPO/pulls" --method GET -f head="$OWNER:$BRANCH" -f state=open \
-                --jq '[.[] | select(.base.ref == "main" or (.base.ref | startswith("release/")))] | length')
-              if [[ "$open" != 0 ]]; then
-                echo "The open pull request's run covers this commit."
-                bash "$route" "${mode[@]}" </dev/null | tee -a "$GITHUB_OUTPUT"
-                exit 0
-              fi
-              if [[ "$BRANCH" == release/* ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              if [[ "$WARM" == true ]]; then
                 range=("$BEFORE" HEAD)
               else
+                open=$(gh api "repos/$GH_REPO/pulls" --method GET -f head="$OWNER:$BRANCH" -f state=open \
+                  --jq '[.[] | select(.base.ref == "main" or (.base.ref | startswith("release/")))] | length')
+                if [[ "$open" != 0 ]]; then
+                  echo "The open pull request's run covers this commit."
+                  bash "$route" "${mode[@]}" </dev/null | tee -a "$GITHUB_OUTPUT"
+                  exit 0
+                fi
+                if [[ "$BRANCH" == release/* ]] && git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                  range=("$BEFORE" HEAD)
+                else
+                  range=(origin/main...HEAD)
+                fi
+              fi
+              ;;
+            workflow_dispatch)
+              if [[ "$WARM" == true && "$GITHUB_REF" != refs/heads/main ]]; then
                 range=(origin/main...HEAD)
+              else
+                bash "$route" "${mode[@]}" --all | tee -a "$GITHUB_OUTPUT"
+                exit 0
               fi
               ;;
             *)
@@ -111,11 +129,25 @@ jobs:
               ;;
           esac
           paths="$RUNNER_TEMP/ci-changes"
+          plan="$RUNNER_TEMP/platform-check-plan"
           if git diff --name-only --no-renames -z "${range[@]}" > "$paths"; then
-            bash "$route" "${mode[@]}" < "$paths" | tee -a "$GITHUB_OUTPUT"
+            bash "$route" "${mode[@]}" < "$paths" > "$plan"
           else
             echo "Could not compare changes. Running all checks."
-            bash "$route" "${mode[@]}" --all | tee -a "$GITHUB_OUTPUT"
+            bash "$route" "${mode[@]}" --all > "$plan"
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push && "$WARM" != true ]] && grep -q '=true$' "$plan"; then
+            {
+              echo 'plan<<CHECK_PLAN'
+              cat "$plan"
+              echo 'CHECK_PLAN'
+            } >> "$GITHUB_OUTPUT"
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]] && grep -Eq '^(apple|windows|rust|ios-syntax|android-config|native-sdk|app-store-tools)=true$' "$plan" \
+            && bash scripts/checks/reuse-platform-checks.sh "$plan"; then
+            sed '/^frontend=/!s/=true$/=false/' "$plan" | tee -a "$GITHUB_OUTPUT"
+          else
+            tee -a "$GITHUB_OUTPUT" < "$plan"
           fi
 
   app-store-tools:
@@ -160,8 +192,11 @@ jobs:
           cache: yarn
       - run: yarn install --immutable
       - run: yarn build
+        if: '!inputs.warm'
       - run: yarn test
+        if: '!inputs.warm'
       - run: yarn test:types
+        if: '!inputs.warm'
 
   windows:
     name: Windows backend
@@ -179,10 +214,16 @@ jobs:
           key: ${{ inputs.full && 'full' || '' }}
           cache-on-failure: true
           compiler-cache: true
-      # The same lint as the Mac job: each OS compiles code the other never sees.
+      # Any warning fails, dead code and unreachable pub included: the
+      # desktop's own feature set, which a --workspace build would mix with
+      # the phones'. The full suite's clippy covers test targets.
       - name: Check desktop
         if: '!inputs.full'
-        run: cargo check -p isct-companion --locked
+        shell: bash
+        run: |
+          cargo check -p isct-companion -p vpn-helper --locked --message-format short --color never 2>&1 | tee check.log
+          ! grep -E '^[^ ]+: (warning|error)' check.log
+      # The same lint as the Mac job: each OS compiles code the other never sees.
       - name: Desktop lint
         if: inputs.full
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -219,7 +260,13 @@ jobs:
           key: ${{ matrix.target }}${{ inputs.full && '-full' || '' }}
           cache-on-failure: true
           compiler-cache: true
-      - run: cargo check -p isct-companion --locked --target ${{ matrix.target }}
+      # Any warning fails, dead code and unreachable pub included: the
+      # desktop's own feature set, which a --workspace build would mix with
+      # the phones'. The full suite's clippy covers test targets.
+      - name: Check desktop
+        run: |
+          cargo check -p isct-companion -p vpn-helper --locked --target ${{ matrix.target }} --message-format short --color never 2>&1 | tee check.log
+          ! grep -E '^[^ ]+: (warning|error)' check.log
       - name: Desktop Rust contracts
         if: inputs.full && matrix.target == 'aarch64-apple-darwin'
         run: cargo test --workspace --locked
@@ -233,7 +280,7 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   rust:
-    name: Portable Rust and FFI
+    name: ${{ needs.route.outputs.core-contracts == 'true' && 'Core and FFI contracts' || 'Portable Rust and FFI' }}
     needs: route
     if: needs.route.outputs.rust == 'true'
     runs-on: ubuntu-latest
@@ -241,7 +288,14 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@1.99.1
       - uses: ./.github/actions/rust-caches
-      - run: cargo check -p app-ffi --features campus-map --locked
+        with:
+          key: portable-core
+      - name: Check portable Rust and FFI
+        if: inputs.warm || needs.route.outputs.core-contracts != 'true'
+        run: cargo check -p app-ffi --features campus-map --locked
+      - name: Test Core and FFI contracts
+        if: needs.route.outputs.core-contracts == 'true'
+        run: cargo test -p app-core -p app-ffi --lib --features app-ffi/campus-map --locked ${{ inputs.warm && '--no-run' || '' }}
 
   ios-syntax:
     name: Swift syntax
@@ -265,6 +319,7 @@ jobs:
           distribution: temurin
           java-version: 17
           cache: gradle
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
       - run: ./gradlew :app:help --no-daemon
         working-directory: apps/android
 
@@ -276,6 +331,7 @@ jobs:
     with:
       ios: ${{ needs.route.outputs.native-ios == 'true' }}
       android: ${{ needs.route.outputs.native-android == 'true' }}
+      full: ${{ inputs.full == true }}
 
   campus-map:
     needs: route
@@ -307,3 +363,16 @@ jobs:
             jq 'map_values(.result)' <<< "$CHECKS" >&2
             exit 1
           }
+      - name: Write the verified push plan
+        if: needs.route.outputs.plan != ''
+        env:
+          PLAN: ${{ needs.route.outputs.plan }}
+        run: printf '%s\n' "$PLAN" > "$RUNNER_TEMP/platform-check-plan"
+      - name: Publish the verified push plan
+        if: needs.route.outputs.plan != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-check-plan-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/platform-check-plan
+          retention-days: 7

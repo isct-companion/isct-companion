@@ -42,7 +42,7 @@ pub struct CourseDetail {
 
 impl CourseDetail {
     /// The course page lists only exams and exam-week classes still to come.
-    pub fn without_ended(mut self, now: DateTime<FixedOffset>) -> Self {
+    pub(crate) fn without_ended(mut self, now: DateTime<FixedOffset>) -> Self {
         self.exams.retain(|exam| !exam.ended(now));
         self.exam_classes.retain(|exam| !exam.ended(now));
         self
@@ -107,7 +107,11 @@ fn syllabus_url(workspace: &Value, course: &Value, materials: &[&Value]) -> Opti
         .map(|id| crate::catalog::syllabus_url(&id, ContentLanguage::of(workspace).code()))
 }
 
-pub fn course_detail(workspace: &Value, school: &SchoolReads, course_id: &str) -> CourseDetail {
+pub(crate) fn course_detail(
+    workspace: &Value,
+    school: &SchoolReads,
+    course_id: &str,
+) -> CourseDetail {
     let content_language = ContentLanguage::of(workspace).code().to_owned();
     let Some(course) = super::visible_by_id(workspace, "courses", course_id) else {
         return CourseDetail {
@@ -224,7 +228,7 @@ pub struct AssignmentAttachment {
 
 /// The rules the desktop assignment card applied in the shell
 /// (`LmsWorkspace.tsx`): its text is the LMS module row with the same cmid.
-pub fn assignment_detail(
+pub(crate) fn assignment_detail(
     workspace: &Value,
     assignment_id: &str,
     now: DateTime<FixedOffset>,

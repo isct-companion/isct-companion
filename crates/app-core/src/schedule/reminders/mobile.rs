@@ -163,7 +163,8 @@ impl ReminderService {
     ) -> Result<(Confirmation, Option<DateTime<Utc>>), ReminderError> {
         let facts = port.facts().await?;
         let service = self.clone();
-        let plan = blocking(move || service.reconcile(crate::clock::now().fixed_offset(), facts)).await?;
+        let plan =
+            blocking(move || service.reconcile(crate::clock::now().fixed_offset(), facts)).await?;
         let receipt = port.apply(plan.delivery.clone()).await?;
         let receipt_at = crate::clock::now();
         let refill_at = plan.refill_at;

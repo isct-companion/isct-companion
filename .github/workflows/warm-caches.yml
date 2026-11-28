@@ -1,11 +1,7 @@
 name: Warm caches
 
-# Only main saves caches (see the rust-caches action). The quick suite's caches
-# serve every work branch and PR, so main warms them again whenever Rust build
-# inputs change. The release suite's caches serve Release checks; they warm
-# weekly, and a release in between restores the closest older entry. The weekly
-# run also keeps both sets from expiring after 7 days unused.
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -13,30 +9,54 @@ on:
       - '**/Cargo.toml'
       - rust-toolchain.toml
       - .cargo/**
+      - yarn.lock
+      - .yarnrc.yml
+      - package.json
+      - apps/desktop/package.json
+      - apps/android/**/*.gradle*
+      - apps/android/gradle.properties
+      - apps/android/gradle/**
+      - apps/android/gradlew*
+      - .github/actions/android-build-tools/**
       - .github/workflows/platform-checks.yml
+      - .github/workflows/native-sdk.yml
+      - .github/workflows/warm-caches.yml
       - .github/actions/rust-caches/**
+      - scripts/checks/route-platform-checks.sh
   schedule:
     - cron: '0 18 * * 0' # Monday 03:00 in Japan
 
 permissions:
   contents: read
+  actions: read
+  pull-requests: read
 
 jobs:
-  warm:
-    name: Run Platform checks on main
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
+  quick:
+    name: Warm quick caches
+    uses: ./.github/workflows/platform-checks.yml
+    with:
+      warm: true
+
+  release:
+    name: Warm release caches
+    if: github.event_name == 'schedule'
+    uses: ./.github/workflows/platform-checks.yml
+    with:
+      full: true
+
+  # Unused dependencies, weekly only: cargo-udeps needs nightly and a full
+  # build of its own, too slow for every change. macOS, since the desktop
+  # crate does not build on Linux.
+  udeps:
+    name: Unused dependencies
+    if: github.event_name == 'schedule'
+    runs-on: macos-15
+    timeout-minutes: 60
     steps:
-      - name: Quick suite
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh workflow run platform-checks.yml --ref main
-      - name: Release suite
-        if: github.event_name == 'schedule'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-        run: gh workflow run platform-checks.yml --ref main -f full=true
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-udeps
+      - run: cargo +nightly udeps --workspace --all-targets --locked

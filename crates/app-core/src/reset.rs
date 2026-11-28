@@ -80,7 +80,7 @@ type Flight = Shared<futures_util::future::BoxFuture<'static, Result<ResetReport
 /// The one reset lease of a Core. A second call with the same scope joins
 /// the running reset and receives its result.
 #[derive(Default)]
-pub struct ResetLease(Mutex<Option<(ResetScope, Flight)>>);
+pub(crate) struct ResetLease(Mutex<Option<(ResetScope, Flight)>>);
 
 impl Core {
     /// Resets without shell ports. A scope that needs the course folder

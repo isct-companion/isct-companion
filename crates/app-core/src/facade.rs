@@ -29,12 +29,8 @@ pub struct Core {
     /// Assignment workspaces under the selected course storage root.
     #[cfg(feature = "desktop-workspaces")]
     pub assignment_workspaces: crate::workspaces::AssignmentWorkspaces,
-    /// LMS writes, or why the service could not open; the MCP tools share
-    /// it. Only the desktop's agents write to the LMS.
-    #[cfg(feature = "agent")]
-    submissions: crate::agent::Submissions,
     pub workspace: WorkspaceService,
-    pub reminders: crate::schedule::ReminderService,
+    pub(crate) reminders: crate::schedule::ReminderService,
     /// The campus map's reads over the stored Isct-Data file.
     #[cfg(feature = "campus-map")]
     pub campus_map: crate::campus_map::CampusMapService,
@@ -379,8 +375,6 @@ impl Core {
             agent,
             #[cfg(feature = "desktop-workspaces")]
             assignment_workspaces,
-            #[cfg(feature = "agent")]
-            submissions,
             workspace: WorkspaceService::new(store.clone()),
             reminders,
             #[cfg(feature = "campus-map")]
@@ -681,11 +675,6 @@ impl Core {
     /// The school accounts' sessions.
     pub fn sessions(&self) -> &SchoolSessions {
         &self.sessions
-    }
-
-    #[cfg(feature = "agent")]
-    pub fn submissions(&self) -> Option<&crate::submissions::SubmissionService> {
-        self.submissions.as_ref().as_ref().ok()
     }
 
     pub fn school_browser(&self) -> Result<Arc<SchoolBrowserEngine>, SchoolBrowserError> {

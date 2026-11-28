@@ -24,7 +24,7 @@ pub(crate) struct Events {
     closed: CancellationToken,
 }
 impl Events {
-    pub fn new() -> Arc<Self> {
+    pub(crate) fn new() -> Arc<Self> {
         let (sender, _) = broadcast::channel(128);
         Arc::new(Self {
             sequence: Mutex::new(0),
@@ -32,7 +32,7 @@ impl Events {
             closed: CancellationToken::new(),
         })
     }
-    pub fn publish(&self, name: &str, value: serde_json::Value) -> Result<(), SdkError> {
+    pub(crate) fn publish(&self, name: &str, value: serde_json::Value) -> Result<(), SdkError> {
         let mut sequence = self.sequence.lock().map_err(|_| SdkError::Closed)?;
         if self.closed.is_cancelled() {
             return Err(SdkError::Closed);
@@ -45,7 +45,7 @@ impl Events {
         });
         Ok(())
     }
-    pub fn subscribe(&self) -> Result<Arc<Subscription>, SdkError> {
+    pub(crate) fn subscribe(&self) -> Result<Arc<Subscription>, SdkError> {
         let _sequence = self.sequence.lock().map_err(|_| SdkError::Closed)?;
         if self.closed.is_cancelled() {
             return Err(SdkError::Closed);
@@ -55,7 +55,7 @@ impl Events {
             closed: self.closed.child_token(),
         }))
     }
-    pub fn close(&self) {
+    pub(crate) fn close(&self) {
         self.closed.cancel()
     }
 }

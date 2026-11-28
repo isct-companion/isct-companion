@@ -20,8 +20,6 @@ mod page;
 pub(crate) mod photos;
 mod search;
 
-pub use photos::MAX_PHOTO_BYTES;
-
 use crate::data::{DataError, DataStore};
 use crate::locale::ContentLanguage;
 use map::Map;
@@ -427,7 +425,7 @@ impl From<DataError> for CampusMapError {
 /// A downloaded export, checked before it is stored: the `.gz` bytes the
 /// index hash covers, and its units, the rows a suspicious shrink counts.
 #[derive(Clone)]
-pub struct CampusMapFile {
+pub(crate) struct CampusMapFile {
     pub(crate) gz: Vec<u8>,
     pub(crate) hash: String,
     pub(crate) units: usize,

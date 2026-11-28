@@ -16,17 +16,17 @@ pub(super) const DIGEST_PREFIX: usize = 12;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SnapshotFile {
+pub(crate) struct SnapshotFile {
     pub name: String,
     pub bytes: u64,
-    pub sha256: String,
+    pub(crate) sha256: String,
 }
 
 /// What a write changes on the LMS, by file name.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct Effect {
+pub(crate) struct Effect {
     /// Not on the LMS yet.
     pub added: Vec<String>,
     /// On the LMS, written again.
@@ -42,7 +42,7 @@ pub struct Effect {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Reversibility {
+pub(crate) enum Reversibility {
     /// Can be changed or removed again until the cut-off, in Unix seconds.
     UntilCutoff { at: i64 },
     /// No cut-off: can be changed or removed again while the assignment
@@ -56,23 +56,23 @@ pub enum Reversibility {
 /// to and what that LMS held.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Preparation {
+pub(crate) struct Preparation {
     pub id: String,
     pub assignment_id: String,
-    pub assignment_title: String,
+    pub(crate) assignment_title: String,
     pub identity: LmsIdentity,
     /// The LMS account's generation when it was read; a sign-out or a new
     /// account since refuses the write.
-    pub account_generation: u64,
+    pub(crate) account_generation: u64,
     pub module: LmsModule,
-    pub assign_id: u64,
+    pub(crate) assign_id: u64,
     pub action: SubmissionAction,
     /// By name; empty for a removal.
     pub files: Vec<SnapshotFile>,
     /// What the LMS held, attempt included; `execute` refuses once it moved.
-    pub baseline: RemoteState,
+    pub(crate) baseline: RemoteState,
     pub effect: Effect,
-    pub reversibility: Reversibility,
+    pub(crate) reversibility: Reversibility,
     /// Unix seconds.
     pub expires_at: i64,
 }
@@ -80,10 +80,10 @@ pub struct Preparation {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SummaryFile {
+pub(crate) struct SummaryFile {
     pub name: String,
     pub bytes: u64,
-    pub sha256_prefix: String,
+    pub(crate) sha256_prefix: String,
 }
 
 /// What the client's confirmation shows, and what `execute` must receive
@@ -91,16 +91,16 @@ pub struct SummaryFile {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SubmissionSummary {
-    pub assignment_title: String,
+pub(crate) struct SubmissionSummary {
+    pub(crate) assignment_title: String,
     pub action: SubmissionAction,
     pub files: Vec<SummaryFile>,
     pub effect: Effect,
-    pub reversibility: Reversibility,
+    pub(crate) reversibility: Reversibility,
 }
 
 impl Preparation {
-    pub fn summary(&self) -> SubmissionSummary {
+    pub(crate) fn summary(&self) -> SubmissionSummary {
         SubmissionSummary {
             assignment_title: self.assignment_title.clone(),
             action: self.action,
@@ -144,7 +144,7 @@ impl SubmissionService {
     /// as it would happen. Nothing is sent to the LMS. Refuses while an
     /// earlier write to the assignment is unsettled, and refuses to replace
     /// a submission the LMS already holds: it lists what would be replaced.
-    pub async fn prepare(
+    pub(crate) async fn prepare(
         &self,
         assignment: &str,
         action: SubmissionAction,

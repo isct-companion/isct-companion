@@ -12,12 +12,12 @@ pub enum AppUpdateError {
 
 /// GitHub's record of the newest published release, which every platform
 /// reads to learn whether there is a newer version.
-pub const RELEASE_API: &str =
+pub(crate) const RELEASE_API: &str =
     "https://api.github.com/repos/isct-companion/isct-companion/releases/latest";
 
 /// The App Store's record of this app in the Japanese storefront, where it
 /// is listed (`approach/app-store-github-release`); iPhone and iPad share it.
-pub const APP_STORE_LOOKUP: &str =
+pub(crate) const APP_STORE_LOOKUP: &str =
     "https://itunes.apple.com/lookup?bundleId=app.isctcompanion&country=jp";
 
 /// A newer release for a phone or tablet: its version and where it comes
@@ -32,7 +32,7 @@ pub struct MobileRelease {
 /// than `running` whose APK is attached. A release still waiting for its APK
 /// (the Android build attaches it after the release is published) is not
 /// offered yet, so nobody is sent to a download that does not exist.
-pub fn android_release(
+pub(crate) fn android_release(
     release: &Value,
     running: &str,
 ) -> Result<Option<MobileRelease>, AppUpdateError> {
@@ -70,7 +70,7 @@ pub fn android_release(
 /// and links to its page on the App Store. No listing (not yet released in
 /// the storefront) offers nothing. The listing changes only once Apple
 /// releases the version, so nobody is sent to a page still on the old one.
-pub fn app_store_release(
+pub(crate) fn app_store_release(
     lookup: &Value,
     running: &str,
 ) -> Result<Option<MobileRelease>, AppUpdateError> {
@@ -141,7 +141,7 @@ pub fn newer_release(current: &str, available: &str) -> Result<bool, AppUpdateEr
 
 /// Whether this device looks for a newer version on its own; absent reads as
 /// on. Turned off, only a check the person starts runs.
-pub fn update_checks(workspace: &Value) -> bool {
+pub(crate) fn update_checks(workspace: &Value) -> bool {
     workspace
         .pointer("/settings/appUpdateChecks")
         .and_then(Value::as_bool)
@@ -149,7 +149,7 @@ pub fn update_checks(workspace: &Value) -> bool {
 }
 
 /// The release the person chose to skip.
-pub fn skipped_version(workspace: &Value) -> Option<&str> {
+pub(crate) fn skipped_version(workspace: &Value) -> Option<&str> {
     workspace
         .pointer("/settings/skippedAppVersion")
         .and_then(Value::as_str)
@@ -233,7 +233,7 @@ pub fn last_install(record: &InstallRecord, running: &str) -> Result<LastInstall
     })
 }
 
-pub fn check_due(last_checked: Option<&str>, now: DateTime<Utc>, manual: bool) -> bool {
+pub(crate) fn check_due(last_checked: Option<&str>, now: DateTime<Utc>, manual: bool) -> bool {
     manual
         || last_checked
             .and_then(|s| DateTime::parse_from_rfc3339(s).ok())

@@ -62,9 +62,10 @@ impl NoteStore {
         }
     }
 
+    #[cfg(feature = "desktop-workspaces")]
     /// The storage root shells selected last, which every course-file
     /// service uses; `None` before any shell reported one.
-    pub fn selected_root(&self) -> Option<PathBuf> {
+    pub(crate) fn selected_root(&self) -> Option<PathBuf> {
         self.0
             .selected
             .lock()

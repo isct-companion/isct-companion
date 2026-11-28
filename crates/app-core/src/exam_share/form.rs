@@ -33,14 +33,14 @@ pub(super) fn limits(config: &Value) -> Result<ExamLimits, ExamError> {
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub(super) struct Codes {
-    pub upload_occasions: Vec<String>,
-    pub request_occasions: Vec<String>,
-    pub numbered_occasions: Vec<String>,
-    pub roles: Vec<String>,
-    pub provenances: Vec<String>,
-    pub answer_sources: Vec<String>,
-    pub wanted_roles: Vec<String>,
-    pub report_reasons: Vec<String>,
+    pub(crate) upload_occasions: Vec<String>,
+    pub(crate) request_occasions: Vec<String>,
+    pub(crate) numbered_occasions: Vec<String>,
+    pub(crate) roles: Vec<String>,
+    pub(crate) provenances: Vec<String>,
+    pub(crate) answer_sources: Vec<String>,
+    pub(crate) wanted_roles: Vec<String>,
+    pub(crate) report_reasons: Vec<String>,
 }
 
 /// The codes of `codes` this build has words for, in the service's order.

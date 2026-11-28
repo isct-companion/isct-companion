@@ -10,14 +10,14 @@ use std::{
 use tauri::{AppHandle, Manager};
 
 use app_core::course_materials::CourseMaterials;
-pub use app_core::course_materials::Material;
-pub use app_core::notes::CourseFolder;
+pub(crate) use app_core::course_materials::Material;
+pub(crate) use app_core::notes::CourseFolder;
 use app_core::notes::Notes;
 use app_core::storage;
-pub use app_core::storage::LocalFile;
+pub(crate) use app_core::storage::LocalFile;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StorageInfo {
+pub(crate) struct StorageInfo {
     root: String,
     custom: bool,
     can_choose: bool,
@@ -94,7 +94,7 @@ pub(crate) fn notes(app: &AppHandle) -> Result<Notes, CommandError> {
 }
 
 #[tauri::command]
-pub async fn course_storage_info(
+pub(crate) async fn course_storage_info(
     webview: tauri::Webview,
     app: AppHandle,
 ) -> Result<StorageInfo, CommandError> {
@@ -107,7 +107,7 @@ pub async fn course_storage_info(
     })
 }
 #[tauri::command]
-pub async fn choose_course_storage(
+pub(crate) async fn choose_course_storage(
     webview: tauri::Webview,
     app: AppHandle,
     reset: bool,
@@ -173,7 +173,7 @@ async fn run_note_mutation<T: Send + 'static>(
 }
 
 #[tauri::command]
-pub async fn save_course_note(
+pub(crate) async fn save_course_note(
     webview: tauri::Webview,
     app: AppHandle,
     context: CourseFolder,
@@ -187,7 +187,7 @@ pub async fn save_course_note(
     .await
 }
 #[tauri::command]
-pub async fn read_course_note(
+pub(crate) async fn read_course_note(
     webview: tauri::Webview,
     app: AppHandle,
     context: CourseFolder,
@@ -201,7 +201,7 @@ pub async fn read_course_note(
         .map_err(shell)?
 }
 #[tauri::command]
-pub async fn move_course_note(
+pub(crate) async fn move_course_note(
     webview: tauri::Webview,
     app: AppHandle,
     context: CourseFolder,
@@ -215,7 +215,7 @@ pub async fn move_course_note(
     .await
 }
 #[tauri::command]
-pub async fn list_course_notes(
+pub(crate) async fn list_course_notes(
     webview: tauri::Webview,
     app: AppHandle,
     course_id: String,
@@ -234,7 +234,7 @@ pub async fn list_course_notes(
 /// course file from disk, downloaded first when asked; files over `limit`
 /// bytes are reported instead of downloaded.
 #[tauri::command]
-pub async fn open_course_material(
+pub(crate) async fn open_course_material(
     webview: tauri::Webview,
     app: AppHandle,
     course_id: String,
@@ -267,7 +267,7 @@ pub(crate) fn stored_file(app: &AppHandle, path: &str) -> Result<PathBuf, Comman
     storage::stored_file(&root(app)?.0, path).map_err(coded)
 }
 #[tauri::command]
-pub async fn open_course_file(
+pub(crate) async fn open_course_file(
     webview: tauri::Webview,
     app: AppHandle,
     path: String,
@@ -279,7 +279,7 @@ pub async fn open_course_file(
 }
 /// Remove downloaded course files not opened for `days` days. Notes are kept.
 #[tauri::command]
-pub async fn clean_course_materials(
+pub(crate) async fn clean_course_materials(
     webview: tauri::Webview,
     app: AppHandle,
     days: u64,

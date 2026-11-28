@@ -57,12 +57,12 @@ mod school_webkit;
 mod school_windows;
 mod secrets;
 #[cfg(target_os = "macos")]
+mod traffic_lights_macos;
+#[cfg(target_os = "macos")]
 mod widgets_macos;
 mod window_close;
 #[cfg(target_os = "macos")]
 mod window_close_macos;
-#[cfg(target_os = "macos")]
-mod traffic_lights_macos;
 #[cfg(target_os = "windows")]
 mod window_close_windows;
 mod workspaces;
