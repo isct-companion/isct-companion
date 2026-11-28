@@ -61,7 +61,7 @@ pub struct CourseConflict {
     pub with_title: String,
 }
 
-pub fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, ScheduleError> {
+pub(crate) fn planning_week(workspace: &Value, term: &str) -> Result<PlanningWeek, ScheduleError> {
     Term::parse(term)?;
     let teaching_periods = teaching_periods(workspace)?;
     let courses = scheduled_courses(workspace, term);

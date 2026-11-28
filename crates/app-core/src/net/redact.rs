@@ -8,7 +8,7 @@ const REDACTED: &str = "[redacted]";
 /// `text` with every `name=value` / `"name": "value"` credential, bearer
 /// token, cookie header and `moodlemobile://token=` value replaced. Fails
 /// closed: if the rule cannot be built the whole text is withheld.
-pub fn redact_text(text: &str) -> String {
+pub(crate) fn redact_text(text: &str) -> String {
     static PATTERN: OnceLock<Result<regex::Regex, regex::Error>> = OnceLock::new();
     match PATTERN.get_or_init(|| {
         regex::Regex::new(concat!(

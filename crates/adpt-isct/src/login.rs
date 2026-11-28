@@ -268,7 +268,7 @@ fn percent_decode(text: &str) -> String {
 
 /// The value GetAccess gives the Matrix choice in "Move to Other
 /// Authentication".
-pub const GRID: &str = "GridAuthOption";
+pub(crate) const GRID: &str = "GridAuthOption";
 
 fn grid_option(form: ElementRef<'_>) -> Option<String> {
     select_in(form, "select").into_iter().find_map(|select| {

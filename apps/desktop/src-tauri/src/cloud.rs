@@ -1,7 +1,7 @@
 use app_core::cloud_credentials::CredentialBackup;
 use app_core::cloud_sync::document::{self, CloudWorkspaceFile, DocumentError, WorkspaceTransport};
 use app_core::cloud_sync::google_drive::{GoogleDrive, Pkce};
-pub use app_core::cloud_sync::CloudProvider;
+pub(crate) use app_core::cloud_sync::CloudProvider;
 use app_core::cloud_sync::CloudSyncError;
 use app_core::oauth::{
     code_exchange::{self, OAuthClient},
@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 /// Drive's REST calls and token refresh live in Core; the desktop shell runs
 /// the system browser and keeps the iCloud store.
-pub struct DesktopCloudService<V: SecretVault> {
+pub(crate) struct DesktopCloudService<V: SecretVault> {
     drive: GoogleDrive<Pkce<V>>,
     shutdown: CancellationToken,
     #[cfg(target_os = "macos")]
@@ -20,7 +20,7 @@ pub struct DesktopCloudService<V: SecretVault> {
 }
 
 impl<V: SecretVault> DesktopCloudService<V> {
-    pub fn new(vault: V) -> Result<Self, String> {
+    pub(crate) fn new(vault: V) -> Result<Self, String> {
         // A build without the client still opens; Drive then fails to sign in.
         let client = code_exchange::installed_client().unwrap_or(OAuthClient {
             id: String::new(),
@@ -39,7 +39,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
         self.drive.authorization().vault()
     }
 
-    pub async fn connect(
+    pub(crate) async fn connect(
         &self,
         override_id: Option<&str>,
         browser: &dyn NativeBrowserAuth,
@@ -50,15 +50,15 @@ impl<V: SecretVault> DesktopCloudService<V> {
             .await
     }
 
-    pub fn shutdown(&self) {
+    pub(crate) fn shutdown(&self) {
         self.shutdown.cancel();
     }
 
-    pub fn drive_signed_in(&self) -> Result<bool, DocumentError> {
+    pub(crate) fn drive_signed_in(&self) -> Result<bool, DocumentError> {
         self.drive.authorization().authorized()
     }
 
-    pub fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
+    pub(crate) fn authorized_providers(&self) -> Result<Vec<CloudProvider>, String> {
         Ok(
             if self.drive_signed_in().map_err(|error| error.to_string())? {
                 vec![CloudProvider::GoogleDrive]
@@ -68,7 +68,7 @@ impl<V: SecretVault> DesktopCloudService<V> {
         )
     }
 
-    pub fn credential_backup(&self) -> CredentialBackup<'_, V, GoogleDrive<Pkce<V>>> {
+    pub(crate) fn credential_backup(&self) -> CredentialBackup<'_, V, GoogleDrive<Pkce<V>>> {
         CredentialBackup::new(self.vault(), &self.drive)
     }
 }

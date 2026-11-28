@@ -43,7 +43,7 @@ pub mod ipp;
 const STUDENT_ACCOUNT: SchoolAuthProfile = SchoolAuthProfile::TokyoTech;
 /// Long enough for a slow campus network, short enough to answer a
 /// click.
-pub const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Whose jobs the printer would bill, as the setting shows it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -92,7 +92,7 @@ impl PrinterAccount {
 /// Whether the printer answered just now.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum PrinterReach {
+pub(crate) enum PrinterReach {
     Reachable,
     /// Not on a network that reaches it (ScienceTokyo Wi-Fi does), or the
     /// printer is down.
@@ -103,11 +103,11 @@ pub enum PrinterReach {
 #[serde(rename_all = "camelCase")]
 pub struct CampusPrinterStatus {
     pub account: PrinterAccount,
-    pub reach: PrinterReach,
+    pub(crate) reach: PrinterReach,
 }
 
 /// One TCP connect to `address` within `within`.
-pub async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
+pub(crate) async fn probe_at(address: SocketAddr, within: Duration) -> PrinterReach {
     match tokio::time::timeout(within, tokio::net::TcpStream::connect(address)).await {
         Ok(Ok(_)) => PrinterReach::Reachable,
         Ok(Err(_)) | Err(_) => PrinterReach::Unreachable,
@@ -275,7 +275,7 @@ pub enum Media {
 #[cfg(any(windows, target_os = "android"))]
 impl Media {
     /// Its IPP `media` keyword (PWG 5101.1).
-    pub fn keyword(self) -> &'static str {
+    pub(crate) fn keyword(self) -> &'static str {
         match self {
             Self::A4 => "iso_a4_210x297mm",
             Self::Letter => "na_letter_8.5x11in",

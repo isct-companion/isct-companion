@@ -13,3 +13,6 @@ socket2 = "0.6"
 
 [target.'cfg(target_os = "android")'.dev-dependencies]
 socket2 = "0.6"
+
+[lints]
+workspace = true

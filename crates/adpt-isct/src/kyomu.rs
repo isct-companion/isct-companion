@@ -127,7 +127,7 @@ fn page(kind: &str) -> Option<&'static Page> {
 
 /// The page kind an approved path belongs to (case-insensitive, like the
 /// school's IIS).
-pub fn expected_kind(path: &str) -> Option<&'static str> {
+pub(crate) fn expected_kind(path: &str) -> Option<&'static str> {
     PAGES
         .iter()
         .find(|page| {

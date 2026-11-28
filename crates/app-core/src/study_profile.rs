@@ -116,7 +116,7 @@ pub struct CourseEligibility {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
-pub enum StudyProfileError {
+pub(crate) enum StudyProfileError {
     #[error("study-stage admission term must look like 2026-1Q, got {term}")]
     InvalidAdmissionTerm { term: String },
     #[error("study-stage entry grade must be between 1 and 9")]
@@ -206,7 +206,7 @@ fn term_key(term: &str) -> Option<(i32, u8)> {
 }
 
 /// Validate and canonicalize an enrollment history before it is persisted.
-pub fn canonicalize_study_enrollments(
+pub(crate) fn canonicalize_study_enrollments(
     enrollments: &mut [StudyEnrollment],
 ) -> Result<(), StudyProfileError> {
     for enrollment in enrollments.iter() {
@@ -425,7 +425,7 @@ fn doctoral_eligibility(
 /// finite, source-linked, and limited to the academic year stated by the
 /// source. Missing facts and approvals return `Unknown` and do not hard-block
 /// planning.
-pub fn catalog_course_eligibility(
+pub(crate) fn catalog_course_eligibility(
     workspace: &Value,
     term_id: &str,
     offering: &Value,
@@ -512,7 +512,10 @@ impl PlannedTerm {
     }
 }
 
-pub fn ineligibility_message(offering: &Value, eligibility: CourseEligibility) -> Option<String> {
+pub(crate) fn ineligibility_message(
+    offering: &Value,
+    eligibility: CourseEligibility,
+) -> Option<String> {
     if eligibility.status != CourseEligibilityStatus::Ineligible {
         return None;
     }

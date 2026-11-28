@@ -1,8 +1,8 @@
 //! Content limits for a native notification, shared by Core-planned
 //! reminders and shell-requested notifications.
 
-pub const MAX_TITLE_BYTES: usize = 160;
-pub const MAX_BODY_BYTES: usize = 2_000;
+pub(crate) const MAX_TITLE_BYTES: usize = 160;
+pub(crate) const MAX_BODY_BYTES: usize = 2_000;
 
 #[derive(Clone, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum NotificationContentError {

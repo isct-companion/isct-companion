@@ -8,7 +8,7 @@
 
 /// One read-only Moodle external function.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum MoodleFunction {
+pub(crate) enum MoodleFunction {
     SiteInfo,
     DashboardBlocks,
     EnrolledCoursesByTimeline,
@@ -26,6 +26,7 @@ pub enum MoodleFunction {
     QuizGetUserBestGrade,
     /// The quiz's active access rules (password, Safe Exam Browser, time
     /// limit); `QuizGetQuizzesByCourses` hides the password from students.
+    #[cfg(test)]
     QuizGetQuizAccessInformation,
     ForumGetForumsByCourses,
     ForumGetForumDiscussions,
@@ -36,7 +37,7 @@ pub enum MoodleFunction {
 }
 
 impl MoodleFunction {
-    pub const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::SiteInfo => "core_webservice_get_site_info",
             Self::DashboardBlocks => "core_block_get_dashboard_blocks",
@@ -53,6 +54,7 @@ impl MoodleFunction {
             Self::QuizGetQuizzesByCourses => "mod_quiz_get_quizzes_by_courses",
             Self::QuizGetUserAttempts => "mod_quiz_get_user_attempts",
             Self::QuizGetUserBestGrade => "mod_quiz_get_user_best_grade",
+            #[cfg(test)]
             Self::QuizGetQuizAccessInformation => "mod_quiz_get_quiz_access_information",
             Self::ForumGetForumsByCourses => "mod_forum_get_forums_by_courses",
             Self::ForumGetForumDiscussions => "mod_forum_get_forum_discussions",
@@ -64,14 +66,14 @@ impl MoodleFunction {
     }
 
     /// Offered by the `moodle_mobile_app` service (REST + token).
-    pub const fn via_rest(self) -> bool {
+    pub(crate) const fn via_rest(self) -> bool {
         !matches!(self, Self::CourseformatState)
     }
 
     /// Marked `ajax => true` and therefore callable with a session cookie and
     /// sesskey. Measured 2026-10-20: the module getters and
     /// `core_course_get_contents` answer `servicenotavailable` there.
-    pub const fn via_ajax(self) -> bool {
+    pub(crate) const fn via_ajax(self) -> bool {
         matches!(
             self,
             Self::EnrolledCoursesByTimeline

@@ -23,7 +23,8 @@ macro_rules! codes {
         }
 
         impl ErrorCode {
-            pub const ALL: &'static [Self] = &[$(Self::$variant,)*];
+            #[cfg(test)]
+            pub(crate) const ALL: &'static [Self] = &[$(Self::$variant,)*];
 
             /// The code shells receive, e.g. `note-too-large`.
             pub fn name(self) -> &'static str {
@@ -157,7 +158,7 @@ pub struct CoreFailure {
     pub code: ErrorCode,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[cfg_attr(feature = "ts", ts(type = "Record<string, string> | undefined"))]
-    pub params: BTreeMap<String, String>,
+    pub(crate) params: BTreeMap<String, String>,
     pub detail: String,
 }
 

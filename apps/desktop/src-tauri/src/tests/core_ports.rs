@@ -8,11 +8,11 @@ use app_core::{
         Held, Label, Priority, RetryPlan, RunView, Scope, SourceView, SyncAttention,
         SyncAttentionProblem, SyncFailure, SyncSnapshot, SyncWork,
     },
+    school_auth::SchoolAuthProfile,
     school_browser::{
         LoadFailure, SchoolWebAccess, SchoolWebFailure, SchoolWebNotice, SchoolWebPage,
         SchoolWebProblem, SchoolWebStep,
     },
-    school_auth::SchoolAuthProfile,
     school_service::{IngestOutcome, IngestState},
     school_session::{
         SchoolMaintenance, SchoolProfileSession, SchoolSessionProfiles, SchoolSessionSnapshot,
@@ -176,7 +176,9 @@ fn every_core_event_reaches_the_ui_under_its_listened_name_and_payload() {
                 generation: 2,
                 resetting: false,
                 attention: SyncAttention {
-                    primary: Some(SyncWork::Active { run: "run-7".into() }),
+                    primary: Some(SyncWork::Active {
+                        run: "run-7".into(),
+                    }),
                     problem: Some(SyncAttentionProblem::Account {
                         profile: SchoolAuthProfile::TokyoTech,
                         presentation: None,

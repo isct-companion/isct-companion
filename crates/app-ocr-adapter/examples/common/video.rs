@@ -11,7 +11,7 @@ use std::{
     process::Command,
 };
 
-pub struct Video {
+pub(crate) struct Video {
     pub width: u32,
     pub height: u32,
     pub matrix: MatrixYuvMatrix,
@@ -30,7 +30,7 @@ fn frame_bytes(width: u32, height: u32) -> usize {
 impl Video {
     /// Probes `source` and decodes it into `cache` unless a cache of the
     /// expected size is already there.
-    pub fn open(source: &Path, cache: &Path) -> Result<Self, Box<dyn Error>> {
+    pub(crate) fn open(source: &Path, cache: &Path) -> Result<Self, Box<dyn Error>> {
         let output = Command::new("ffprobe")
             .args(["-v", "error", "-select_streams", "v:0", "-show_entries"])
             .arg("stream=width,height,color_space,color_range:stream_side_data=rotation:frame=best_effort_timestamp_time:format=duration")
@@ -111,7 +111,11 @@ impl Video {
         })
     }
 
-    pub fn read(&mut self, index: usize, buffer: &mut Vec<u8>) -> Result<(), Box<dyn Error>> {
+    pub(crate) fn read(
+        &mut self,
+        index: usize,
+        buffer: &mut Vec<u8>,
+    ) -> Result<(), Box<dyn Error>> {
         let size = frame_bytes(self.width, self.height);
         buffer.resize(size, 0);
         self.file.seek(SeekFrom::Start((index * size) as u64))?;
@@ -119,7 +123,7 @@ impl Video {
         Ok(())
     }
 
-    pub fn yuv<'a>(&self, data: &'a [u8]) -> MatrixYuvFrame<'a> {
+    pub(crate) fn yuv<'a>(&self, data: &'a [u8]) -> MatrixYuvFrame<'a> {
         let (w, h) = (self.width as usize, self.height as usize);
         let chroma = w.div_ceil(2) * h.div_ceil(2);
         MatrixYuvFrame {

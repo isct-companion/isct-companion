@@ -15,14 +15,14 @@ const PATH: &str = "/oauth/callback";
 const MAX_REQUEST: usize = 8192;
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct Loopback {
+pub(crate) struct Loopback {
     listener: TcpListener,
     redirect: Url,
 }
 
 impl Loopback {
     /// Port 0 selects an ephemeral port. Drive retains its registered port.
-    pub async fn bind(port: u16) -> Result<Self, OAuthError> {
+    pub(crate) async fn bind(port: u16) -> Result<Self, OAuthError> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, port))
             .await
             .map_err(|_| OAuthError::Loopback)?;
@@ -32,11 +32,11 @@ impl Loopback {
         Ok(Self { listener, redirect })
     }
 
-    pub fn redirect(&self) -> &Url {
+    pub(crate) fn redirect(&self) -> &Url {
         &self.redirect
     }
 
-    pub async fn authenticate(
+    pub(crate) async fn authenticate(
         self,
         browser: &dyn NativeBrowserAuth,
         pending: &PendingAuthorization,

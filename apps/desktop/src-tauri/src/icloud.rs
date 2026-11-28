@@ -77,7 +77,7 @@ fn account_request() -> oneshot::Receiver<Result<(), String>> {
 // Every public entry point checks the account first. A build without the
 // iCloud container entitlement (see build.rs) never touches CloudKit, which
 // traps (SIGILL) there instead of returning an error.
-pub async fn account_available() -> Result<(), String> {
+pub(crate) async fn account_available() -> Result<(), String> {
     #[cfg(not(icloud))]
     return Err("iCloud needs a build signed with the iCloud entitlement.".into());
     #[cfg(icloud)]
@@ -225,7 +225,7 @@ fn temp_asset_path() -> PathBuf {
 }
 
 /// The workspace record, as the byte store behind Core's `TaggedWorkspace`.
-pub struct Store;
+pub(crate) struct Store;
 
 impl ObjectStore for Store {
     fn read<'a>(&'a self, _provider: CloudProvider) -> BoxFuture<'a, Option<StoredObject>> {

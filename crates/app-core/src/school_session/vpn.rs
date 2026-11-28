@@ -22,7 +22,7 @@ use url::Url;
 use vpn_protocol::SessionCookie;
 
 /// The SSL-VPN entry the portal's resource menu links to.
-pub const APM_ENTRY: &str = "https://apm.nap.gsic.titech.ac.jp/";
+pub(crate) const APM_ENTRY: &str = "https://apm.nap.gsic.titech.ac.jp/";
 /// Hand-offs and the proxy's password page together (the APM's policy page,
 /// the proxy's form, the way back); more means the way in changed.
 const MAX_STEPS: usize = 6;

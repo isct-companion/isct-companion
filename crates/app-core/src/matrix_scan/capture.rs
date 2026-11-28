@@ -43,21 +43,21 @@ pub struct MatrixCaptureFrame {
 }
 /// One frame of the fast geometry loop: the grid to draw on this frame and
 /// whether this frame's fit is good enough to cut cells from.
-pub struct MatrixTrackedFrame {
+pub(crate) struct MatrixTrackedFrame {
     pub frame_id: u32,
     pub bounds: Option<[MatrixPoint; 4]>,
     pub keyframe_ready: bool,
-    pub analysis_ms: f64,
+    pub(crate) analysis_ms: f64,
 }
 /// Diagnostics for one tracked frame. `observed_ms` is Core's session clock;
 /// `keyframe` marks frames whose cells were later observed.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct MatrixFrameTrace {
+pub(crate) struct MatrixFrameTrace {
     pub frame_id: u32,
     pub located: bool,
-    pub analysis_ms: f64,
-    pub observed_ms: f64,
+    pub(crate) analysis_ms: f64,
+    pub(crate) observed_ms: f64,
     pub keyframe: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -80,12 +80,12 @@ pub struct MatrixCameraSnapshot {
     pub bounds_frame_id: Option<u32>,
     /// Core wants the cells of this tracked frame now (it qualified and the
     /// sampling interval has passed); the shell sends its full resolution.
-    pub keyframe_frame_id: Option<u32>,
+    pub(crate) keyframe_frame_id: Option<u32>,
     pub ready_cells: usize,
     pub capture_elapsed_ms: f64,
     pub timed_out: bool,
     pub completed_samples: usize,
-    pub total_samples: usize,
+    pub(crate) total_samples: usize,
     pub cells: Vec<MatrixVote>,
 }
 #[derive(Serialize)]
@@ -97,15 +97,15 @@ pub struct MatrixCameraDiagnostics {
     pub timed_out: bool,
     pub candidates: Vec<usize>,
     pub qualified_samples: Vec<usize>,
-    pub stable_cells: usize,
+    pub(crate) stable_cells: usize,
     pub completed_samples: usize,
-    pub total_samples: usize,
+    pub(crate) total_samples: usize,
     pub keyframes: usize,
     pub admission_rejections: usize,
     /// Keyframes rejected whole as too blurred (`matrix_frame_sharp`).
-    pub blur_rejections: usize,
+    pub(crate) blur_rejections: usize,
     pub glare_rejections: Vec<usize>,
-    pub frames: Vec<MatrixFrameTrace>,
+    pub(crate) frames: Vec<MatrixFrameTrace>,
 }
 
 #[derive(Clone)]
@@ -285,7 +285,7 @@ fn admits(glyphs: &[MatrixCaptureGlyph]) -> bool {
 /// frame. Rejected cells stay blank for review; one reading cannot become
 /// `stable`, so every photo cell is checked against the card, coloured by its
 /// score alone (`CellEvidence::photo_vote`).
-pub fn read_matrix_photo(
+pub(crate) fn read_matrix_photo(
     cut: MatrixCut,
     mut recognize: impl FnMut(&[Vec<u8>]) -> Result<Vec<MatrixReading>, MatrixScanError>,
     mut progress: impl FnMut(usize, usize) -> bool,
@@ -445,7 +445,7 @@ impl MatrixCameraScanner {
     /// One frame of the fast loop. Its bounds become the drawn outline, and a
     /// frame that qualifies is requested as a keyframe once the sampling
     /// interval has passed since the last one. Located or not, it is traced.
-    pub fn track(
+    pub(crate) fn track(
         &mut self,
         id: &str,
         frame: MatrixTrackedFrame,

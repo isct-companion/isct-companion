@@ -681,7 +681,7 @@ pub fn apply_lms_deadlines(
 
 /// Commits `lms.assign/{id}`: one's own state of each assignment and quiz
 /// the course's outline has a row for. Due dates, titles and links stay.
-pub fn apply_lms_assign(
+pub(crate) fn apply_lms_assign(
     tx: &Transaction<'_>,
     states: &LmsAssignStates,
     now: DateTime<Utc>,
@@ -709,7 +709,7 @@ pub fn apply_lms_assign(
 /// Commits `lms.history/{YYYY-MM}`: the month's due dates for assignments
 /// that have no due date or one that has passed. A future due date belongs
 /// to `lms.deadlines`.
-pub fn apply_lms_history(
+pub(crate) fn apply_lms_history(
     tx: &Transaction<'_>,
     month: &LmsHistoryMonth,
     now: DateTime<Utc>,
@@ -745,7 +745,7 @@ pub fn apply_lms_history(
 }
 
 /// What the store holds of a course's modules, for [`StoredModule`].
-pub fn stored_modules(
+pub(crate) fn stored_modules(
     connection: &Connection,
     lms_course: u64,
 ) -> Result<HashMap<u64, StoredModule>, IngestError> {
@@ -774,7 +774,7 @@ pub fn stored_modules(
 
 /// An enrolled LMS course as stored, for planning its keys.
 #[derive(Clone, Debug, PartialEq)]
-pub struct StoredLmsCourse {
+pub(crate) struct StoredLmsCourse {
     pub id: u64,
     pub title: String,
     /// Academic year from the shortname.
@@ -782,11 +782,11 @@ pub struct StoredLmsCourse {
     /// The quarter the course starts in.
     pub quarter: Option<u8>,
     /// Terms (`2026-3Q`) whose timetable grid lists the course.
-    pub shown_in: Vec<String>,
+    pub(crate) shown_in: Vec<String>,
 }
 
 /// Every enrolled (not missing) LMS course.
-pub fn stored_courses(connection: &Connection) -> Result<Vec<StoredLmsCourse>, IngestError> {
+pub(crate) fn stored_courses(connection: &Connection) -> Result<Vec<StoredLmsCourse>, IngestError> {
     let mut statement = connection
         .prepare("SELECT value FROM lms_courses WHERE missing_since IS NULL ORDER BY id")
         .map_err(IngestError::from)?;
@@ -841,7 +841,7 @@ pub(crate) fn stored_course(course: &Value) -> Option<StoredLmsCourse> {
 
 /// The LMS quarter now, as `(academic year, quarter)`, by the month in
 /// Japan.
-pub fn current_lms_term(now: DateTime<Utc>) -> (i32, u8) {
+pub(crate) fn current_lms_term(now: DateTime<Utc>) -> (i32, u8) {
     let term = crate::schedule::Term::by_month(crate::schedule::japan_today(now));
     (term.year, term.quarter)
 }
@@ -850,7 +850,7 @@ pub fn current_lms_term(now: DateTime<Utc>) -> (i32, u8) {
 /// one starting in the current quarter, is current; one of an earlier
 /// academic year is frozen; anything else (an earlier or later quarter, an
 /// unknown year) is past.
-pub fn lms_course_term(course: &StoredLmsCourse, current: (i32, u8)) -> Term {
+pub(crate) fn lms_course_term(course: &StoredLmsCourse, current: (i32, u8)) -> Term {
     let label = format!("{}-{}Q", current.0, current.1);
     if course.shown_in.contains(&label) {
         return Term::Current;

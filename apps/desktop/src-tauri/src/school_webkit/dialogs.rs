@@ -71,7 +71,7 @@ thread_local! {
 
 /// Ends the file panels of the views and popups `owner` names, each
 /// answering Cancel. Main thread only.
-pub fn end_file_panels(owner: impl Fn(BrowserId) -> bool) {
+pub(crate) fn end_file_panels(owner: impl Fn(BrowserId) -> bool) {
     let ended: Vec<_> = FILE_PANELS.with_borrow_mut(|panels| {
         let (ended, kept) = std::mem::take(panels)
             .into_iter()

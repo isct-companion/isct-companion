@@ -18,7 +18,7 @@ pub use picture::{MatrixFullLuma, MatrixPicture, MatrixYuvFrame, MatrixYuvMatrix
 #[cfg(matrix_ocr)]
 mod engine;
 
-pub use recognition::Recognition;
+pub(crate) use recognition::Recognition;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -108,7 +108,7 @@ pub const fn available() -> bool {
 }
 
 /// Largest encoded image `scan` accepts.
-pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
+pub(crate) const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 
 /// Reject an oversized image before a shell transport-decodes it: `len` is the
 /// byte length of a base64 text payload carrying the encoded image.

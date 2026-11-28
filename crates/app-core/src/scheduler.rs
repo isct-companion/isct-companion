@@ -21,7 +21,7 @@ pub trait ScheduledExporter: Send + Sync {
 }
 
 #[derive(Clone)]
-pub struct SchedulerServices {
+pub(crate) struct SchedulerServices {
     pub store: DataStore,
     pub exporter: Arc<dyn ScheduledExporter>,
 }
@@ -42,7 +42,7 @@ pub enum SchedulerError {
 /// (`reference-refresh`, `lms-refresh`, `school-refresh`) never fires.
 #[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
-pub enum ScheduledAction {
+pub(crate) enum ScheduledAction {
     Export,
     Hook,
 }
@@ -55,7 +55,7 @@ impl ScheduledAction {
     }
 }
 
-pub struct Scheduler {
+pub(crate) struct Scheduler {
     started_at: DateTime<Utc>,
     running: tokio::sync::Mutex<()>,
     invalid_schedules: Mutex<HashSet<String>>,
@@ -219,7 +219,7 @@ impl Scheduler {
     }
 
     /// Runs every task whose occurrence has come, then notes the next one.
-    pub async fn run_due(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
+    pub(crate) async fn run_due(&self, services: &SchedulerServices) -> Result<(), SchedulerError> {
         let ran = self.pass(services).await;
         let next = services
             .store
@@ -313,7 +313,7 @@ impl Scheduler {
         Ok(())
     }
 
-    pub async fn run_now(
+    pub(crate) async fn run_now(
         &self,
         services: &SchedulerServices,
         id: &str,

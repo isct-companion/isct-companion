@@ -25,7 +25,7 @@ pub enum SchoolSite {
 }
 
 impl SchoolSite {
-    pub fn for_url(raw: &str) -> Option<Self> {
+    pub(crate) fn for_url(raw: &str) -> Option<Self> {
         match Url::parse(raw).ok()?.host_str()? {
             "lms.s.isct.ac.jp" | "t2schola.titech.ac.jp" => Some(Self::ScienceLms),
             "syllabus.s.isct.ac.jp" => Some(Self::Syllabus),

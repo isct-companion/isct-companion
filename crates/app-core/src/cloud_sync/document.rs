@@ -15,7 +15,7 @@ const CLOUD_FORMAT: &str = "IsctCompanion";
 const CLOUD_FORMAT_VERSION: u64 = 2;
 /// Every provider stores the workspace envelope under this one name.
 pub const CLOUD_FILE_NAME: &str = "IsctCompanion.json";
-pub const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
+pub(crate) const MAX_DOCUMENT_BYTES: usize = 25 * 1024 * 1024;
 /// Where Apple devices keep the workspace: one record in this container's
 /// private database, its envelope in an asset field. The Mac and iOS apps must
 /// both use these, so they are named once here.
@@ -49,12 +49,12 @@ pub enum DocumentError {
 #[serde(rename_all = "camelCase")]
 pub struct CloudWorkspaceFile {
     pub format: String,
-    pub format_version: u64,
+    pub(crate) format_version: u64,
     pub revision: u64,
     #[serde(default)]
     pub version: String,
-    pub updated_at: String,
-    pub updated_by: String,
+    pub(crate) updated_at: String,
+    pub(crate) updated_by: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_name: Option<String>,
     #[serde(skip)]
@@ -63,17 +63,17 @@ pub struct CloudWorkspaceFile {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous: Vec<CloudWorkspaceFile>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub checkpoints: Vec<CloudWorkspaceFile>,
+    pub(crate) checkpoints: Vec<CloudWorkspaceFile>,
 }
 
 impl CloudWorkspaceFile {
-    pub fn merged_document(&self) -> Value {
+    pub(crate) fn merged_document(&self) -> Value {
         self.siblings
             .iter()
             .fold(self.document.clone(), |a, b| cloud_merge::merge(&a, b))
     }
 
-    pub fn version_document(&self, revision: u64) -> Option<&Value> {
+    pub(crate) fn version_document(&self, revision: u64) -> Option<&Value> {
         self.previous
             .iter()
             .chain(self.checkpoints.iter())
@@ -346,7 +346,7 @@ impl<S: ObjectStore> WorkspaceTransport for TaggedWorkspace<S> {
     }
 }
 
-pub fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, DocumentError> {
+pub(crate) fn parse_cloud_workspace(bytes: &[u8]) -> Result<CloudWorkspaceFile, DocumentError> {
     let file: CloudWorkspaceFile =
         serde_json::from_slice(bytes).map_err(|_| DocumentError::InvalidJson)?;
     if file.format != CLOUD_FORMAT
@@ -512,7 +512,7 @@ fn flatten_history(old: &CloudWorkspaceFile) -> CloudWorkspaceFile {
     old
 }
 
-pub fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
+pub(crate) fn workspace_contents_equal(left: &Value, right: &Value) -> bool {
     matches!(
         (cloud_merge::version(left), cloud_merge::version(right)),
         (Ok(left), Ok(right)) if left == right

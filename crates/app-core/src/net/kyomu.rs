@@ -28,30 +28,30 @@ const GETACCESS_HOST: &str = "portal.nap.gsic.titech.ac.jp";
 const MENU: &str = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
 /// `KeyOutcome::Unavailable` reason when the search answers for another
 /// academic year (the next year opens on the school's schedule).
-pub const YEAR_NOT_OFFERED: &str =
+pub(crate) const YEAR_NOT_OFFERED: &str =
     "教務Web did not return the requested academic year. The current year is available after sign-in.";
 
 /// Whole-department rows from the official course search.
 #[derive(Clone, Debug)]
-pub struct CatalogRows {
+pub(crate) struct CatalogRows {
     /// Rows in the course shape `DataStore::catalog_upsert_offerings` merges.
     pub courses: Vec<serde_json::Value>,
-    pub search_options: Vec<OfficialFilterOption>,
+    pub(crate) search_options: Vec<OfficialFilterOption>,
     /// The school's per-search cap was reached (or another page remained):
     /// split the search further to read everything.
-    pub truncated: bool,
+    pub(crate) truncated: bool,
 }
 
 /// What the course search is asked for. Every field maps to a query
 /// parameter of the search URL; empty fields are left out.
 #[derive(Clone, Debug, Default)]
-pub struct CatalogSearch {
+pub(crate) struct CatalogSearch {
     /// Course code or code prefix (`ShinkokuNoS`).
     pub code: String,
     /// Course name words (`Name`).
     pub name: String,
     /// Instructor name (`KyouinName`).
-    pub teacher: String,
+    pub(crate) teacher: String,
     /// One quarter, 1–4 (`Quarters`); 0 searches every quarter.
     pub quarter: u8,
 }

@@ -11,7 +11,7 @@ const MESSAGE_LIMIT: usize = 2048;
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LogEntry {
+pub(crate) struct LogEntry {
     pub id: u64,
     pub at: String,
     pub level: String,
@@ -22,8 +22,8 @@ pub struct LogEntry {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LogSnapshot {
-    pub entries: Vec<LogEntry>,
-    pub cursor: u64,
+    pub(crate) entries: Vec<LogEntry>,
+    pub(crate) cursor: u64,
     pub dropped: bool,
 }
 

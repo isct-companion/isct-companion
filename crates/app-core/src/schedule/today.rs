@@ -383,8 +383,8 @@ fn open_deadlines(
 pub(super) struct ClassMoment {
     pub phase: TodayPhase,
     pub current: Option<TodayClass>,
-    pub upcoming: Vec<TodayClass>,
-    pub next_boundary: Option<DateTime<FixedOffset>>,
+    pub(crate) upcoming: Vec<TodayClass>,
+    pub(crate) next_boundary: Option<DateTime<FixedOffset>>,
 }
 
 pub(super) fn timed_classes(
@@ -453,7 +453,7 @@ pub(super) fn class_moment(
     }
 }
 
-pub fn today_view(
+pub(crate) fn today_view(
     workspace: &Value,
     school: &SchoolReads,
     now: DateTime<FixedOffset>,
@@ -664,7 +664,7 @@ pub(super) fn open_assignment_groups(
     Ok(deadline_groups(workspace, &groups.today, now))
 }
 
-pub fn assignment_board(
+pub(crate) fn assignment_board(
     workspace: &Value,
     now: DateTime<FixedOffset>,
     term: Option<String>,

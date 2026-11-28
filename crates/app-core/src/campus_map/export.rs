@@ -111,14 +111,14 @@ pub(super) type Rings = Vec<Vec<Position>>;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Export {
     #[allow(dead_code)]
-    pub format_version: u32,
-    pub attribution: Vec<String>,
-    pub buildings: Vec<Building>,
+    pub(crate) format_version: u32,
+    pub(crate) attribution: Vec<String>,
+    pub(crate) buildings: Vec<Building>,
     pub units: Vec<Unit>,
-    pub amenities: Vec<Amenity>,
-    pub linework: Vec<Linework>,
-    pub rooms: Vec<Room>,
-    pub aliases: BTreeMap<String, Vec<String>>,
+    pub(crate) amenities: Vec<Amenity>,
+    pub(crate) linework: Vec<Linework>,
+    pub(crate) rooms: Vec<Room>,
+    pub(crate) aliases: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -127,15 +127,15 @@ pub(super) struct Building {
     pub id: String,
     pub campus: String,
     pub name: Localized,
-    pub codes: Vec<String>,
+    pub(crate) codes: Vec<String>,
     pub center: Position,
     /// MultiPolygon coordinates.
-    pub footprint: Vec<Rings>,
-    pub levels: Vec<Level>,
+    pub(crate) footprint: Vec<Rings>,
+    pub(crate) levels: Vec<Level>,
     /// The floor the main entrance is on, one of `levels`; null only for a
     /// building with no floors.
-    pub street_level_id: Option<String>,
-    pub entrances: Vec<Entrance>,
+    pub(crate) street_level_id: Option<String>,
+    pub(crate) entrances: Vec<Entrance>,
     /// The maintainers marked the building's data complete: the map asks
     /// for no more photos of it. Not in the published format 2, which is
     /// frozen for the builds that read it (Isct-Data
@@ -149,7 +149,7 @@ pub(super) struct Building {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Level {
     pub id: String,
-    pub ordinal: i32,
+    pub(crate) ordinal: i32,
     pub name: String,
     pub outline: Vec<Rings>,
 }
@@ -162,39 +162,39 @@ pub(super) struct Entrance {
     #[serde(default)]
     pub name: Option<Localized>,
     #[serde(default)]
-    pub level_id: Option<String>,
+    pub(crate) level_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Unit {
     pub id: String,
-    pub level_id: String,
-    pub category: UnitCategory,
+    pub(crate) level_id: String,
+    pub(crate) category: UnitCategory,
     #[serde(default)]
-    pub room_id: Option<String>,
+    pub(crate) room_id: Option<String>,
     #[serde(default)]
     pub label: Option<String>,
     pub center: Position,
-    pub polygon: Rings,
+    pub(crate) polygon: Rings,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Amenity {
     pub id: String,
-    pub level_id: String,
-    pub category: AmenityCategory,
+    pub(crate) level_id: String,
+    pub(crate) category: AmenityCategory,
     pub point: Position,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Linework {
-    pub level_id: String,
-    pub tone: LineTone,
+    pub(crate) level_id: String,
+    pub(crate) tone: LineTone,
     /// The line's physical width, in metres.
-    pub width_m: f64,
+    pub(crate) width_m: f64,
     /// MultiLineString coordinates.
     pub lines: Vec<Vec<Position>>,
 }
@@ -205,7 +205,7 @@ pub(super) struct Room {
     pub id: String,
     pub code: String,
     pub building_id: String,
-    pub unit_ids: Vec<String>,
+    pub(crate) unit_ids: Vec<String>,
 }
 
 /// Only the version, read before the strict parse so a later format is

@@ -15,14 +15,14 @@ use std::{collections::HashSet, sync::Arc};
 /// A catalog row as the finder lists it, its names in the content language,
 /// with the lowercase text of both languages a typed word is looked up in,
 /// built once per catalog rather than per search.
-pub struct IndexedCourse {
+pub(crate) struct IndexedCourse {
     pub course: Arc<Value>,
     haystack: String,
     teachers: Vec<String>,
     rooms: Vec<String>,
 }
 impl IndexedCourse {
-    pub fn new(mut course: Value, language: ContentLanguage) -> Self {
+    pub(crate) fn new(mut course: Value, language: ContentLanguage) -> Self {
         let haystack = searchable(&course);
         let both = |names: &[&Value]| {
             names
@@ -187,12 +187,12 @@ fn count_rows(courses: &[&IndexedCourse], factors: &[Factor], ctx: &FinderContex
         .count()
 }
 /// A row that met every condition, with the either-or labels it met.
-pub struct FinderMatch<'a> {
+pub(crate) struct FinderMatch<'a> {
     pub course: &'a IndexedCourse,
-    pub matched: Vec<String>,
+    pub(crate) matched: Vec<String>,
 }
 /// Every matching row, recommended first, then by code.
-pub fn run<'a>(
+pub(crate) fn run<'a>(
     courses: &[&'a IndexedCourse],
     factors: &[Factor],
     ctx: &FinderContext,
@@ -237,7 +237,7 @@ pub fn run<'a>(
 
 /// What a typed word offers: categories, conditions with their counts,
 /// matching courses (as `row` presents them) and the word itself.
-pub fn suggest(
+pub(crate) fn suggest(
     input: &str,
     keys: &[String],
     courses: &[&IndexedCourse],

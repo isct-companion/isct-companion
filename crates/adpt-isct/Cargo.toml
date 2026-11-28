@@ -25,3 +25,6 @@ ego-tree = "0.11"
 [build-dependencies]
 # Switches on the tests over captures kept outside the repository.
 capture-gate = { path = "../capture-gate" }
+
+[lints]
+workspace = true

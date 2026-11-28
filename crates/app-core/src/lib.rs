@@ -50,9 +50,10 @@ pub mod error_code;
 pub mod events;
 pub mod exam_share;
 pub mod feedback;
-pub mod html_text;
+#[cfg(feature = "desktop-workspaces")]
+pub(crate) mod html_text;
 pub mod kyomu_guide;
-pub mod kyomu_ingest;
+pub(crate) mod kyomu_ingest;
 pub mod lifecycle;
 pub mod lms_ingest;
 pub mod locale;
@@ -78,10 +79,10 @@ mod secret_parts;
 pub mod storage;
 pub mod study_profile;
 #[cfg(feature = "agent")]
-pub mod submissions;
-pub mod subscriptions;
-pub mod sync_gc;
-pub mod sync_state;
+pub(crate) mod submissions;
+pub(crate) mod subscriptions;
+pub(crate) mod sync_gc;
+pub(crate) mod sync_state;
 pub mod widgets;
 pub mod workspace;
 pub mod workspace_changes;

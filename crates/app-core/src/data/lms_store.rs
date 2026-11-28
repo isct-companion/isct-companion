@@ -1,7 +1,7 @@
 use super::*;
 
 impl DataStore {
-    pub fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, DataError> {
+    pub(crate) fn lms_material_for_url(&self, url: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         let raw: Option<String> = connection
             .query_row(
@@ -24,7 +24,7 @@ impl DataStore {
     /// Store a lazy `view.php` resolution exactly like an LMS ingest update:
     /// unchanged content keeps its revision, while a changed remote URL gets
     /// one new version. Local cache paths never enter the database.
-    pub fn update_lms_resource_url(
+    pub(crate) fn update_lms_resource_url(
         &self,
         cmid: u64,
         source_url: &str,
@@ -40,7 +40,7 @@ impl DataStore {
 
     /// Keeps a folder's resolved file list on its material, so reopening it
     /// needs no LMS request. A later crawl keeps it until a new read replaces it.
-    pub fn update_lms_folder_files(
+    pub(crate) fn update_lms_folder_files(
         &self,
         cmid: u64,
         source_url: &str,

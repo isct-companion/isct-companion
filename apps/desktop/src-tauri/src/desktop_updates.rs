@@ -109,7 +109,7 @@ fn public_key(app: &AppHandle) -> Option<String> {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateStatus {
+pub(crate) struct UpdateStatus {
     phase: &'static str,
     version: Option<String>,
     message: Option<String>,
@@ -123,7 +123,7 @@ pub struct UpdateStatus {
 }
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DownloadProgress {
+pub(crate) struct DownloadProgress {
     downloaded: u64,
     total: Option<u64>,
 }
@@ -150,7 +150,7 @@ struct NativeState {
     last_checked: Option<String>,
 }
 #[derive(Default)]
-pub struct DesktopUpdates {
+pub(crate) struct DesktopUpdates {
     state: Mutex<NativeState>,
     #[cfg(not(feature = "demo"))]
     busy: AtomicBool,
@@ -164,7 +164,7 @@ impl Drop for Busy<'_> {
     }
 }
 
-pub fn snapshot(app: &AppHandle) -> Result<UpdateStatus, String> {
+pub(crate) fn snapshot(app: &AppHandle) -> Result<UpdateStatus, String> {
     app.state::<DesktopUpdates>()
         .state
         .lock()
@@ -238,7 +238,7 @@ async fn download_verified(app: &AppHandle, update: &mut Update) -> Result<Vec<u
 }
 
 #[cfg(feature = "demo")]
-pub async fn check(
+pub(crate) async fn check(
     app: AppHandle,
     _manual: bool,
     _download: bool,
@@ -248,7 +248,7 @@ pub async fn check(
 }
 
 #[cfg(not(feature = "demo"))]
-pub async fn check(
+pub(crate) async fn check(
     app: AppHandle,
     manual: bool,
     download: bool,
@@ -379,7 +379,7 @@ pub async fn check(
     }
 }
 
-pub fn request_install(app: &AppHandle, version: Option<&str>) -> Result<(), String> {
+pub(crate) fn request_install(app: &AppHandle, version: Option<&str>) -> Result<(), String> {
     let updates = app.state::<DesktopUpdates>();
     let mut state = updates
         .state
@@ -397,7 +397,7 @@ pub fn request_install(app: &AppHandle, version: Option<&str>) -> Result<(), Str
     Ok(())
 }
 
-pub fn install_on_exit(app: &AppHandle) {
+pub(crate) fn install_on_exit(app: &AppHandle) {
     let automatic = core_ports::core(app)
         .store
         .load_fields(&[])
@@ -450,7 +450,7 @@ fn record_install(app: &AppHandle, phase: InstallPhase, version: &str, message: 
 
 /// Reads the record the previous run left before exiting into its installer,
 /// so this launch can say whether that install took effect. It is shown once.
-pub fn load_last_install(app: &AppHandle) {
+pub(crate) fn load_last_install(app: &AppHandle) {
     let Ok(path) = app.path().app_data_dir().map(|d| d.join(INSTALL_RECORD)) else {
         return;
     };

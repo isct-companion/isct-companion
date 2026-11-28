@@ -18,7 +18,7 @@ mod standby;
 #[cfg(target_os = "windows")]
 mod windows;
 
-pub fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+pub(crate) fn init() -> tauri::plugin::TauriPlugin<tauri::Wry> {
     tauri::plugin::Builder::new("campus-vpn")
         .invoke_handler(tauri::generate_handler![
             status, connect, disconnect, on_demand, publishers, install

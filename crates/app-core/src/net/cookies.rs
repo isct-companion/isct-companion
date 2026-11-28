@@ -10,7 +10,7 @@ use url::Url;
 /// unrelated sites (`ac.jp`). Anything else, and every cookie from a
 /// non-school host, is dropped: a jar must not take cookies a browser would
 /// refuse.
-pub fn storable(url: &Url, set_cookie: &[String]) -> Vec<String> {
+pub(crate) fn storable(url: &Url, set_cookie: &[String]) -> Vec<String> {
     let Some(host) = Host::of(url)
         .filter(|host| *host != Host::IsctData)
         .map(Host::name)

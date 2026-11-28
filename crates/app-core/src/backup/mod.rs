@@ -69,10 +69,12 @@ impl BackupService {
     ) -> Result<(), BackupError> {
         Self::validate(selected)?;
         Self::validate(head)?;
-        Ok(self.store.restore_records_with_head(selected, Some(head), source)?)
+        Ok(self
+            .store
+            .restore_records_with_head(selected, Some(head), source)?)
     }
 
-    pub fn device_id(&self) -> Result<String, BackupError> {
+    pub(crate) fn device_id(&self) -> Result<String, BackupError> {
         self.store.load_fields(&[])?["deviceId"]
             .as_str()
             .map(str::to_owned)

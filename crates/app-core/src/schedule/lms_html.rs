@@ -95,7 +95,7 @@ pub(crate) fn safe_html(html: &str, without_activity_dates: bool) -> String {
     project_html(html, without_activity_dates, None).preferred
 }
 
-pub fn project_html(
+pub(crate) fn project_html(
     html: &str,
     without_activity_dates: bool,
     language: Option<ContentLanguage>,

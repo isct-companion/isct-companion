@@ -276,7 +276,7 @@ pub(super) fn kind_of(module: Option<&str>) -> LessonItemKind {
     }
 }
 
-pub fn course_content(
+pub(crate) fn course_content(
     workspace: &Value,
     school: &SchoolReads,
     course_id: &str,

@@ -5,7 +5,7 @@ use crate::lifecycle::SchoolSite;
 use crate::school_browser_native::ViewCallbacks;
 #[cfg(target_os = "macos")]
 use crate::school_browser_native::SCHOOL_DATA_STORE;
-pub use crate::school_browser_native::{
+pub(crate) use crate::school_browser_native::{
     SchoolWebController, SchoolWebPolicy, SchoolWebResult, WebBounds,
 };
 use tauri::webview::{PageLoadEvent, WebviewBuilder};

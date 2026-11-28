@@ -1,7 +1,7 @@
 //! Calendar and schedule read models shared by every application shell.
 
 mod agenda_layout;
-pub mod alternation;
+pub(crate) mod alternation;
 mod calendar;
 mod civil;
 mod colors;
@@ -13,7 +13,7 @@ mod credits;
 mod exam_courses;
 mod exams;
 mod ics;
-pub mod lms_html;
+pub(crate) mod lms_html;
 mod occurrence;
 mod profile_validation;
 mod range;
@@ -41,79 +41,95 @@ use thiserror::Error;
 #[cfg(feature = "ts")]
 use ts_rs::TS;
 
-pub use alternation::{
-    class_group_choices, validate_class_groups, validate_semester, Alternation, ClassGroup,
-    ClassGroupChoice, ClassGroupCourse, ClassGroupSession, PairedCourse, Turn,
-};
-pub use calendar::{
-    academic_term_for_date, academic_year_calendar, calendar_state, AcademicYearCalendar,
-    CalendarDayView, QuarterRange, QuarterView, TeachingRange, TimetableQuarter, TimetableWeek,
-    TimetableYear,
-};
-pub use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
+pub use calendar::TimetableYear;
+pub(crate) use civil::{add_days, japan_today, parse_civil_date, tokyo_date, Term};
 pub(crate) use colors::is_hex_color;
-pub use colors::{display_color, event_color, COURSE_PALETTE};
-pub use course_content::{
-    course_content, CourseContent, LessonContent, LessonItem, LessonItemKind,
-};
+pub use colors::COURSE_PALETTE;
+pub(crate) use course_content::course_content;
+pub use course_content::CourseContent;
 pub(crate) use course_detail::files_of;
-pub use course_detail::{
-    assignment_detail, course_detail, AssignmentAttachment, AssignmentDetail, CourseDetail,
-};
+#[cfg(all(test, feature = "desktop-workspaces"))]
+pub(crate) use course_detail::AssignmentAttachment;
+pub use course_detail::CourseDetail;
 pub(crate) use course_scope::placement_terms;
-pub use course_scope::{course_terms, term_courses};
-pub use credits::declared_term_credits;
-pub use exam_courses::{ExamCourse, ExamCourseList};
+pub(crate) use course_scope::{course_terms, term_courses};
+pub(crate) use credits::declared_term_credits;
+pub(crate) use exam_courses::ExamCourseList;
 pub(crate) use exams::{
     adopted_exam_override, corrected_exam_override, exam_association, exam_views,
     linked_exam_override, marked_session_override, removed_exam_override, ExamCorrection,
 };
-pub use exams::{ExamAssociation, ExamConflict, ExamLinkCourse, ExamSchedule, ExamView};
-pub use ics::{export_calendar_ics, export_quarter_ics, CalendarExportScope};
-pub use lecture_list::{LectureCourse, LectureExamGroups, LectureList, LectureMeeting};
+pub(crate) use exams::{ExamAssociation, ExamView};
+pub(crate) use ics::{export_quarter_ics, CalendarExportScope};
+pub(crate) use lecture_list::LectureList;
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
-pub use occurrence::{
-    course_timeline, intensive_days, planning_week, resolve_day_agenda, schedule_problems,
-    scheduled_courses, validate_academic_profile, AgendaOptions, CourseConflict, CourseTimeline,
-    EventCarryOver, GridSlot, Occurrence, OccurrenceKind, PlanningDay, PlanningWeek,
-    ScheduleProblem, ScheduleProblemKind, SessionMark,
-};
-pub use range::calendar_between;
+pub use occurrence::PlanningWeek;
+pub(crate) use range::calendar_between;
 pub(crate) use reminders::ReminderChanges;
-pub use reminders::{
-    glance, notification_plan, GlanceSnapshot, NotificationItem, NotificationLocale,
-    NotificationPlan, NotificationPriority, NotificationSink, NotificationSinkError, ReminderError,
-    ReminderService, DEFAULT_ASSIGNMENT_LEADS, REMINDER_LOG,
-};
-#[cfg(any(test, feature = "mobile-reminders"))]
-pub use reminders::{
-    PendingReminder, PendingReminderState, ReminderDeliveryPlan, ReminderPort, ReminderPortFacts,
-    ReminderReceipt,
-};
-pub use requests::{ColorCourse, ColorOverrides};
-pub use school::SchoolReads;
+pub(crate) use requests::ColorCourse;
+pub(crate) use school::SchoolReads;
 pub(crate) use school::{CatalogEntry, ExamTimetable};
 pub(crate) use search::subject_codes;
 pub use search::LectureSearch;
+#[cfg(any(test, feature = "mobile-reminders"))]
+pub(crate) use tasks::assignment_state;
 pub(crate) use tasks::assignment_submitted;
-pub use tasks::{
-    assignment_state, deadline_view, task_view, AssignmentGroups, AssignmentState,
-    CountdownComponent, CountdownUnit, DeadlineState, HandInAvailability, TaskDeadlineView,
-    TaskView, TermTaskView,
-};
+pub use tasks::TaskView;
 pub(crate) use timing::{clock_for_periods, validate_period_range};
-pub use timing::{
-    default_teaching_periods, teaching_periods, timetable_axis, validate_teaching_periods, AxisRow,
-    AxisStop, TeachingPeriod, TimetableAxis,
-};
 #[cfg(feature = "agent")]
 pub(crate) use today::classes_on;
-pub use today::{
-    assignment_board, today_view, AssignmentBoard, DeadlineGroups, DeadlineItem, MaterialItem,
-    RecentItem, RecentKind, TodayClass, TodayPhase, TodayView,
-};
+pub use today::AssignmentBoard;
 pub(crate) use today::{recent_key, recent_version, unseen_recent, RECENT_DAYS};
+pub(crate) use {
+    alternation::class_group_choices, alternation::validate_class_groups,
+    alternation::validate_semester, alternation::ClassGroup, alternation::ClassGroupChoice,
+};
+#[cfg(feature = "agent")]
+pub(crate) use {
+    alternation::Alternation, alternation::PairedCourse, exams::ExamConflict, exams::ExamSchedule,
+};
+pub(crate) use {
+    calendar::academic_term_for_date, calendar::academic_year_calendar,
+    calendar::AcademicYearCalendar, calendar::QuarterRange,
+};
+pub(crate) use {colors::display_color, colors::event_color};
+pub(crate) use {
+    course_detail::assignment_detail, course_detail::course_detail, course_detail::AssignmentDetail,
+};
+pub(crate) use {
+    occurrence::intensive_days, occurrence::planning_week, occurrence::resolve_day_agenda,
+    occurrence::schedule_problems, occurrence::scheduled_courses,
+    occurrence::validate_academic_profile, occurrence::AgendaOptions, occurrence::GridSlot,
+    occurrence::Occurrence, occurrence::OccurrenceKind, occurrence::ScheduleProblem,
+    occurrence::SessionMark,
+};
+pub use {
+    reminders::glance, reminders::NotificationItem, reminders::NotificationPlan,
+    reminders::NotificationSink, reminders::NotificationSinkError, reminders::ReminderError,
+};
+pub(crate) use {
+    reminders::notification_plan, reminders::GlanceSnapshot, reminders::NotificationLocale,
+    reminders::ReminderService, reminders::DEFAULT_ASSIGNMENT_LEADS,
+};
+#[cfg(any(test, feature = "mobile-reminders"))]
+pub use {
+    reminders::ReminderDeliveryPlan, reminders::ReminderPort, reminders::ReminderPortFacts,
+    reminders::ReminderReceipt,
+};
+pub(crate) use {
+    tasks::deadline_view, tasks::task_view, tasks::AssignmentState, tasks::HandInAvailability,
+    tasks::TaskDeadlineView,
+};
+pub use {timing::default_teaching_periods, timing::TeachingPeriod};
+pub(crate) use {
+    timing::teaching_periods, timing::timetable_axis, timing::validate_teaching_periods,
+    timing::TimetableAxis,
+};
+pub(crate) use {
+    today::assignment_board, today::today_view, today::RecentKind, today::TodayClass,
+    today::TodayPhase, today::TodayView,
+};
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -459,7 +475,9 @@ impl WorkspaceQuery {
 
 /// The union of what `queries` read, sorted, for a page that caches them
 /// together.
-pub fn reads_of<'a>(queries: impl IntoIterator<Item = &'a WorkspaceQuery>) -> Vec<WorkspaceChange> {
+pub(crate) fn reads_of<'a>(
+    queries: impl IntoIterator<Item = &'a WorkspaceQuery>,
+) -> Vec<WorkspaceChange> {
     let mut reads: Vec<_> = queries
         .into_iter()
         .flat_map(WorkspaceQuery::reads)
@@ -1092,33 +1110,33 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
     vec![
         TeachingPeriod::decl(cfg),
         TimetableAxis::decl(cfg),
-        AxisStop::decl(cfg),
-        AxisRow::decl(cfg),
+        timing::AxisStop::decl(cfg),
+        timing::AxisRow::decl(cfg),
         Term::decl(cfg),
-        TeachingRange::decl(cfg),
+        calendar::TeachingRange::decl(cfg),
         QuarterRange::decl(cfg),
-        CalendarDayView::decl(cfg),
-        QuarterView::decl(cfg),
+        calendar::CalendarDayView::decl(cfg),
+        calendar::QuarterView::decl(cfg),
         AcademicYearCalendar::decl(cfg),
-        TimetableWeek::decl(cfg),
-        TimetableQuarter::decl(cfg),
+        calendar::TimetableWeek::decl(cfg),
+        calendar::TimetableQuarter::decl(cfg),
         TimetableYear::decl(cfg),
         CalendarExportScope::decl(cfg),
         ClassGroup::decl(cfg),
-        Turn::decl(cfg),
-        Alternation::decl(cfg),
-        PairedCourse::decl(cfg),
-        ClassGroupCourse::decl(cfg),
-        ClassGroupSession::decl(cfg),
+        alternation::Turn::decl(cfg),
+        alternation::Alternation::decl(cfg),
+        alternation::PairedCourse::decl(cfg),
+        alternation::ClassGroupCourse::decl(cfg),
+        alternation::ClassGroupSession::decl(cfg),
         ClassGroupChoice::decl(cfg),
         OccurrenceKind::decl(cfg),
         SessionMark::decl(cfg),
         GridSlot::decl(cfg),
         Occurrence::decl(cfg),
-        ScheduleProblemKind::decl(cfg),
+        occurrence::ScheduleProblemKind::decl(cfg),
         ScheduleProblem::decl(cfg),
         NotificationLocale::decl(cfg),
-        NotificationPriority::decl(cfg),
+        reminders::NotificationPriority::decl(cfg),
         NotificationItem::decl(cfg),
         NotificationPlan::decl(cfg),
         ReminderLeadOptions::decl(cfg),
@@ -1126,58 +1144,58 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         GlanceSnapshot::decl(cfg),
         AgendaRequestOptions::decl(cfg),
         DatedAgenda::decl(cfg),
-        PlanningDay::decl(cfg),
-        CourseConflict::decl(cfg),
+        occurrence::PlanningDay::decl(cfg),
+        occurrence::CourseConflict::decl(cfg),
         PlanningWeek::decl(cfg),
-        EventCarryOver::decl(cfg),
+        occurrence::EventCarryOver::decl(cfg),
         ColorCourse::decl(cfg),
-        ColorOverrides::decl(cfg),
+        requests::ColorOverrides::decl(cfg),
         CourseDetail::decl(cfg),
         AssignmentDetail::decl(cfg),
         AssignmentState::decl(cfg),
         HandInAvailability::decl(cfg),
         CourseContent::decl(cfg),
-        LessonContent::decl(cfg),
-        LessonItem::decl(cfg),
-        LessonItemKind::decl(cfg),
+        course_content::LessonContent::decl(cfg),
+        course_content::LessonItem::decl(cfg),
+        course_content::LessonItemKind::decl(cfg),
         lms_html::LocalizedLmsHtml::decl(cfg),
-        AssignmentAttachment::decl(cfg),
+        course_detail::AssignmentAttachment::decl(cfg),
         <crate::course_materials::CourseKey as TS>::decl(cfg),
         ExamView::decl(cfg),
-        ExamSchedule::decl(cfg),
-        ExamConflict::decl(cfg),
-        ExamLinkCourse::decl(cfg),
+        exams::ExamSchedule::decl(cfg),
+        exams::ExamConflict::decl(cfg),
+        exams::ExamLinkCourse::decl(cfg),
         ExamAssociation::decl(cfg),
         LectureSearch::decl(cfg),
         TaskDeadlineView::decl(cfg),
-        DeadlineState::decl(cfg),
-        CountdownUnit::decl(cfg),
-        CountdownComponent::decl(cfg),
-        AssignmentGroups::decl(cfg),
-        TermTaskView::decl(cfg),
+        tasks::DeadlineState::decl(cfg),
+        tasks::CountdownUnit::decl(cfg),
+        tasks::CountdownComponent::decl(cfg),
+        tasks::AssignmentGroups::decl(cfg),
+        tasks::TermTaskView::decl(cfg),
         TaskView::decl(cfg),
         TodayPhase::decl(cfg),
         TodayClass::decl(cfg),
-        DeadlineItem::decl(cfg),
-        MaterialItem::decl(cfg),
-        RecentItem::decl(cfg),
+        today::DeadlineItem::decl(cfg),
+        today::MaterialItem::decl(cfg),
+        today::RecentItem::decl(cfg),
         RecentKind::decl(cfg),
         TodayView::decl(cfg),
         crate::announcements::AnnouncementLevel::decl(cfg),
         crate::announcements::AnnouncementLink::decl(cfg),
         crate::announcements::AnnouncementView::decl(cfg),
         crate::announcements::AnnouncementsView::decl(cfg),
-        DeadlineGroups::decl(cfg),
+        today::DeadlineGroups::decl(cfg),
         AssignmentBoard::decl(cfg),
         AcademicYearIndex::decl(cfg),
         CourseTimetableControl::decl(cfg),
         CoursePlacementActions::decl(cfg),
         WorkspaceOverview::decl(cfg),
-        ExamCourse::decl(cfg),
+        exam_courses::ExamCourse::decl(cfg),
         ExamCourseList::decl(cfg),
-        LectureCourse::decl(cfg),
-        LectureMeeting::decl(cfg),
-        LectureExamGroups::decl(cfg),
+        lecture_list::LectureCourse::decl(cfg),
+        lecture_list::LectureMeeting::decl(cfg),
+        lecture_list::LectureExamGroups::decl(cfg),
         LectureList::decl(cfg),
         ScheduleView::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),

@@ -22,7 +22,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
-pub const SCHEMA_VERSION: u32 = 1;
+pub(crate) const SCHEMA_VERSION: u32 = 1;
 const COVERAGE_DAYS: i64 = 7;
 const SCHOOL_TIME_ZONE: &str = "Asia/Tokyo";
 
@@ -233,7 +233,7 @@ struct Contract {
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WidgetHashes {
+pub(crate) struct WidgetHashes {
     pub courses: String,
     pub assignments: String,
 }
@@ -249,11 +249,11 @@ impl WidgetHashes {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WidgetPublication {
+pub(crate) struct WidgetPublication {
     #[serde(flatten)]
     contract: Contract,
-    pub generated_at: DateTime<Utc>,
-    pub content_hash: WidgetHashes,
+    pub(crate) generated_at: DateTime<Utc>,
+    pub(crate) content_hash: WidgetHashes,
     course_freshness: Vec<Source>,
     assignment_freshness: Vec<Source>,
     course_entries: Vec<Entry<CourseContent>>,

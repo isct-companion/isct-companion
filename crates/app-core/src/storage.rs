@@ -20,10 +20,10 @@ use std::{
 };
 
 /// Downloaded materials, with the notes beside them.
-pub const MATERIAL_TREE: &str = "material";
+pub(crate) const MATERIAL_TREE: &str = "material";
 /// Assignment workspaces.
 #[cfg(feature = "desktop-workspaces")]
-pub const WORKSPACE_TREE: &str = "workspace";
+pub(crate) const WORKSPACE_TREE: &str = "workspace";
 
 /// `<root>/material`.
 pub fn material_root(root: &Path) -> PathBuf {
@@ -64,7 +64,7 @@ pub struct LocalFile {
 /// A safe folder name for a course or term, matching the folders earlier
 /// desktop releases created: every other UTF-16 unit becomes `_`, at most
 /// 120 characters.
-pub fn folder_name(value: &str) -> String {
+pub(crate) fn folder_name(value: &str) -> String {
     let mut name = String::new();
     for character in value.chars() {
         if character.is_ascii_alphanumeric() || matches!(character, '_' | '.' | '-') {
@@ -97,7 +97,7 @@ pub fn component(value: &str) -> Result<&str, StorageError> {
     Ok(value)
 }
 
-pub fn storage_dir(root: &Path, parts: &[&str]) -> Result<PathBuf, StorageError> {
+pub(crate) fn storage_dir(root: &Path, parts: &[&str]) -> Result<PathBuf, StorageError> {
     fs::create_dir_all(root).map_err(storage_error)?;
     let canonical_root = root.canonicalize().map_err(storage_error)?;
     let mut path = canonical_root.clone();
@@ -121,7 +121,7 @@ pub fn storage_dir(root: &Path, parts: &[&str]) -> Result<PathBuf, StorageError>
     Ok(path)
 }
 
-pub fn describe(
+pub(crate) fn describe(
     path: PathBuf,
     id: String,
     section: String,
@@ -216,7 +216,7 @@ fn outside_storage() -> StorageError {
     StorageError::Storage("File is outside the course folder".into())
 }
 
-pub fn regular_file(path: &Path) -> Result<bool, StorageError> {
+pub(crate) fn regular_file(path: &Path) -> Result<bool, StorageError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             Err(StorageError::Storage("Cannot read symbolic link".into()))
@@ -239,9 +239,9 @@ fn storage_error(error: impl std::fmt::Display + 'static) -> StorageError {
 /// Windows that is usually Controlled folder access, which guards Documents
 /// against apps it does not trust yet.
 #[cfg(windows)]
-pub const WRITE_DENIED: &str = "Windows blocked writing to the course folder. If Controlled folder access is on (Windows Security > Virus & threat protection > Ransomware protection), allow IsctCompanion there, or choose another course folder in Settings.";
+pub(crate) const WRITE_DENIED: &str = "Windows blocked writing to the course folder. If Controlled folder access is on (Windows Security > Virus & threat protection > Ransomware protection), allow IsctCompanion there, or choose another course folder in Settings.";
 #[cfg(not(windows))]
-pub const WRITE_DENIED: &str = "The system blocked writing to the course folder. Check its permissions, or choose another course folder in Settings.";
+pub(crate) const WRITE_DENIED: &str = "The system blocked writing to the course folder. Check its permissions, or choose another course folder in Settings.";
 
 /// Text for a failed course-folder operation, shared by notes, materials and
 /// workspaces. A refused write says how to allow it.

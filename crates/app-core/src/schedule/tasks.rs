@@ -103,7 +103,7 @@ pub enum AssignmentState {
 }
 
 impl AssignmentState {
-    pub fn is_submitted(self) -> bool {
+    pub(crate) fn is_submitted(self) -> bool {
         matches!(self, Self::Submitted | Self::Graded)
     }
 }
@@ -117,7 +117,7 @@ pub enum HandInAvailability {
     PrepareDraft,
 }
 
-pub fn assignment_state(row: &Value, now: DateTime<FixedOffset>) -> AssignmentState {
+pub(crate) fn assignment_state(row: &Value, now: DateTime<FixedOffset>) -> AssignmentState {
     if let Some(state) = assignment_completion(row) {
         return state;
     }
@@ -181,7 +181,10 @@ pub(super) fn assignment_boundaries(
         .flatten()
 }
 
-pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskView, ScheduleError> {
+pub(crate) fn task_view(
+    workspace: &Value,
+    now: DateTime<FixedOffset>,
+) -> Result<TaskView, ScheduleError> {
     let mut parsed = BTreeMap::new();
     let mut deadlines = BTreeMap::new();
     let mut states = BTreeMap::new();
@@ -339,7 +342,10 @@ pub fn task_view(workspace: &Value, now: DateTime<FixedOffset>) -> Result<TaskVi
     })
 }
 
-pub fn deadline_view(due: DateTime<FixedOffset>, now: DateTime<FixedOffset>) -> TaskDeadlineView {
+pub(crate) fn deadline_view(
+    due: DateTime<FixedOffset>,
+    now: DateTime<FixedOffset>,
+) -> TaskDeadlineView {
     const UNITS: [(CountdownUnit, i64); 4] = [
         (CountdownUnit::Days, 86_400),
         (CountdownUnit::Hours, 3_600),

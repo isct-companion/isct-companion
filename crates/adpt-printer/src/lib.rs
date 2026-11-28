@@ -22,7 +22,7 @@ pub mod lpd;
 #[cfg(any(windows, target_os = "android"))]
 pub mod pjl;
 
-pub use endpoint::{ADDRESS, HOST, PORT, QUEUE};
+pub use endpoint::ADDRESS;
 pub use student_id::StudentId;
 
 #[cfg(test)]

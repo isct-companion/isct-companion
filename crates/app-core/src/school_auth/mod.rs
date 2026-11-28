@@ -1,4 +1,4 @@
-pub use matrix::{parse_matrix_text, MatrixOrder, MatrixPaste};
+pub use {matrix::parse_matrix_text, matrix::MatrixPaste};
 mod otp_enrollment;
 pub(crate) use otp_enrollment::EnrollmentError;
 mod otp_import;
@@ -8,9 +8,8 @@ mod totp;
 #[cfg(test)]
 use totp::current_otp_at;
 use totp::otp_config;
-pub use totp::upcoming_otps;
+pub(crate) use totp::upcoming_otps;
 
-use crate::lifecycle::SchoolSite;
 use crate::ports::{SecretError, SecretVault};
 use crate::school_session::SchoolSignInProblem;
 use crate::secret_parts;
@@ -73,15 +72,8 @@ impl SchoolAuthProfile {
         }
     }
 
-    pub const fn start_site(self) -> SchoolSite {
-        match self {
-            Self::Science => SchoolSite::SciencePortal,
-            Self::TokyoTech => SchoolSite::TokyoPortal,
-        }
-    }
-
     /// The profile whose sign-in form lives on this exact origin.
-    pub fn for_auth_host(host: &str) -> Option<Self> {
+    pub(crate) fn for_auth_host(host: &str) -> Option<Self> {
         match host {
             "isct.ex-tic.com" => Some(Self::Science),
             "portal.titech.ac.jp" | "portal.nap.gsic.titech.ac.jp" => Some(Self::TokyoTech),
@@ -765,7 +757,7 @@ impl SchoolAuthService {
     /// Returns the validated native credential bundle for Rust-owned encrypted
     /// cloud sync. This value must never cross the WebView IPC boundary. Only
     /// credentials the school accepted leave the device.
-    pub fn export_sync_payload(&self) -> Result<String, SchoolAuthError> {
+    pub(crate) fn export_sync_payload(&self) -> Result<String, SchoolAuthError> {
         let mut accounts = self.lock()?;
         self.unlock_accounts(&mut accounts)?;
         serde_json::to_string(&SchoolCredentialBundle {
@@ -1066,7 +1058,7 @@ impl SchoolAuthService {
     /// deleted, and so is one of an account with no saved credentials (a
     /// sign-out that did not finish, a deletion on another device): a token
     /// is never used for an account that is not saved.
-    pub fn load_moodle_token(
+    pub(crate) fn load_moodle_token(
         &self,
         profile: SchoolAuthProfile,
     ) -> Result<Option<MoodleToken>, SchoolAuthError> {
@@ -1092,7 +1084,7 @@ impl SchoolAuthService {
         }
     }
 
-    pub fn store_moodle_token(
+    pub(crate) fn store_moodle_token(
         &self,
         profile: SchoolAuthProfile,
         token: &MoodleToken,
@@ -1109,7 +1101,10 @@ impl SchoolAuthService {
             .map_err(SchoolAuthError::from)
     }
 
-    pub fn delete_moodle_token(&self, profile: SchoolAuthProfile) -> Result<(), SchoolAuthError> {
+    pub(crate) fn delete_moodle_token(
+        &self,
+        profile: SchoolAuthProfile,
+    ) -> Result<(), SchoolAuthError> {
         match moodle_token_account(profile) {
             Some(account) => self.vault.delete(account).map_err(SchoolAuthError::from),
             None => Ok(()),

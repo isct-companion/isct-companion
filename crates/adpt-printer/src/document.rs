@@ -1,7 +1,7 @@
 //! Printing a PDF or PostScript document without a driver: the printer
 //! renders it itself, wrapped in the PJL header that sets duplex and color.
 
-use crate::{lpd, pjl, StudentId, QUEUE};
+use crate::{endpoint::QUEUE, lpd, pjl, StudentId};
 use std::fmt;
 use std::io::Read as _;
 use std::net::SocketAddr;

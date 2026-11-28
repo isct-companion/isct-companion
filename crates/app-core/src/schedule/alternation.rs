@@ -153,14 +153,14 @@ fn semester_terms(semester: &str) -> Option<[String; 2]> {
     }
 }
 
-pub fn validate_semester(semester: &str) -> Result<(), ScheduleError> {
+pub(crate) fn validate_semester(semester: &str) -> Result<(), ScheduleError> {
     semester_terms(semester)
         .map(|_| ())
         .ok_or_else(|| ScheduleError::InvalidInput("semester is invalid".into()))
 }
 
 /// `classGroups` maps semesters to "red" or "white".
-pub fn validate_class_groups(value: &Value) -> Result<(), ScheduleError> {
+pub(crate) fn validate_class_groups(value: &Value) -> Result<(), ScheduleError> {
     let groups = value
         .as_object()
         .ok_or_else(|| ScheduleError::InvalidInput("class groups are invalid".into()))?;
@@ -421,7 +421,7 @@ pub struct ClassGroupChoice {
 }
 
 /// Every semester with an alternating course, newest first.
-pub fn class_group_choices(workspace: &Value, today: &str) -> Vec<ClassGroupChoice> {
+pub(crate) fn class_group_choices(workspace: &Value, today: &str) -> Vec<ClassGroupChoice> {
     let current = text(workspace, "currentTerm").and_then(semester_of);
     let mut choices: Vec<ClassGroupChoice> = Vec::new();
     for course in array(workspace, "courses")

@@ -4,7 +4,7 @@ use crate::{coded, CommandError};
 use app_core::cloud_sync::document::{
     BoxFuture, CloudWorkspaceFile, DocumentCloud, DocumentError, WorkspaceTransport,
 };
-pub use app_core::cloud_sync::{CloudProvider, Direction, SyncState};
+pub(crate) use app_core::cloud_sync::{CloudProvider, Direction, SyncState};
 use app_core::cloud_sync::{CloudServices, CloudSignIn};
 use serde_json::Value;
 use std::{path::PathBuf, sync::Arc};
@@ -46,9 +46,9 @@ pub(crate) fn services(app: &AppHandle) -> Result<CloudServices, CommandError> {
     })
 }
 
-pub struct CloudSync(pub(crate) app_core::cloud_sync::CloudSync);
+pub(crate) struct CloudSync(pub(crate) app_core::cloud_sync::CloudSync);
 impl CloudSync {
-    pub fn new(journal: PathBuf, authorized: &[CloudProvider]) -> Result<Self, CommandError> {
+    pub(crate) fn new(journal: PathBuf, authorized: &[CloudProvider]) -> Result<Self, CommandError> {
         // The demo scene's fictional workspace never reaches a cloud: it
         // supports no provider, so none can be switched on.
         #[cfg(feature = "demo")]
@@ -63,10 +63,10 @@ impl CloudSync {
             .map(Self)
             .map_err(coded)
     }
-    pub fn state(&self) -> Result<SyncState, CommandError> {
+    pub(crate) fn state(&self) -> Result<SyncState, CommandError> {
         self.0.state().map_err(coded)
     }
-    pub async fn changed(app: &AppHandle) {
+    pub(crate) async fn changed(app: &AppHandle) {
         if let Some(sync) = app.try_state::<Self>() {
             let result = match services(app) {
                 Ok(ports) => sync.0.changed(ports).await.map_err(coded),
@@ -77,7 +77,7 @@ impl CloudSync {
             }
         }
     }
-    pub async fn set_provider(
+    pub(crate) async fn set_provider(
         &self,
         app: &AppHandle,
         provider: CloudProvider,
@@ -89,7 +89,7 @@ impl CloudSync {
             .await
             .map_err(coded)
     }
-    pub async fn set_automatic(
+    pub(crate) async fn set_automatic(
         &self,
         app: &AppHandle,
         automatic: bool,
@@ -99,26 +99,30 @@ impl CloudSync {
             .await
             .map_err(coded)
     }
-    pub async fn sync(
+    pub(crate) async fn sync(
         &self,
         app: &AppHandle,
         direction: Direction,
     ) -> Result<SyncState, CommandError> {
         self.0.sync(services(app)?, direction).await.map_err(coded)
     }
-    pub async fn resume(&self, app: &AppHandle) -> Result<SyncState, CommandError> {
+    pub(crate) async fn resume(&self, app: &AppHandle) -> Result<SyncState, CommandError> {
         self.0.resume(services(app)?).await.map_err(coded)
     }
-    pub async fn prepare_reset(&self, app: &AppHandle) -> Result<(), CommandError> {
+    pub(crate) async fn prepare_reset(&self, app: &AppHandle) -> Result<(), CommandError> {
         self.0.prepare_reset(services(app)?).await.map_err(coded)
     }
-    pub async fn restore(&self, app: &AppHandle, id: &str) -> Result<SyncState, CommandError> {
+    pub(crate) async fn restore(
+        &self,
+        app: &AppHandle,
+        id: &str,
+    ) -> Result<SyncState, CommandError> {
         self.0
             .restore(services(app)?, id.to_owned())
             .await
             .map_err(coded)
     }
-    pub async fn restore_document(
+    pub(crate) async fn restore_document(
         &self,
         app: &AppHandle,
         document: &Value,

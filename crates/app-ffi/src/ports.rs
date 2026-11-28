@@ -370,7 +370,7 @@ pub(crate) struct Browser {
     pub(crate) shutdown_error: Arc<Mutex<Option<SdkError>>>,
 }
 impl Browser {
-    pub fn new(native: Arc<dyn NativeBrowser>) -> Self {
+    pub(crate) fn new(native: Arc<dyn NativeBrowser>) -> Self {
         Self {
             native,
             shutdown_error: Arc::new(Mutex::new(None)),

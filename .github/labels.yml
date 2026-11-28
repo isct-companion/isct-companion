@@ -1,19 +1,19 @@
 # Managed GitHub labels. Triage labels syncs this catalog from main.
 # Platforms
 - name: platform:macos
-  color: "5319e7"
+  color: "a2a9b1"
   description: Reported on macOS or touching macOS-specific desktop code
 - name: platform:windows
-  color: "5319e7"
+  color: "00a4ef"
   description: Reported on Windows or touching Windows-specific desktop code
 - name: platform:ios
-  color: "5319e7"
+  color: "5856d6"
   description: Reported on iPhone
 - name: platform:ipados
-  color: "5319e7"
+  color: "af52de"
   description: Reported on iPad
 - name: platform:android
-  color: "5319e7"
+  color: "3ddc84"
   description: Reported on Android
 
 # Implementation
@@ -21,87 +21,87 @@
   color: "1d76db"
   description: Shared macOS and Windows desktop app
 - name: area:ios
-  color: "1d76db"
+  color: "3f3ab0"
   description: Apple mobile shell shared by iPhone and iPad
 - name: area:android
-  color: "1d76db"
+  color: "1a7f37"
   description: Android app shell
 - name: area:core
-  color: "1d76db"
+  color: "b7410e"
   description: Shared Rust domain logic in app-core
 - name: area:native-sdk
-  color: "1d76db"
+  color: "8a4baf"
   description: UniFFI boundary, Swift and Kotlin bindings and SDK packaging
 - name: area:design-system
-  color: "1d76db"
+  color: "e4609b"
   description: Design tokens and shared UI primitives
 - name: area:ci
-  color: "1d76db"
+  color: "6e7781"
   description: GitHub Actions, automated checks and repository automation
 
 # Features and integrations
 - name: area:schedule
-  color: "0e6e61"
+  color: "e3b341"
   description: Today, the timetable, calendar and class occurrences
 - name: area:course-catalog
-  color: "0e6e61"
+  color: "0099a8"
   description: Course search, personal course plans and study profiles
 - name: area:exam-schedule
-  color: "0e6e61"
+  color: "d93f0b"
   description: Dates, times and rooms for upcoming exams
 - name: area:past-exams
-  color: "0e6e61"
+  color: "f0883e"
   description: Past exam search, requests, uploads and ScienceTokyoExam accounts
 - name: area:assignments
-  color: "0e6e61"
+  color: "2da44e"
   description: Assignment lists, due dates and completion shown from the LMS
 - name: area:submission
-  color: "0e6e61"
+  color: "f9d0c4"
   description: Hand-in, the share inbox, attachments and LMS submission
 - name: area:course-files
-  color: "0e6e61"
+  color: "c5def5"
   description: Course materials, downloads and local course workspaces
 - name: area:file-preview
-  color: "0e6e61"
+  color: "c2e0c6"
   description: In-app PDF, Markdown and archive previews
 - name: area:school-auth
-  color: "0e6e61"
+  color: "5a32a3"
   description: School accounts, sign-in, session renewal and two-factor authentication
 - name: area:school-web
   color: "0e6e61"
   description: Opening and using the LMS and academic affairs sites in the app
 - name: area:cloud-sync
-  color: "0e6e61"
+  color: "4fc3f7"
   description: Sync between devices through iCloud or Google Drive
 - name: area:backup
-  color: "0e6e61"
+  color: "795548"
   description: Creating, importing and restoring backups or transferred settings
 - name: area:vpn
-  color: "0e6e61"
+  color: "ff7b72"
   description: Campus VPN setup, connections and routing
 - name: area:campus-printer
-  color: "0e6e61"
+  color: "fef2c0"
   description: Campus printer setup, system print integration and print jobs
 - name: area:campus-map
-  color: "0e6e61"
+  color: "7cb342"
   description: Buildings, floors, rooms, indoor routes and map search
 - name: area:matrix-ocr
-  color: "0e6e61"
+  color: "67e8f9"
   description: Matrix card camera capture and character recognition
 - name: area:notifications
-  color: "0e6e61"
+  color: "c297ff"
   description: Permissions, scheduling and delivery of app reminders
 - name: area:widgets
-  color: "0e6e61"
+  color: "9c27b0"
   description: Course and assignment widgets and their published timelines
 - name: area:mcp
-  color: "0e6e61"
+  color: "cc317c"
   description: Local MCP server, tools and agent integration
 - name: area:localization
-  color: "0e6e61"
+  color: "1f6feb"
   description: Translations, locale selection and localized formatting
 - name: area:release
-  color: "0e6e61"
+  color: "57606a"
   description: Packaging, distribution, installation and built-in updates
 
 # Kinds

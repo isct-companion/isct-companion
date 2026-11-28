@@ -421,7 +421,7 @@ pub enum OpportunityEnd {
     Expired,
 }
 
-pub use runner::{AdmissionGuard, PlanEngine, PlanHints, KEY_DEADLINE};
+pub(crate) use runner::{PlanEngine, PlanHints, KEY_DEADLINE};
 
 #[cfg(test)]
 #[path = "../tests/plan.rs"]

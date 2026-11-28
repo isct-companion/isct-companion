@@ -10,20 +10,20 @@
 use crate::endpoint::{HOST, QUEUE};
 use crate::student_id::StudentId;
 
-pub const PRINTER_NAME: &str = "InstitutePrinter";
+pub(crate) const PRINTER_NAME: &str = "InstitutePrinter";
 
 /// An unmodified copy of the PPD in Kyocera's macOS driver package
 /// (4.0.7420, `*FileVersion: "8.4506"`). Its licence allows redistribution
 /// only unaltered, so the file stays byte-for-byte (`.gitattributes`); the
 /// queue gets an edited copy (`queue_ppd`).
-pub const PPD: &[u8] = include_bytes!("../assets/Kyocera ECOSYS P8060cdn.PPD");
+pub(crate) const PPD: &[u8] = include_bytes!("../assets/Kyocera ECOSYS P8060cdn.PPD");
 
 /// Lines that point CUPS at the Kyocera driver software. Without them CUPS
 /// uses its own pdftops/pstops filters, which already emit every PJL and
 /// PostScript option command defined in the PPD.
 const KYOCERA_ONLY_PPD_KEYWORDS: &[&str] = &["*cupsPreFilter", "*cupsFilter", "*APDialogExtension"];
 
-pub const INSTALLABLE_OPTIONS: &[(&str, &str)] = &[
+pub(crate) const INSTALLABLE_OPTIONS: &[(&str, &str)] = &[
     ("Option19", "False"),    // Paper feeders
     ("Option26", "False"),    // Job separator
     ("Option25", "False"),    // Mailbox
@@ -35,7 +35,7 @@ pub const INSTALLABLE_OPTIONS: &[(&str, &str)] = &[
 
 /// The queue's device URI: the campus printer, with the student ID as the
 /// LPD user.
-pub fn device_uri(student: &StudentId) -> String {
+pub(crate) fn device_uri(student: &StudentId) -> String {
     format!("lpd://{}@{HOST}/{QUEUE}", student.as_str())
 }
 

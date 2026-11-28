@@ -51,3 +51,6 @@ quote = "1"
 name = "isct-bindgen"
 path = "src/bin/bindgen.rs"
 required-features = ["bindgen"]
+
+[lints]
+workspace = true

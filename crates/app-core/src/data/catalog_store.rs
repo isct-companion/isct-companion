@@ -1,7 +1,8 @@
 use super::*;
 
 impl DataStore {
-    pub fn catalog_upsert_offerings(&self, offerings: &[Value]) -> Result<usize, DataError> {
+    #[cfg(any(test, feature = "demo"))]
+    pub(crate) fn catalog_upsert_offerings(&self, offerings: &[Value]) -> Result<usize, DataError> {
         for offering in offerings {
             string_field(offering, "id")?;
         }
@@ -80,7 +81,7 @@ impl DataStore {
 
     /// The official search form's filter choices last captured for `year`,
     /// or an empty list. Device-local public metadata, never backed up.
-    pub fn kyomu_search_options(&self, year: u16) -> Result<Value, DataError> {
+    pub(crate) fn kyomu_search_options(&self, year: u16) -> Result<Value, DataError> {
         Ok(read_setting(&*self.open()?, &search_options_setting(year))?
             .unwrap_or_else(|| json!([])))
     }
@@ -263,7 +264,8 @@ fn index_offering(transaction: &Transaction<'_>, offering: &Value) -> Result<(),
 }
 
 impl DataStore {
-    pub fn catalog_search(&self, query: &str) -> Result<Vec<Value>, DataError> {
+    #[cfg(feature = "agent")]
+    pub(crate) fn catalog_search(&self, query: &str) -> Result<Vec<Value>, DataError> {
         let connection = self.open()?;
         if query.trim().is_empty() {
             return catalog_list(&connection);
@@ -295,7 +297,7 @@ impl DataStore {
 
     /// The live offerings of one academic year through `offerings_by_year`,
     /// ordered by their stored text as [`Self::catalog_search`] lists them.
-    pub fn catalog_year(&self, year: u16) -> Result<Vec<Value>, DataError> {
+    pub(crate) fn catalog_year(&self, year: u16) -> Result<Vec<Value>, DataError> {
         let connection = self.open()?;
         let mut statement = connection
             .prepare(
@@ -315,7 +317,8 @@ impl DataStore {
         rows
     }
 
-    pub fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
+    #[cfg(test)]
+    pub(crate) fn catalog_offering(&self, id: &str) -> Result<Option<Value>, DataError> {
         let connection = self.open()?;
         catalog_offering_in(&connection, id)
     }

@@ -6,16 +6,17 @@ mod port;
 mod submission;
 
 pub use engine::SchoolBrowserEngine;
-pub use policy::{
-    attachment_shown_in_place, automation_target, browsing_target, browsing_url,
-    download_permitted, is_login_url, restore_record, school_file_url, DenyReason,
-};
 pub(crate) use policy::{domain_under, outside_school, school_domains};
 pub use port::*;
-pub use submission::{
-    DraftUpload, SubmissionError, SubmissionFile, SubmissionMessages, MAX_SUBMISSION_BYTES,
-    MAX_SUBMISSION_FILES,
+pub use submission::SubmissionFile;
+pub use {
+    policy::attachment_shown_in_place, policy::browsing_target, policy::browsing_url,
+    policy::download_permitted, policy::DenyReason,
 };
+pub(crate) use {policy::automation_target, policy::is_login_url, policy::school_file_url};
+pub use {submission::DraftUpload, submission::SubmissionError, submission::SubmissionMessages};
+#[cfg(feature = "desktop-workspaces")]
+pub(crate) use {submission::MAX_SUBMISSION_BYTES, submission::MAX_SUBMISSION_FILES};
 
 #[cfg(feature = "desktop-workspaces")]
 pub(crate) use submission::{assignment_detail_in, draft_page};

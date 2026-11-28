@@ -41,7 +41,7 @@ pub struct CoreRuntime {
 }
 
 impl CoreRuntime {
-    pub fn new(plan: PlanHints) -> Self {
+    pub(crate) fn new(plan: PlanHints) -> Self {
         Self {
             plan,
             notes: crate::notes::NoteStore::default(),
@@ -67,7 +67,7 @@ impl CoreRuntime {
     }
 
     /// The shell's scheduled-export port, for every scheduled task.
-    pub fn attach_exporter(&self, exporter: Arc<dyn ScheduledExporter>) {
+    pub(crate) fn attach_exporter(&self, exporter: Arc<dyn ScheduledExporter>) {
         if let Ok(mut slot) = self.exporter.lock() {
             *slot = Some(exporter);
         }

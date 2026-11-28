@@ -21,9 +21,11 @@ pub enum CatalogError {
     InvalidInput(String),
 }
 
+#[cfg(any(test, not(feature = "demo")))]
+pub(crate) use adpt_isct::urls::syllabus_url;
+pub(crate) use adpt_isct::urls::KYOMU_SEARCH_PATH;
 #[cfg(not(feature = "demo"))]
 use adpt_isct::urls::SYLLABUS_ORIGIN;
-pub use adpt_isct::urls::{syllabus_url, KYOMU_SEARCH_PATH};
 
 /// The offering a シラバス link names, by its `jwc` query value or its last
 /// path segment. Offering IDs contain nine digits.
@@ -40,7 +42,7 @@ pub(crate) fn syllabus_offering(url: &str) -> Option<String> {
 }
 
 /// Stored offerings for one year.
-pub fn offerings(
+pub(crate) fn offerings(
     store: &data::DataStore,
     year: u16,
 ) -> Result<Vec<serde_json::Value>, CatalogError> {

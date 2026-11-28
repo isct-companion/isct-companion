@@ -959,7 +959,7 @@ pub(crate) fn academic_year(workspace: &Value) -> Option<i32> {
 }
 
 /// The settings view uses the same year selection as every reference refresh.
-pub fn subscription_views(workspace: &Value) -> Value {
+pub(crate) fn subscription_views(workspace: &Value) -> Value {
     let mut views = serde_json::Map::new();
     for kind in REFERENCE_KINDS {
         let row = subscription_row(workspace, kind);

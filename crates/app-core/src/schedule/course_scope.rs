@@ -159,7 +159,7 @@ pub(super) fn lecture_courses<'a>(workspace: &'a Value, term: Option<&str>) -> V
 }
 
 /// Every quarter a course belongs to, including its active placements and LMS quarters.
-pub fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
+pub(crate) fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
     let active = ActiveTerms::new(workspace);
     let mut terms: Vec<_> = active.including_saved(course).map(str::to_owned).collect();
     terms.sort_unstable();
@@ -168,7 +168,7 @@ pub fn course_terms(workspace: &Value, course: &Value) -> Vec<String> {
 }
 
 /// The quarter's courses, including independently saved courses off the timetable.
-pub fn term_courses<'a>(workspace: &'a Value, term: &str) -> Vec<&'a Value> {
+pub(crate) fn term_courses<'a>(workspace: &'a Value, term: &str) -> Vec<&'a Value> {
     let active = ActiveTerms::new(workspace);
     visible_courses(workspace)
         .filter(|course| active.including_saved(course).any(|t| t == term))

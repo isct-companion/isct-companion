@@ -1,8 +1,8 @@
 use super::*;
 use crate::schedule::SchoolReads;
 use crate::schedule::{
-    course_timeline, occurrences_on_date, planning_week, resolve_day_agenda, AgendaOptions,
-    Occurrence,
+    occurrence::course_timeline, occurrences_on_date, planning_week, resolve_day_agenda,
+    AgendaOptions, Occurrence,
 };
 use serde_json::json;
 

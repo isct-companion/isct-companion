@@ -102,7 +102,7 @@ fn number(raw: &str) -> Option<f64> {
 /// `table.tblGPASummary.mediaPC` under 通算: row 1 names the groups
 /// (全ての科目 / 教養科目群 / 専門科目群), row 2 the columns (GPA, GPT,
 /// 修得済単位, 合格率%), row 3 the values in the same order.
-pub fn gpa_summaries(data: &Value) -> Vec<Value> {
+pub(crate) fn gpa_summaries(data: &Value) -> Vec<Value> {
     let Some(table) = data
         .get("overall")
         .and_then(Value::as_array)
@@ -174,7 +174,7 @@ pub fn gpa_summaries(data: &Value) -> Vec<Value> {
 
 /// One row per declared course with the credits 教務Web counts: the row's
 /// split, scaled so each category adds up to the total the page states.
-pub fn declared_credits(data: &Value) -> Vec<Value> {
+pub(crate) fn declared_credits(data: &Value) -> Vec<Value> {
     let courses = data
         .get("courses")
         .and_then(Value::as_array)
@@ -256,7 +256,7 @@ fn grade_row_id(
 /// courses belong to and the quarters it lists. Only such a page, read in
 /// the same operation, may say a declared course is gone (`d/aevz1j`).
 #[derive(Clone, Debug, PartialEq)]
-pub struct RegistrationScope {
+pub(crate) struct RegistrationScope {
     pub year: i32,
     pub quarters: Vec<Value>,
 }
@@ -267,7 +267,7 @@ pub struct RegistrationScope {
 /// or other page, one listing no quarters, and one whose year the page does
 /// not prove: no course to tell it, or courses of two years (a rollover).
 /// The page's row order never matters, and the device's date is no evidence.
-pub fn registration_scope(payload: &KyomuPayload) -> Option<RegistrationScope> {
+pub(crate) fn registration_scope(payload: &KyomuPayload) -> Option<RegistrationScope> {
     if payload.status != "ok" || payload.kind != "registrations" {
         return None;
     }
@@ -293,7 +293,7 @@ pub fn registration_scope(payload: &KyomuPayload) -> Option<RegistrationScope> {
 /// scope it proves. A declared page stored this way only adds: use
 /// [`apply_kyomu_in_scope`] with the scope of the registered list read
 /// beside it to let it drop courses.
-pub fn apply_kyomu_payload(
+pub(crate) fn apply_kyomu_payload(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
 ) -> Result<usize, IngestError> {
@@ -304,7 +304,7 @@ pub fn apply_kyomu_payload(
 /// ([`registration_scope`]): a registered list's own, or for a declared
 /// page that of the list read in the same operation, inside which courses
 /// it no longer lists leave.
-pub fn apply_kyomu_in_scope(
+pub(crate) fn apply_kyomu_in_scope(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
     scope: &RegistrationScope,
@@ -519,7 +519,7 @@ fn apply_page(
 /// to the student now. Existing page-owned rows remain untouched; the key
 /// reads as current with outcome `unavailable`, so the UI can tell retained
 /// data from a current result.
-pub fn record_kyomu_unavailable(
+pub(crate) fn record_kyomu_unavailable(
     tx: &Transaction<'_>,
     payload: &KyomuPayload,
 ) -> Result<(), IngestError> {

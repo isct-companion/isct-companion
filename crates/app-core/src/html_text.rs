@@ -32,7 +32,7 @@ const BLOCKS: &[&str] = &[
     "ul",
 ];
 
-pub fn plain_text(html: &str) -> String {
+pub(crate) fn plain_text(html: &str) -> String {
     let fragment = Html::parse_fragment(html);
     let mut out = String::new();
     walk(fragment.root_element(), &mut out);

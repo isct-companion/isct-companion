@@ -86,7 +86,7 @@ impl From<AgentWriteError> for AgentError {
 
 /// Core's submission service, opened with Core, or why it could not open
 /// (a ledger another build wrote, an unreadable data folder).
-pub type Submissions = Arc<Result<SubmissionService, String>>;
+pub(crate) type Submissions = Arc<Result<SubmissionService, String>>;
 
 #[derive(Clone)]
 pub struct AgentService {
@@ -102,7 +102,7 @@ pub struct AgentService {
 }
 
 impl AgentService {
-    pub fn new(
+    pub(crate) fn new(
         store: DataStore,
         workspaces: AssignmentWorkspaces,
         submissions: Submissions,

@@ -20,15 +20,15 @@ const GC_RUN: &str = "gc";
 
 /// What one call removed. `ran` is false when gc already ran within a day.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct GcReport {
+pub(crate) struct GcReport {
     pub ran: bool,
     /// `lms.course` keys whose module details were stripped.
-    pub courses_stripped: usize,
-    pub runs_deleted: usize,
+    pub(crate) courses_stripped: usize,
+    pub(crate) runs_deleted: usize,
 }
 
 /// One gc pass inside the caller's transaction (`DataStore::write`).
-pub fn gc(connection: &Connection, now: DateTime<Utc>) -> Result<GcReport, DataError> {
+pub(crate) fn gc(connection: &Connection, now: DateTime<Utc>) -> Result<GcReport, DataError> {
     let last: Option<String> = connection
         .query_row(
             "SELECT MAX(finished_at) FROM sync_runs WHERE dataset=?1",

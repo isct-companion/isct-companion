@@ -8,7 +8,7 @@ pub const CAMPUS_APM_HOST: &str = "apm.nap.gsic.titech.ac.jp";
 
 /// The helper's cookie from the APM session cookies. `MRHSession` is the
 /// session; `F5_ST` (its timers) goes along when the APM set it.
-pub fn session_cookie(
+pub(crate) fn session_cookie(
     mrh_session: &str,
     f5_st: Option<&str>,
 ) -> Result<SessionCookie, CookieError> {

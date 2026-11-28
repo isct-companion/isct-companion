@@ -17,12 +17,12 @@ fn validate_secret(secret: &str) -> Result<(), SecretError> {
 }
 
 #[derive(Clone)]
-pub struct OsSecretVault {
+pub(crate) struct OsSecretVault {
     app: AppHandle,
 }
 
 impl OsSecretVault {
-    pub fn new(app: AppHandle) -> Self {
+    pub(crate) fn new(app: AppHandle) -> Self {
         Self { app }
     }
 }
@@ -54,7 +54,7 @@ fn apple_keychain_sync(account: &str) -> bool {
 /// The school credentials' status metadata, in the data folder. The demo
 /// keeps its status in memory (`SchoolAuthService::demo`).
 #[cfg(not(feature = "demo"))]
-pub const SCHOOL_STATUS_FILE: &str = "school-credential-status.json";
+pub(crate) const SCHOOL_STATUS_FILE: &str = "school-credential-status.json";
 
 impl SecretVault for OsSecretVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {

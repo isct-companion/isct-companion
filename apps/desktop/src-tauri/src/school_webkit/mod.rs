@@ -49,7 +49,7 @@ mod dialogs;
 mod network_path;
 mod view_input;
 
-pub use dialogs::end_file_panels;
+pub(crate) use dialogs::end_file_panels;
 use dialogs::{Dialog, Reply};
 use view_input::{ask_menu_first, key_equivalent, log_drag, stay_out_while_hidden};
 
@@ -92,7 +92,7 @@ use std::rc::Rc;
 use url::Url;
 
 /// What the PDF viewer asked to save.
-pub struct SavedData {
+pub(crate) struct SavedData {
     pub bytes: Vec<u8>,
     pub suggested_name: String,
     pub mime_type: String,
@@ -101,7 +101,7 @@ pub struct SavedData {
 }
 
 /// A navigation as WebKit describes it, before the shell adds the page.
-pub struct Request {
+pub(crate) struct Request {
     pub url: Url,
     pub main_frame: bool,
     pub kind: NavigationKind,
@@ -112,7 +112,7 @@ pub struct Request {
 
 /// The shell side of one school view and the popups its pages open. Every
 /// call arrives on the main thread.
-pub trait Host {
+pub(crate) trait Host {
     /// Whether this is the school view the person is looking at.
     fn foreground(&self) -> bool;
     fn dialog_opened(&self) -> Box<dyn Fn()>;
@@ -141,6 +141,8 @@ pub trait Host {
     fn became_download(&self, view: BrowserId, had_page: bool, shown: bool);
 }
 
+// objc2 `define_class!` exposes its ivars type at `pub`.
+#[allow(unreachable_pub)]
 pub struct UiIvars {
     /// wry's delegate for a main view; none for a popup. WebKit holds
     /// delegates weakly, but wry keeps its own reference too; this one keeps
@@ -150,6 +152,8 @@ pub struct UiIvars {
     view: BrowserId,
 }
 
+// objc2 `define_class!` exposes its ivars type at `pub`.
+#[allow(unreachable_pub)]
 pub struct NavigationIvars {
     original: Option<Retained<ProtocolObject<dyn WKNavigationDelegate>>>,
     host: Rc<dyn Host>,
@@ -391,7 +395,7 @@ fn main_view(site: SchoolSite) -> Option<Retained<WKWebView>> {
 /// Puts every popup over its site's view again: in the view's superview,
 /// above it in opening order, with its frame, resizing and visibility. The
 /// host calls this whenever it moves, resizes, shows or hides views.
-pub fn arrange_popups() {
+pub(crate) fn arrange_popups() {
     POPUPS.with_borrow(|popups| {
         let mut above: Vec<(SchoolSite, Retained<NSView>)> = Vec::new();
         for popup in popups {
@@ -1264,7 +1268,7 @@ fn open_popup(
 
 /// Takes a popup off the screen and out of the registry. False when it was
 /// not open.
-pub fn close_popup(id: BrowserId) -> bool {
+pub(crate) fn close_popup(id: BrowserId) -> bool {
     let popup = POPUPS.with_borrow_mut(|popups| {
         let index = popups.iter().position(|popup| popup.id == id)?;
         Some(popups.remove(index))
@@ -1289,7 +1293,7 @@ pub fn close_popup(id: BrowserId) -> bool {
 }
 
 /// Sets the page zoom of `site`'s popups, as the app's zoom sets the view's.
-pub fn zoom_popups(site: SchoolSite, scale: f64) {
+pub(crate) fn zoom_popups(site: SchoolSite, scale: f64) {
     POPUPS.with_borrow(|popups| {
         for popup in popups.iter().filter(|popup| popup.id.site == site) {
             unsafe { popup.web_view.setPageZoom(scale) };
@@ -1298,7 +1302,7 @@ pub fn zoom_popups(site: SchoolSite, scale: f64) {
 }
 
 /// A command for a popup; false when it is not open.
-pub fn popup_command(id: BrowserId, command: Command) -> bool {
+pub(crate) fn popup_command(id: BrowserId, command: Command) -> bool {
     let Some(web_view) = POPUPS.with_borrow(|popups| {
         popups
             .iter()
@@ -1312,7 +1316,7 @@ pub fn popup_command(id: BrowserId, command: Command) -> bool {
 }
 
 /// What the shell sends a popup, or a main view through its WKWebView.
-pub enum Command {
+pub(crate) enum Command {
     Navigate(Url),
     GoBack,
     GoForward,
@@ -1345,7 +1349,7 @@ fn run(web_view: &WKWebView, command: Command) {
 /// # Safety
 /// `web_view` must be a live `WKWebView` (tauri's `PlatformWebview::inner()`),
 /// and this must run on the main thread (inside `Webview::with_webview`).
-pub unsafe fn command(web_view: *mut c_void, command: Command) {
+pub(crate) unsafe fn command(web_view: *mut c_void, command: Command) {
     if let Some(web_view) = unsafe { (web_view as *const WKWebView).as_ref() } {
         run(web_view, command);
     }
@@ -1357,7 +1361,7 @@ pub unsafe fn command(web_view: *mut c_void, command: Command) {
 /// otherwise dropped at exit; releasing an NSObject off the main thread is
 /// safe, and its ivars hold nothing thread-bound beyond wry's delegates, which
 /// wry itself keeps alive, the host, and downloads still in flight.
-pub struct DelegateHandle {
+pub(crate) struct DelegateHandle {
     _ui: Option<Retained<SchoolUiDelegate>>,
     _navigation: Option<Retained<SchoolNavigationDelegate>>,
 }
@@ -1371,7 +1375,7 @@ unsafe impl Send for DelegateHandle {}
 /// # Safety
 /// `web_view` must be a live `WKWebView` (tauri's `PlatformWebview::inner()`),
 /// and this must run on the main thread (inside `Webview::with_webview`).
-pub unsafe fn install(
+pub(crate) unsafe fn install(
     web_view: *mut c_void,
     view: BrowserId,
     host: Rc<dyn Host>,

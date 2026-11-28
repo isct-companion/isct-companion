@@ -354,11 +354,15 @@ pub struct MatrixAlphabetService(Arc<Mutex<Option<Letters>>>);
 
 /// The exact model views for one retained cell. Training tools use this same
 /// boundary; a rejected shape must not become an invented training label.
+// Public only for the training tools (`training-tools`), which re-export it.
+#[cfg_attr(not(feature = "training-tools"), allow(unreachable_pub))]
 pub struct MatrixAlphabetInput {
     pub original: Vec<u8>,
     pub corrected: Option<Vec<u8>>,
 }
 
+// Public only for the training tools (`training-tools`), which re-export it.
+#[cfg_attr(not(feature = "training-tools"), allow(unreachable_pub))]
 pub fn prepare_matrix_alphabet_input(
     pixels: &[u8],
 ) -> Result<Option<MatrixAlphabetInput>, MatrixOcrError> {

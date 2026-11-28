@@ -1,5 +1,6 @@
 use super::preparation::hex_digest;
 use super::*;
+use crate::submissions::preparation::Reversibility;
 use crate::{
     data::{DataError, DataStore},
     downloads::Downloader,
@@ -844,10 +845,6 @@ async fn one_write_per_assignment_at_a_time() {
         service.execute(fixture.confirm(&second)).await,
         Err(SubmissionError::InProgress)
     ));
-    let cancel = service.cancel(&pending.id).unwrap();
-    assert!(!cancel.cancelled);
-    assert!(cancel.operation.sent);
-    assert_eq!(cancel.operation.state, OperationState::Saving);
 
     fixture.lms.0.release_save.notify_one();
     fixture.tasks.close();

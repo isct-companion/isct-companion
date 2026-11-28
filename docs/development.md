@@ -192,14 +192,16 @@ statistics show whether the compiler output was reused. `cargo clippy` replaces
 `RUSTC_WORKSPACE_WRAPPER` with clippy-driver, so lint steps do not use the
 compiler cache; the reuse is in `cargo test` and `cargo check` steps.
 
-Only main writes either cache; the action makes that decision for every job.
-Warm caches runs the quick suite on main whenever Rust build inputs change, and
-both suites weekly. The release suite keys its Windows and macOS jobs apart from
-the quick ones because it lints and tests instead of checking. Release checks on
-`release/X.Y.Z` read main's release-suite caches, falling back to the closest
-older entry after a dependency change. The desktop, Android and iOS release
-builds use neither cache.
+Only main writes the Rust and Gradle caches. Warm caches uses the quick
+jobs for the dependency inputs that changed on main. It also runs both suites
+weekly and reports their results directly in Actions. The release suite uses
+separate Windows and macOS keys because it lints and tests. Quick Android
+checks read the same Rust dependency archive as the release suite, which
+populates it for both ABIs. Release builds use neither Rust cache.
 
 Platform checks' route job (`scripts/checks/route-platform-checks.sh`) prints
-one `<job>=true|false` line per job for the changed paths and the suite mode
-(`--full` for Release checks). Jobs and the result gate read only those lines.
+one `<job>=true|false` line per job for the changed paths and suite mode.
+A successful push records its verified plan. A same-repository PR can reuse
+the source checks when its merge tree matches that push's tree and its own
+plan matches the verified plan. Frontend checks run against the PR's Git
+history because the manual acceptance tooling uses it.

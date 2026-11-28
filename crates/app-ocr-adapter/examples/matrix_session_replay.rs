@@ -199,7 +199,7 @@ mod replay {
         (!values.is_empty()).then(|| values[((values.len() - 1) as f64 * p).round() as usize])
     }
 
-    pub fn main() -> Result<(), Box<dyn Error>> {
+    pub(crate) fn main() -> Result<(), Box<dyn Error>> {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let [video_path, expected_path, out] = [0, 1, 2].map(|i| args.get(i).cloned());
         let (Some(video_path), Some(expected_path), Some(out)) = (video_path, expected_path, out)

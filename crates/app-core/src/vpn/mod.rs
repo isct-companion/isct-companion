@@ -273,7 +273,7 @@ impl Drop for LoginGuard {
 /// the tunnel as well: they grant access by the campus address a request
 /// comes from. Each is the host that serves full text; a person can change
 /// the list on the card.
-pub const DEFAULT_PUBLISHERS: &[&str] = &[
+pub(crate) const DEFAULT_PUBLISHERS: &[&str] = &[
     "www.sciencedirect.com",
     "link.springer.com",
     "www.nature.com",
@@ -295,7 +295,7 @@ pub const DEFAULT_PUBLISHERS: &[&str] = &[
 /// A publisher as the person typed it, as the host name to route: a pasted
 /// address loses its scheme, path and port, and case. `None` for what cannot
 /// be a host name.
-pub fn normalize_publisher(input: &str) -> Option<String> {
+pub(crate) fn normalize_publisher(input: &str) -> Option<String> {
     let text = input.trim();
     let host = text
         .split_once("://")
@@ -322,7 +322,7 @@ pub fn normalize_publisher(input: &str) -> Option<String> {
 }
 
 /// How long before the session's end the reminder comes.
-pub const ENDING_NOTICE_MINUTES: i64 = 10;
+pub(crate) const ENDING_NOTICE_MINUTES: i64 = 10;
 
 /// The helper's socket. Implementations block; the shell calls them off the
 /// UI thread.
@@ -543,7 +543,7 @@ impl VpnService {
 
     /// The names a publisher is reached by: a bare domain (`nature.com`) is
     /// usually served from its `www.` host too.
-    pub fn publisher_names(host: &str) -> Vec<String> {
+    pub(crate) fn publisher_names(host: &str) -> Vec<String> {
         let mut names = vec![host.to_owned()];
         if host.matches('.').count() == 1 {
             names.push(format!("www.{host}"));

@@ -172,7 +172,7 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
     }
 
     /// Reads a file by name; `None` when the folder has none.
-    pub async fn read_file(&self, name: &str) -> Result<Option<Vec<u8>>, DocumentError> {
+    pub(crate) async fn read_file(&self, name: &str) -> Result<Option<Vec<u8>>, DocumentError> {
         match self.file_ids(name).await?.first() {
             Some(id) => self.download(id).await.map(Some),
             None => Ok(None),
@@ -180,7 +180,7 @@ impl<A: DriveAuthorization> GoogleDrive<A> {
     }
 
     /// Replaces a file by name, creating it in the app folder if missing.
-    pub async fn write_file(&self, name: &str, bytes: Vec<u8>) -> Result<(), DocumentError> {
+    pub(crate) async fn write_file(&self, name: &str, bytes: Vec<u8>) -> Result<(), DocumentError> {
         let response = if let Some(id) = self.file_ids(name).await?.first() {
             let mut url = endpoint(&format!(
                 "https://www.googleapis.com/upload/drive/v3/files/{id}"

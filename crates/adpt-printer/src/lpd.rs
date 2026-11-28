@@ -23,11 +23,11 @@ const RESERVED_BOTTOM: u16 = 512;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(60);
 
-pub struct Job<'a> {
-    pub number: u16,
-    pub host: &'a str,
-    pub user: &'a StudentId,
-    pub title: &'a str,
+pub(crate) struct Job<'a> {
+    pub(crate) number: u16,
+    pub(crate) host: &'a str,
+    pub(crate) user: &'a StudentId,
+    pub(crate) title: &'a str,
 }
 
 impl Job<'_> {
@@ -37,7 +37,7 @@ impl Job<'_> {
     }
 
     /// Field length limits are the ones in RFC 1179 section 7.2.
-    pub fn control_file(&self) -> String {
+    pub(crate) fn control_file(&self) -> String {
         let suffix = self.file_suffix();
         format!(
             "H{}\nP{}\nJ{}\nldf{suffix}\nUdf{suffix}\nN{}\n",
@@ -103,7 +103,7 @@ impl LpdError {
 }
 
 /// Sends one job of `data_len` bytes from `data` to `queue` on `server`.
-pub fn send(
+pub(crate) fn send(
     server: SocketAddr,
     queue: &str,
     job: &Job,
@@ -252,7 +252,7 @@ fn with_timeouts(stream: TcpStream) -> io::Result<TcpStream> {
 }
 
 /// LPD fields are single lines of ASCII, so anything else becomes `_`.
-pub fn sanitize(text: &str) -> String {
+pub(crate) fn sanitize(text: &str) -> String {
     text.chars()
         .map(|c| {
             if c == ' ' || c.is_ascii_graphic() {
@@ -270,7 +270,7 @@ fn truncate(text: &str, max_chars: usize) -> String {
 
 /// This machine's name for the control file's `H` line, never empty.
 #[cfg(windows)]
-pub fn local_hostname() -> String {
+pub(crate) fn local_hostname() -> String {
     let name: String = std::env::var("COMPUTERNAME")
         .unwrap_or_default()
         .chars()
@@ -286,13 +286,13 @@ pub fn local_hostname() -> String {
 /// The control file's `H` line. An app cannot read the phone's name, and
 /// the printer bills by the `P` line alone, so every phone sends this one.
 #[cfg(target_os = "android")]
-pub fn local_hostname() -> String {
+pub(crate) fn local_hostname() -> String {
     "android".to_string()
 }
 
 /// LPD job numbers have three digits. Start somewhere unlikely to repeat a
 /// recent run and count up from there for each upload.
-pub fn first_job_number() -> u16 {
+pub(crate) fn first_job_number() -> u16 {
     let micros = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_micros())

@@ -13,8 +13,8 @@ use std::{fs::File, io::Read, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::Instant};
 use url::Url;
 
-pub const MAX_SUBMISSION_FILES: usize = 32;
-pub const MAX_SUBMISSION_BYTES: usize = 20 * 1024 * 1024;
+pub(crate) const MAX_SUBMISSION_FILES: usize = 32;
+pub(crate) const MAX_SUBMISSION_BYTES: usize = 20 * 1024 * 1024;
 const REQUEST_PARAM: &str = "isctDraftRequest";
 
 /// One file for the draft area, base64 as the page's uploader takes it.
@@ -189,7 +189,7 @@ pub(crate) struct PendingSubmission {
 }
 
 impl PendingSubmission {
-    pub fn new(
+    pub(super) fn new(
         raw: &str,
         files: Vec<SubmissionFile>,
         messages: SubmissionMessages,
@@ -217,7 +217,7 @@ impl PendingSubmission {
 
     /// A distinct URL lets both native hosts correlate a load even when their
     /// WebView callbacks carry no navigation action ID.
-    pub fn scope_to_request(&mut self) -> Result<DraftUpload, SubmissionError> {
+    pub(crate) fn scope_to_request(&mut self) -> Result<DraftUpload, SubmissionError> {
         let mut url = submission_url(&self.url)?;
         url.query_pairs_mut()
             .append_pair(REQUEST_PARAM, &self.request);
@@ -233,21 +233,21 @@ impl PendingSubmission {
         })
     }
 
-    pub fn report_dispatch(&self, sent: bool) {
+    pub(crate) fn report_dispatch(&self, sent: bool) {
         if let Some(result) = &self.dispatch_result {
             result.send_replace(Some(sent));
         }
     }
 
-    pub fn scoped(&self) -> bool {
+    pub(crate) fn scoped(&self) -> bool {
         self.scoped
     }
 
-    pub fn expired(&self) -> bool {
+    pub(crate) fn expired(&self) -> bool {
         Instant::now() >= self.expires
     }
 
-    pub fn matches(&self, raw: &str) -> bool {
+    pub(super) fn matches(&self, raw: &str) -> bool {
         let Ok(url) = Url::parse(raw) else {
             return false;
         };
@@ -278,7 +278,7 @@ impl PendingSubmission {
         canonical.as_str() == self.url
     }
 
-    pub fn script(&self) -> Result<String, SubmissionError> {
+    pub(super) fn script(&self) -> Result<String, SubmissionError> {
         let request = serde_json::to_string(self)
             .map_err(|error| SubmissionError::Storage(error.to_string()))?;
         Ok(format!(

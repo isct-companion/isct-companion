@@ -7,7 +7,7 @@ include!("course_palette.rs");
 
 const IMPORT_DEFAULTS: [&str; 2] = ["#526e91", "#556b8d"];
 
-pub fn display_color(course: &Value) -> String {
+pub(crate) fn display_color(course: &Value) -> String {
     if let Some(color) = course.pointer("/overrides/color").and_then(Value::as_str) {
         if !color.is_empty() {
             return color.into();
@@ -31,7 +31,7 @@ pub fn display_color(course: &Value) -> String {
 /// A weekly personal event's colour: the one the person chose, else a
 /// palette colour picked by its title, so one meeting keeps its colour in
 /// every quarter it is copied to.
-pub fn event_color(event: &Value) -> String {
+pub(crate) fn event_color(event: &Value) -> String {
     text(event, "color")
         .filter(|color| is_hex_color(color))
         .map(str::to_owned)

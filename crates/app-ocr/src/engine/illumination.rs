@@ -12,7 +12,7 @@ pub(super) struct Illumination {
     clipped: f64,
 }
 impl Illumination {
-    pub fn glare_against(&self, paper: f64) -> f64 {
+    pub(crate) fn glare_against(&self, paper: f64) -> f64 {
         // A reflection can saturate an entire cell's paper field, hiding its
         // local gradient. Compare with the card too; uniformly white cards
         // still have no relative brightness excess.

@@ -35,8 +35,8 @@ mod ledger;
 mod preparation;
 
 use preparation::{confirm, reversibility, supported, within_limits, PREPARATION_TTL};
-pub use preparation::{
-    Effect, Preparation, Reversibility, SnapshotFile, SubmissionSummary, SummaryFile,
+pub(crate) use {
+    preparation::Preparation, preparation::SnapshotFile, preparation::SubmissionSummary,
 };
 mod snapshots;
 
@@ -76,25 +76,25 @@ const RECEIPT_RETENTION: i64 = PREPARATION_TTL;
 /// The site and user the transport reads and writes as.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LmsIdentity {
+pub(crate) struct LmsIdentity {
     /// The Moodle site root.
     pub site: String,
     /// The Moodle user id the site reports.
-    pub user_id: u64,
+    pub(crate) user_id: u64,
 }
 
 /// An assignment's LMS module as its stored row names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LmsModule {
-    pub cmid: u64,
+pub(crate) struct LmsModule {
+    pub(crate) cmid: u64,
     /// The LMS course id, when the row carries it.
     pub course: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum RemoteStatus {
+pub(crate) enum RemoteStatus {
     New,
     Draft,
     Submitted,
@@ -103,7 +103,7 @@ pub enum RemoteStatus {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteFile {
+pub(crate) struct RemoteFile {
     pub name: String,
     pub bytes: u64,
 }
@@ -111,21 +111,21 @@ pub struct RemoteFile {
 /// A file of the submission as the LMS served it, by its content.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteContent {
+pub(crate) struct RemoteContent {
     pub name: String,
-    pub sha256: String,
+    pub(crate) sha256: String,
 }
 
 /// The student's submission of the current attempt, as the LMS reports it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteState {
+pub(crate) struct RemoteState {
     pub attempt: u32,
     pub status: RemoteStatus,
     /// The file area; Core keeps it by name.
     pub files: Vec<RemoteFile>,
     /// Unix seconds. A save moves it; a removal does not.
-    pub time_modified: i64,
+    pub(crate) time_modified: i64,
 }
 
 impl RemoteState {
@@ -139,34 +139,34 @@ impl RemoteState {
 /// The assignment settings a write depends on, read with the state.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SubmissionRules {
+pub(crate) struct SubmissionRules {
     /// `lastattempt.canedit`: the LMS takes a save or removal now.
-    pub can_edit: bool,
-    pub locked: bool,
+    pub(crate) can_edit: bool,
+    pub(crate) locked: bool,
     /// `submissiondrafts`: a save stays a draft until submitted for grading.
     pub drafts: bool,
-    pub statement: bool,
+    pub(crate) statement: bool,
     pub team: bool,
-    pub time_limit: bool,
-    pub files_enabled: bool,
-    pub online_text: bool,
+    pub(crate) time_limit: bool,
+    pub(crate) files_enabled: bool,
+    pub(crate) online_text: bool,
     /// 0 when the assignment sets none.
-    pub max_files: u32,
+    pub(crate) max_files: u32,
     /// Per file; 0 when the assignment sets none.
-    pub max_file_bytes: u64,
+    pub(crate) max_file_bytes: u64,
     /// `filetypeslist` entries; empty accepts any.
-    pub file_types: Vec<String>,
+    pub(crate) file_types: Vec<String>,
     /// Unix seconds. After it the submission is final.
-    pub cutoff: Option<i64>,
+    pub(crate) cutoff: Option<i64>,
 }
 
 /// One assignment as the transport reads it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RemoteSubmission {
+pub(crate) struct RemoteSubmission {
     pub identity: LmsIdentity,
-    pub assign_id: u64,
-    pub cmid: u64,
+    pub(crate) assign_id: u64,
+    pub(crate) cmid: u64,
     pub state: RemoteState,
     pub rules: SubmissionRules,
     /// The files' content, when the read was asked for it and could get
@@ -177,7 +177,7 @@ pub struct RemoteSubmission {
 /// The right to act on the LMS account for one account generation. A write
 /// holds one from its preflight read through its upload and save, so the
 /// account cannot change between them unnoticed.
-pub struct WritePermit {
+pub(crate) struct WritePermit {
     /// The account generation it was taken at.
     pub generation: u64,
     /// The school sessions' permit; absent in a test transport.
@@ -186,7 +186,7 @@ pub struct WritePermit {
 
 /// A snapshot file the transport uploads, read from the app data directory.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UploadFile {
+pub(crate) struct UploadFile {
     pub name: String,
     pub path: PathBuf,
     pub bytes: u64,
@@ -212,7 +212,7 @@ pub enum TransportError {
 
 /// Proof that the caller is the submission service. Only this module makes
 /// one, so code that can reach a transport still cannot drive its writes.
-pub struct WriteGrant {
+pub(crate) struct WriteGrant {
     _sealed: (),
 }
 
@@ -222,7 +222,7 @@ static GRANT: WriteGrant = WriteGrant { _sealed: () };
 /// apart from `net::moodle::MoodleFunction`, whose closed list stays
 /// read-only, and each write takes a [`WriteGrant`], which only
 /// [`SubmissionService`] holds.
-pub trait SubmissionTransport: Send + Sync {
+pub(crate) trait SubmissionTransport: Send + Sync {
     /// A permit for the LMS account now.
     fn permit(&self) -> Result<WritePermit, TransportError>;
     /// One assignment's submission, as the LMS holds it now, with the
@@ -261,7 +261,7 @@ pub trait SubmissionTransport: Send + Sync {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "lowercase")]
-pub enum SubmissionAction {
+pub(crate) enum SubmissionAction {
     /// Upload the snapshot and save it.
     Save,
     /// Remove the submission's content.
@@ -280,15 +280,15 @@ impl SubmissionAction {
 /// `execute`'s input: a handle and the summary the client confirmed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ExecuteRequest {
-    pub preparation_id: String,
-    pub summary: SubmissionSummary,
+pub(crate) struct ExecuteRequest {
+    pub(crate) preparation_id: String,
+    pub(crate) summary: SubmissionSummary,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
-pub enum OperationState {
+pub(crate) enum OperationState {
     /// Recorded; nothing sent.
     Prepared,
     /// Uploading the snapshot into a new draft area; the submission is
@@ -317,7 +317,7 @@ impl OperationState {
         }
     }
 
-    pub fn settled(self) -> bool {
+    pub(crate) fn settled(self) -> bool {
         matches!(self, Self::Succeeded | Self::Failed)
     }
 }
@@ -326,9 +326,9 @@ impl OperationState {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "agent", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
-pub struct SubmissionOperation {
+pub(crate) struct SubmissionOperation {
     pub id: String,
-    pub preparation_id: String,
+    pub(crate) preparation_id: String,
     pub assignment_id: String,
     pub action: SubmissionAction,
     pub state: OperationState,
@@ -337,16 +337,8 @@ pub struct SubmissionOperation {
     pub sent: bool,
     pub failure: Option<ErrorCode>,
     /// Unix seconds.
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-/// What `cancel` did. A write already sent is never reported undone.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CancelOutcome {
-    pub cancelled: bool,
-    pub operation: SubmissionOperation,
+    pub(crate) created_at: i64,
+    pub(crate) updated_at: i64,
 }
 
 /// One write as the ledger records it, before anything is sent.
@@ -554,7 +546,7 @@ pub enum Limit {
 }
 
 impl Limit {
-    pub fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::Files => "files",
             Self::FileSize => "file-size",
@@ -647,7 +639,7 @@ type Clock = Arc<dyn Fn() -> i64 + Send + Sync>;
 /// Prepares, executes and settles LMS writes for every shell and the MCP
 /// tools.
 #[derive(Clone)]
-pub struct SubmissionService {
+pub(crate) struct SubmissionService {
     store: DataStore,
     workspaces: AssignmentWorkspaces,
     transport: Arc<dyn SubmissionTransport>,
@@ -668,7 +660,7 @@ impl SubmissionService {
     /// Opens the ledger's active generation, or builds a new, empty one for
     /// a folder without one. Another format is refused and kept. Then
     /// recovers what earlier runs left unsettled.
-    pub fn open(
+    pub(crate) fn open(
         store: &DataStore,
         workspaces: AssignmentWorkspaces,
         transport: Arc<dyn SubmissionTransport>,
@@ -836,7 +828,7 @@ impl SubmissionService {
     /// write again, however it is asked for, answers with the operation it
     /// already is; a write is sent at most once per execution, and only the
     /// snapshot is uploaded.
-    pub async fn execute(
+    pub(crate) async fn execute(
         &self,
         request: ExecuteRequest,
     ) -> Result<SubmissionOperation, SubmissionError> {
@@ -891,7 +883,7 @@ impl SubmissionService {
 
     /// One write's state as the ledger has it; an unknown one is read on
     /// its schedule (queued now if it had none). Never reads the LMS itself.
-    pub fn status(&self, operation: &str) -> Result<SubmissionOperation, SubmissionError> {
+    pub(crate) fn status(&self, operation: &str) -> Result<SubmissionOperation, SubmissionError> {
         let operation = self.known(operation)?;
         self.ensure_checked(&operation)?;
         Ok(operation.public())
@@ -905,27 +897,6 @@ impl SubmissionService {
             self.plan.duties_changed();
         }
         Ok(())
-    }
-
-    /// Stops a write that has not sent its save or removal. One that has
-    /// runs to its end and is settled as usual: a local cancel never claims
-    /// that the LMS undid it.
-    pub fn cancel(&self, operation: &str) -> Result<CancelOutcome, SubmissionError> {
-        let mut operation = self.known(operation)?;
-        let from = operation.state;
-        if matches!(from, OperationState::Prepared | OperationState::Uploading) {
-            operation.failure = Some(ErrorCode::Cancelled);
-            if self.advance(&mut operation, OperationState::Failed, from)? {
-                return Ok(CancelOutcome {
-                    cancelled: true,
-                    operation: operation.public(),
-                });
-            }
-        }
-        Ok(CancelOutcome {
-            cancelled: false,
-            operation: self.known(&operation.id)?.public(),
-        })
     }
 
     /// One LMS read through the `PlanEngine`: its holds and lanes, owned by

@@ -64,7 +64,7 @@ fn apply_row(
     Ok(true)
 }
 
-pub fn apply_reference(
+pub(crate) fn apply_reference(
     tx: &Transaction<'_>,
     selected_calendar: Option<&AcademicCalendar>,
     selected_departments: Option<&Departments>,
@@ -223,11 +223,13 @@ fn mark_missing(
         .collect::<Result<Vec<_>, _>>()
         .map_err(SubscriptionError::from)?;
     drop(statement);
-    crate::data::versioned::mark_missing_rows(tx, table, old, live, || crate::clock::now().to_rfc3339())
-        .map_err(SubscriptionError::from)
+    crate::data::versioned::mark_missing_rows(tx, table, old, live, || {
+        crate::clock::now().to_rfc3339()
+    })
+    .map_err(SubscriptionError::from)
 }
 
-pub fn apply_important_dates(
+pub(crate) fn apply_important_dates(
     tx: &Transaction<'_>,
     feed: &ImportantDates,
 ) -> Result<usize, SubscriptionError> {
@@ -262,7 +264,7 @@ pub fn apply_important_dates(
     Ok(changed)
 }
 
-pub fn apply_class_schedules(
+pub(crate) fn apply_class_schedules(
     tx: &Transaction<'_>,
     feed: &ClassSchedules,
 ) -> Result<usize, SubscriptionError> {
@@ -297,7 +299,7 @@ pub fn apply_class_schedules(
     Ok(changed)
 }
 
-pub fn apply_exam_feed(
+pub(crate) fn apply_exam_feed(
     tx: &Transaction<'_>,
     published: &PublishedExamFeed,
 ) -> Result<usize, SubscriptionError> {

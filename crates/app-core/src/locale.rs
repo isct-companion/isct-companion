@@ -9,7 +9,7 @@ use ts_rs::TS;
 /// The language school text (course names, rooms, calendar labels) is shown
 /// in. It is independent of the UI language unless left on automatic.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ContentLanguage {
+pub(crate) enum ContentLanguage {
     Ja,
     En,
 }
@@ -17,7 +17,7 @@ pub enum ContentLanguage {
 impl ContentLanguage {
     /// `settings.contentLanguage` when it names a language; on automatic,
     /// Japanese for a Japanese or Chinese UI and English otherwise.
-    pub fn of(workspace: &Value) -> Self {
+    pub(crate) fn of(workspace: &Value) -> Self {
         let setting = |key: &str| {
             workspace
                 .pointer(&format!("/settings/{key}"))
@@ -31,7 +31,7 @@ impl ContentLanguage {
         }
     }
 
-    pub fn code(self) -> &'static str {
+    pub(crate) fn code(self) -> &'static str {
         match self {
             Self::Ja => "ja",
             Self::En => "en",
@@ -50,12 +50,12 @@ pub struct Localized {
     pub ja: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "ts", ts(optional))]
-    pub en: Option<String>,
+    pub(crate) en: Option<String>,
 }
 
 impl Localized {
     /// This text in `language`, by [`pick`]'s rule.
-    pub fn pick(&self, language: ContentLanguage) -> Option<&str> {
+    pub(crate) fn pick(&self, language: ContentLanguage) -> Option<&str> {
         choose(self.ja.as_deref(), self.en.as_deref(), language)
     }
 }
@@ -63,7 +63,7 @@ impl Localized {
 /// `value` in `language`, or else in the other language; never a made-up
 /// translation. A plain string is text in one language and reads as it is.
 /// Blank text counts as missing.
-pub fn pick(value: Option<&Value>, language: ContentLanguage) -> Option<&str> {
+pub(crate) fn pick(value: Option<&Value>, language: ContentLanguage) -> Option<&str> {
     let value = value?;
     if let Some(text) = value.as_str() {
         return Some(text).filter(|text| present(text));

@@ -2,7 +2,10 @@ use serde_json::Value;
 
 use super::{text, ScheduleError, Term};
 
-pub fn declared_term_credits(rows: &[Value], term: &str) -> Result<Option<f64>, ScheduleError> {
+pub(crate) fn declared_term_credits(
+    rows: &[Value],
+    term: &str,
+) -> Result<Option<f64>, ScheduleError> {
     let term = Term::parse(term)?;
     let year = term.year.to_string();
     let declared: Vec<_> = rows

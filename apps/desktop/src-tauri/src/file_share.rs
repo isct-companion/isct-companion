@@ -25,7 +25,7 @@ pub(crate) struct Anchor {
 }
 
 #[tauri::command]
-pub async fn copy_course_file(
+pub(crate) async fn copy_course_file(
     webview: Webview,
     app: AppHandle,
     path: String,
@@ -39,7 +39,7 @@ pub async fn copy_course_file(
 }
 
 #[tauri::command]
-pub async fn share_course_file(
+pub(crate) async fn share_course_file(
     webview: Webview,
     app: AppHandle,
     path: String,

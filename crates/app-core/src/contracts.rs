@@ -33,7 +33,7 @@ pub enum Quarter {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "kebab-case")]
-pub enum InstructionLanguage {
+pub(crate) enum InstructionLanguage {
     Ja,
     En,
     JaEn,
@@ -43,15 +43,15 @@ pub enum InstructionLanguage {
 contract!(SyncMeta {
     pub id: String,
     #[cfg_attr(feature = "ts", ts(type = "number"))] pub rev: u64,
-    pub updated_at: String,
-    pub updated_by: String,
+    pub(crate) updated_at: String,
+    pub(crate) updated_by: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub deleted_at: Option<String>,
 });
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "kebab-case")]
-pub enum SourceProvider {
+pub(crate) enum SourceProvider {
     Sample,
     School,
     Lms,
@@ -63,7 +63,7 @@ pub enum SourceProvider {
 }
 
 contract!(SourceRef {
-    pub provider: SourceProvider,
+    pub(crate) provider: SourceProvider,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub external_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub import_run_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub fetched_at: Option<String>,
@@ -98,7 +98,7 @@ contract!(Course {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub names: Option<CourseNames>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_course_id: Option<u64>,
     pub code: String, pub title: String, pub instructor: String, pub credits: f64,
-    pub credit_split: CreditSplit, pub instruction_language: InstructionLanguage,
+    pub(crate) credit_split: CreditSplit, pub(crate) instruction_language: InstructionLanguage,
     pub color: String, pub meetings: Vec<Meeting>, pub source: SourceRef,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub overrides: Option<CourseOverrides>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub url: Option<String>,
@@ -121,7 +121,7 @@ contract!(Membership {
 contract!(Assignment {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     #[cfg_attr(feature = "ts", ts(type = "\"assignment\""))] pub kind: String, pub course_id: String, pub title: String, pub details: String,
-    pub due_at: Option<String>,
+    pub(crate) due_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_url: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "number"))] pub lms_cmid: Option<u64>,
@@ -172,7 +172,7 @@ contract!(PersonalEvent {
     /// of its quarter. A copy synced from an older app may hold a one-date
     /// event without days, which then never occurs.
     #[serde(default)] pub days: Vec<u8>,
-    pub start_time: String, pub end_time: String,
+    pub(crate) start_time: String, pub end_time: String,
     /// `#rrggbb`; Core gives a new event a palette colour when none is chosen.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub color: Option<String>,
 });
@@ -194,7 +194,7 @@ contract!(CalendarException {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum ScheduleEntry {
+pub(crate) enum ScheduleEntry {
     Weekly {
         day: u8,
         periods: (u8, u8),
@@ -229,13 +229,13 @@ pub enum ScheduleEntry {
 contract!(ClassFormat { pub kinds: Vec<String>, });
 contract!(Offering {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub year: i32, pub quarters: Vec<Quarter>, pub code: String,
+    pub(crate) year: i32, pub quarters: Vec<Quarter>, pub code: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub unit_code: Option<String>,
     pub title: Localized, pub instructors: Vec<Localized>,
-    pub instruction_language: InstructionLanguage, pub format: ClassFormat,
-    pub credits: CreditSplit, pub schedule: Vec<ScheduleEntry>,
-    pub intensive: bool, pub syllabus_url: String,
+    pub(crate) instruction_language: InstructionLanguage, pub format: ClassFormat,
+    pub(crate) credits: CreditSplit, pub(crate) schedule: Vec<ScheduleEntry>,
+    pub(crate) intensive: bool, pub syllabus_url: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
 });
@@ -252,7 +252,7 @@ contract!(AcademicCalendarDay {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub academic_year: Option<i32>,
-    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub quarter: Option<Quarter>,
+    #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub(crate) quarter: Option<Quarter>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub teaching_ranges: Option<Vec<DateRange>>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub exam_ranges: Option<Vec<DateRange>>,
     pub date: String, #[serde(rename = "type")] pub day_type: String,
@@ -270,15 +270,15 @@ contract!(GpaSummary {
 });
 contract!(Department {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub admission_year: i32, pub name: Localized, pub syllabus_scope: String,
-    pub unit_code: String, pub guide_pdf: String,
+    pub(crate) admission_year: i32, pub name: Localized, pub syllabus_scope: String,
+    pub(crate) unit_code: String, pub guide_pdf: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
 });
 contract!(RecommendedCourse {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub admission_year: i32, pub department_id: String, pub category: Localized,
+    pub(crate) admission_year: i32, pub department_id: String, pub category: Localized,
     pub level: i32, pub code: String, pub group: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"required\" | \"recommended\""))] pub mark: Option<String>,
     pub title: Localized, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub credits: Option<CreditSplit>,
@@ -291,7 +291,7 @@ contract!(RecommendedCourse {
 });
 contract!(ImportantDate {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub academic_year: i32, pub start_date: String, pub end_date: String,
+    pub(crate) academic_year: i32, pub start_date: String, pub end_date: String,
     pub label: Localized, pub category: String, pub source_ids: Vec<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub label_english_source: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
@@ -307,9 +307,9 @@ contract!(ClassSession {
 });
 contract!(ClassSchedule {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub academic_year: i32, pub course_code: String,
+    pub(crate) academic_year: i32, pub course_code: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_label: Option<Localized>,
-    pub offering_ids: Vec<String>, pub quarters: Vec<Quarter>, pub source_ids: Vec<String>,
+    pub(crate) offering_ids: Vec<String>, pub(crate) quarters: Vec<Quarter>, pub source_ids: Vec<String>,
     pub sessions: Vec<ClassSession>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
@@ -319,9 +319,9 @@ contract!(Exam {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
     /// `class` marks a class row the exam timetable lists in the exam period.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"exam\" | \"class\""))] pub kind: Option<String>,
-    pub academic_year: i32,
+    pub(crate) academic_year: i32,
     #[cfg_attr(feature = "ts", ts(type = "\"undergraduate\" | \"graduate\""))] pub level: String,
-    pub quarter: Quarter, pub course_code: String, pub date: String, pub label: Localized,
+    pub(crate) quarter: Quarter, pub course_code: String, pub date: String, pub label: Localized,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub course_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub class_label: Option<Localized>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub syllabus_course_id: Option<String>,
@@ -331,14 +331,14 @@ contract!(Exam {
     pub room: Option<Localized>, pub rooms: Vec<Localized>,
     #[cfg_attr(feature = "ts", ts(type = "\"scheduled\" | \"cancelled\""))] pub status: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub notes: Option<Localized>,
-    pub source_ids: Vec<String>, pub source_pages: Vec<u32>,
+    pub(crate) source_ids: Vec<String>, pub source_pages: Vec<u32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub source_key: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_seen_at: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub missing_since: Option<String>,
 });
 contract!(ScheduleOverride {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub target_key: String,
+    pub(crate) target_key: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"course\" | \"exam\""))] pub target_kind: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub course_id: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub date: Option<String>,
@@ -431,13 +431,13 @@ contract!(ScheduledTask {
 
 contract!(AssignmentMark {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub source_key: String, pub hidden: bool,
+    pub(crate) source_key: String, pub hidden: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub pinned: Option<bool>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub completed_at: Option<String>,
 });
 contract!(CourseOverride {
     #[serde(flatten)] #[cfg_attr(feature = "ts", ts(flatten))] pub meta: SyncMeta,
-    pub source_key: String,
+    pub(crate) source_key: String,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub title: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub instructor: Option<String>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub color: Option<String>,
@@ -453,12 +453,12 @@ contract!(Notifications {
     /// Resolved by Core (`schedule::notification_preferences`); every field is
     /// present in the workspace a shell reads.
     pub classes: bool, pub assignments: bool,
-    pub exams: bool,
+    pub(crate) exams: bool,
     /// Quizzes count as exams on Today and in exam reminders.
-    pub quizzes: bool,
-    pub exam_lead_minutes: u32,
-    pub class_lead_minutes: u32,
-    pub assignment_lead_minutes: Vec<u32>,
+    pub(crate) quizzes: bool,
+    pub(crate) exam_lead_minutes: u32,
+    pub(crate) class_lead_minutes: u32,
+    pub(crate) assignment_lead_minutes: Vec<u32>,
     #[cfg_attr(feature = "ts", ts(type = "NotificationPermission"))] pub local_permission: String,
 });
 contract!(CloudSettings {
@@ -469,7 +469,7 @@ contract!(CloudSettings {
 });
 contract!(SubscriptionRefreshSettings {
     #[cfg_attr(feature = "ts", ts(type = "\"daily\""))] pub frequency: String,
-    pub allow_cellular: bool,
+    pub(crate) allow_cellular: bool,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub last_checked_at: Option<String>,
 });
 contract!(SiteCustomization { pub css: String, pub js: String, pub enabled: bool, });
@@ -516,7 +516,7 @@ contract!(Settings {
     /// reads as `apple`. Per device: what is installed differs.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "\"apple\" | \"google\""))] pub maps_app: Option<String>,
     pub notifications: Notifications, pub cloud: CloudSettings,
-    pub subscription_refresh: SubscriptionRefreshSettings,
+    pub(crate) subscription_refresh: SubscriptionRefreshSettings,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub customization: Option<Customization>,
     /// When the user acknowledged the one-time notice on data accuracy.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub data_notice_acknowledged_at: Option<String>,
@@ -532,10 +532,10 @@ contract!(AcademicYearConfig { pub academic_year: i32, pub quarter_starts: Quart
 contract!(AcademicProfile {
     pub name: String, #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub admission_year: Option<i32>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "StudyEnrollment[]"))]
-    pub study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
+    pub(crate) study_enrollments: Option<Vec<crate::study_profile::StudyEnrollment>>,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "TeachingPeriod[] | null"))]
-    pub teaching_periods: Option<Vec<crate::schedule::TeachingPeriod>>,
-    pub grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
+    pub(crate) teaching_periods: Option<Vec<crate::schedule::TeachingPeriod>>,
+    pub(crate) grade_path: Vec<GradePathEntry>, pub years: Vec<AcademicYearConfig>,
 });
 contract!(ImportStatus {
     #[cfg_attr(feature = "ts", ts(type = "\"not-configured\" | \"connected\" | \"reconnect-required\" | \"error\""))] pub school: String,
@@ -560,20 +560,20 @@ contract!(Workspace {
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "Array<`${number}-${Quarter}`>"))] pub terms: Option<Vec<String>>,
     pub courses: Vec<Course>, pub memberships: Vec<Membership>, pub assignments: Vec<Assignment>,
     pub materials: Vec<Material>, pub events: Vec<PersonalEvent>, pub plan_items: Vec<PlanItem>,
-    pub exceptions: Vec<CalendarException>,
-    pub intensive_schedules: Vec<IntensiveSchedule>,
-    pub academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
-    pub departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
-    pub important_dates: Vec<ImportantDate>,
-    pub class_schedules: Vec<ClassSchedule>,
+    pub(crate) exceptions: Vec<CalendarException>,
+    pub(crate) intensive_schedules: Vec<IntensiveSchedule>,
+    pub(crate) academic_calendar: Vec<AcademicCalendarDay>, pub gpa_summary: Vec<GpaSummary>,
+    pub(crate) departments: Vec<Department>, pub recommended_courses: Vec<RecommendedCourse>,
+    pub(crate) important_dates: Vec<ImportantDate>,
+    pub(crate) class_schedules: Vec<ClassSchedule>,
     /// The red/white group chosen for each semester ("2026-3Q4Q") of
     /// alternating 物理学演習・実験 classes.
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional, type = "Partial<Record<string, ClassGroup>>"))] pub class_groups: Option<std::collections::BTreeMap<String, ClassGroup>>,
-    pub schedule_overrides: Vec<ScheduleOverride>,
-    pub subscriptions: Vec<Subscription>, pub scheduled_tasks: Vec<ScheduledTask>,
+    pub(crate) schedule_overrides: Vec<ScheduleOverride>,
+    pub(crate) subscriptions: Vec<Subscription>, pub scheduled_tasks: Vec<ScheduledTask>,
     pub settings: Settings, pub academic_profile: AcademicProfile,
     #[serde(default)] #[cfg_attr(feature = "ts", ts(optional))] pub logs: Option<Vec<WorkspaceLog>>,
-    pub import_status: ImportStatus, pub sync_status: SyncStatus,
+    pub(crate) import_status: ImportStatus, pub sync_status: SyncStatus,
 });
 
 contract!(IntegerPolicy { pub default: u32, pub min: u32, pub max: u32, });
@@ -597,7 +597,7 @@ pub fn course_file_policy() -> CourseFilePolicy {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "kebab-case")]
-pub enum SchoolPageAvailabilityState {
+pub(crate) enum SchoolPageAvailabilityState {
     Available,
     Unavailable,
 }
@@ -607,9 +607,9 @@ pub enum SchoolPageAvailabilityState {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "camelCase")]
-pub struct SchoolPageAvailability {
+pub(crate) struct SchoolPageAvailability {
     pub state: SchoolPageAvailabilityState,
-    pub checked_at: String,
+    pub(crate) checked_at: String,
     pub message: String,
 }
 

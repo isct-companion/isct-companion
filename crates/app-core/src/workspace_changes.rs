@@ -54,7 +54,7 @@ pub enum WorkspaceChange {
 use WorkspaceChange::*;
 
 impl WorkspaceChange {
-    pub const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 15] = [
         Courses,
         Materials,
         Assignments,
@@ -305,7 +305,7 @@ pub(crate) fn table_changes(table: &str) -> &[WorkspaceChange] {
 }
 
 /// The change names a commit to `tables` produces, sorted.
-pub fn changes_for(tables: &BTreeSet<String>) -> BTreeSet<WorkspaceChange> {
+pub(crate) fn changes_for(tables: &BTreeSet<String>) -> BTreeSet<WorkspaceChange> {
     let mut changes = BTreeSet::new();
     for table in tables {
         changes.extend(table_changes(table).iter().copied());

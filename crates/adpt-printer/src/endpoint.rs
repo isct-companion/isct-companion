@@ -4,10 +4,11 @@
 
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-pub const HOST: &str = "172.20.83.212";
-pub const QUEUE: &str = "kyocera";
+#[cfg(any(test, target_os = "macos"))]
+pub(crate) const HOST: &str = "172.20.83.212";
+pub(crate) const QUEUE: &str = "kyocera";
 /// RFC 1179's port.
-pub const PORT: u16 = 515;
+pub(crate) const PORT: u16 = 515;
 /// `HOST` and `PORT` as a socket address (`tests/student_id.rs` keeps them
 /// in step).
 pub const ADDRESS: SocketAddr =

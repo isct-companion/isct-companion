@@ -21,7 +21,7 @@ use serde::Serialize;
 
 /// A kind of data with one freshness policy. Names are stored.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize)]
-pub enum Dataset {
+pub(crate) enum Dataset {
     /// The enrolled course list and the timetable grids. Key: `all`.
     LmsEnrolment,
     /// Open work and upcoming events. Key: `all`.
@@ -44,7 +44,7 @@ pub enum Dataset {
 }
 
 impl Dataset {
-    pub const ALL: [Dataset; 9] = [
+    pub(crate) const ALL: [Dataset; 9] = [
         Self::LmsEnrolment,
         Self::LmsDeadlines,
         Self::LmsCourse,
@@ -56,7 +56,7 @@ impl Dataset {
         Self::Announcements,
     ];
 
-    pub const fn name(self) -> &'static str {
+    pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::LmsEnrolment => "lms.enrolment",
             Self::LmsDeadlines => "lms.deadlines",
@@ -70,7 +70,7 @@ impl Dataset {
         }
     }
 
-    pub fn parse(name: &str) -> Option<Self> {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|dataset| dataset.name() == name)
     }
 }
@@ -78,7 +78,7 @@ impl Dataset {
 /// How old a key's content is allowed to get, by the term it belongs to.
 /// Only LMS course data distinguishes terms; other datasets use `Current`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Term {
+pub(crate) enum Term {
     Current,
     /// An earlier term of the current academic year.
     Past,
@@ -94,7 +94,7 @@ const DAY: i64 = 24 * HOUR;
 /// automatically.
 /// Each source's own rule, by `d/0mzmh8` and the decisions under it: the
 /// 学籍 page almost never changes, every other 教務 page a week.
-pub fn ttl(key: &Key, term: Term) -> Option<Duration> {
+pub(crate) fn ttl(key: &Key, term: Term) -> Option<Duration> {
     let seconds = match (key.dataset, term) {
         (_, Term::Frozen) => return None,
         (Dataset::LmsEnrolment, _) => 12 * HOUR,
@@ -115,13 +115,13 @@ pub fn ttl(key: &Key, term: Term) -> Option<Duration> {
 
 /// One freshness key.
 #[derive(Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
-pub struct Key {
+pub(crate) struct Key {
     pub dataset: Dataset,
     pub key: String,
 }
 
 impl Key {
-    pub fn new(dataset: Dataset, key: impl Into<String>) -> Self {
+    pub(crate) fn new(dataset: Dataset, key: impl Into<String>) -> Self {
         Self {
             dataset,
             key: key.into(),
@@ -150,7 +150,7 @@ impl std::fmt::Display for Key {
 /// What the last complete read of a key found.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Outcome {
+pub(crate) enum Outcome {
     Complete,
     /// The source said this content is not offered to the account (a closed
     /// 教務 window). Stored rows stay; the read still counts as current.
@@ -169,11 +169,11 @@ impl Outcome {
 /// One `dataset_state` row.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct KeyState {
+pub(crate) struct KeyState {
     pub dataset: String,
     pub key: String,
-    pub fetched_at: Option<DateTime<Utc>>,
-    pub validator: Option<String>,
+    pub(crate) fetched_at: Option<DateTime<Utc>>,
+    pub(crate) validator: Option<String>,
     pub outcome: Option<Outcome>,
     pub message: Option<String>,
     pub failures: u32,
@@ -190,7 +190,7 @@ pub struct KeyState {
 /// Whether a key should be read now. Ordered by urgency: missing content
 /// comes before stale content.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
-pub enum Due {
+pub(crate) enum Due {
     /// Never fetched, or invalidated (gc, reset). Beats TTL, freezing and
     /// validators.
     Missing,
@@ -201,14 +201,15 @@ pub enum Due {
 }
 
 impl Due {
-    pub fn is_due(self) -> bool {
+    #[cfg(test)]
+    pub(crate) fn is_due(self) -> bool {
         matches!(self, Self::Missing | Self::Stale)
     }
 }
 
 /// Automatic due check. Manual refresh ignores TTL and backoff and does not
 /// call this.
-pub fn due(state: Option<&KeyState>, ttl: Option<Duration>, now: DateTime<Utc>) -> Due {
+pub(crate) fn due(state: Option<&KeyState>, ttl: Option<Duration>, now: DateTime<Utc>) -> Due {
     let Some(state) = state else {
         return Due::Missing;
     };
@@ -231,22 +232,22 @@ pub(crate) fn expires_at(fetched: DateTime<Utc>, ttl: Option<Duration>) -> Optio
 
 /// Retry delay after `failures` consecutive failures: 5 min, ×3 each time,
 /// at most 6 h.
-pub fn backoff(failures: u32) -> Duration {
+pub(crate) fn backoff(failures: u32) -> Duration {
     let minutes = 5i64.saturating_mul(3i64.saturating_pow(failures.saturating_sub(1)));
     Duration::minutes(minutes.min(6 * 60))
 }
 
 /// A complete read of one key.
-pub struct Commit<'a> {
+pub(crate) struct Commit<'a> {
     /// ETag, content hash or index hash, when the source offers one.
-    pub validator: Option<&'a str>,
+    pub(crate) validator: Option<&'a str>,
     pub outcome: Outcome,
     /// Short reason shown for `Unavailable`; never response text.
     pub message: Option<&'a str>,
 }
 
 /// Marks `key` fresh. Call inside the transaction that wrote the key's rows.
-pub fn commit(
+pub(crate) fn commit(
     connection: &Connection,
     key: &Key,
     commit: Commit<'_>,
@@ -276,7 +277,11 @@ pub fn commit(
 /// The source reported no change (304, same hash): renew `fetched_at` only.
 /// Returns false, and changes nothing, when the key has no stored content;
 /// the caller must then read the content in full.
-pub fn renew(connection: &Connection, key: &Key, now: DateTime<Utc>) -> Result<bool, DataError> {
+pub(crate) fn renew(
+    connection: &Connection,
+    key: &Key,
+    now: DateTime<Utc>,
+) -> Result<bool, DataError> {
     let renewed = connection
         .execute(
             "UPDATE dataset_state SET fetched_at=?3, failures=0, next_eligible=NULL, last_error=NULL
@@ -290,7 +295,7 @@ pub fn renew(connection: &Connection, key: &Key, now: DateTime<Utc>) -> Result<b
 /// Records a failed read and returns when the key may be tried again.
 /// Stored rows and `fetched_at` stay. `error_kind` is a short code
 /// (`timeout`, `http-503`, `parse`), never response text.
-pub fn fail(
+pub(crate) fn fail(
     connection: &Connection,
     key: &Key,
     error_kind: &str,
@@ -329,7 +334,7 @@ pub fn fail(
 /// Forgets that `key` was fetched, so it reads as missing: call in the
 /// transaction that deletes its content (gc), so no validator or freeze can
 /// keep the gap.
-pub fn invalidate(connection: &Connection, key: &Key) -> Result<(), DataError> {
+pub(crate) fn invalidate(connection: &Connection, key: &Key) -> Result<(), DataError> {
     connection
         .execute(
             "UPDATE dataset_state SET fetched_at=NULL, validator=NULL, outcome=NULL
@@ -341,7 +346,11 @@ pub fn invalidate(connection: &Connection, key: &Key) -> Result<(), DataError> {
 }
 
 /// Notes that the interface read these keys, for gc.
-pub fn touch(connection: &Connection, keys: &[Key], now: DateTime<Utc>) -> Result<(), DataError> {
+pub(crate) fn touch(
+    connection: &Connection,
+    keys: &[Key],
+    now: DateTime<Utc>,
+) -> Result<(), DataError> {
     let mut statement = connection
         .prepare_cached("UPDATE dataset_state SET last_used=?3 WHERE dataset=?1 AND key=?2")
         .map_err(DataError::from)?;
@@ -446,7 +455,7 @@ fn stored_marks(connection: &Connection, key: &Key) -> Result<Vec<DateTime<Utc>>
 
 /// Makes `key` due at `at`, beside any marks it already has: like `ZADD`,
 /// the set keeps every distinct time until a read answers it.
-pub fn mark_due(connection: &Connection, key: &Key, at: DateTime<Utc>) -> Result<(), DataError> {
+pub(crate) fn mark_due(connection: &Connection, key: &Key, at: DateTime<Utc>) -> Result<(), DataError> {
     let mut marks = stored_marks(connection, key)?;
     if !marks.contains(&at) {
         marks.push(at);
@@ -501,7 +510,7 @@ fn settle_read(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataE
     Ok(())
 }
 
-pub fn get(connection: &Connection, key: &Key) -> Result<Option<KeyState>, DataError> {
+pub(crate) fn get(connection: &Connection, key: &Key) -> Result<Option<KeyState>, DataError> {
     connection
         .query_row(
             &format!("SELECT {COLUMNS} FROM dataset_state WHERE dataset=?1 AND key=?2"),
@@ -513,7 +522,10 @@ pub fn get(connection: &Connection, key: &Key) -> Result<Option<KeyState>, DataE
 }
 
 /// Every key of `dataset`, or of all datasets.
-pub fn list(connection: &Connection, dataset: Option<Dataset>) -> Result<Vec<KeyState>, DataError> {
+pub(crate) fn list(
+    connection: &Connection,
+    dataset: Option<Dataset>,
+) -> Result<Vec<KeyState>, DataError> {
     let mut statement = connection
         .prepare(&format!(
             "SELECT {COLUMNS} FROM dataset_state WHERE ?1 IS NULL OR dataset=?1 ORDER BY dataset,key"
@@ -530,7 +542,7 @@ pub fn list(connection: &Connection, dataset: Option<Dataset>) -> Result<Vec<Key
 /// How one read of a key ended.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum RunOutcome {
+pub(crate) enum RunOutcome {
     Complete,
     /// Validator matched; only `fetched_at` moved.
     Unchanged,
@@ -563,12 +575,12 @@ impl RunOutcome {
 }
 
 /// One `sync_runs` row.
-pub struct RunRecord<'a> {
+pub(crate) struct RunRecord<'a> {
     /// Correlates the rows of one pull (the pull job id).
     pub run: &'a str,
     pub key: &'a Key,
-    pub started_at: DateTime<Utc>,
-    pub finished_at: DateTime<Utc>,
+    pub(crate) started_at: DateTime<Utc>,
+    pub(crate) finished_at: DateTime<Utc>,
     pub outcome: RunOutcome,
     pub changed: usize,
     pub requests: Option<u32>,
@@ -576,13 +588,13 @@ pub struct RunRecord<'a> {
     /// Canonical source: a REST function name, `host/path` for a page
     /// ([`source_of_url`]), or an Isct-Data file URL. Never a query string.
     pub source: &'a str,
-    pub error_kind: Option<&'a str>,
+    pub(crate) error_kind: Option<&'a str>,
 }
 
 /// Ends one read: its diagnostics row, and for a read that landed
 /// ([`RunOutcome::lands`]) its keyspace side (`settle_read`). Call in the
 /// transaction that wrote the read's rows.
-pub fn record_run(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataError> {
+pub(crate) fn record_run(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataError> {
     if run.outcome.lands() {
         settle_read(connection, run)?;
     }
@@ -610,7 +622,7 @@ pub fn record_run(connection: &Connection, run: &RunRecord<'_>) -> Result<(), Da
 
 /// `host/path` of a URL: no scheme, query, fragment or credentials, so
 /// `sesskey`, `wstoken`, `token` and `passport` never reach the database.
-pub fn source_of_url(url: &url::Url) -> String {
+pub(crate) fn source_of_url(url: &url::Url) -> String {
     format!("{}{}", url.host_str().unwrap_or(""), url.path())
 }
 
@@ -620,7 +632,7 @@ mod tests;
 
 /// The candidate version a key is holding back (a public file that shrank
 /// suspiciously), stored in `dataset_state.cursor`.
-pub fn cursor(connection: &Connection, key: &Key) -> Result<Option<String>, DataError> {
+pub(crate) fn cursor(connection: &Connection, key: &Key) -> Result<Option<String>, DataError> {
     connection
         .query_row(
             "SELECT cursor FROM dataset_state WHERE dataset=?1 AND key=?2",
@@ -634,7 +646,7 @@ pub fn cursor(connection: &Connection, key: &Key) -> Result<Option<String>, Data
 
 /// Sets `cursor` (creating the key's row, which reads as missing until a
 /// commit) or clears it. Freshness, failures and the validator stay.
-pub fn set_cursor(
+pub(crate) fn set_cursor(
     connection: &Connection,
     key: &Key,
     cursor: Option<&str>,

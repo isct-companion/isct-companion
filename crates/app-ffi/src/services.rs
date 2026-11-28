@@ -466,13 +466,13 @@ fn credential_backup_error(e: app_core::cloud_credentials::CredentialBackupError
 
 /// How many characters a new school-login backup password must have.
 #[derive(Clone, Copy, Debug, uniffi::Record)]
-pub struct CredentialPasswordLength {
+pub(crate) struct CredentialPasswordLength {
     pub min: u32,
     pub max: u32,
 }
 
 #[uniffi::export]
-pub fn credential_password_length() -> CredentialPasswordLength {
+pub(crate) fn credential_password_length() -> CredentialPasswordLength {
     let length = app_core::cloud_credentials::PASSWORD_LENGTH;
     CredentialPasswordLength {
         min: u32::try_from(length.min).unwrap_or(u32::MAX),

@@ -18,7 +18,7 @@ pub enum CalendarExportScope {
     CoursesAndEvents,
 }
 
-pub fn export_quarter_ics(
+pub(crate) fn export_quarter_ics(
     workspace: &Value,
     school: &SchoolReads,
     term: &str,
@@ -39,7 +39,7 @@ pub fn export_quarter_ics(
     )
 }
 
-pub fn export_calendar_ics(
+pub(crate) fn export_calendar_ics(
     workspace: &Value,
     school: &SchoolReads,
     from: &str,

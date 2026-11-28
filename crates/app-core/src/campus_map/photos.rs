@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const ENDPOINT: &str = "https://isctcomp.app/api/floor-photos";
 const PROTOCOL: &str = "isct-floor-photo/2";
 /// The inbox refuses more; shells downscale to about 2048 px first.
-pub const MAX_PHOTO_BYTES: usize = 8 * 1024 * 1024;
+pub(crate) const MAX_PHOTO_BYTES: usize = 8 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// The key, never in the binary as one piece: release builds keep it
@@ -96,11 +96,11 @@ pub(crate) fn available() -> bool {
 
 /// What a request's signature covers.
 pub(super) struct Meta<'a> {
-    pub kid: &'a str,
+    pub(crate) kid: &'a str,
     pub time: u64,
-    pub nonce: &'a str,
-    pub building: &'a str,
-    pub sha256: &'a str,
+    pub(crate) nonce: &'a str,
+    pub(crate) building: &'a str,
+    pub(crate) sha256: &'a str,
 }
 
 /// One field per line, in the inbox's order.
