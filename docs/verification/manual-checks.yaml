@@ -5253,7 +5253,7 @@ checks:
 
   - id: IOS-TIMETABLE-WEEK-AND-MARKS
     area: native
-    title: iPhone timetable header, fitted blocks, session marks and the now line
+    title: iPhone and iPad timetable, session marks and quarter export
     persona: undergraduate-first-term
     preconditions: |
       The iPhone app with the current quarter pulled, opened on a weekday
@@ -5261,22 +5261,49 @@ checks:
     steps:
       - action: |
           Open 時間割 and read the title block: the quarter and week label is
-          an accent capsule with a calendar symbol on its own row, on one
-          line, and tapping it or the date range opens the week picker.
+          an accent capsule with a calendar symbol on one line, the share
+          button and 今日 beside it or under it, and below them the date range
+          on one line with no week arrows. Tap the capsule, then the range.
         reason: |
-          The capsule used to share a column with the range and a share
-          button, so it wrapped onto two lines; on its own row it may take the
-          full width.
+          Both open the week picker. The range has the full width, so its end
+          is never cut off ("11/23 – 1" is the old layout); arrows beside it
+          are the layout the swipe replaced.
       - action: |
           Swipe the grid left twice, each swipe starting on a class block,
           then tap 今日.
         reason: |
-          Swiping is now the only way to step weeks; the range figures must
-          roll in place. The grid moves with the finger, so a block under it
-          used to open its course on release: a course page after a swipe is
-          that bug (PagePan must cancel the block's tap). 今日 is dimmed on
-          the current week and active elsewhere, so a dimmed 今日 on another
-          week or an active one on this week is wrong.
+          Swiping the grid is the only visible way to step weeks; the range
+          figures must roll in place. The grid moves with the finger, so a
+          block under it used to open its course on release: a course page
+          after a swipe is that bug (PagePan must cancel the block's tap).
+          今日 is dimmed on the current week and active elsewhere, so a
+          dimmed 今日 on another week or an active one on this week is wrong.
+      - action: |
+          At the default text size and again at the largest accessibility
+          size, swipe from a teaching week into an exam week and into a week
+          between quarters, then across a month change (for example 11/30 –
+          12/4).
+        reason: |
+          Whether the capsule shares a row with the actions follows the
+          window and the text size, measured against the year's widest label,
+          not the week shown: a header that grows or shrinks between these
+          weeks makes the grid's rows jump. Each range must stay whole on one
+          line while its figures roll.
+      - action: |
+          With the largest accessibility text size, or in a narrow split view
+          on iPad, scroll the page to the end of the grid and tap the last
+          period's class.
+        reason: |
+          Past the row floor the page scrolls instead of cutting the last
+          periods off under the tab bar; pull to refresh and the week swipe
+          still work from the top.
+      - action: |
+          With VoiceOver on, focus the weekday row above the grid, swipe up
+          and down on it, then use the rotor's actions for 前の週 and 次の週.
+        reason: |
+          The row reads the week's range and steps to the neighbouring week
+          through the same turn as a swipe; without it a VoiceOver user can
+          change weeks only through the picker.
       - action: |
           Find a two-period class with a long English title and one whose
           room field lists several rooms.
@@ -5306,23 +5333,35 @@ checks:
           blocks with the header; blocks that arrive after the date range
           changed mean the window cache was skipped.
       - action: |
-          Long-press the 時間割 tab, slide to 授業のみ and lift; save the file
-          to Files, then open it from Files.
+          On iPhone and on iPad in portrait, landscape and narrow Split View,
+          open a dated week in another quarter. Tap the share icon next to
+          今日 and check the menu title against the week label. With VoiceOver
+          on, check that the icon is announced as ICSを書き出す. On a quarter with
+          both classes and weekly events, export each scope to Files and
+          open both files in Calendar. Visit a week marked 休み and check the
+          export button there. Then long-press the 時間割 tab (on iPad, the
+          rail row's menu), choose 授業のみ and open that file too.
         reason: |
-          The .ics is Core's quarterIcs for the shown week's quarter, as the
-          desktop's ICSを書き出す. Calendar must offer to add this quarter's
-          classes with their rooms; another quarter or an empty file is wrong.
-    observe: The 時間割 tab on the device.
+          The page header must fit independently of the tab or rail. Calendar
+          must offer to add the named quarter's classes with their rooms,
+          and only the broader export includes weekly events. A week with
+          no quarter cannot start an export from the header. The tab's long
+          press and the rail share the header's export, so their file names
+          the same quarter.
+    observe: The timetable header, system share sheet, and Calendar preview on the devices.
     expected: |
       The header reads and steps as described, blocks use their height, marks
       redraw immediately with the right styling and tick, and the now line
-      tracks the clock in today's column.
+      tracks the clock in today's column. The export is available from the
+      named quarter's header and each file contains the selected scope.
     why_manual: |
       Layout, the capsule cue, the context menu and the moving line are read
-      at a glance on a phone; the axis maths is covered by Core's timing tests
-      and the desktop `nowPercent` unit tests.
+      at a glance on a phone. The menu and file handoff need iPad window
+      layouts, VoiceOver and the installed Calendar app. The axis maths is
+      covered by Core's timing tests and the desktop `nowPercent` unit tests.
     covers:
       - apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift
+      - apps/ios/IsctCompanion/Features/Timetable/TimetableHeader.swift
       - apps/ios/IsctCompanion/Design/HorizontalPager.swift
       - apps/ios/IsctCompanion/Design/TabItemPress.swift
       - apps/ios/IsctCompanion/App/IsctCompanionApp.swift
@@ -6427,6 +6466,26 @@ checks:
           A five-character time is wider than the 26 dp period column and
           shrinks to fit; a clipped 10:4 means it no longer does.
       - action: |
+          On a phone about 360 dp wide, at the default font size and again at
+          the largest font size, read the header, then swipe from a teaching
+          week into an exam week, into a week between quarters and across a
+          month change (for example 11/30 – 12/4).
+        reason: |
+          The date range sits on its own line under the week chip, share and
+          今日, with no week arrows, and must read whole on one line while its
+          figures roll; "11/23 – 1" is the old layout. Whether the chip shares
+          a row with the actions follows the width and the font size,
+          measured against the year's widest label, not the week shown: a
+          header that grows or shrinks between these weeks makes the grid's
+          rows jump.
+      - action: |
+          With TalkBack on, focus the weekday row above the grid and open its
+          actions; choose 下一周, then 上一周.
+        reason: |
+          The row reads the week's range and steps to the neighbouring week
+          through the same path as a swipe; without it a TalkBack user can
+          change weeks only through the picker.
+      - action: |
           On a small tablet turned on its side (or in split screen), scroll
           the grid to the bottom.
         reason: |
@@ -6462,14 +6521,17 @@ checks:
           Columns that flash empty before filling mean each week is still
           queried on its own.
       - action: |
-          Tap the share button in the header, choose 授業のみ, send the file to
-          Google Calendar or Files and open it.
+          Open a week in another quarter. Tap the share button in the header,
+          read the menu's academic year and quarter, choose 授業のみ and open
+          the file from Files or a calendar app. Visit a week marked 休み.
         reason: |
-          The .ics is Core's quarterIcs for the shown week's quarter, as the
-          desktop's ICSを書き出す; another quarter or an empty file is wrong.
+          The menu and .ics must follow the week, including when it differs
+          from today's quarter. The export button is disabled for 休み.
     observe: The 時間割 tab on the device or emulator.
     expected: |
-      The week fits, every start time reads in full, the picker labels and
+      The week fits, every start time and the rolling date range read in
+      full, the header keeps its shape from week to week, TalkBack steps
+      weeks from the weekday row, the picker labels and
       jumps as Core says, marks redraw at once, the now line tracks the clock
       and the shared .ics holds this quarter's classes; nearby weeks appear
       without an empty flash.
@@ -6480,6 +6542,8 @@ checks:
     covers:
       - apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt
+      - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableHeader.kt
+      - apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt
       - apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt
@@ -9476,7 +9540,9 @@ checks:
           Today shows and edits weekly events but has no add entry; an add
           button or a dead click means the page kept or lost the wrong path.
       - action: |
-          Export ICS → 课程＋固定日程 and import the file into Apple Calendar.
+          Open 导出 ICS and verify that the menu names the selected academic
+          year and quarter. Choose 课程＋固定日程, save the file and import it
+          into Apple Calendar.
         reason: |
           The export used to skip events entirely. 组会 missing on the
           Wednesdays of the quarter means the scope did not reach Core.
@@ -9495,6 +9561,7 @@ checks:
       export logic is pinned by the Core schedule and workspace suites.
     covers:
       - apps/desktop/src/pages/courses/CoursesPage.tsx
+      - apps/desktop/src/pages/courses/TimetableExportButton.tsx
       - apps/desktop/src/pages/courses/editors.tsx
       - apps/desktop/src/pages/today/TodayAgenda.tsx
       - apps/desktop/src/pages/today/TodayPage.tsx

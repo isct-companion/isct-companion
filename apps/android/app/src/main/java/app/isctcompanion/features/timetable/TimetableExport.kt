@@ -12,6 +12,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,10 +27,10 @@ import androidx.core.content.FileProvider
 import app.isctcompanion.LocalModel
 import app.isctcompanion.core.AppModel
 import app.isctcompanion.core.CalendarExportScope
-import app.isctcompanion.design.Format
 import app.isctcompanion.design.Theme
 import app.isctcompanion.design.t
 import java.io.File
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,32 +38,51 @@ import kotlinx.coroutines.withContext
 /** The shown quarter as an .ics, written by Core as the desktop's ICSを書き出す,
  * handed to the share sheet (Calendar, Drive, Mail). */
 @Composable
-internal fun ExportButton(term: String) {
+internal fun ExportButton(term: String?) {
     val model = LocalModel.current
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var menu by remember { mutableStateOf(false) }
-    fun export(scope0: CalendarExportScope) = scope.launch {
+    var menu by remember(term) { mutableStateOf(false) }
+    var exporting by remember { mutableStateOf(false) }
+    fun export(term: String, exportScope: CalendarExportScope) {
+        if (exporting) return
         menu = false
-        runCatching { share(context, term, scope0, model.quarterIcs(term, scope0)) }.onFailure {
-            model.notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(it)))
+        exporting = true
+        scope.launch {
+            try {
+                share(context, term, exportScope, model.quarterIcs(term, exportScope))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                model.notices.show(t("settings.main.exportFailedReason", "reason" to AppModel.describe(error)))
+            } finally {
+                exporting = false
+            }
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Icons.Rounded.Share, t("common.exportICS"), tint = Theme.colors.accent) }
-        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-            Text(
-                t("common.exportICS") + " · " + Format.quarter(term), style = MaterialTheme.typography.labelMedium,
-                color = Theme.colors.muted, modifier = Modifier.padding(horizontal = Theme.space6, vertical = Theme.space3),
-            )
-            DropdownMenuItem(
-                text = { Text(t("common.coursesOnly")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
-                onClick = { export(CalendarExportScope.COURSES) },
-            )
-            DropdownMenuItem(
-                text = { Text(t("common.coursesWeeklyEvents")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
-                onClick = { export(CalendarExportScope.COURSES_AND_EVENTS) },
-            )
+        IconButton(
+            onClick = { menu = true },
+            enabled = term != null && !exporting,
+            colors = IconButtonDefaults.iconButtonColors(contentColor = Theme.colors.accent),
+        ) {
+            Icon(Icons.Rounded.Share, t("common.exportICS"))
+        }
+        if (term != null) {
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                Text(
+                    t("common.exportICS") + " · " + term.replace('-', ' '), style = MaterialTheme.typography.labelMedium,
+                    color = Theme.colors.muted, modifier = Modifier.padding(horizontal = Theme.space6, vertical = Theme.space3),
+                )
+                DropdownMenuItem(
+                    text = { Text(t("common.coursesOnly")) }, leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null) },
+                    onClick = { export(term, CalendarExportScope.COURSES) },
+                )
+                DropdownMenuItem(
+                    text = { Text(t("common.coursesWeeklyEvents")) }, leadingIcon = { Icon(Icons.Rounded.EditCalendar, null) },
+                    onClick = { export(term, CalendarExportScope.COURSES_AND_EVENTS) },
+                )
+            }
         }
     }
 }

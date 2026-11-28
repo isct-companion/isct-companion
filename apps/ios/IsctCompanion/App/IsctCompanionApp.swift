@@ -204,6 +204,8 @@ struct RootView: View {
     @State private var sitePress = SitePickerPress()
     @State private var exportPress = TabItemPress<CalendarExportPick>()
     @State private var calendarFile: QuarterCalendarFile?
+    /// A quarter's .ics is being written; another pick waits for it.
+    @State private var exportingCalendar = false
     @State private var campusMapRequest: CampusMapRequest?
     @State private var widgetURL: URL?
     @Environment(\.openURL) private var openURL
@@ -387,8 +389,10 @@ struct RootView: View {
     }
 
     private func export(_ pick: CalendarExportPick) {
-        guard let term = exportTerm else { return }
+        guard let term = exportTerm, !exportingCalendar, calendarFile == nil else { return }
+        exportingCalendar = true
         Task {
+            defer { exportingCalendar = false }
             do {
                 calendarFile = try await QuarterCalendarFile.write(model: model, term: term, pick: pick)
             } catch {

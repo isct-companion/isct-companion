@@ -20,6 +20,11 @@ enum CalendarExportPick: Hashable {
     case courses, coursesAndEvents
 
     var scope: CalendarExportScope { self == .courses ? .courses : .coursesAndEvents }
+
+    /// "ICSを書き出す · 2026 3Q", over the choices.
+    static func title(_ term: String) -> String {
+        t("common.exportICS") + " · " + term.replacingOccurrences(of: "-", with: " ")
+    }
 }
 
 /// The export panel's rows; the workstation's rail row shows the same in a menu.
@@ -30,7 +35,7 @@ struct CalendarExportRows: View {
     let pick: (CalendarExportPick) -> Void
 
     var body: some View {
-        Text(t("common.exportICS") + " · " + Format.quarter(term))
+        Text(CalendarExportPick.title(term))
             .font(.footnote.weight(.semibold))
             .foregroundStyle(Theme.muted)
             .frame(maxWidth: .infinity, alignment: .leading)

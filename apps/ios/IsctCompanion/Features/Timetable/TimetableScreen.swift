@@ -1,6 +1,5 @@
 import IsctCore
 import SwiftUI
-import TipKit
 
 /// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
@@ -11,34 +10,55 @@ struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: AppClock.now)
-    private var week: ScheduleView? { model.timetableWeeks[monday] }
-    @State private var year: TimetableYear?
+    @State private var yearSnapshot: (calendar: TimetableYear, revision: Int)?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
     @State private var gridWidth: CGFloat = 390
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.exportCalendar) private var exportCalendar
 
     /// Core's equal-row axis for the shown week.
     @State private var axis: TimetableAxis?
     @State private var gridHeight: CGFloat = 600
+    @State private var headerHeight: CGFloat = 0
+    @State private var weekdayRowHeight: CGFloat = 0
 
     /// Period rows share the height the screen leaves, so the week fits
     /// without scrolling (with a floor for very short windows).
     private var rowHeight: CGFloat {
-        max(Self.minimumRow, ((gridHeight - Self.dayHeaderHeight) / CGFloat(axis?.length ?? 12.5)).rounded(.down))
+        max(Self.minimumRow, ((gridHeight - gridHeaderHeight) / CGFloat(axis?.length ?? 12.5)).rounded(.down))
     }
+
+    /// The page at least as tall as the header over a week at the row floor,
+    /// so a short window (split view, a large text size) scrolls to the last
+    /// period instead of cutting it off. Built from the floor, not the drawn
+    /// grid, so the page's height never feeds back into the rows.
+    private func pageHeight(_ window: CGFloat) -> CGFloat {
+        let floor = gridHeaderHeight + Self.minimumRow * CGFloat(axis?.length ?? 12.5)
+        return max(window, headerHeight + Theme.space6 + floor + Theme.space4)
+    }
+
     private static let minimumRow: CGFloat = 30
-    /// Weekday letters and date circles above the columns, plus their gap.
-    private static let dayHeaderHeight: CGFloat = 54
+    /// Budget for the weekday row and its gap, growing with Dynamic Type.
+    private var gridHeaderHeight: CGFloat {
+        max(54, weekdayRowHeight + Theme.space3)
+    }
 
     var body: some View {
         let weekRevision = model.timetableWeeks.revision
-        // A scroll view only for the pull that refreshes from the school;
-        // the page is one screen tall and never scrolls.
+        // A scroll view for the pull that refreshes from the school; the page
+        // is one screen tall and scrolls only past the row floor.
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.space6) {
-                header
+                let thisWeek = Self.monday(of: AppClock.now)
+                TimetableHeader(
+                    monday: monday,
+                    year: year,
+                    exportTerm: shownTerm,
+                    atThisWeek: monday == thisWeek,
+                    openPicker: { showsPicker = true },
+                    toToday: { withAnimation(Motion.base(reduceMotion)) { show(thisWeek) } }
+                )
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headerHeight = $0 }
                 pager
                     .frame(maxHeight: .infinity, alignment: .top)
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { size in
@@ -51,7 +71,7 @@ struct TimetableScreen: View {
             }
             .padding(.horizontal, Theme.gutter)
             .padding(.bottom, Theme.space4)
-            .containerRelativeFrame(.vertical, alignment: .top)
+            .containerRelativeFrame(.vertical, alignment: .top) { window, _ in pageHeight(window) }
         }
         .scrollBounceBehavior(.always, axes: .vertical)
         .refreshable { model.refreshFromSchool() }
@@ -81,11 +101,11 @@ struct TimetableScreen: View {
                 model.lastTimetableAxis = shape
             }
             guard let number = await model.academicYear(of: monday),
-                year?.year != number || year?.quarters.isEmpty == true
+                year?.year != number || yearSnapshot?.revision != weekRevision || year?.quarters.isEmpty == true
             else { return }
             let calendar = await model.timetableYear(number)
             if !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision, let calendar {
-                year = calendar
+                yearSnapshot = (calendar, weekRevision)
             }
         }
         .sheet(isPresented: $showsPicker) {
@@ -97,124 +117,13 @@ struct TimetableScreen: View {
         }
     }
 
-    // MARK: Header
+    private var year: TimetableYear? { yearSnapshot?.calendar }
 
-    /// The week chip on its own row, free to take the full width, with the
-    /// quarter's calendar export; below it the date range, the previous and
-    /// next week, and 今日. Swiping the grid turns weeks too, and a long press
-    /// on the 時間割 tab exports as a shortcut.
-    private var header: some View {
-        VStack(alignment: .leading, spacing: Theme.space3) {
-            HStack(spacing: Theme.space4) {
-                Button {
-                    showsPicker = true
-                } label: {
-                    // A chip, so the line reads as the way into the week picker.
-                    Label(subtitle, systemImage: "calendar")
-                        .font(.footnote.weight(.semibold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, Theme.space5)
-                        .padding(.vertical, 5)
-                        .background(Theme.accentSoft, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .accessibilityHint(t("timetable.chooseAWeek"))
-                Spacer(minLength: 0)
-                exportMenu
-            }
-            HStack(alignment: .center) {
-                Button {
-                    showsPicker = true
-                } label: {
-                    Text(range)
-                        .font(.largeTitle.bold().monospacedDigit())
-                        .foregroundStyle(Theme.ink)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .countingFigure(monday, down: false)
-                }
-                .buttonStyle(.plain)
-                // Over the grid rather than above it, so the week keeps its height.
-                .popoverTip(TimetableMarkTip(), arrowEdge: .top)
-                Spacer(minLength: Theme.space4)
-                weekButton(-1, symbol: "chevron.backward", label: t("today.previousWeek"))
-                weekButton(1, symbol: "chevron.forward", label: t("today.nextWeek"))
-                todayButton
-            }
-        }
-        .padding(.top, Theme.space6)
-    }
-
-    private var range: String {
-        let friday = Calendar.tokyo.date(byAdding: .day, value: 4, to: monday) ?? monday
-        return "\(short(monday)) – \(short(friday))"
-    }
-
-    /// "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み.
-    private var subtitle: String {
-        guard let year else { return t("common.timetable") }
-        let label = year.weeks.first { $0.monday == AppModel.civil(monday) }.flatMap { WeekPicker.label($0, in: year) }
-        return [t("timetable.academicYear", ["year": String(year.year)]), label].compactMap { $0 }.joined(separator: " · ")
-    }
-
-    private func short(_ date: Date) -> String {
-        let parts = Calendar.tokyo.dateComponents([.month, .day], from: date)
-        return "\(parts.month ?? 0)/\(parts.day ?? 0)"
-    }
-
-    /// The shown week's quarter, or this quarter between quarters.
+    /// The shown week's quarter, once its year reflects the current weeks;
+    /// none between quarters.
     private var shownTerm: String? {
-        year?.weeks.first { $0.monday == AppModel.civil(monday) }?.term ?? week?.term
-    }
-
-    /// 今日 rests while this week is shown, which doubles as "you are here".
-    private var todayButton: some View {
-        let thisWeek = TimetableScreen.monday(of: AppClock.now)
-        let atThisWeek = monday == thisWeek
-        return Button {
-            withAnimation(Motion.base(reduceMotion)) { show(thisWeek) }
-        } label: {
-            Text(t("common.today"))
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, Theme.space8)
-                .frame(height: 40)
-        }
-        .buttonStyle(CapsuleButtonStyle(level: .secondary))
-        .disabled(atThisWeek)
-        .opacity(atThisWeek ? 0.35 : 1)
-        .accessibilityLabel(t("timetable.backToThisWeek"))
-    }
-
-    /// The week before or after, turned as a swipe turns it.
-    private func weekButton(_ step: Int, symbol: String, label: String) -> some View {
-        Button {
-            turn(step)
-        } label: {
-            Image(systemName: symbol)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 40, height: 40)
-        }
-        .buttonStyle(CapsuleButtonStyle(level: .secondary))
-        .accessibilityLabel(label)
-    }
-
-    /// The shown quarter as an .ics, as the 時間割 tab's long press offers it.
-    @ViewBuilder private var exportMenu: some View {
-        if shownTerm ?? model.today?.term != nil {
-            Menu {
-                Button(t("common.coursesOnly"), systemImage: "calendar") { exportCalendar(.courses) }
-                Button(t("common.coursesWeeklyEvents"), systemImage: "calendar.badge.plus") { exportCalendar(.coursesAndEvents) }
-            } label: {
-                Image(systemName: "square.and.arrow.up")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 44, height: 44)
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel(t("common.exportICS"))
-        }
+        guard yearSnapshot?.revision == model.timetableWeeks.revision else { return nil }
+        return year?.weeks.first { $0.monday == AppModel.civil(monday) }?.term
     }
 
     private func shift(_ weeks: Int) {
@@ -311,10 +220,26 @@ struct TimetableScreen: View {
         let height = rowHeight * CGFloat(axis?.length ?? 12.5)
         let days = days(from: start)
         return VStack(spacing: Theme.space3) {
+            // The weekday group steps to the weeks a swipe turns to. The
+            // pager hides its neighbours from accessibility.
             HStack(spacing: Self.columnSpacing) {
                 Color.clear.frame(width: Self.periodWidth, height: 1)
                 ForEach(days, id: \.self) { day in dayHeader(day).frame(maxWidth: .infinity) }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                if start == monday { weekdayRowHeight = height }
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel(weekDateRange(from: start))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment: turn(1)
+                case .decrement: turn(-1)
+                @unknown default: break
+                }
+            }
+            .accessibilityAction(named: Text(t("today.previousWeek"))) { turn(-1) }
+            .accessibilityAction(named: Text(t("today.nextWeek"))) { turn(1) }
             HStack(alignment: .top, spacing: Self.columnSpacing) {
                 periodColumn.frame(width: Self.periodWidth, height: height, alignment: .top)
                 ForEach(days, id: \.self) { day in
@@ -433,7 +358,6 @@ struct TimetableScreen: View {
         .transition(.opacity)
         .accessibilityHidden(true)
     }
-
 
     func isCurrent(_ block: Occurrence) -> Bool {
         guard let today = model.today, today.phase == .inClass, let hero = today.hero else { return false }

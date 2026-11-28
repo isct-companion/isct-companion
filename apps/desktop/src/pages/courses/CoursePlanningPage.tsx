@@ -10,8 +10,6 @@ import { notify } from "../../components/notifications/notify";
 import { confirmAction } from "../../components/confirm";
 import { t } from "../../i18n";
 import { desktopBridge } from "../../platform/native";
-import { saveExportFile } from "../../platform/save-export";
-import { wallNow } from "../../platform/use-clock";
 import type { CourseEntry } from "../../features/lms";
 import { Courses } from "./CoursesPage";
 import { useState } from "react";
@@ -383,19 +381,6 @@ export function CoursePlanningPage({
             refresh={canSync ? refreshKyomu : undefined}
             openOfficial={() => openWeb(KYOMU_GPA)}
           />
-        }
-        exportIcs={(term, scope = "courses") =>
-          saveExportFile(
-            `IsctCompanion-${term}${scope === "courses-and-events" ? "-with-events" : ""}.ics`,
-            () =>
-              scheduleQuery<string>({
-                kind: "quarterIcs",
-                term,
-                scope,
-                generatedAt: new Date(wallNow()).toISOString(),
-              }),
-            notify.info,
-          )
         }
       />
     </div>

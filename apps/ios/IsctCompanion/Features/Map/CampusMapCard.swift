@@ -124,7 +124,7 @@ struct CampusMapCardView: View {
     private func action(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .font(.subheadline.weight(.semibold))
-            .lineLimit(1)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, Theme.space6)
             .frame(maxWidth: .infinity, minHeight: 44)
     }

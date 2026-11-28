@@ -1,11 +1,10 @@
 import { primaryModifierName } from "../../lib/shortcuts";
 import { nativeOs } from "../../platform/desktop-bridge";
-import { ChevronDown } from "lucide-react";
 import { TitleRow } from "../../components/TitleRow";
 import { ResizableWorkspace } from "../../components/ResizableWorkspace";
 import { t } from "../../i18n";
 import { useRef, useLayoutEffect, type ReactNode } from "react";
-import { Badge, Button, Menu, Paper, Tag } from "../../components/ui";
+import { Badge, Button, Paper, Tag } from "../../components/ui";
 import {
   useLocalStorage,
   useDebounceCallback,
@@ -21,9 +20,9 @@ import type { PersonalEvent, TermId, Workspace } from "../../lib/model";
 
 import { planningColumns } from "../../components/timetable/workspace";
 import { tokyoDate } from "../../lib/civil-date";
-import type { CalendarExportScope } from "../../generated/persistence";
 import { UiButton } from "../../components/ui";
 import { YearQuarterPicker } from "./YearQuarterPicker";
+import { TimetableExportButton } from "./TimetableExportButton";
 import { SyncRing, progressLabel } from "../../components/PullRing";
 import type { PageProgress } from "../../platform/sync";
 import type { WorkspaceIntent } from "../../lib/workspace-intents";
@@ -52,7 +51,6 @@ function CoursesBody({
   open,
   openEvent,
   addTerm,
-  exportIcs,
   side,
   panel,
   leftPanel,
@@ -80,7 +78,6 @@ function CoursesBody({
   /** Copies an earlier quarter's weekly events into this one; absent when read-only. */
   copyEvents?: (from: TermId, term: TermId) => Promise<unknown>;
   addTerm: () => void;
-  exportIcs: (term: TermId, scope?: CalendarExportScope) => void;
   /** The syllabus search panel. */
   side?: ReactNode;
   /** Course details covering the search panel while open. */
@@ -239,37 +236,10 @@ function CoursesBody({
             </Tag>
           )}
 
-          <Button.Group className="calendarExportActions">
-            <Button
-              size="xs"
-              variant="default"
-              onClick={() => exportIcs(term, "courses")}
-            >
-              {t("common.exportICS")}
-            </Button>
-            <Menu position="bottom-end" withinPortal>
-              <Menu.Target>
-                <Button
-                  size="xs"
-                  variant="default"
-                  style={{ paddingInline: "var(--space-3)" }}
-                  aria-label={t("courses.calendarExportOptions")}
-                >
-                  <ChevronDown size={14} strokeWidth={1.75} aria-hidden />
-                </Button>
-              </Menu.Target>
-              <Menu.Dropdown>
-                <Menu.Item onClick={() => exportIcs(term, "courses")}>
-                  {t("common.coursesOnly")}
-                </Menu.Item>
-                <Menu.Item
-                  onClick={() => exportIcs(term, "courses-and-events")}
-                >
-                  {t("common.coursesWeeklyEvents")}
-                </Menu.Item>
-              </Menu.Dropdown>
-            </Menu>
-          </Button.Group>
+          <TimetableExportButton
+            term={term}
+            available={overview.term === term && overview.range !== null}
+          />
           {academic}
           {removable && canEdit && (
             <UiButton
