@@ -2,8 +2,9 @@ name: Campus map rules
 
 # The map page's rules (focus, taps, search, selection) checked against the
 # published export, by fixed real places. They need the file, which this
-# repository does not hold, so they run only when the map's code changes,
-# against one pinned export (slotledger `approach/campus-map-tests`).
+# repository does not hold (they compile only when ISCT_CAMPUS_MAP_EXPORT names
+# it), so they run only when the map's code changes, against one pinned export
+# (slotledger `approach/campus-map-tests`).
 on:
   workflow_call:
 
@@ -34,4 +35,4 @@ jobs:
       - name: Run the rules
         env:
           ISCT_CAMPUS_MAP_EXPORT: ${{ runner.temp }}/campus-map.json.gz
-        run: cargo test -p app-core --features campus-map --locked campus_map -- --ignored
+        run: cargo test -p app-core --features campus-map --locked campus_map

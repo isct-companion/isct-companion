@@ -948,78 +948,29 @@ async fn restart_settles_interrupted_writes_by_reading_only() {
     assert_eq!(fixture.calls(), (0, 0, 0));
 }
 
-// The ledger has its own store generation. One of an older format starts
-// empty in a new generation (hand-ins are confirmed before upgrading), and
-// nothing of it is read; one of a newer format is refused and kept as it
-// is, with LMS writes off.
+// The ledger has its own store generation. One of another format is refused
+// and kept as it is, with LMS writes off.
 #[tokio::test]
-async fn an_older_ledger_is_replaced_and_a_newer_one_refused() {
+async fn a_ledger_of_another_format_is_refused() {
     let fixture = Fixture::new();
-    let service = fixture.service();
-    let first = fixture.generation();
-    drop(service);
+    drop(fixture.service());
     let root = fixture.store.root();
-    let republish = |format: i64| {
-        let (id, directory) = root.new_generation(StoreKind::Submissions).unwrap();
-        std::fs::write(directory.join("marker"), b"kept").unwrap();
-        root.publish(
-            &[crate::data::root::Candidate {
-                kind: StoreKind::Submissions,
-                generation: crate::data::root::Generation { id, format },
-            }],
-            false,
-        )
-        .unwrap();
-        directory
-    };
-
-    let older = republish(ledger::FORMAT - 1);
-    let service = fixture.service();
-    assert_ne!(fixture.generation(), older);
-    assert_ne!(fixture.generation(), first);
-    fixture.put("report.pdf", b"%PDF-1 report").await;
-    let prepared = service
-        .prepare(ASSIGNMENT, SubmissionAction::Save)
-        .await
-        .unwrap();
-    assert!(service.snapshots.intact(&prepared.files));
-    drop(service);
-
-    let newer = republish(ledger::FORMAT + 1);
+    let (id, newer) = root.new_generation(StoreKind::Submissions).unwrap();
+    std::fs::write(newer.join("marker"), b"kept").unwrap();
+    root.publish(&[crate::data::root::Candidate {
+        kind: StoreKind::Submissions,
+        generation: crate::data::root::Generation {
+            id,
+            format: ledger::FORMAT + 1,
+        },
+    }])
+    .unwrap();
     assert!(matches!(
         fixture.open(),
         Err(SubmissionError::UnsupportedLedger { .. })
     ));
     assert_eq!(fixture.generation(), newer);
     assert_eq!(std::fs::read(newer.join("marker")).unwrap(), b"kept");
-}
-
-// Before generations the ledger lay flat in the data folder. One of a
-// format no release wrote is refused rather than replaced by an empty one.
-#[tokio::test]
-async fn a_flat_ledger_of_an_unknown_format_is_refused() {
-    let fixture = Fixture::new();
-    let flat = fixture.store.paths().root().join(ledger::FILE);
-    rusqlite::Connection::open(&flat)
-        .unwrap()
-        .execute_batch("PRAGMA user_version=9; CREATE TABLE kept(id TEXT);")
-        .unwrap();
-    assert!(matches!(
-        fixture.open(),
-        Err(SubmissionError::UnsupportedLedger { found: 9, .. })
-    ));
-    assert!(fixture
-        .store
-        .root()
-        .active(StoreKind::Submissions)
-        .unwrap()
-        .is_none());
-    rusqlite::Connection::open(&flat)
-        .unwrap()
-        .execute_batch("PRAGMA user_version=2;")
-        .unwrap();
-    fixture.service();
-    assert!(fixture.generation().join(ledger::FILE).is_file());
 }
 
 // The person's switch gates the write path itself: off, nothing is sent;

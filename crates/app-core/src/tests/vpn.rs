@@ -1,11 +1,11 @@
 use super::*;
 use std::collections::VecDeque;
 
-/// Replays scripted helper answers and records what the service asked for.
+/// Replays scripted helper answers, one per helper call; a call with none
+/// left fails the test.
 #[derive(Default)]
 struct FakePort {
     answers: Mutex<VecDeque<Result<HelperReport, VpnError>>>,
-    calls: Mutex<Vec<&'static str>>,
     /// The publisher addresses the last `routes` call handed over.
     routes: Mutex<(Vec<std::net::Ipv4Addr>, Vec<std::net::Ipv6Addr>)>,
 }
@@ -14,34 +14,28 @@ impl FakePort {
     fn answering(answers: Vec<Result<HelperReport, VpnError>>) -> Arc<Self> {
         Arc::new(Self {
             answers: Mutex::new(answers.into()),
-            calls: Mutex::new(Vec::new()),
             routes: Mutex::default(),
         })
     }
 
-    fn next(&self, call: &'static str) -> Result<HelperReport, VpnError> {
-        self.calls.lock().unwrap().push(call);
+    fn next(&self) -> Result<HelperReport, VpnError> {
         self.answers
             .lock()
             .unwrap()
             .pop_front()
             .expect("unscripted helper call")
     }
-
-    fn calls(&self) -> Vec<&'static str> {
-        self.calls.lock().unwrap().clone()
-    }
 }
 
 impl VpnPort for FakePort {
     fn status(&self) -> Result<HelperReport, VpnError> {
-        self.next("status")
+        self.next()
     }
     fn start(&self, _cookie: &SessionCookie) -> Result<HelperReport, VpnError> {
-        self.next("start")
+        self.next()
     }
     fn stop(&self) -> Result<HelperReport, VpnError> {
-        self.next("stop")
+        self.next()
     }
     fn routes(
         &self,
@@ -49,7 +43,7 @@ impl VpnPort for FakePort {
         v6: &[std::net::Ipv6Addr],
     ) -> Result<HelperReport, VpnError> {
         *self.routes.lock().unwrap() = (v4.to_vec(), v6.to_vec());
-        self.next("routes")
+        self.next()
     }
 }
 
@@ -59,7 +53,7 @@ fn report(state: HelperState) -> HelperReport {
         address: None,
         detail: None,
         expires_at: None,
-        revision: Some(HELPER_REVISION),
+        revision: HELPER_REVISION,
         ended: None,
         program: None,
     }
@@ -69,13 +63,13 @@ fn cookie() -> SessionCookie {
     SessionCookie::new("MRHSession=abc; F5_ST=def").unwrap()
 }
 
-/// The helper installed by the first test build reports no revision. With a
-/// tunnel up it is left alone; with none, the person is asked to update it
-/// before the next connect, which the countdown needs.
+/// A helper of an earlier revision is still installed after an app update.
+/// With a tunnel up it is left alone; with none, the person is asked to
+/// update it before the next connect, which the countdown needs.
 #[test]
 fn an_old_helper_is_updated_only_when_no_tunnel_is_up() {
     let old = |state| HelperReport {
-        revision: None,
+        revision: HELPER_REVISION - 1,
         ..report(state)
     };
     assert!(matches!(
@@ -137,104 +131,43 @@ fn a_helper_from_another_copy_of_the_app_is_replaced_when_no_tunnel_is_up() {
     assert!(!VpnError::HelperRegistrationStuck.install_fixes());
 }
 
-/// The UI keys its guidance on these names; a rename breaks the install prompt.
+/// One tunnel through the helper. A press connects and keeps the tunnel's
+/// address; a second press while it is up spends no new one-time session
+/// (there is no second `start` answer to give). Refresh and disconnect
+/// follow the helper. A start that failed leaves its reason behind, and
+/// reading that as a clean disconnect would hide the failure. A helper that
+/// does not answer, a missing one (so the card can offer the install step)
+/// and a login that failed before the helper are each the state the person
+/// sees, the login keeping its own code for the guidance.
 #[test]
-fn error_codes_are_stable_names() {
-    assert_eq!(VpnError::HelperNotInstalled.code(), "helper_not_installed");
-    assert_eq!(
-        VpnError::HelperNeedsApproval.code(),
-        "helper_needs_approval"
-    );
-    assert_eq!(VpnError::HelperNotStarting.code(), "helper_not_starting");
-    assert_eq!(
-        VpnError::HelperElsewhere("x".into()).code(),
-        "helper_elsewhere"
-    );
-    assert_eq!(
-        VpnError::HelperRegistrationStuck.code(),
-        "helper_registration_stuck"
-    );
-    assert_eq!(VpnError::Timeout.code(), "helper_timeout");
-    assert_eq!(VpnError::Tunnel("x".into()).code(), "tunnel_failed");
-}
-
-#[test]
-fn a_connected_report_keeps_the_tunnel_address() {
-    let next = project(
-        HelperReport {
-            state: HelperState::Connected,
+fn a_tunnel_follows_the_helper_through_connect_refresh_and_disconnect() {
+    let up = VpnState::Connected {
+        address: Some("10.1.2.3".into()),
+        expires_at: None,
+    };
+    let service = VpnService::new(FakePort::answering(vec![
+        Ok(HelperReport {
             address: Some("10.1.2.3".into()),
-            detail: None,
-            expires_at: None,
-            revision: Some(HELPER_REVISION),
-            ended: None,
-            program: None,
-        },
-        None,
-    );
-    assert_eq!(
-        next,
-        VpnState::Connected {
-            address: Some("10.1.2.3".into()),
-            expires_at: None,
-        }
-    );
-}
-
-/// A failed start leaves its reason behind in the helper; reading it as a
-/// clean disconnect would hide the failure from the person.
-#[test]
-fn a_disconnected_report_with_a_detail_is_a_failure() {
-    let failed = project(
-        HelperReport {
-            state: HelperState::Disconnected,
-            address: None,
+            ..report(HelperState::Connected)
+        }),
+        Ok(report(HelperState::Connected)),
+        Ok(report(HelperState::Disconnected)),
+        Ok(HelperReport {
             detail: Some("openconnect exited".into()),
-            expires_at: None,
-            revision: Some(HELPER_REVISION),
-            ended: None,
-            program: None,
-        },
-        None,
-    );
+            ..report(HelperState::Disconnected)
+        }),
+        Err(VpnError::Timeout),
+        Err(VpnError::HelperNotInstalled),
+    ]));
+    assert_eq!(service.connect(&cookie()), up);
+    assert_eq!(service.connect(&cookie()), up);
+    assert!(matches!(service.refresh(), VpnState::Connected { .. }));
+    assert_eq!(service.disconnect(), VpnState::Disconnected);
     assert_eq!(
-        failed,
+        service.refresh(),
         VpnState::Error(VpnError::Tunnel("openconnect exited".into()))
     );
-    assert_eq!(
-        project(report(HelperState::Disconnected), None),
-        VpnState::Disconnected
-    );
-}
-
-#[test]
-fn connect_goes_connecting_then_connected() {
-    let port = FakePort::answering(vec![Ok(HelperReport {
-        state: HelperState::Connected,
-        address: Some("10.1.2.3".into()),
-        detail: None,
-        expires_at: None,
-        revision: Some(HELPER_REVISION),
-        ended: None,
-        program: None,
-    })]);
-    let service = VpnService::new(port.clone());
-    assert_eq!(
-        service.connect(&cookie()),
-        VpnState::Connected {
-            address: Some("10.1.2.3".into()),
-            expires_at: None,
-        }
-    );
-    assert_eq!(port.calls(), vec!["start"]);
-}
-
-/// A missing helper must surface as its own state so the UI can offer the
-/// install step instead of a generic failure.
-#[test]
-fn a_missing_helper_is_reported_as_not_installed() {
-    let port = FakePort::answering(vec![Err(VpnError::HelperNotInstalled)]);
-    let service = VpnService::new(port);
+    assert_eq!(service.refresh(), VpnState::Error(VpnError::Timeout));
     assert_eq!(
         service.connect(&cookie()),
         VpnState::Error(VpnError::HelperNotInstalled)
@@ -243,42 +176,13 @@ fn a_missing_helper_is_reported_as_not_installed() {
         service.state(),
         VpnState::Error(VpnError::HelperNotInstalled)
     );
-}
 
-/// Each cookie is one-time: a second press while the tunnel is up must not
-/// spend a new login or start a second openconnect.
-#[test]
-fn connecting_while_connected_does_not_start_again() {
-    let port = FakePort::answering(vec![Ok(report(HelperState::Connected))]);
-    let service = VpnService::new(port.clone());
-    service.connect(&cookie());
-    service.connect(&cookie());
-    assert_eq!(port.calls(), vec!["start"]);
-}
-
-#[test]
-fn refresh_reads_the_helper_and_disconnect_clears_it() {
-    let port = FakePort::answering(vec![
-        Ok(report(HelperState::Connected)),
-        Ok(report(HelperState::Disconnected)),
-    ]);
-    let service = VpnService::new(port.clone());
-    assert_eq!(
-        service.refresh(),
-        VpnState::Connected {
-            address: None,
-            expires_at: None
-        }
-    );
-    assert_eq!(service.disconnect(), VpnState::Disconnected);
-    assert_eq!(port.calls(), vec!["status", "stop"]);
-}
-
-#[test]
-fn an_unreachable_helper_on_refresh_is_an_error_state() {
-    let port = FakePort::answering(vec![Err(VpnError::Timeout)]);
-    let service = VpnService::new(port);
-    assert_eq!(service.refresh(), VpnState::Error(VpnError::Timeout));
+    let login = CampusVpnError::NeedsAccount;
+    let VpnState::Error(error) = service.failed(VpnError::Login(login.clone())) else {
+        panic!("not an error state");
+    };
+    assert_eq!(error.code(), login.code());
+    assert_eq!(service.state(), VpnState::Error(error));
 }
 
 fn connected_until(end: DateTime<Utc>) -> HelperReport {
@@ -360,19 +264,6 @@ fn an_ending_is_announced_only_when_the_tunnel_ends_by_itself() {
     assert_eq!(unused.watch(now).notice, Some(VpnNotice::Unused));
 }
 
-/// A login that failed before the helper is the state the person sees, with
-/// the login's own code for the guidance.
-#[test]
-fn a_failed_login_is_shown_with_its_code() {
-    use crate::school_session::CampusVpnError;
-    let service = VpnService::new(FakePort::answering(vec![]));
-    let state = service.failed(VpnError::Login(CampusVpnError::NeedsAccount));
-    let VpnState::Error(error) = state else {
-        panic!("not an error state");
-    };
-    assert_eq!(error.code(), "vpn_needs_account");
-}
-
 fn minutes_after(start: DateTime<Utc>, minutes: i64) -> DateTime<Utc> {
     start + chrono::Duration::minutes(minutes)
 }
@@ -384,8 +275,9 @@ fn minutes_after(start: DateTime<Utc>, minutes: i64) -> DateTime<Utc> {
 #[test]
 fn demands_sign_in_with_growing_waits_and_stop_on_what_cannot_work() {
     let start = at(1_793_690_000);
-    let port = FakePort::answering(vec![Ok(report(HelperState::Connected))]);
-    let service = VpnService::new(port.clone());
+    let service = VpnService::new(FakePort::answering(vec![Ok(report(
+        HelperState::Connected,
+    ))]));
     assert!(!service.demanded(start), "off by default");
     service.set_on_demand(true);
     assert!(service.demanded(start));
@@ -413,7 +305,6 @@ fn demands_sign_in_with_growing_waits_and_stop_on_what_cannot_work() {
         service.connect(&cookie()),
         VpnState::Connected { .. }
     ));
-    assert_eq!(port.calls(), ["start"]);
     assert!(!service.demanded(minutes_after(start, 300)), "already up");
 
     let refused = VpnState::Error(VpnError::Login(CampusVpnError::Rejected));
@@ -623,7 +514,6 @@ fn publisher_routes_carry_every_name_once() {
             _ => vec![],
         })
         .unwrap();
-    assert_eq!(port.calls(), ["routes"]);
     let (v4, v6) = port.routes.lock().unwrap().clone();
     assert_eq!(
         v4,

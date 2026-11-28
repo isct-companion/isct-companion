@@ -409,7 +409,7 @@ async fn dropping_foreign_wait_does_not_abort_an_admitted_transaction() {
     f.finish().await;
 }
 #[tokio::test]
-async fn stream_lag_disposal_and_shutdown_are_recoverable() {
+async fn stream_lag_and_disposal_are_recoverable() {
     let f = Fixture::new().await;
     let stream = f.session.subscribe().unwrap();
     for n in 0..260 {
@@ -426,17 +426,10 @@ async fn stream_lag_disposal_and_shutdown_are_recoverable() {
     assert!(!f.revision().await.is_empty());
     stream.unsubscribe().unwrap();
     assert!(matches!(stream.next().await, Err(SdkError::Closed)));
-    f.session.shutdown().await.unwrap();
-    f.session.shutdown().await.unwrap();
-    assert!(matches!(
-        f.session.workspace_revision(),
-        Err(SdkError::Closed)
-    ));
-    assert!(matches!(f.session.subscribe(), Err(SdkError::Closed)));
     f.finish().await;
 }
 #[tokio::test]
-async fn shutdown_waits_for_a_started_commit_and_settles_cooperative_work() {
+async fn shutdown_keeps_a_started_commit_across_a_timeout_and_then_closes() {
     let f = Fixture::new().await;
     let gate = Arc::new(tokio::sync::Notify::new());
     let release = gate.clone();
@@ -466,19 +459,31 @@ async fn shutdown_waits_for_a_started_commit_and_settles_cooperative_work() {
             Err(SdkError::Cancelled)
         })
         .unwrap();
-    let session = f.session.clone();
-    let close = tokio::spawn(async move { session.shutdown().await });
-    tokio::task::yield_now().await;
-    gate.notify_one();
-    close.await.unwrap().unwrap();
+    // An expired wait detaches only itself: the drain still owns the started
+    // commit, while cooperative work is told to stop.
     assert!(matches!(
-        write.await_result().await.unwrap(),
-        OperationResult::Committed { .. }
+        f.session
+            .shutdown_with_timeout(std::time::Duration::from_millis(5))
+            .await,
+        Err(SdkError::Timeout { .. })
     ));
     assert!(matches!(
         cancellable.await_result().await,
         Err(SdkError::Cancelled)
     ));
+    gate.notify_one();
+    f.session.shutdown().await.unwrap();
+    assert!(matches!(
+        write.await_result().await.unwrap(),
+        OperationResult::Committed { .. }
+    ));
+    // Shutdown can be repeated, and the closed session refuses new work.
+    f.session.shutdown().await.unwrap();
+    assert!(matches!(
+        f.session.workspace_revision(),
+        Err(SdkError::Closed)
+    ));
+    assert!(matches!(f.session.subscribe(), Err(SdkError::Closed)));
     f.finish().await;
 }
 #[tokio::test]
@@ -648,7 +653,12 @@ fn school_session_event_decodes_to_the_same_snapshot_type_as_a_query() {
     let from_query: SchoolSessionSnapshot = crate::json::project(snapshot).unwrap();
     assert_eq!(from_event.revision, 7);
     assert!(matches!(
-        from_event.profiles.tokyo_tech.presentation.recovery.as_slice(),
+        from_event
+            .profiles
+            .tokyo_tech
+            .presentation
+            .recovery
+            .as_slice(),
         [SignInRecovery::Retry]
     ));
     assert_eq!(
@@ -676,7 +686,9 @@ fn sync_snapshots_and_hints_cross_the_renamed_ffi_types() {
         generation: 3,
         resetting: false,
         attention: core::SyncAttention {
-            primary: Some(core::SyncWork::Held { run: "run-1".into() }),
+            primary: Some(core::SyncWork::Held {
+                run: "run-1".into(),
+            }),
             problem: Some(core::SyncAttentionProblem::Account {
                 profile: app_core::school_auth::SchoolAuthProfile::TokyoTech,
                 presentation: None,
@@ -932,44 +944,6 @@ async fn callback_errors_keep_their_category_and_last_session_drop_releases_port
     .await
     .unwrap();
     std::fs::remove_dir_all(root).unwrap();
-}
-#[tokio::test]
-async fn shutdown_timeout_keeps_ownership_of_the_pending_commit() {
-    let f = Fixture::new().await;
-    let gate = Arc::new(tokio::sync::Notify::new());
-    let release = gate.clone();
-    let revision = f.revision().await;
-    let write = f
-        .session
-        .start(false, move |i, _| async move {
-            release.notified().await;
-            let commit =
-                i.core
-                    .workspace
-                    .mutate_commit(app_core::workspace::WorkspaceMutation {
-                        expected_revision: revision,
-                        intent: app_core::workspace::WorkspaceIntent::SetAdmissionYear {
-                            admission_year: Some(2023),
-                        },
-                    })?;
-            Ok(OperationResult::Committed {
-                commit: crate::json::project(commit)?,
-            })
-        })
-        .unwrap();
-    assert!(matches!(
-        f.session
-            .shutdown_with_timeout(std::time::Duration::from_millis(5))
-            .await,
-        Err(SdkError::Timeout { .. })
-    ));
-    gate.notify_one();
-    f.session.shutdown().await.unwrap();
-    assert!(matches!(
-        write.await_result().await.unwrap(),
-        OperationResult::Committed { .. }
-    ));
-    f.finish().await;
 }
 #[derive(Default)]
 struct BrowserFixture(Mutex<Option<Arc<crate::ports::BrowserEvents>>>);

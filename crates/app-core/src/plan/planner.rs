@@ -2,6 +2,7 @@
 //! stored facts ([`Inputs`]), the shell's facts ([`Facts`]) and the school
 //! sessions' credential facts ([`Credentials`]), so the rules can be read
 //! (and tested) without a runner.
+use super::freshness;
 use super::{AccountWait, Held, Network, Priority, Scope, View};
 use crate::{
     lifecycle::SchoolSite,
@@ -11,15 +12,12 @@ use crate::{
     school_session::{AccountFacts, SignInAdmission, Site},
     sync_state::{self, Dataset, Due, Key, KeyState, Term},
 };
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, HashMap, HashSet},
     sync::OnceLock,
 };
-
-/// A page that became visible renews its keys once they are this old.
-pub(crate) const OPEN_THRESHOLD: Duration = Duration::minutes(15);
 
 /// Where a key is read: one lane per host, with that host's key budget.
 /// Requests within a key are paced again by `net::Http`.
@@ -99,6 +97,8 @@ pub(crate) struct Inputs {
     /// too.
     pub(crate) english: bool,
     pub(crate) references: Vec<ReferenceWatch>,
+    /// The catalog code prefix of the person's own department.
+    pub(crate) own_prefix: Option<String>,
 }
 
 impl Inputs {
@@ -357,11 +357,26 @@ pub(crate) struct Group {
     pub(crate) term: Option<&'static str>,
 }
 
+/// Why a key is wanted, leased in this order before priority
+/// (`d/cy7j2w`): a refresh press, then what a visible page shows, then
+/// what Core keeps current on its own, the catalog last (`d/8j3ytx`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub(crate) enum Tier {
+    Manual,
+    Shown,
+    Automatic,
+    Catalog,
+}
+
 /// One due key, ready to lease unless `held`.
 #[derive(Clone, Debug)]
 pub(crate) struct Candidate {
     pub(crate) key: Key,
     pub(crate) lane: Lane,
+    pub(crate) tier: Tier,
+    /// Its place in the list of the page that shows it; within a tier and
+    /// priority the page's order wins over the key's name.
+    pub(crate) order: usize,
     pub(crate) priority: Priority,
     /// 0 missing, 1 stale; lower is leased first within a priority.
     pub(crate) rank: u8,
@@ -388,6 +403,11 @@ pub(crate) enum Depth {
 struct Watch {
     priority: Priority,
     rule: Rule,
+    tier: Tier,
+    order: usize,
+    /// The threshold a visible page renews it at (`freshness::open_threshold`),
+    /// the shortest of the pages that show it.
+    open: Option<Duration>,
     term: Term,
     scope: Option<String>,
     title: Option<String>,
@@ -405,8 +425,18 @@ pub(crate) fn kyomu_keys() -> Vec<Key> {
 
 /// Courses no department owns: liberal arts (`LAS`, `LAH`, `LAE`, `LAW`…),
 /// entrepreneurship and cross-departmental courses (`XEG`, `XCO`…). The
-/// search matches code prefixes, so one chunk covers each family.
-const SHARED_PREFIXES: [&str; 3] = ["LA", "ENT", "X"];
+/// search matches code prefixes, so one chunk covers each family. `true`:
+/// every student searches the family, so the Finder reads it first beside
+/// the person's own department; cross-departmental courses wait in the
+/// background (`d/8j3ytx`).
+const SHARED_PREFIXES: [(&str, bool); 3] = [("LA", true), ("ENT", true), ("X", false)];
+
+/// The catalog code prefix of the department `id` names.
+pub(crate) fn department_prefix(id: &str) -> Option<&'static str> {
+    crate::course_query::SyllabusDepartment::by_id(id)
+        .map(|department| department.code_prefix.as_str())
+        .filter(|prefix| !prefix.is_empty())
+}
 
 /// Code prefixes of the official course search: every department's, plus
 /// the families no department owns. Search is local only, so a family left
@@ -414,19 +444,15 @@ const SHARED_PREFIXES: [&str; 3] = ["LA", "ENT", "X"];
 pub(crate) fn department_prefixes() -> &'static [String] {
     static PREFIXES: OnceLock<Vec<String>> = OnceLock::new();
     PREFIXES.get_or_init(|| {
-        crate::course_query::SyllabusDepartment::all()
-            .map(|departments| {
-                let mut prefixes: Vec<String> = departments
-                    .into_iter()
-                    .map(|department| department.code_prefix)
-                    .filter(|prefix| !prefix.is_empty())
-                    .chain(SHARED_PREFIXES.iter().map(|prefix| prefix.to_string()))
-                    .collect();
-                prefixes.sort();
-                prefixes.dedup();
-                prefixes
-            })
-            .unwrap_or_default()
+        let mut prefixes: Vec<String> = crate::course_query::SyllabusDepartment::all()
+            .iter()
+            .map(|department| department.code_prefix.clone())
+            .filter(|prefix| !prefix.is_empty())
+            .chain(SHARED_PREFIXES.iter().map(|(prefix, _)| prefix.to_string()))
+            .collect();
+        prefixes.sort();
+        prefixes.dedup();
+        prefixes
     })
 }
 
@@ -475,6 +501,15 @@ pub(crate) fn prerequisite(key: &Key) -> Option<Key> {
     }
 }
 
+/// The key a read of `key` also reads, in the same operation: the declared
+/// page is read with the registered list beside it, whose scope alone may
+/// drop declared courses (`d/aevz1j`). A plan with both due reads the list
+/// there, once ([`read_once`]).
+pub(crate) fn read_beside(key: &Key) -> Option<Key> {
+    (key.dataset == Dataset::KyomuPage && key.key == "declared")
+        .then(|| Key::new(Dataset::KyomuPage, "registrations"))
+}
+
 /// Whether `key` was read.
 fn read(key: &Key, inputs: &Inputs) -> bool {
     inputs
@@ -513,11 +548,6 @@ fn course_keys(id: u64) -> [Key; 2] {
         Key::new(Dataset::LmsCourse, id.to_string()),
         Key::lms_assignments(id),
     ]
-}
-
-fn japan_month(now: DateTime<Utc>) -> (i32, u32) {
-    let today = crate::schedule::japan_today(now);
-    (today.year(), today.month())
 }
 
 /// The course and assignment keys of every current-term course.
@@ -616,18 +646,21 @@ fn view_keys(
             Priority::Interactive,
             Rule::Open,
         ),
-        // The catalog changes little in a year: opening the finder raises
-        // its departments, but each is still read only once its week is up.
-        // A department never read is the one the finder is waiting for
-        // (`first_read`).
+        // The catalog changes little in a year and may be slow
+        // (`d/8j3ytx`): opening the finder keeps its departments in the
+        // background, read once their week is up. The few departments never
+        // read that the person searches first are the ones the finder waits
+        // for (`first_read`).
         View::Finder { year } => (
             catalog_keys(*year, inputs.english),
-            Priority::Visible,
+            Priority::Background,
             Rule::Ttl,
         ),
+        // Grades answer what is new; the GPA and requirements follow them
+        // (`sync_state::dependents`).
         View::Grades => (
             unscoped(
-                ["gpa", "grades", "requirements"]
+                ["grades", "gpa", "requirements"]
                     .into_iter()
                     .map(|page| Key::new(Dataset::KyomuPage, page))
                     .collect(),
@@ -639,15 +672,29 @@ fn view_keys(
 }
 
 /// A finder shows only what is stored: on a year with nothing stored it is
-/// empty until its departments land, so each department never read is read
-/// as if the person asked for it, before other due work and on any network.
-/// A stored department, however old, keeps the view's own priority.
+/// empty until its departments land. The person's own department and the
+/// shared liberal-arts and entrepreneurship families, never read, are read
+/// as if the person asked for them, on any network, though still after
+/// what other visible pages need (`Tier::Catalog`); every other department
+/// waits in the background. A stored department, however old, keeps the
+/// view's own priority.
 fn first_read(view: &View, key: &Key, inputs: &Inputs) -> bool {
     matches!(view, View::Finder { .. })
+        && searched_first(key, inputs)
         && inputs
             .states
             .get(key)
             .is_none_or(|state| state.fetched_at.is_none())
+}
+
+/// Whether a catalog key reads the person's own department or a family
+/// every student searches.
+fn searched_first(key: &Key, inputs: &Inputs) -> bool {
+    key.dataset == Dataset::CatalogOfficial
+        && key.key.split('/').nth(1).is_some_and(|prefix| {
+            SHARED_PREFIXES.contains(&(prefix, true))
+                || inputs.own_prefix.as_deref() == Some(prefix)
+        })
 }
 
 /// The base attributes of `key`, or `None` when nothing can read it (a
@@ -662,6 +709,13 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
     let mut watch = Watch {
         priority: Priority::Background,
         rule: Rule::Ttl,
+        tier: if key.dataset == Dataset::CatalogOfficial {
+            Tier::Catalog
+        } else {
+            Tier::Automatic
+        },
+        order: usize::MAX,
+        open: None,
         term: Term::Current,
         scope: match key.dataset {
             Dataset::CatalogOfficial => key.key.split('/').next().map(str::to_owned),
@@ -671,30 +725,19 @@ fn watch_for(key: &Key, inputs: &Inputs, now: DateTime<Utc>) -> Option<Watch> {
         locator: None,
         due: None,
     };
-    match key.dataset {
+    let course = match key.dataset {
         Dataset::LmsCourse | Dataset::LmsAssign => {
             let id: u64 = key.key.parse().ok().filter(|id| *id > 0)?;
-            match inputs.course(id) {
-                Some(course) => {
-                    watch.term = lms_course_term(course, current_lms_term(now));
-                    watch.title = Some(course.title.clone());
-                }
-                // The stored enrolment list lacks it: not (or no longer) the
-                // person's course, so the ingest would refuse its rows. It is
-                // wanted again once a list that holds it lands.
-                None if read(&Key::lms_enrolment(), inputs) => {
-                    return None;
-                }
-                None => {}
-            }
+            inputs.course(id)
         }
-        Dataset::LmsHistory => {
-            let (year, month) = key.key.split_once('-')?;
-            let month = (year.parse::<i32>().ok()?, month.parse::<u32>().ok()?);
-            if month < japan_month(now) {
-                watch.term = Term::Frozen;
-            }
+        _ => None,
+    };
+    watch.term = freshness::term(key, course, read(&Key::lms_enrolment(), inputs), now)?;
+    match key.dataset {
+        Dataset::LmsCourse | Dataset::LmsAssign => {
+            watch.title = course.map(|course| course.title.clone());
         }
+        Dataset::LmsHistory => {}
         Dataset::KyomuPage => watch.title = Some(key.key.clone()),
         Dataset::CatalogOfficial => watch.title = key.key.split('/').nth(1).map(str::to_owned),
         Dataset::Reference => {
@@ -766,29 +809,65 @@ fn automatic_keys(inputs: &Inputs, foreground: bool, now: DateTime<Utc>) -> Vec<
     keys
 }
 
+/// Why one rule wants a key.
+struct Wanted {
+    priority: Priority,
+    rule: Rule,
+    /// `None` keeps the key's own tier (automatic, or the catalog).
+    tier: Option<Tier>,
+    order: usize,
+    open: Option<Duration>,
+    scope: Option<String>,
+}
+
+impl Wanted {
+    fn automatic(priority: Priority) -> Self {
+        Self {
+            priority,
+            rule: Rule::Ttl,
+            tier: None,
+            order: usize::MAX,
+            open: None,
+            scope: None,
+        }
+    }
+}
+
+/// Adds `key` as `wanted`; several rules wanting one key keep the strongest
+/// of each attribute.
 fn want(
     watched: &mut BTreeMap<Key, Watch>,
     key: Key,
-    priority: Priority,
-    rule: Rule,
-    scope: Option<String>,
+    wanted: Wanted,
     inputs: &Inputs,
     now: DateTime<Utc>,
 ) {
-    if let Some(existing) = watched.get_mut(&key) {
-        existing.priority = existing.priority.max(priority);
-        existing.rule = existing.rule.max(rule);
-        if scope.is_some() {
-            existing.scope = scope;
+    let merge = |watch: &mut Watch, wanted: Wanted| {
+        watch.priority = watch.priority.max(wanted.priority);
+        watch.rule = watch.rule.max(wanted.rule);
+        // The catalog stays last however it is wanted, but for a press.
+        if let Some(tier) = wanted.tier {
+            if watch.tier != Tier::Catalog || tier == Tier::Manual {
+                watch.tier = watch.tier.min(tier);
+            }
         }
+        watch.order = watch.order.min(wanted.order);
+        watch.open = match (watch.open, wanted.open) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        if wanted.scope.is_some() {
+            watch.scope = wanted.scope;
+        }
+    };
+    if let Some(existing) = watched.get_mut(&key) {
+        merge(existing, wanted);
         return;
     }
     if let Some(mut watch) = watch_for(&key, inputs, now) {
-        watch.priority = priority;
-        watch.rule = rule;
-        if scope.is_some() {
-            watch.scope = scope;
-        }
+        watch.priority = Priority::Background;
+        watch.rule = Rule::Ttl;
+        merge(&mut watch, wanted);
         watched.insert(key, watch);
     }
 }
@@ -801,7 +880,7 @@ fn evaluate(
     state: Option<&KeyState>,
     now: DateTime<Utc>,
 ) -> Option<(u8, Option<Held>)> {
-    let ttl = sync_state::ttl(key.dataset, watch.term);
+    let ttl = freshness::ttl(key, watch.term, freshness::busy(state, now));
     let fetched = state.and_then(|state| state.fetched_at);
     if watch.rule == Rule::Manual {
         return Some((u8::from(fetched.is_some()), None));
@@ -817,15 +896,24 @@ fn evaluate(
         }
         Due::BackingOff(_) => None,
         Due::Fresh => {
-            let threshold = ttl.map(|ttl| ttl.min(OPEN_THRESHOLD));
-            match (watch.rule, threshold, fetched) {
-                (Rule::Open, Some(threshold), Some(fetched)) if now >= fetched + threshold => {
-                    Some((1, None))
-                }
-                _ => None,
-            }
+            // Something it depends on changed (`d/azfvr2`).
+            let marked = state
+                .and_then(|state| state.due_marks.first())
+                .is_some_and(|at| *at <= now);
+            let renewed = match (open_window(watch, ttl), fetched) {
+                (Some(threshold), Some(fetched)) => now >= fetched + threshold,
+                _ => false,
+            };
+            (marked || renewed).then_some((1, None))
         }
     }
+}
+
+/// How old a key on a visible page may get: the page's threshold, never
+/// beyond its TTL; `None` for a key no page renews, or one never renewed.
+fn open_window(watch: &Watch, ttl: Option<Duration>) -> Option<Duration> {
+    let ttl = ttl?;
+    watch.open.map(|open| open.min(ttl))
 }
 
 pub(super) fn can_run_in_background(dataset: Dataset) -> bool {
@@ -893,48 +981,79 @@ fn watched(
 ) -> BTreeMap<Key, Watch> {
     let mut watched = BTreeMap::new();
     for (key, priority) in automatic_keys(inputs, foreground, now) {
-        want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
+        want(&mut watched, key, Wanted::automatic(priority), inputs, now);
     }
     for view in opens {
         let (keys, priority, rule) = view_keys(view, inputs, now);
-        for (key, scope) in keys {
+        for (order, (key, scope)) in keys.into_iter().enumerate() {
             let priority = if first_read(view, &key, inputs) {
                 Priority::Interactive
             } else {
                 priority
             };
-            want(&mut watched, key, priority, rule, scope, inputs, now);
+            let open = (rule == Rule::Open).then(|| {
+                let busy = freshness::busy(inputs.states.get(&key), now);
+                freshness::open_threshold(view, &key, busy)
+            });
+            let wanted = Wanted {
+                priority,
+                rule,
+                tier: Some(Tier::Shown),
+                order,
+                open,
+                scope,
+            };
+            want(&mut watched, key, wanted, inputs, now);
         }
     }
     for (key, scope) in manual {
-        want(
-            &mut watched,
-            key.clone(),
-            Priority::Interactive,
-            Rule::Manual,
-            scope.clone(),
-            inputs,
-            now,
-        );
+        let wanted = Wanted {
+            priority: Priority::Interactive,
+            rule: Rule::Manual,
+            tier: Some(Tier::Manual),
+            order: 0,
+            open: None,
+            scope: scope.clone(),
+        };
+        want(&mut watched, key.clone(), wanted, inputs, now);
     }
     // A key waiting for its prerequisite pulls that forward to its own
-    // priority: an open course page reads the enrolment list first, on any
-    // network the page itself may use.
-    let mut waiting: Vec<(Key, Priority)> = watched
+    // priority and place: an open course page reads the enrolment list
+    // first, on any network the page itself may use.
+    let mut waiting: Vec<(Key, Priority, Tier, usize)> = watched
         .iter()
-        .filter_map(|(key, watch)| Some((missing_prerequisite(key, inputs)?, watch.priority)))
+        .filter_map(|(key, watch)| {
+            Some((
+                missing_prerequisite(key, inputs)?,
+                watch.priority,
+                watch.tier,
+                watch.order,
+            ))
+        })
         .collect();
-    while let Some((key, priority)) = waiting.pop() {
+    while let Some((key, priority, tier, order)) = waiting.pop() {
         if let Some(prerequisite) = missing_prerequisite(&key, inputs) {
-            waiting.push((prerequisite, priority));
+            waiting.push((prerequisite, priority, tier, order));
         }
-        want(&mut watched, key, priority, Rule::Ttl, None, inputs, now);
+        let wanted = Wanted {
+            priority,
+            rule: Rule::Ttl,
+            tier: Some(tier),
+            order,
+            open: None,
+            scope: None,
+        };
+        want(&mut watched, key, wanted, inputs, now);
     }
     watched
 }
 
-/// Every due key that is not leased, in lease order: Interactive first,
-/// missing before stale, then dataset and key order.
+/// Every due key that is not leased, in lease order: by tier (a press,
+/// visible pages, automatic, the catalog), then Interactive first, the
+/// page's own order (what it reads first is what the next read relies on,
+/// `d/cy7j2w`), missing before stale, then dataset and key order.
+/// A key another due key's read reads beside it is left to that read
+/// ([`read_once`]).
 pub(crate) fn plan(
     inputs: &Inputs,
     facts: &Facts,
@@ -970,6 +1089,8 @@ pub(crate) fn plan(
             };
             Some(Candidate {
                 lane: Lane::of(key.dataset),
+                tier: watch.tier,
+                order: watch.order,
                 priority: watch.priority,
                 rank,
                 held,
@@ -981,10 +1102,46 @@ pub(crate) fn plan(
             })
         })
         .collect();
+    read_once(&mut candidates);
     candidates.sort_by(|a, b| {
-        (Reverse(a.priority), a.rank, &a.key).cmp(&(Reverse(b.priority), b.rank, &b.key))
+        (a.tier, Reverse(a.priority), a.order, a.rank, &a.key).cmp(&(
+            b.tier,
+            Reverse(b.priority),
+            b.order,
+            b.rank,
+            &b.key,
+        ))
     });
     candidates
+}
+
+/// Leaves a due key to a due key whose read reads it beside its own
+/// ([`read_beside`]), so it is fetched once; that read takes the earlier
+/// place of the two. Only an unheld host wanted at least as urgently (tier,
+/// then priority) takes it: a visible page waits for one request, not for
+/// the host's page too (`d/3mjnxv`). Whether the key was read is its own
+/// committed state; the runner answers what was wanted of it when the
+/// host's read committed it.
+fn read_once(candidates: &mut Vec<Candidate>) {
+    let urgency = |candidate: &Candidate| (candidate.tier, Reverse(candidate.priority));
+    let mut index = 0;
+    while index < candidates.len() {
+        let inner = &candidates[index];
+        let Some(host) = candidates.iter().position(|host| {
+            host.held.is_none()
+                && read_beside(&host.key).as_ref() == Some(&inner.key)
+                && urgency(host) <= urgency(inner)
+        }) else {
+            index += 1;
+            continue;
+        };
+        if urgency(&candidates[host]) == urgency(inner) {
+            let (order, rank) = (inner.order, inner.rank);
+            let host = &mut candidates[host];
+            (host.order, host.rank) = (host.order.min(order), host.rank.min(rank));
+        }
+        candidates.remove(index);
+    }
 }
 
 /// When the plan next changes by time alone: the earliest moment a wanted
@@ -1020,13 +1177,14 @@ pub(crate) fn next_due(
                 .and_then(|reference| reference.stale_at);
         }
         let fetched = state.and_then(|state| state.fetched_at)?;
-        let ttl = sync_state::ttl(key.dataset, watch.term)?;
-        let window = if watch.rule == Rule::Open {
-            ttl.min(OPEN_THRESHOLD)
-        } else {
-            ttl
-        };
-        Some(fetched + window).filter(|at| *at > now)
+        let marked = state
+            .and_then(|state| state.due_marks.iter().find(|at| **at > now))
+            .copied();
+        let ttl = freshness::ttl(key, watch.term, freshness::busy(state, now));
+        let window = open_window(watch, ttl).or(ttl);
+        let renewed = window.map(|window| fetched + window).filter(|at| *at > now);
+        // A busy key slowing down again makes nothing due: no wake for it.
+        [marked, renewed].into_iter().flatten().min()
     });
     let held = plan
         .iter()

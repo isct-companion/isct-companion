@@ -28,12 +28,9 @@
 //! with the file intact. School tables of another format are only fetched data,
 //! so they are dropped and created empty in one transaction of the store.
 //!
-//! Only an upgrade is read: the user.db of the release before generations (flat
-//! in the folder) or of the build that kept it in a generation of its own has
-//! its user tables copied into the first store generation. Its school tables
-//! are not; they are fetched again. Those files are retired with everything
-//! else. A database file is never renamed over another: a log left beside the
-//! old file would be read as the new file's.
+//! A folder with no active store gets a new, empty one; files of the layouts
+//! before 1.4.0 are not read. A database file is never renamed over another: a
+//! log left beside the old file would be read as the new file's.
 use super::{migrations, DataError};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 use std::{
@@ -49,14 +46,10 @@ const INDEX_FORMAT: i64 = 1;
 const LOCAL_DIR: &str = "local";
 /// How long a retired generation stays as recovery material.
 pub(crate) const RETIRED_GRACE: chrono::Duration = chrono::Duration::days(7);
-/// What held the user tables and the school group before one store did, in
-/// `active_store` of an index written by that build.
-const EARLIER_USER: &str = "user";
-const EARLIER_SCHOOL: &str = "school";
-const LEGACY_USER_FILE: &str = "user.db";
-/// The flat files of the release before generations, retired as one.
+/// The flat files of the release before generations, retired as one by the
+/// upgrade that copied them into a store; an index 1.4.0 wrote may still name
+/// them until maintenance collects them.
 const LEGACY_KIND: &str = "legacy";
-const LEGACY_GENERATION: &str = "flat";
 const LEGACY_FILES: &[&str] = &[
     "user.db",
     "cache.db",
@@ -67,11 +60,6 @@ const LEGACY_FILES: &[&str] = &[
 /// The flat layout kept snapshot blobs as plain files in `submissions/`,
 /// which now also holds the ledger's generations: only its files go.
 const LEGACY_BLOBS: &str = "submissions";
-/// The single file of releases before user.db; this version does not read
-/// it.
-const LEGACY_SCHOOL_DB: &str = "school.db";
-/// The reminder log of the flat layout, named after its database.
-const LEGACY_REMINDER_LOG: &str = "user.db.reminders-fired.json";
 
 const INDEX_SCHEMA: &str = r#"
 CREATE TABLE active_store (
@@ -281,14 +269,8 @@ impl StoreRoot {
     }
 
     /// Makes every candidate active and retires what it replaces, in one
-    /// index transaction. `legacy` also retires the flat files of the
-    /// release before generations. A new store also retires the generations
-    /// it replaces of the build before it.
-    pub(crate) fn publish(
-        &self,
-        candidates: &[Candidate],
-        legacy: bool,
-    ) -> Result<(), StoreOpenError> {
+    /// index transaction.
+    pub(crate) fn publish(&self, candidates: &[Candidate]) -> Result<(), StoreOpenError> {
         let now = crate::clock::now().timestamp();
         let mut index = self.index();
         let transaction =
@@ -316,30 +298,12 @@ impl StoreRoot {
                 ],
             )?;
         }
-        if candidates
-            .iter()
-            .any(|candidate| candidate.kind == StoreKind::Store)
-        {
-            for kind in [EARLIER_USER, EARLIER_SCHOOL] {
-                transaction.execute(
-                    "INSERT OR REPLACE INTO retired_store (kind, generation, retired_at)
-                     SELECT kind, generation, ?2 FROM active_store WHERE kind=?1",
-                    params![kind, now],
-                )?;
-                transaction.execute("DELETE FROM active_store WHERE kind=?1", [kind])?;
-            }
-        }
-        if legacy {
-            transaction.execute(
-                "INSERT OR IGNORE INTO retired_store (kind, generation, retired_at) VALUES (?1, ?2, ?3)",
-                params![LEGACY_KIND, LEGACY_GENERATION, now],
-            )?;
-        }
         transaction.commit()?;
         Ok(())
     }
 
-    /// Selects the store generation, or builds and publishes the first one.
+    /// Selects the store generation, or builds and publishes an empty first
+    /// one.
     fn select(&mut self) -> Result<(), StoreOpenError> {
         if let Some(active) = self.active(StoreKind::Store)? {
             let directory = self.paths.generation(StoreKind::Store, &active.id);
@@ -353,83 +317,21 @@ impl StoreRoot {
             self.paths.store = directory;
             return Ok(());
         }
-        let earlier = self.earlier_user()?;
-        let flat_user = self.paths.root.join(LEGACY_USER_FILE);
-        let legacy = earlier.is_none() && flat_user.exists();
-        // A folder of the single-file era holds the person's data in
-        // school.db, which this version does not read: refused and left
-        // intact rather than opened as a new, empty store.
-        if earlier.is_none() && !legacy {
-            let school = self.paths.root.join(LEGACY_SCHOOL_DB);
-            if school.exists() {
-                return Err(StoreOpenError::UnsupportedFormat {
-                    store: StoreKind::Store,
-                    found: file_version(&school).unwrap_or(0),
-                    expected: migrations::USER_SCHEMA_VERSION,
-                });
-            }
-        }
-        let source = earlier.or(legacy.then_some(flat_user));
-        if let Some(source) = &source {
-            check_user(source)?;
-        }
         let (id, directory) = self.new_generation(StoreKind::Store)?;
         let path = directory.join(migrations::STORE_FILE);
-        let built = migrations::create(&path, source.as_deref()).map_err(StoreOpenError::from);
+        let built = migrations::create(&path).map_err(StoreOpenError::from);
         finish_candidate(&directory, built)?;
         log::info!(target: "app_core::data", "Built store generation {id}");
-        self.publish(
-            &[Candidate {
-                kind: StoreKind::Store,
-                generation: Generation {
-                    id,
-                    format: migrations::STORE_VERSION,
-                },
-            }],
-            legacy,
-        )?;
+        self.publish(&[Candidate {
+            kind: StoreKind::Store,
+            generation: Generation {
+                id,
+                format: migrations::STORE_VERSION,
+            },
+        }])?;
         self.created = true;
-        if legacy {
-            self.move_legacy_reminder_log();
-        }
         self.paths.store = directory;
         Ok(())
-    }
-
-    /// The user.db of the build before one store, when the index names it.
-    fn earlier_user(&self) -> Result<Option<PathBuf>, StoreOpenError> {
-        let generation: Option<String> = self
-            .index()
-            .query_row(
-                "SELECT generation FROM active_store WHERE kind=?1",
-                [EARLIER_USER],
-                |row| row.get(0),
-            )
-            .optional()?;
-        Ok(generation.map(|generation| {
-            self.paths
-                .root
-                .join(EARLIER_USER)
-                .join(generation)
-                .join(LEGACY_USER_FILE)
-        }))
-    }
-
-    /// The flat layout kept the reminder log beside user.db; it is this
-    /// device's, so it moves into `local/` once. A failure leaves it, and
-    /// reminders already shown may show again.
-    fn move_legacy_reminder_log(&self) {
-        let from = self.paths.root.join(LEGACY_REMINDER_LOG);
-        let to = self.paths.local(crate::schedule::REMINDER_LOG);
-        if !from.is_file() || to.exists() {
-            return;
-        }
-        let moved = fs::create_dir_all(self.paths.root.join(LOCAL_DIR))
-            .and_then(|()| fs::rename(&from, &to))
-            .and_then(|()| crate::storage::sync_directory(&self.paths.root.join(LOCAL_DIR)));
-        if let Err(error) = moved {
-            log::warn!(target: "app_core::data", "The reminder log was not moved: {error}");
-        }
     }
 
     /// When `key`'s maintenance is next due, in Unix seconds.
@@ -507,8 +409,7 @@ impl StoreRoot {
 
     fn remove_legacy(&self) -> std::io::Result<()> {
         for file in LEGACY_FILES {
-            // A flat ledger of a format no release wrote stays as it is
-            // (`SubmissionService::open` refused it).
+            // A flat ledger of a format no release wrote stays as it is.
             let path = self.paths.root.join(file);
             if *file == "submissions.db"
                 && path.exists()
@@ -579,20 +480,6 @@ fn open_index(path: &Path) -> Result<Connection, StoreOpenError> {
 pub(crate) fn file_version(path: &Path) -> Result<i64, rusqlite::Error> {
     let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     connection.query_row("PRAGMA user_version", [], |row| row.get(0))
-}
-
-/// A user.db this version copies: of the current user format, or of an older
-/// one the copy upgrades (1.2.2 wrote format 1, 1.2.3 format 2).
-fn check_user(path: &Path) -> Result<(), StoreOpenError> {
-    let found = file_version(path)?;
-    if !migrations::READABLE_USER_VERSIONS.contains(&found) {
-        return Err(StoreOpenError::UnsupportedFormat {
-            store: StoreKind::Store,
-            found,
-            expected: migrations::USER_SCHEMA_VERSION,
-        });
-    }
-    Ok(())
 }
 
 /// Refuses a store of another user format, and empties school tables of another

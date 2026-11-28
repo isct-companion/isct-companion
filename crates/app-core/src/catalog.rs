@@ -7,7 +7,7 @@ use crate::net::{
     BoxFuture, KeyOutcome, NetError,
 };
 use crate::plan::{net_end, session_end, KeyEnd, Lease};
-use crate::school_session::{Attempt, Operation, SchoolSessions, Site};
+use crate::school_session::{Attempt, Operation, RunError, SchoolSessions, Site};
 use crate::sync_state::{self, Commit, Outcome, RunOutcome, RunRecord};
 use crate::{data, school_auth::SchoolAuthProfile};
 
@@ -156,14 +156,15 @@ pub(crate) fn official_control_match(
 /// and adds only English titles and instructor names to the stored rows. A
 /// year the school does not offer yet is recorded as unavailable; stored
 /// rows stay.
-/// One department of the official catalog, as an operation of the 教務Web
-/// session (the English one for English titles).
-struct Department<'a> {
+/// One search of the official catalog (a GET and its ViewState postback,
+/// never split), as an operation of the 教務Web session (the English one
+/// for English titles).
+struct Search<'a> {
     year: u16,
-    prefix: &'a str,
+    query: &'a kyomu::CatalogSearch,
 }
 
-impl Operation for Department<'_> {
+impl Operation for Search<'_> {
     type Output = KeyOutcome<CatalogRows>;
     type Error = NetError;
 
@@ -171,8 +172,76 @@ impl Operation for Department<'_> {
         &mut self,
         attempt: Attempt,
     ) -> BoxFuture<'_, Result<KeyOutcome<CatalogRows>, NetError>> {
-        Box::pin(async move { kyomu::catalog(&attempt, self.year, self.prefix).await })
+        Box::pin(async move { kyomu::search(&attempt, self.year, self.query).await })
     }
+}
+
+/// One department: the search for its code prefix, and when that is over
+/// the school's cap, the same search one quarter at a time, merged. Between
+/// searches the read gives the lane to one that needs it more
+/// (`d/3mjnxv`); nothing is stored until every search answered.
+async fn read_department(
+    sessions: &SchoolSessions,
+    site: Site,
+    permit: &crate::school_session::Permit,
+    lease: &Lease,
+    year: u16,
+    prefix: &str,
+) -> Result<KeyOutcome<CatalogRows>, RunError<NetError>> {
+    let run = |query: kyomu::CatalogSearch| async move {
+        sessions
+            .run(
+                site,
+                permit,
+                lease.deadline(),
+                &mut Search {
+                    year,
+                    query: &query,
+                },
+            )
+            .await
+    };
+    let whole = kyomu::CatalogSearch {
+        code: prefix.into(),
+        ..kyomu::CatalogSearch::default()
+    };
+    let first = match run(whole.clone()).await? {
+        KeyOutcome::Complete(rows) if rows.truncated => rows,
+        other => return Ok(other),
+    };
+    let mut seen = std::collections::HashSet::new();
+    let mut merged = CatalogRows {
+        courses: Vec::new(),
+        search_options: first.search_options,
+        truncated: false,
+    };
+    for quarter in 1..=4 {
+        lease.checkpoint().await;
+        if lease.is_cancelled() {
+            return Err(RunError::Cancelled);
+        }
+        let rows = match run(kyomu::CatalogSearch {
+            quarter,
+            ..whole.clone()
+        })
+        .await?
+        {
+            KeyOutcome::Complete(rows) => rows,
+            other => return Ok(other),
+        };
+        merged.truncated |= rows.truncated;
+        // A course of several quarters is listed once per quarter.
+        for course in rows.courses {
+            let id = course
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
+            if id.is_none_or(|id| seen.insert(id)) {
+                merged.courses.push(course);
+            }
+        }
+    }
+    Ok(KeyOutcome::Complete(merged))
 }
 
 pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> KeyEnd {
@@ -195,17 +264,7 @@ pub(crate) async fn read_official(sessions: &SchoolSessions, lease: &Lease) -> K
     let Some(permit) = sessions.permit(SchoolAuthProfile::TokyoTech) else {
         return crate::plan::denied_read(sessions, SchoolAuthProfile::TokyoTech, source);
     };
-    let read = sessions
-        .run(
-            site,
-            &permit,
-            lease.deadline,
-            &mut Department {
-                year,
-                prefix: &prefix,
-            },
-        )
-        .await;
+    let read = read_department(sessions, site, &permit, lease, year, &prefix).await;
     let (rows, outcome) = match read {
         Ok(KeyOutcome::Complete(rows)) => (Some(rows), Outcome::Complete),
         Ok(KeyOutcome::Unavailable(_)) => (None, Outcome::Unavailable),

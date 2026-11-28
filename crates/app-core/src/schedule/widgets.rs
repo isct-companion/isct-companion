@@ -109,7 +109,7 @@ impl Source {
         Self {
             key: name,
             fetched_at,
-            stale_at: fetched_at.and_then(|at| expires_at(at, ttl(key.dataset, term))),
+            stale_at: fetched_at.and_then(|at| expires_at(at, ttl(&key, term))),
         }
     }
 }

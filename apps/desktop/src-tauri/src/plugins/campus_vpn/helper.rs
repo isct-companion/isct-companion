@@ -163,6 +163,9 @@ impl From<VpnNotice> for NoticePayload {
     }
 }
 
+/// Whether the last state told was a connected tunnel.
+static TUNNEL_UP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Tells the main window where the VPN stands, and a reminder if one is due.
 pub(crate) fn tell(
     app: &tauri::AppHandle,
@@ -171,6 +174,14 @@ pub(crate) fn tell(
     notice: Option<VpnNotice>,
 ) {
     use tauri::Emitter;
+    // A tunnel that came up is a new way to the school: Core may probe a
+    // school host it paused, instead of waiting out the pause.
+    let connected = matches!(state, VpnState::Connected { .. });
+    if connected && !TUNNEL_UP.swap(true, std::sync::atomic::Ordering::AcqRel) {
+        crate::core_ports::core(app).sync_hint(app_core::plan::Hint::NetworkPath);
+    } else if !connected {
+        TUNNEL_UP.store(false, std::sync::atomic::Ordering::Release);
+    }
     let status = super::report(service, state);
     if let Err(error) = app.emit_to("main", "vpn-status", &status) {
         log::warn!("[vpn] status was not delivered: {error}");

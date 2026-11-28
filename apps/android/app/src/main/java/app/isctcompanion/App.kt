@@ -134,9 +134,6 @@ class IsctApplication : Application() {
         super.onCreate()
         Localizer.attach(this)
         Guide.attach(this)
-        // The periodic wake of earlier releases; Core's directive schedules
-        // one-time work now (`BackgroundWake.schedule`).
-        androidx.work.WorkManager.getInstance(this).cancelUniqueWork("core-background-wake")
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) = model.foreground(true)
             override fun onStop(owner: LifecycleOwner) = model.foreground(false)

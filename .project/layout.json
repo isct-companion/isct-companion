@@ -1,7 +1,7 @@
 {
  "version": 1,
- "compiledAt": "01M7MAV0HPY5ENX2HXMH0QYAXB",
- "compiledTime": "2026-11-17T08:44:21.692Z",
+ "compiledAt": "01M8B61Y5XS147YG45TPJPQFR1",
+ "compiledTime": "2026-11-27T05:21:07.536Z",
  "tables": [
   {
    "id": "t1",
@@ -586,7 +586,9 @@
    "id": "t6",
    "members": [
     "goal/desktop-polish-direction",
-    "approach/desktop-close-window"
+    "approach/desktop-close-window",
+    "d/bt8c1x",
+    "d/0n9dsj"
    ],
    "names": [
     {
@@ -693,6 +695,16 @@
      "kind": "cond",
      "name": "平台",
      "def": "桌面平台"
+    },
+    {
+     "kind": "cond",
+     "name": "交互",
+     "def": "用户在界面上的交互"
+    },
+    {
+     "kind": "cond",
+     "name": "页面布局",
+     "def": "页面的分栏布局"
     }
    ],
    "title": "桌面端视觉与交互",
@@ -708,7 +720,8 @@
     "approach/query-cache-consistency",
     "approach/desktop-no-plugin-scripts-in-school-views",
     "approach/overlay-anchoring",
-    "approach/desktop-polish-native"
+    "approach/desktop-polish-native",
+    "d/depnhq"
    ],
    "names": [
     {
@@ -853,7 +866,8 @@
     "approach/repo-triage-labels",
     "approach/ci-on-branches-not-main",
     "approach/native-sdk-cache-prewarm",
-    "d/wy3v7q"
+    "d/wy3v7q",
+    "d/m5s6cv"
    ],
    "names": [
     {
@@ -970,6 +984,26 @@
      "kind": "object",
      "name": "合并门禁",
      "def": "汇总所选检查的合并门禁"
+    },
+    {
+     "kind": "object",
+     "name": "全平台验证",
+     "def": "全平台测试、SDK 集成与模拟器验证"
+    },
+    {
+     "kind": "object",
+     "name": "发布验收",
+     "def": "正式发布前的全平台验收"
+    },
+    {
+     "kind": "object",
+     "name": "版本标签",
+     "def": "vX.Y.Z git 标签"
+    },
+    {
+     "kind": "cond",
+     "name": "树",
+     "def": "合并结果的 Git 树是否与通过验收的分支提交相同"
     }
    ],
    "title": "Git 分支、CI 与仓库流程",
@@ -1231,7 +1265,9 @@
     "approach/neutral-themes",
     "approach/chip-variants",
     "approach/android-no-dynamic-color",
-    "constraint/visual-rules-in-slotledger"
+    "constraint/visual-rules-in-slotledger",
+    "d/g2wgaq",
+    "d/02jttn"
    ],
    "names": [
     {
@@ -1407,14 +1443,18 @@
     "approach/sync-prerequisite-table",
     "approach/school-credential-blank-fields",
     "approach/school-session-recovery",
-    "approach/syllabus-school-page",
     "approach/lms-token-rest-transport",
     "assum/lms-token-lifetime",
     "assum/lms-token-current-quarter-only",
     "approach/kyomu-maintenance-handling",
     "approach/sync-parks-while-session-pending",
     "approach/sync-account-hold",
-    "approach/lms-token-function-fallback-evidence"
+    "approach/lms-token-function-fallback-evidence",
+    "approach/syllabus-school-page",
+    "d/jsc8fm",
+    "d/qrj1bk",
+    "d/wm1bwz",
+    "d/3mjnxv"
    ],
    "names": [
     {
@@ -1726,6 +1766,16 @@
      "kind": "cond",
      "name": "事件",
      "def": "发生的事件"
+    },
+    {
+     "kind": "object",
+     "name": "シラバス结构化字段",
+     "def": "syllabus 详情页的教室、课名、教员、学分、语言、学季"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程是否属于本人（本学季或已排入计划）"
     }
    ],
    "title": "学校数据读取与会话",
@@ -1818,7 +1868,8 @@
     "approach/mobile-gestures",
     "approach/today-phase-boundary-in-core",
     "approach/android-orientation-by-size",
-    "approach/mobile-shared-intent-native-details"
+    "approach/mobile-shared-intent-native-details",
+    "d/rn7fgy"
    ],
    "names": [
     {
@@ -2055,6 +2106,11 @@
      "kind": "cond",
      "name": "事件",
      "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "滚动",
+     "def": "网页的滚动方向或位置"
     }
    ],
    "title": "移动端界面布局",
@@ -2361,7 +2417,8 @@
     "approach/exam-unified-read-model",
     "approach/exam-correction-conflicts",
     "approach/exam-delete-not-hide",
-    "approach/exam-course-matching"
+    "approach/exam-course-matching",
+    "d/k0t4js"
    ],
    "names": [
     {
@@ -2516,7 +2573,8 @@
     "approach/error-codes-shell-copy",
     "approach/ocr-optional-crate",
     "approach/desktop-only-features-compiled-out",
-    "approach/matrix-executor-boundary"
+    "approach/matrix-executor-boundary",
+    "d/vdn0aq"
    ],
    "names": [
     {
@@ -2792,6 +2850,11 @@
      "kind": "cond",
      "name": "请求",
      "def": "请求的种类"
+    },
+    {
+     "kind": "object",
+     "name": "页面打开阈值",
+     "def": "页面可见时触发重读的新鲜度阈值"
     }
    ],
    "title": "Core 运行时与提交",
@@ -3610,7 +3673,8 @@
     "constraint/school-failure-keeps-data",
     "approach/school-unavailable-outcome",
     "approach/school-parser-boundary",
-    "constraint/lms-generic-structure"
+    "constraint/lms-generic-structure",
+    "d/sgfx8a"
    ],
    "names": [
     {
@@ -3779,7 +3843,8 @@
     "approach/school-web-popup-sibling-views",
     "approach/school-web-input-layer",
     "approach/school-browser-core-engine",
-    "approach/lms-external-browser-deferred"
+    "approach/lms-external-browser-deferred",
+    "d/mesqfz"
    ],
    "names": [
     {
@@ -4123,7 +4188,8 @@
     "approach/bilingual-storage",
     "approach/i18n-semantic-keys",
     "approach/language-model",
-    "approach/content-language-in-core"
+    "approach/content-language-in-core",
+    "d/cbt819"
    ],
    "names": [
     {
@@ -4225,6 +4291,11 @@
      "kind": "object",
      "name": "学校文本",
      "def": "学校数据中的日英文本"
+    },
+    {
+     "kind": "cond",
+     "name": "原文开关",
+     "def": "LMS 内容的「原文」开关状态"
     }
    ],
    "title": "语言与多语内容",
@@ -4238,7 +4309,8 @@
     "approach/material-download-lanes",
     "approach/lms-file-scheme",
     "constraint/offline-file-integrity",
-    "d/hvrgtz"
+    "d/hvrgtz",
+    "d/hv5vjz"
    ],
    "names": [
     {
@@ -4380,6 +4452,11 @@
      "kind": "cond",
      "name": "模块",
      "def": "LMS 模块是否认得出"
+    },
+    {
+     "kind": "object",
+     "name": "zip 压缩包",
+     "def": "课程里下载的 zip 文件"
     }
    ],
    "title": "课程资料下载与缓存",
@@ -4425,7 +4502,8 @@
   {
    "id": "t33",
    "members": [
-    "approach/reminders-local"
+    "approach/reminders-local",
+    "d/2t63d9"
    ],
    "names": [
     {
@@ -4563,7 +4641,8 @@
    "members": [
     "approach/assignment-state-lms-only",
     "approach/course-finder-rules",
-    "approach/assignment-timeline-core"
+    "approach/assignment-timeline-core",
+    "d/tv98tk"
    ],
    "names": [
     {
@@ -4818,6 +4897,16 @@
      "kind": "cond",
      "name": "时机",
      "def": "发生的时刻"
+    },
+    {
+     "kind": "object",
+     "name": "反馈引导",
+     "def": "意见反馈入口旁的一次性情境提示"
+    },
+    {
+     "kind": "object",
+     "name": "欢迎弹窗",
+     "def": "首次启动的欢迎弹窗"
     }
    ],
    "title": "设置与页面结构",
@@ -5019,7 +5108,9 @@
     "approach/course-internal-id",
     "approach/synced-records-use-course-keys",
     "approach/derived-rows-in-write-transaction",
-    "approach/course-id-merge"
+    "approach/course-id-merge",
+    "d/86vp5q",
+    "d/merae1"
    ],
    "names": [
     {
@@ -5973,7 +6064,9 @@
     "d/axcgvd",
     "assum/campus-printer-billing-on-release",
     "d/402cn8",
-    "d/a6r1vm"
+    "d/a6r1vm",
+    "d/zwre8n",
+    "d/72cfcr"
    ],
    "names": [
     {
@@ -6265,6 +6358,11 @@
      "kind": "cond",
      "name": "网络位置",
      "def": "设备是否在校园网内"
+    },
+    {
+     "kind": "cond",
+     "name": "helper 状态",
+     "def": "Core 对 VPN helper 的判定"
     }
    ],
    "title": "校园工具",
@@ -7480,6 +7578,255 @@
    "title": "楼层照片上传",
    "kind": "behavior",
    "desc": "楼栋卡片上的楼层照片拍摄、处理、可见范围与上传通道"
+  },
+  {
+   "id": "t59",
+   "members": [
+    "d/0mzmh8",
+    "d/wdhsvf",
+    "d/33a15k",
+    "d/8j3ytx",
+    "d/h8nbng",
+    "d/jdedyx",
+    "d/cy7j2w",
+    "d/aa17ta",
+    "d/kt8ts2",
+    "d/p26m6s",
+    "d/wdhvm1",
+    "d/azfvr2",
+    "d/aevz1j",
+    "d/wtgqyz"
+   ],
+   "names": [
+    {
+     "kind": "object",
+     "name": "日常读取",
+     "def": "一类事实的日常读取"
+    },
+    {
+     "kind": "object",
+     "name": "教務Web",
+     "def": "教務Web 站点的读取"
+    },
+    {
+     "kind": "object",
+     "name": "界面读取",
+     "def": "界面对已存数据的读取"
+    },
+    {
+     "kind": "object",
+     "name": "用户修改",
+     "def": "用户在 App 内的修改"
+    },
+    {
+     "kind": "object",
+     "name": "本学季选课",
+     "def": "本人本学季修的课"
+    },
+    {
+     "kind": "object",
+     "name": "课表与 Today",
+     "def": "课表与 Today 页面的显示"
+    },
+    {
+     "kind": "object",
+     "name": "课程信息",
+     "def": "自己课程的教室、课名、教员、学分、语言、学季"
+    },
+    {
+     "kind": "object",
+     "name": "syllabus 读取",
+     "def": "对公开 syllabus 详情页的读取"
+    },
+    {
+     "kind": "object",
+     "name": "教室",
+     "def": "课次的教室"
+    },
+    {
+     "kind": "object",
+     "name": "教務目录",
+     "def": "教務Web 课程检索得到的目录"
+    },
+    {
+     "kind": "cond",
+     "name": "事实",
+     "def": "该事实有哪些来源"
+    },
+    {
+     "kind": "cond",
+     "name": "用途",
+     "def": "读取的用途"
+    },
+    {
+     "kind": "cond",
+     "name": "登记",
+     "def": "课程在教務 registrations 与 LMS 中的出现情况"
+    },
+    {
+     "kind": "cond",
+     "name": "课程",
+     "def": "课程是否属于本人（本学季或已排入计划）"
+    },
+    {
+     "kind": "cond",
+     "name": "教室",
+     "def": "syllabus 是否给出教室"
+    },
+    {
+     "kind": "cond",
+     "name": "学季",
+     "def": "课程所在学季相对当前"
+    },
+    {
+     "kind": "cond",
+     "name": "结果",
+     "def": "读取结果"
+    },
+    {
+     "kind": "object",
+     "name": "目录 key",
+     "def": "全校目录的同步 key"
+    },
+    {
+     "kind": "object",
+     "name": "目录前缀",
+     "def": "全校目录按课号前缀划分的读取"
+    },
+    {
+     "kind": "object",
+     "name": "目录个人字段",
+     "def": "推荐标记、科目区分等随目录读到的个人字段"
+    },
+    {
+     "kind": "object",
+     "name": "gpa 与 requirements",
+     "def": "教務的 gpa 与毕业要件页"
+    },
+    {
+     "kind": "object",
+     "name": "学校行写入",
+     "def": "读取结果写入本地库并推送变更"
+    },
+    {
+     "kind": "object",
+     "name": "profile",
+     "def": "教務的学籍页"
+    },
+    {
+     "kind": "object",
+     "name": "declared",
+     "def": "教務的申告页"
+    },
+    {
+     "kind": "object",
+     "name": "declared 缺失行",
+     "def": "本次 declared 读取中没有出现的已存行"
+    },
+    {
+     "kind": "object",
+     "name": "各课作业",
+     "def": "每门课的作业读取"
+    },
+    {
+     "kind": "object",
+     "name": "写后读取",
+     "def": "提交或撤回作业后对该作业的读取"
+    },
+    {
+     "kind": "object",
+     "name": "主机 key",
+     "def": "某个学校主机的同步 key"
+    },
+    {
+     "kind": "object",
+     "name": "探测读取",
+     "def": "主机暂停期间用来确认恢复的一次读取"
+    },
+    {
+     "kind": "object",
+     "name": "教務交换",
+     "def": "一次已开始的教務请求交换"
+    },
+    {
+     "kind": "object",
+     "name": "调频时段",
+     "def": "提高刷新频率的学期时段"
+    },
+    {
+     "kind": "object",
+     "name": "确认读取",
+     "def": "对 registrations 与 declared 的补读"
+    },
+    {
+     "kind": "object",
+     "name": "学校数据更新",
+     "def": "学校新数据对本地记录的更新"
+    },
+    {
+     "kind": "cond",
+     "name": "页面",
+     "def": "页面的打开或可见状态"
+    },
+    {
+     "kind": "cond",
+     "name": "学年数据",
+     "def": "该学年是否已有目录数据"
+    },
+    {
+     "kind": "cond",
+     "name": "内容",
+     "def": "读取内容的哈希是否变化"
+    },
+    {
+     "kind": "cond",
+     "name": "页面完整",
+     "def": "declared 页面是否完整且与同轮同账号 registrations 范围一致"
+    },
+    {
+     "kind": "cond",
+     "name": "主机",
+     "def": "学校主机的维护或暂停状态"
+    },
+    {
+     "kind": "cond",
+     "name": "截止变化",
+     "def": "该课在截止日期列表里是否有变化"
+    },
+    {
+     "kind": "cond",
+     "name": "事件",
+     "def": "发生的事件"
+    },
+    {
+     "kind": "cond",
+     "name": "日期",
+     "def": "Isct-Data 是否发布了该时段的官方日期"
+    },
+    {
+     "kind": "cond",
+     "name": "字段",
+     "def": "字段是否被用户改过"
+    },
+    {
+     "kind": "cond",
+     "name": "近期变化",
+     "def": "该 key 最近 3 天内是否读到过内容变化"
+    },
+    {
+     "kind": "cond",
+     "name": "学校值",
+     "def": "用户改过的字段所对应的学校值是否变化"
+    },
+    {
+     "kind": "object",
+     "name": "冲突提示",
+     "def": "用户改过的教室或时间与学校新值不一致时的提示"
+    }
+   ],
+   "title": "学校数据来源与刷新",
+   "kind": "behavior",
+   "desc": "每类学校事实的日常读取来源、权威来源、读取频率、打开阈值与时效"
   }
  ]
 }

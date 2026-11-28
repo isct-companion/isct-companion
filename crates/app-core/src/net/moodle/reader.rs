@@ -9,6 +9,7 @@ use super::{
         course_row, course_year, dashboard_timetable, month_deadlines, normalize_event, BodyBudget,
         ACTION_EVENT_KEYS, UPCOMING_EVENT_KEYS,
     },
+    required_list,
     rest::{self, TokenTransport},
     Dashboard, KeyError, MoodleClient, MoodleError, MoodleFunction,
 };
@@ -365,11 +366,7 @@ async fn read_courses(transport: &Transport, attempt: &Attempt) -> Result<Vec<Va
             )
             .await
             .map_err(KeyError::at(function.name()))?;
-        let batch = data
-            .get("courses")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let batch = required_list(&data, "courses", function)?.to_vec();
         if courses.len() + batch.len() > MAX_COURSES {
             return Err(KeyError::new(
                 function.name(),
@@ -398,11 +395,8 @@ async fn read_deadlines(
         .call(attempt, function, json!({"courseid": 1, "categoryid": 0}))
         .await
         .map_err(KeyError::at(function.name()))?;
-    let dated_events = view
-        .get("events")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
+    let dated_events = required_list(&view, "events", function)?
+        .iter()
         .take(MAX_EVENTS)
         .map(|event| normalize_event(event, &UPCOMING_EVENT_KEYS))
         .collect();
@@ -428,11 +422,7 @@ async fn read_action_events(
             .call(attempt, function, args)
             .await
             .map_err(KeyError::at(function.name()))?;
-        let batch = data
-            .get("events")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let batch = required_list(&data, "events", function)?.to_vec();
         if events.len() + batch.len() > MAX_EVENTS {
             return Err(KeyError::new(
                 function.name(),

@@ -21,3 +21,7 @@ regex = "1"
 unicode-normalization = "0.1"
 scraper = "0.29"
 ego-tree = "0.11"
+
+[build-dependencies]
+# Switches on the tests over captures kept outside the repository.
+capture-gate = { path = "../capture-gate" }

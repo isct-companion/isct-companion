@@ -664,7 +664,13 @@ pub fn apply_lms_deadlines(
                 row.submission = "unknown".into();
             }
         }
-        changed += usize::from(row.write(tx)?);
+        if row.write(tx)? {
+            changed += 1;
+            // The course's own assignment states may tell more now: its read
+            // falls due (`d/azfvr2`). A read started before this commit does
+            // not answer the mark.
+            sync_state::mark_due(tx, &Key::lms_assignments(row.lms_course), now)?;
+        }
     }
     for lms_course in stateless {
         sync_state::invalidate(tx, &Key::lms_assignments(lms_course))?;

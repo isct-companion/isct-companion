@@ -22,6 +22,7 @@
 //! one [`SyncSnapshot`], sent as `CoreEvent::SyncSnapshot` whenever it
 //! changes.
 mod duties;
+mod freshness;
 mod planner;
 mod runner;
 mod school;
@@ -80,6 +81,9 @@ pub enum Hint {
     Network {
         network: Network,
     },
+    /// The way to the school changed without the network's kind changing:
+    /// a campus VPN tunnel came up. A paused school host may be probed now.
+    NetworkPath,
     PowerSaver {
         on: bool,
     },

@@ -665,11 +665,9 @@ pub struct SubmissionService {
 }
 
 impl SubmissionService {
-    /// Opens the ledger's active generation, or builds a new, empty one:
-    /// for a folder without one, or in place of a ledger of an older known
-    /// format (`approach/short-lived-store-rebuild`: hand-ins are confirmed
-    /// before upgrading). A newer or unknown format is refused and kept.
-    /// Then recovers what earlier runs left unsettled.
+    /// Opens the ledger's active generation, or builds a new, empty one for
+    /// a folder without one. Another format is refused and kept. Then
+    /// recovers what earlier runs left unsettled.
     pub fn open(
         store: &DataStore,
         workspaces: AssignmentWorkspaces,
@@ -699,32 +697,17 @@ impl SubmissionService {
         let active = root
             .active(StoreKind::Submissions)
             .map_err(|error| SubmissionError::Storage(error.to_string()))?;
-        // Before generations the ledger lay flat in the folder; of the
-        // formats it had, only the known older ones are replaced.
-        let flat = root.paths().root().join(ledger::FILE);
-        let older = match &active {
-            Some(active) if active.format == ledger::FORMAT => None,
-            Some(active) if ledger::OLDER_FORMATS.contains(&active.format) => Some(active.format),
+        let generation = match active {
+            Some(active) if active.format == ledger::FORMAT => {
+                root.paths().generation(StoreKind::Submissions, &active.id)
+            }
             Some(active) => {
                 return Err(SubmissionError::UnsupportedLedger {
                     found: active.format,
                     expected: ledger::FORMAT,
                 })
             }
-            None => match crate::data::root::file_version(&flat) {
-                Ok(found) if found != 0 && !ledger::OLDER_FORMATS.contains(&found) => {
-                    return Err(SubmissionError::UnsupportedLedger {
-                        found,
-                        expected: ledger::FORMAT,
-                    })
-                }
-                Ok(found) => Some(found),
-                Err(_) => Some(0),
-            },
-        };
-        let generation = match (active, older) {
-            (Some(active), None) => root.paths().generation(StoreKind::Submissions, &active.id),
-            (_, older) => {
+            None => {
                 let (id, directory) = root
                     .new_generation(StoreKind::Submissions)
                     .map_err(|error| SubmissionError::Storage(error.to_string()))?;
@@ -733,21 +716,15 @@ impl SubmissionService {
                     .map_err(|error| crate::data::StoreOpenError::Io(error.to_string()));
                 crate::data::root::finish_candidate(&directory, built)
                     .and_then(|()| {
-                        root.publish(
-                            &[crate::data::root::Candidate {
-                                kind: StoreKind::Submissions,
-                                generation: crate::data::root::Generation {
-                                    id,
-                                    format: ledger::FORMAT,
-                                },
-                            }],
-                            false,
-                        )
+                        root.publish(&[crate::data::root::Candidate {
+                            kind: StoreKind::Submissions,
+                            generation: crate::data::root::Generation {
+                                id,
+                                format: ledger::FORMAT,
+                            },
+                        }])
                     })
                     .map_err(|error| SubmissionError::Storage(error.to_string()))?;
-                if let Some(older) = older.filter(|found| *found != 0) {
-                    log::info!(target: "app_core::submissions", "The ledger of format {older} was replaced by an empty one");
-                }
                 directory
             }
         };

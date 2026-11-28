@@ -155,6 +155,31 @@ fn engine() -> (
     engine_with_auth(Arc::new(SchoolAuthService::new(EmptyVault)))
 }
 
+#[tokio::test]
+async fn leaving_kyomu_confirms_once_per_visit() {
+    let (engine, _, _, _) = engine();
+    let exits = Arc::new(AtomicU64::new(0));
+    let calls = exits.clone();
+    engine.on_kyomu_left(Arc::new(move || {
+        calls.fetch_add(1, Ordering::Relaxed);
+    }));
+    for (site, expected) in [
+        (Some(SchoolSite::ScienceLms), 0),
+        (None, 0),
+        (Some(SchoolSite::Kyomu), 0),
+        (Some(SchoolSite::Kyomu), 0),
+        (Some(SchoolSite::ScienceLms), 1),
+        (None, 1),
+        (Some(SchoolSite::Kyomu), 1),
+        (None, 2),
+        (None, 2),
+    ] {
+        engine.user_browsing(site).unwrap();
+        assert_eq!(exits.load(Ordering::Relaxed), expected);
+    }
+    engine.shutdown().await;
+}
+
 // Native WebViews have no headless mode; drive their real Core coordinator
 // through page callbacks.
 #[tokio::test(start_paused = true)]
@@ -448,8 +473,7 @@ fn evals(browser: &FakeBrowser) -> usize {
 // Native WebViews have no headless mode; drive their real Core coordinator
 // through page callbacks. The rule table is keyed by who the view serves:
 // the person browses anything over HTTPS (rich editors need inherited-origin
-// frames), plain HTTP they follow goes to the system browser, and a hidden
-
+// frames), and plain HTTP they follow goes to the system browser.
 #[tokio::test]
 async fn the_rule_table_lets_the_person_browse_and_sends_cleartext_to_the_system_browser() {
     let (engine, browser, events, _) = engine();
@@ -596,11 +620,9 @@ async fn the_rule_table_lets_the_person_browse_and_sends_cleartext_to_the_system
     });
     assert_eq!(engine.page(site).notice, refused);
 
+    // A page outside the school is browsed in the same view, without the
+    // school's scripts.
     let external = "https://www.google.com/search?q=linear%20algebra&hl=ja#results";
-    let resolved = browsing_target(external, site).unwrap();
-    assert_eq!(resolved.site, site);
-    assert_eq!(resolved.url, external);
-    assert!(automation_target(external).is_none());
     let scripts_before = evals(&browser);
     engine.navigate(site, external).unwrap();
     listener.page_loaded(PageLoaded {
@@ -1602,36 +1624,28 @@ async fn a_failed_load_the_person_sees_becomes_a_notice() {
     engine.shutdown().await;
 }
 
+// A view the platform reports unavailable, or that closed, is replaced by a
+// new generation of the site's view next time instead of kept as a zombie.
 #[tokio::test]
-async fn a_closed_view_is_recreated_as_a_new_generation_next_time() {
+async fn a_closed_or_unavailable_view_is_replaced_by_a_new_generation() {
     let (engine, browser, _, _) = engine();
-    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
-    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
-    let first = browser.navigation(0).await;
-    browser.listener().closed(first.browser);
-    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
-    let second = browser.navigation(1).await;
-    assert_eq!(second.browser.site, first.browser.site);
-    assert!(second.browser.generation > first.browser.generation);
-    engine.shutdown().await;
-}
-
-#[tokio::test]
-async fn a_view_reported_unavailable_is_replaced_instead_of_kept_as_a_zombie() {
-    let (engine, browser, _, _) = engine();
-    let target = "https://kyomu0.gakumu.titech.ac.jp/Titech/Default.aspx";
     browser.unavailable.store(true, Ordering::Release);
-    assert!(engine.navigate(SchoolSite::Kyomu, target).is_err());
-    assert!(engine.navigate(SchoolSite::Kyomu, target).unwrap());
-    let commands = browser.commands.lock().unwrap().clone();
-    assert_eq!(commands.len(), 1);
+    assert!(engine.navigate(SchoolSite::Kyomu, KYOMU_HOME).is_err());
+    assert!(engine.navigate(SchoolSite::Kyomu, KYOMU_HOME).unwrap());
+    let first = browser.navigation(0).await;
     let ensured: Vec<_> = browser.current.lock().unwrap().keys().copied().collect();
     assert_eq!(
         ensured.len(),
         2,
         "the second navigation must create a new view"
     );
-    assert!(ensured.contains(&commands[0].browser));
+    assert!(ensured.contains(&first.browser));
+
+    browser.listener().closed(first.browser);
+    assert!(engine.navigate(SchoolSite::Kyomu, KYOMU_HOME).unwrap());
+    let second = browser.navigation(1).await;
+    assert_eq!(second.browser.site, first.browser.site);
+    assert!(second.browser.generation > first.browser.generation);
     engine.shutdown().await;
 }
 

@@ -19,7 +19,7 @@ mod html;
 mod pages;
 pub mod search;
 
-pub use pages::extract_page;
+pub use pages::{extract_page, is_login_page};
 
 /// The notice of a 教務Web page that says the site is under maintenance now.
 pub fn maintenance_notice(html: &str) -> Option<String> {
@@ -46,9 +46,7 @@ pub struct KyomuPayload {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum KyomuStage {
     Ready,
-    Maintenance,
     Unavailable,
-    ReconnectRequired,
 }
 
 const SHINKOKU: &str = "/Titech/Student/%E7%A7%91%E7%9B%AE%E7%94%B3%E5%91%8A/";
@@ -232,25 +230,6 @@ pub fn parse_payload(raw: &str) -> Result<(KyomuStage, Option<KyomuPayload>), Sc
     let payload: KyomuPayload =
         serde_json::from_str(raw).map_err(|_| "kyomu payload is not valid JSON")?;
     let url = Url::parse(&payload.source_url).map_err(|_| "kyomu source URL is invalid")?;
-    if payload.status == "maintenance" {
-        if url.scheme() != "https"
-            || url.host_str() != Some(HOST)
-            || payload.message.trim().is_empty()
-            || payload.message.len() > 8192
-        {
-            return Err("kyomu maintenance notice is invalid".into());
-        }
-        return Ok((KyomuStage::Maintenance, Some(payload)));
-    }
-    if payload.status == "login" {
-        let known_login_host = matches!(
-            url.host_str(),
-            Some(HOST | "portal.titech.ac.jp" | "rp.nap.gsic.titech.ac.jp")
-        );
-        if url.scheme() == "https" && known_login_host {
-            return Ok((KyomuStage::ReconnectRequired, None));
-        }
-    }
     if url.scheme() != "https"
         || url.host_str() != Some(HOST)
         || expected_kind(url.path()) != Some(payload.kind.as_str())

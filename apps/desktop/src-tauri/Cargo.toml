@@ -17,6 +17,7 @@ crate-type = ["rlib"]
 demo = ["app-core/demo"]
 
 [build-dependencies]
+capture-gate = { path = "../../../crates/capture-gate" }
 serde_json = "1"
 tauri-build = { version = "2.7", features = [] }
 

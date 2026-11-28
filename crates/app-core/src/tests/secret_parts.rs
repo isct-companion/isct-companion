@@ -1,5 +1,5 @@
 use super::*;
-use crate::ports::vault_key;
+use crate::ports::{vault_item, VAULT_SERVICE};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -39,7 +39,7 @@ impl SecretVault for LimitedVault {
     fn store(&self, account: &str, secret: &str) -> Result<(), SecretError> {
         self.touch(account);
         // Every account it holds has a place in the platform keychain.
-        vault_key("app", account)?;
+        vault_item(account)?;
         if self
             .limit
             .is_some_and(|limit| secret.encode_utf16().count() > limit)
@@ -177,8 +177,8 @@ fn only_a_saved_sessions_parts_have_a_place_in_the_keychain() {
         "school-session-tokyo-tech.part-63",
     ] {
         assert_eq!(
-            vault_key("app", allowed).unwrap(),
-            format!("app.passwords.{allowed}")
+            vault_item(allowed).unwrap().key,
+            format!("{VAULT_SERVICE}.passwords.{allowed}")
         );
     }
     for refused in [
@@ -189,7 +189,7 @@ fn only_a_saved_sessions_parts_have_a_place_in_the_keychain() {
         "school-session-science.part-",
     ] {
         assert_eq!(
-            vault_key("app", refused),
+            vault_item(refused),
             Err(SecretError::InvalidAccount),
             "{refused}"
         );

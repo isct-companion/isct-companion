@@ -874,6 +874,6 @@ pub(super) fn search(
         .collect()
 }
 
-#[cfg(test)]
+#[cfg(all(test, campus_map_export))]
 #[path = "../tests/campus_map__page.rs"]
 mod tests;

@@ -1,11 +1,16 @@
 use super::*;
 use image::Rgb;
 
+/// Over a private camera frame, compiled only when `MATRIX_PHOTO` names one
+/// (`matrix_photo`, `build.rs`); `MATRIX_OVERLAY` optionally names a PNG to
+/// draw the cut cells on.
+///
+/// `MATRIX_PHOTO=/path/to/frame.jpg cargo test -p app-ocr --lib supplied_camera_frame_geometry`
 #[test]
-#[ignore = "requires an explicitly supplied private camera frame"]
+#[cfg(matrix_photo)]
 fn supplied_camera_frame_geometry() {
-    let path = std::env::var("MATRIX_PHOTO").expect("Set MATRIX_PHOTO");
-    let bytes = std::fs::read(path).unwrap();
+    let path = env!("MATRIX_PHOTO");
+    let bytes = std::fs::read(path).unwrap_or_else(|error| panic!("{path}: {error}"));
     let captured =
         capture_matrix_frame(&bytes).expect("camera frame should contain a complete Matrix grid");
     assert_eq!(captured.quads.len(), 70);

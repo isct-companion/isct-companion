@@ -36,30 +36,38 @@ pub(crate) struct SyllabusDepartment {
     pub scope: Option<String>,
 }
 impl SyllabusDepartment {
-    pub(crate) fn all() -> Result<Vec<Self>, serde_json::Error> {
-        serde_json::from_str(include_str!("departments.json"))
+    /// Every department in `departments.json`, parsed once. The file ships
+    /// inside the binary, so a table that does not parse is a build defect
+    /// the courses-and-eligibility suite catches; it reads as empty here.
+    pub(crate) fn all() -> &'static [Self] {
+        static DEPARTMENTS: std::sync::OnceLock<Vec<SyllabusDepartment>> =
+            std::sync::OnceLock::new();
+        DEPARTMENTS
+            .get_or_init(|| serde_json::from_str(include_str!("departments.json")).unwrap_or_default())
     }
-    pub(super) fn shown(self, language: ContentLanguage) -> FinderDepartment {
+    /// The department a stored `settings.departmentId` names. Ids are the
+    /// table's own; nothing else is ever stored (`validate_department`).
+    pub(crate) fn by_id(id: &str) -> Option<&'static Self> {
+        Self::all().iter().find(|department| department.id == id)
+    }
+    pub(super) fn shown(&self, language: ContentLanguage) -> FinderDepartment {
         let name = self
             .name
             .pick(language)
             .map_or_else(|| self.id.clone(), str::to_owned);
         FinderDepartment {
-            id: self.id,
+            id: self.id.clone(),
             name,
-            unit_code: self.unit_code,
-            code_prefix: self.code_prefix,
-            scope: self.scope,
-            names: self.name,
+            unit_code: self.unit_code.clone(),
+            code_prefix: self.code_prefix.clone(),
+            scope: self.scope.clone(),
+            names: self.name.clone(),
         }
     }
 }
 
-pub fn department_name_ja(id: &str) -> Result<Option<String>, serde_json::Error> {
-    Ok(SyllabusDepartment::all()?
-        .into_iter()
-        .find(|department| department.id == id || id.ends_with(&format!(":{}", department.id)))
-        .and_then(|department| department.name.ja))
+pub fn department_name_ja(id: &str) -> Option<String> {
+    SyllabusDepartment::by_id(id).and_then(|department| department.name.ja.clone())
 }
 
 /// One year's stored catalog prepared for the finder: the rows it can list,

@@ -224,6 +224,16 @@ impl NetRequest {
     }
 }
 
+/// Whether a status says the host is failing or busy rather than answering:
+/// a timeout (408), a rate limit (429) or a server error (5xx). These are
+/// retried after the host's backoff and count against its breaker; every
+/// other status is the host's answer for the caller to read (RFC 9110,
+/// RFC 6585). The one place school, LMS, download and exam-share clients
+/// decide this.
+pub(crate) fn host_failing(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500..=599)
+}
+
 /// A complete response of any status. Redirects are returned, never followed.
 #[derive(Clone, Debug)]
 pub struct Response {

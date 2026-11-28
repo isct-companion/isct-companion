@@ -179,7 +179,7 @@ impl Client {
             (_, Some("write_freeze" | "server.write_freeze" | "server.not_ready")) => {
                 Err(ExamError::Unavailable)
             }
-            (_, _) if status.is_server_error() => Err(ExamError::Unavailable),
+            (_, _) if crate::net::host_failing(status.as_u16()) => Err(ExamError::Unavailable),
             _ => Err(ExamError::Rejected),
         }
     }
@@ -202,7 +202,7 @@ impl Client {
             Some(
                 "TOKEN_EXPIRED" | "USER_DISABLED" | "USER_NOT_FOUND" | "INVALID_REFRESH_TOKEN",
             ) => Err(ExamError::Expired),
-            _ if status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS => {
+            _ if crate::net::host_failing(status.as_u16()) => {
                 Err(ExamError::Unavailable)
             }
             Some(message)

@@ -132,10 +132,10 @@ fn pull_deliveries_remain_explicit_and_provider_acknowledgements_independent() {
 
 #[test]
 fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_return() {
-    let legacy = temporary("provider-build").join("cloud.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let journal_file = temporary("provider-build").join("cloud.sqlite");
+    std::fs::create_dir_all(journal_file.parent().unwrap()).unwrap();
     let providers = [CloudProvider::GoogleDrive, CloudProvider::Icloud];
-    let store = JournalStore::open(legacy.clone(), &providers, &providers).unwrap();
+    let store = JournalStore::open(journal_file.clone(), &providers, &providers).unwrap();
     store
         .change(|journal| journal.enqueue(document(1), Direction::Upload))
         .unwrap();
@@ -162,7 +162,7 @@ fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_retu
         })
         .unwrap();
     drop(store);
-    let debug = JournalStore::open(legacy.clone(), &[CloudProvider::GoogleDrive], &[]).unwrap();
+    let debug = JournalStore::open(journal_file.clone(), &[CloudProvider::GoogleDrive], &[]).unwrap();
     let state = debug.read(Journal::public_state).unwrap();
     assert_eq!(state.providers.len(), 1);
     assert!(state.versions.is_empty());
@@ -172,7 +172,7 @@ fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_retu
         CloudProvider::GoogleDrive
     );
     drop(debug);
-    let release = JournalStore::open(legacy.clone(), &providers, &providers).unwrap();
+    let release = JournalStore::open(journal_file.clone(), &providers, &providers).unwrap();
     let state = release.read(Journal::public_state).unwrap();
     let icloud = state
         .providers
@@ -188,9 +188,9 @@ fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_retu
     assert_eq!(state.tasks[0].deliveries.len(), 1);
     drop(release);
     // A provider no journal has seen still starts with its default.
-    let _ = std::fs::remove_dir_all(legacy.parent().unwrap());
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    let fresh = JournalStore::open(legacy, &providers, &[]).unwrap();
+    let _ = std::fs::remove_dir_all(journal_file.parent().unwrap());
+    std::fs::create_dir_all(journal_file.parent().unwrap()).unwrap();
+    let fresh = JournalStore::open(journal_file, &providers, &[]).unwrap();
     assert!(fresh
         .read(Journal::public_state)
         .unwrap()
@@ -199,60 +199,16 @@ fn unsupported_provider_deliveries_do_not_replay_and_supported_provider_can_retu
         .any(|provider| provider.provider == CloudProvider::Icloud && provider.enabled));
 }
 
-// A journal written while OneDrive was offered still opens: its OneDrive
-// row, deliveries and upload time are dropped and Drive's are kept.
-#[test]
-fn a_journal_naming_a_retired_provider_still_opens() {
-    let legacy = temporary("journal-retired").join("cloud.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-    let mut saved = serde_json::to_value(journal()).unwrap();
-    saved["providers"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"provider":"onedrive","enabled":true,"lastSyncedAt":null,"error":null}));
-    saved["uploaded_at"] =
-        json!({"onedrive":"2026-10-01T00:00:00Z","google-drive":"2026-10-02T00:00:00Z"});
-    std::fs::write(&legacy, serde_json::to_vec(&saved).unwrap()).unwrap();
-    let store = JournalStore::open(
-        legacy.clone(),
-        &[CloudProvider::GoogleDrive],
-        &[CloudProvider::GoogleDrive],
-    )
-    .unwrap();
-    let (providers, uploaded) = store
-        .read(|journal| {
-            (
-                journal
-                    .state
-                    .providers
-                    .iter()
-                    .map(|row| row.provider)
-                    .collect::<Vec<_>>(),
-                journal.uploaded_at.clone(),
-            )
-        })
-        .unwrap();
-    assert_eq!(providers, [CloudProvider::GoogleDrive]);
-    assert_eq!(
-        uploaded
-            .get(&CloudProvider::GoogleDrive)
-            .map(String::as_str),
-        Some("2026-10-02T00:00:00Z")
-    );
-    std::fs::remove_dir_all(legacy.parent().unwrap()).unwrap();
-}
-
 #[test]
 fn failed_sqlite_commit_does_not_change_memory() {
-    let legacy = temporary("journal-rollback").join("cloud.json");
-    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let sqlite = temporary("journal-rollback").join("cloud.sqlite");
+    std::fs::create_dir_all(sqlite.parent().unwrap()).unwrap();
     let store = JournalStore::open(
-        legacy.clone(),
+        sqlite.clone(),
         &[CloudProvider::GoogleDrive],
         &[CloudProvider::GoogleDrive],
     )
     .unwrap();
-    let sqlite = legacy.with_extension("sqlite");
     std::fs::remove_file(&sqlite).unwrap();
     std::fs::create_dir(&sqlite).unwrap();
     assert!(matches!(
@@ -263,7 +219,7 @@ fn failed_sqlite_commit_does_not_change_memory() {
         Err(CloudSyncError::Storage(_))
     ));
     assert!(!store.read(|journal| journal.state.automatic).unwrap());
-    std::fs::remove_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::remove_dir_all(sqlite.parent().unwrap()).unwrap();
 }
 
 struct FakeTransport {
@@ -479,7 +435,7 @@ impl Fixture {
         let observer = Arc::new(FakeObserver::default());
         store.observe(observer.clone());
         let backup = BackupService::new(store.clone());
-        let sync = CloudSync::new(root.join("cloud.json"), providers, providers).unwrap();
+        let sync = CloudSync::new(root.join("cloud.sqlite"), providers, providers).unwrap();
         Self {
             root,
             store,
@@ -620,7 +576,7 @@ async fn hourly_automatic_snapshots_coalesce_changes_survive_restart_and_skip_un
     );
     fixture.sync.shutdown().await;
     fixture.sync = CloudSync::new(
-        fixture.root.join("cloud.json"),
+        fixture.root.join("cloud.sqlite"),
         &[CloudProvider::GoogleDrive],
         &[CloudProvider::GoogleDrive],
     )
@@ -754,7 +710,7 @@ async fn automatic_launch_pulls_other_devices_changes_once_and_manual_launch_doe
 
     phone.sync.shutdown().await;
     phone.sync = CloudSync::new(
-        phone.root.join("cloud.json"),
+        phone.root.join("cloud.sqlite"),
         &[CloudProvider::GoogleDrive],
         &[CloudProvider::GoogleDrive],
     )

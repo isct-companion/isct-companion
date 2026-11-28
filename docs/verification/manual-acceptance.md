@@ -17,7 +17,7 @@ an unverified area becomes an assumed-good one.
 
 ## State
 
-**5 of 173 checks must be re-run before the next release.**
+**5 of 172 checks must be re-run before the next release.**
 
 - `SCHOOL-LMS-TOKEN-HTTP` — covered paths changed after 07bc592
 - `SCHOOL-LMS-PULL` — covered paths changed after 7fdf1b6
@@ -25,7 +25,7 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-MCP-LIVE` — covered paths changed after 7fdf1b6
 - `DESKTOP-SIGNED-UPDATES` — covered paths changed after af4f026
 
-**168 checks have never been run or could not be run:**
+**167 checks have never been run or could not be run:**
 
 - `WIDGET-MAC-DISTRIBUTION` — never verified
 - `WIDGET-IOS-LOCKED` — never verified
@@ -65,9 +65,9 @@ an unverified area becomes an assumed-good one.
 - `DESKTOP-CAMPUS-VPN-ON-DEMAND` — never verified
 - `DESKTOP-CAMPUS-VPN-WINDOWS` — never verified
 - `DESKTOP-MCP-LMS-WRITE` — never verified
-- `DESKTOP-LEGACY-STORE-CUTOVER` — never verified
 - `DESKTOP-STORE-POWER-LOSS` — never verified
 - `STORE-READS-WHILE-SYNCING-ON-DEVICES` — never verified
+- `DESKTOP-TODAY-LECTURE-ASSIGNMENTS` — never verified
 - `DESKTOP-PDF-TOOLBAR` — never verified
 - `DESKTOP-FILE-SHARE-MACOS` — never verified
 - `DESKTOP-FILE-SHARE-WINDOWS` — never verified
@@ -181,7 +181,6 @@ an unverified area becomes an assumed-good one.
 - `SCHOOL-OTP-SUBMITTED-ONCE` — never verified
 - `SCHOOL-SIGN-IN-MAINTENANCE` — never verified
 - `SCHOOL-RETRY-KEYCHAIN-DENIED` — never verified
-- `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` — never verified
 - `SCHOOL-WEB-GO-SAME-PAGE` — never verified
 - `SCHOOL-CONNECT-OUTCOMES` — never verified
 - `SCHOOL-APP-OTP-ENTRY` — never verified
@@ -211,7 +210,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-SYNC-REFUSED-PASSWORD-TOKEN` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/plan/planner.rs<br>crates/app-core/src/plan/runner/**<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/plan/snapshot.rs<br>crates/app-core/src/school_session/**<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/reader.rs<br>crates/app-core/src/net/moodle/rest.rs |
 | `IDENTITY-FIRST-YEAR-GATE` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/study_profile.rs<br>crates/app-core/src/course_query/mod.rs<br>crates/app-core/src/course_query/catalog.rs<br>crates/app-core/src/course_query/conditions.rs<br>crates/app-core/src/course_query/matching.rs<br>crates/app-core/src/course_query/personal.rs<br>apps/desktop/src/pages/courses/** |
 | `SCHOOL-KYOMU-GRADUATE-TABLES` | school | 修士課程 1年・前期課程 | **unreached**<br>2026-10-16 · human · `b598ae6` | crates/app-core/src/kyomu_ingest.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/study_profile.rs |
-| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs |
+| `SCHOOL-KYOMU-REGISTRATION-REQUIREMENTS` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/net/kyomu.rs<br>crates/adpt-isct/src/kyomu/pages.rs<br>crates/adpt-isct/src/kyomu.rs<br>crates/app-core/src/kyomu_ingest.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/school_browser/engine/mod.rs |
 | `CLOUD-DRIVE-WRITE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/**<br>apps/desktop/src-tauri/src/cloud.rs |
 | `CLOUD-CREDENTIAL-BACKUP` | cloud | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/BackupSettings.tsx<br>apps/desktop/src-tauri/src/commands/cloud.rs<br>crates/app-core/src/cloud_credentials.rs<br>crates/app-ffi/src/services.rs<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupCredentials.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt |
 | `CLOUD-RESILIENCE` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/** |
@@ -242,15 +241,15 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-CAMPUS-VPN-WINDOWS` | desktop | 理工学系 1年生・初学期 | —<br>not run | crates/vpn-helper/src/main.rs<br>crates/vpn-helper/src/windows.rs<br>crates/vpn-helper/src/windows_net.rs<br>crates/vpn-helper/src/tests/windows.rs<br>crates/vpn-helper/src/tests/windows_net.rs<br>crates/vpn-helper/assets/isct-vpn-script.js<br>crates/vpn-protocol/src/lib.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/helper.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/windows.rs<br>apps/desktop/src-tauri/src/plugins/campus_vpn/mod.rs<br>apps/desktop/src/pages/tools/CampusVpn.tsx<br>apps/desktop/src/pages/settings/registry.ts<br>scripts/desktop/bundle-vpn.mjs<br>scripts/desktop/bundle-vpn-windows.mjs |
 | `DESKTOP-MCP-LIVE` | desktop | Narrow window, keyboard only | pass ⚠<br>2026-10-14 · human · `7fdf1b6` | apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx<br>crates/app-core/src/agent/** |
 | `DESKTOP-MCP-LMS-WRITE` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/submissions/**<br>crates/app-core/src/agent/submissions.rs<br>crates/app-core/src/deadlines.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>apps/desktop/src/pages/settings/AgentSettings.tsx |
-| `DESKTOP-LEGACY-STORE-CUTOVER` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/root.rs<br>crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/storage.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/native_dialog.rs |
 | `DESKTOP-STORE-POWER-LOSS` | desktop | Two devices, interrupted work | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/data/root.rs |
 | `STORE-READS-WHILE-SYNCING-ON-DEVICES` | native | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/data/connection.rs<br>crates/app-core/src/data/views.rs |
-| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/files/PdfDocument.tsx<br>apps/desktop/src/components/files/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs |
+| `DESKTOP-TODAY-LECTURE-ASSIGNMENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/today/TodayAssignments.tsx<br>apps/desktop/src/pages/lectures/LectureAssignments.tsx<br>apps/desktop/src/pages/lectures/LectureDesk.tsx |
+| `DESKTOP-PDF-TOOLBAR` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/components/files/PdfDocument.tsx<br>apps/desktop/src/components/files/TextDocument.tsx<br>apps/desktop/src/features/lms/OfficialLmsView.tsx<br>apps/desktop/src/features/lms/lms.css<br>apps/desktop/src/components/workspace-chrome.css<br>apps/desktop/vite.config.ts<br>apps/desktop/src-tauri/src/school_downloads.rs<br>apps/desktop/src/features/lms/FilePreview.tsx<br>apps/desktop/src/features/lms/FolderRow.tsx<br>apps/desktop/src/features/lms/LmsReader.tsx<br>apps/desktop/src/components/files/MarkdownDocument.tsx |
 | `DESKTOP-FILE-SHARE-MACOS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_macos.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-FILE-SHARE-WINDOWS` | desktop | Windows user snapping the desktop app | —<br>not run | apps/desktop/src-tauri/src/file_share.rs<br>apps/desktop/src-tauri/src/file_share_windows.rs<br>apps/desktop/src/features/lms/FilePreview.tsx |
 | `DESKTOP-LOG-EXPORT` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src-tauri/src/commands/platform.rs<br>apps/desktop/src/pages/settings/DiagnosticsSettings.tsx |
 | `DESKTOP-PULL-STRESS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/core-query.ts<br>apps/desktop/src/app/useOpenHint.ts<br>apps/desktop/src/platform/sync-intents.ts<br>apps/desktop/src/store/sync.ts<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/app/interaction-trace.ts<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>apps/desktop/src/features/lms/useOutlineReading.ts |
-| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatus.tsx<br>apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/platform/native-menu.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx |
+| `DESKTOP-SYNC-STATUS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/app/SchoolStatus.tsx<br>apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/features/lms/LmsWorkspace.tsx<br>apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/components/PullRing.tsx<br>apps/desktop/src/styles.css<br>apps/desktop/src/platform/native-menu.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx<br>crates/app-core/src/net/breaker.rs<br>crates/app-core/src/plan/runner/lease.rs<br>crates/app-core/src/plan/runner/mod.rs |
 | `DESKTOP-PLANNING-PANEL` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursePanel.tsx<br>apps/desktop/src/styles.css |
 | `DESKTOP-FINDER-CATALOG-DOWNLOAD` | desktop | 理工学系 1年生・初学期 | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>crates/app-core/src/catalog.rs<br>crates/app-core/src/facade.rs |
 | `DESKTOP-FINDER-COMMIT` | desktop | Narrow window, keyboard only | —<br>not run | apps/desktop/src/pages/courses/CourseFinder.tsx<br>apps/desktop/src/pages/courses/useFinder.ts<br>apps/desktop/src/pages/courses/CoursePlanningPage.tsx<br>apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/pages/courses/useFinderSelection.ts<br>crates/app-core/src/workspace/mod.rs<br>apps/desktop/src-tauri/src/lib.rs<br>apps/desktop/src-tauri/src/commands/read_models.rs<br>crates/app-core/src/course_query/mod.rs<br>crates/app-core/src/course_query/catalog.rs<br>crates/app-core/src/course_query/conditions.rs<br>crates/app-core/src/course_query/matching.rs<br>crates/app-core/src/course_query/personal.rs |
@@ -328,7 +327,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-DEBUG-ICLOUD` | cloud | Two devices, interrupted work | —<br>not run | scripts/desktop/macos-dev-signing.mjs<br>scripts/desktop/macos-signing.mjs<br>scripts/desktop/macos-widgets.mjs<br>scripts/desktop/tauri.mjs<br>apps/desktop/src-tauri/build.rs<br>apps/desktop/src-tauri/src/secrets.rs |
 | `CLOUD-PROVIDER-COMBINATIONS` | cloud | Two devices, interrupted work | —<br>not run | crates/app-core/src/cloud_sync/mod.rs<br>crates/app-core/src/cloud_sync/restore.rs<br>crates/app-core/src/data/cloud_merge.rs<br>crates/app-core/src/data/backup_store.rs |
 | `IOS-EXAM-ACCOUNT-ISOLATION` | identity | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Core/KeychainVault.swift<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>crates/app-core/src/exam_share/account.rs<br>crates/app-core/src/exam_share/library.rs |
-| `EXAM-SHARE-CONSENT-AND-DELETION` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/exam_share/account.rs<br>apps/desktop/src/pages/past-exams/PastExamsPage.tsx<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt |
+| `EXAM-SHARE-CONSENT-AND-DELETION` | identity | 理工学系 1年生・初学期 | —<br>not run | crates/app-core/src/exam_share/account.rs<br>apps/desktop/src/pages/past-exams/PastExamsPage.tsx<br>apps/desktop/src/pages/past-exams/ExamReader.tsx<br>apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt |
 | `IOS-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/BrowserAuthentication.swift<br>apps/ios/IsctCompanion/Features/Settings/BackupScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelCloud.swift<br>apps/ios/project.yml |
 | `ANDROID-DRIVE-SIGNIN` | cloud | Two devices, interrupted work | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/DriveTokens.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/BackupPage.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelCloud.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/ResetPage.kt<br>crates/app-ffi/src/ports.rs |
 | `IOS-PRIVACY-POLICY` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>docs/legal/PRIVACY.md |
@@ -359,7 +358,6 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-OTP-SUBMITTED-ONCE` | school | Two devices, interrupted work | —<br>not run | crates/app-core/src/school_session/login.rs |
 | `SCHOOL-SIGN-IN-MAINTENANCE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/adpt-isct/src/lib.rs<br>crates/adpt-isct/src/lms.rs<br>crates/app-core/src/school_session/login.rs<br>crates/app-core/src/school_session/site.rs<br>crates/app-core/src/school_session/walk.rs<br>crates/app-core/src/net/moodle/mod.rs<br>crates/app-core/src/net/moodle/ajax.rs<br>crates/app-core/src/net/moodle/rest.rs<br>crates/app-core/src/net/moodle/submission.rs<br>crates/app-core/src/net/kyomu.rs |
 | `SCHOOL-RETRY-KEYCHAIN-DENIED` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src-tauri/src/secrets.rs<br>crates/app-core/src/school_session/identity.rs |
-| `DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/secrets.rs |
 | `SCHOOL-WEB-GO-SAME-PAGE` | school | 理工学系 3年生・履修計画期 | —<br>not run | crates/app-core/src/school_browser/engine/mod.rs<br>crates/app-core/src/school_browser/engine/operation.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs |
 | `SCHOOL-CONNECT-OUTCOMES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
 | `SCHOOL-APP-OTP-ENTRY` | school | 理工学系 1年生・初学期 | —<br>not run | crates/adpt-isct/assets/otp-enrollment.js<br>crates/app-core/src/school_browser/engine/otp.rs<br>crates/app-core/src/school_auth/otp_enrollment.rs<br>apps/desktop/src-tauri/src/school_browser_native.rs<br>crates/app-ffi/src/ports.rs<br>crates/app-ffi/src/session.rs<br>apps/ios/IsctCompanion/Core/SchoolBrowserHost.swift<br>apps/ios/IsctCompanion/Core/WebRouter.swift<br>apps/ios/IsctCompanion/Features/Web/OtpEnrollment.swift<br>apps/ios/IsctCompanion/Features/Settings/CredentialImport.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/SchoolBrowserHost.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/WebRouter.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/web/OtpEnrollment.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt |
@@ -948,6 +946,19 @@ desktop build with the app log visible.
    rule) and pull once more.
    - *Why:* The cookie transport must take over with the same results; the app
      log names the fallback reason without any credential.
+8. For an assignment the LMS shows as graded, note its state and grade in
+   the app, press Refresh now on Assignments and the course's Pull from
+   LMS, and read the row again.
+   - *Why:* The assignment page owns submission, grade and acceptsSubmission; the
+     open-work list and the outline own the due date and title. A later read
+     of either undoing the graded state is the failure; its test on
+     hand-built LMS records was removed.
+9. Hide one LMS course from the timetable, press Refresh now, open the
+   course from Lecture Desk, then show it on the timetable again.
+   - *Why:* A hidden LMS placement stays hidden through later LMS reads while its
+     lectures stay readable, and showing it again restores the same
+     placement. A course that reappears after a pull, or leaves Lecture Desk,
+     is the failure; its test on hand-built LMS grids was removed.
 
 **Where to look**
 
@@ -1222,17 +1233,53 @@ itself, where courses are still being edited, is not yet observed.
    - *Why:* Only a complete read sets `fetched_at`, with outcome `complete` or
      `unavailable`. A page without one stays due and backs off after
      each failure, recorded in `failures` and `last_error`.
+6. Inside the 申告 window, remove one declared course in the in-app
+   教務Web view, then leave 教務Web for Timetable and open the status
+   menu. Go back to 教務Web and leave it once more without a change.
+   - *Why:* Leaving 教務Web reads the registered list first and the declared
+     list after it, once per visit. Only a registered list read in that
+     same round proves the year and quarters the declared list may drop
+     a course from; a declared read on its own only adds, so the removed
+     course leaving Timetable shows the scope was proven, and a course
+     still declared that disappears shows it was guessed.
+7. On Grades, press its refresh twice, then run
+   `sqlite3 -readonly "$HOME/Library/Application Support/app.isctcompanion"/store/*/store.db "SELECT id,rev,updated_at FROM gpa_summary; SELECT changed FROM sync_runs WHERE dataset='kyomu.page' AND key='gpa' ORDER BY id DESC LIMIT 2"`.
+   - *Why:* A GPA page that did not change writes nothing: the second read
+     leaves `rev` and `updated_at` as they were and records `changed` 0.
+     On 2026-11-22 every one of 25 reads in a week rewrote the rows and
+     pushed them to every shell.
+8. On Timetable, rename an LMS-placed course of the current quarter and
+   change its colour, then use the manual 教務Web refresh and Refresh now,
+   and look at the course and at the own-course list.
+   - *Why:* The LMS grid owns a course's day, periods and times; the 教務Web
+     registration adds its official room only where the LMS left none. The
+     course moving to the registration's day, losing the rename or colour, or
+     appearing as a copy among the person's own courses is the failure; its
+     tests on hand-built kyomu payloads and LMS enrolments were removed.
+9. On an account whose GPA page is unavailable, open Timetable → Details.
+   - *Why:* The panel must say the page is not provided for this account and give
+     the check time, never "Not fetched yet"; earlier rows are labelled as
+     retained with the previous fetch time and values. The e2e copy of this
+     text was removed.
+10. Compare per-quarter earned credits for a 3–4Q course, a 0.5-credit
+   course, a 不合格 course and a 未報告 course with 教務Web 成績.
+   - *Why:* earned_credits_by_term splits multi-quarter credits equally, keeps
+     fractions, counts 不合格 as 0 and leaves 未報告 out. The hand-made 成績
+     rows that tested this were removed.
 
 **Where to look**
 
-artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, and
-the dataset_state query output.
+artifacts/kyomu-pull.log, the two 教務Web pages in the visible view, the
+status menu after leaving 教務Web, and the sqlite query output.
 
 **Expected**
 
 `registrations` and `requirements` each have a `fetched_at` with outcome
 `complete` or `unavailable`, the log has no `school-pull` line for either page,
-and the footer no longer shows a 教務Web failure after a refresh.
+and the footer no longer shows a 教務Web failure after a refresh. Each
+visit's exit reads registrations, then declared; the removed course is
+gone from Timetable and every other declared course stays. The second
+GPA read changes no row.
 
 **Why this is manual**
 
@@ -1247,6 +1294,8 @@ portal serves while registration is open.
 - `crates/adpt-isct/src/kyomu/pages.rs`
 - `crates/adpt-isct/src/kyomu.rs`
 - `crates/app-core/src/kyomu_ingest.rs`
+- `crates/app-core/src/plan/school.rs`
+- `crates/app-core/src/school_browser/engine/mod.rs`
 
 **Last recorded** never run
 
@@ -1491,7 +1540,14 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
      Hardware is needed to check initial admission, that smeared frames are
      dropped rather than read, false glare on white paper and recovery as a
      reflection moves.
-4. Cancel and reopen the camera, then background the app during capture.
+4. On the desktop, choose Scan image with a photo of the card, then
+   choose the same photo again; repeat after a photo with no readable
+   letters and after a scan that failed. Each choice must start a new
+   reading, and the grid tints each recognised cell by its confidence.
+   - *Why:* A browser re-fires a file choice only after the input is cleared,
+     and the confidence bands come from a real recognition; the e2e suite
+     no longer scripts OCR results, so only a real photo shows both.
+5. Cancel and reopen the camera, then background the app during capture.
    Repeat and background it during processing: acquisition stops in the
    former case, but the latter may finish without reopening the camera.
    Cancel processing and confirm late results do not overwrite the editor.
@@ -1499,7 +1555,7 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
    - *Why:* Verify the camera indicator switches off and permissions can recover
      in the signed native app; headless tests cannot observe OS resource
      release or the native privacy prompt.
-5. On the iPhone, open Settings → school account → Matrix card, choose
+6. On the iPhone, open Settings → school account → Matrix card, choose
    Auto scan and allow camera access. The live preview fills the screen
    with a card-shaped guide; hold the real card in it. The red outline
    must sit on the card (it may follow a moving card slightly, as it is
@@ -1516,18 +1572,18 @@ on an iPhone and a CI-built APK on an arm64 Android phone.
      hardware. Core tests drive the same session with scripted and decoded
      frames (photo and YUV agree on one image); the native camera hand-off
      and the drawn outline need a phone.
-6. On each phone, background the app during a camera scan and return;
+7. On each phone, background the app during a camera scan and return;
    the scan must have stopped with a message and Auto scan must
    start a fresh one. Revoke camera permission in system settings, then
    choose Auto scan: the denial message shows, and Upload image and
    Paste still work.
    - *Why:* The OS permission prompt, lifecycle interruption and camera release
      cannot be produced in headless tests.
-7. Review the recognised cells and compare them with the card.
+8. Review the recognised cells and compare them with the card.
    - *Why:* The contract is "no wrong accepted cell", not "most cells right". A
      misread cell that is accepted is worse than a rejected one, so the
      comparison has to be cell by cell.
-8. Correct a cell and save.
+9. Correct a cell and save.
    - *Why:* Confirms the manual correction path, which the fixtures never take.
 
 **Where to look**
@@ -2424,6 +2480,15 @@ A desktop build with classes, a Lectures course with an exam, and tips reset in 
    - *Why:* Dialogs and tips must escape pane clipping and cover the navigation rail and status bar.
 3. With a menu or tip open, switch pages and return; switch the Lectures sidebar between a course and Exams. Collapse the lecture sidebar and return to Lectures while moving the pointer over the rail.
    - *Why:* Overlays must follow their page or course, remain closable, and the floating list must not jump during entry.
+4. Collapse the Lectures sidebar with its title-row button, then expand it
+   again from the course column's title row.
+   - *Why:* The toggle sits in the title row of whichever column comes first after
+     the rail; a toggle left inside the hidden list leaves no way back.
+5. Delete something that offers Undo, then while the notice shows open a
+   confirmation (delete a second item that asks first) and Cancel.
+   - *Why:* Undo hides while the confirmation covers the window and returns after
+     Cancel with its time left; an Undo clickable behind the dialog, or gone
+     after Cancel, is the bug.
 
 **Where to look**
 
@@ -2491,8 +2556,8 @@ side.
 **Why this is manual**
 
 Windows Snap and WebView2 decide the real CSS viewport and resize
-timing. tests/e2e/lms-workspace.test.tsx covers the reader restored into
-a narrow pane, but not the native window transition.
+timing, and restoring the saved reader needs a real course's LMS
+content, which no automated suite has.
 
 **Covers**
 
@@ -2947,6 +3012,13 @@ campus VPN helper not yet installed for the first run.
    - *Why:* Disconnect must remove 131.112.0.0/16, the host route pinning the APM
      (131.112.12.180) and the isct.ac.jp resolver. A pin left behind points
      at this network's gateway and blocks connecting from the next one.
+12. With the tunnel down, change the Tokyo Tech password on the portal
+   (the app keeps the old one), press Connect once, then search the app
+   log for "step: campus VPN password". Change the password back.
+   - *Why:* The proxy showing its password form again is a refusal: the walk must
+     end with vpn_login_rejected after exactly one password POST (one log
+     line). A second POST risks locking the account; the scripted proxy that
+     checked this was removed with the hand-made APM pages.
 
 **Where to look**
 
@@ -3228,6 +3300,12 @@ A built desktop app and a real MCP client.
    check the token file's permissions.
    - *Why:* Authorization and file mode are the security boundary; 401, 403 and
      mode 0600 must all hold together.
+4. Quit the app, occupy the MCP port (`nc -l 127.0.0.1 47832`), reopen
+   it and open Settings → AI agent access. Then free the port, restart,
+   and turn agent access off.
+   - *Why:* A server that failed to start must say why and offer no address or
+     token to copy, and with access off nothing to connect may show; the
+     e2e suite no longer asserts what the page draws in either state.
 
 **Where to look**
 
@@ -3353,81 +3431,6 @@ tests drive the same paths only over a test transport.
 
 **Last recorded** never run
 
-### The first start after 1.2.x moves the data folder into one store (`DESKTOP-LEGACY-STORE-CUTOVER`)
-
-**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A Mac with IsctCompanion 1.2.7 installed and used (courses, a personal
-event, a reminder setting, Allow local agents on), a copy of
-`~/Library/Application Support/app.isctcompanion/` saved elsewhere, and
-a build of this commit (`yarn desktop:build --debug --bundles app`).
-`pgrep -lf IsctCompanion` shows nothing running. For the Windows step, a
-Windows PC with 1.2.7 installed and used, and an installer of this commit.
-
-**Steps**
-
-1. On the Windows PC, install this commit over 1.2.7 and start it. Then
-   uninstall, remove the data folder and install it fresh.
-   - *Why:* Windows refuses file operations that Unix allows, and the Core tests
-     do not run the installed app's own folder. 1.3.0 passed on a Mac and
-     stopped on Windows with "The data folder could not be opened" (os
-     error 5) while building the first store.
-2. Start the new build once, quit it, and list the data folder.
-   - *Why:* The user tables of the flat user.db are copied into
-     `store/<generation>/store.db` and the folder gains `core.lock`,
-     `store-index.db` and `local/reminders-fired.json`. The flat files
-     stay (retired, not deleted), so the old release's data remains as
-     recovery material.
-3. Start the new build again and check Today, the personal event, the
-   reminder setting and Settings → AI agent access.
-   - *Why:* User data must be the 1.2.7 data, unchanged; school data is read
-     again, since the flat caches are not carried over, and the MCP
-     listener comes back on its own.
-4. With the new build running, start `yarn desktop:dev` (or a second
-   copy of the .app).
-   - *Why:* One Core per data folder: the second process must stop at once with
-     the "another copy is using this data folder" message, before it
-     opens a database or reads the school.
-5. Quit everything, start 1.2.7 again, then the new build.
-   - *Why:* 1.2.7 does not know the lock or the generations: it works on the
-     retired flat files, and nothing it writes reaches the new build.
-     The new build must still open its own generations unharmed. Restore
-     the saved copy of the folder afterwards if 1.2.7 is needed again.
-
-**Where to look**
-
-Finder or `ls -R` on the data folder, the app's Today and Settings, the
-dialog of the second process.
-
-**Expected**
-
-The first start of the new build keeps all user data in a new store
-generation, fetches school data again, retires the flat files without
-deleting them, and a second
-process is refused with its message; after 1.2.7 ran again the new
-build still opens its own data.
-
-**Why this is manual**
-
-Needs a real installation of the released 1.2.7 with its real data
-folder and two real processes on one Mac. The cut-over, the lock and
-the generations are covered by the Core tests over scratch folders.
-
-**Covers**
-
-- `crates/app-core/src/data/root.rs`
-- `crates/app-core/src/data/connection.rs`
-- `crates/app-core/src/data/migrations.rs`
-- `crates/app-core/src/storage.rs`
-- `apps/desktop/src-tauri/src/lib.rs`
-- `apps/desktop/src-tauri/src/native_dialog.rs`
-
-**Last recorded** never run
-
 ### Cutting the power during school reads leaves the store whole (`DESKTOP-STORE-POWER-LOSS`)
 
 **Area** desktop · **Persona** Two devices, interrupted work · **Result** —
@@ -3529,6 +3532,59 @@ the headless suites cannot stand in for.
 
 **Last recorded** never run
 
+### Today and Lecture Desk list the assignments Core's task view groups (`DESKTOP-TODAY-LECTURE-ASSIGNMENTS`)
+
+**Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
+
+> Not verified: never verified
+
+**Preconditions**
+
+The desktop app signed in to a real LMS account with open, missed,
+submitted and graded assignments in the current quarter.
+
+**Steps**
+
+1. On Today, pin an assignment due next month, and have one missed (due in
+   the last week, not submitted) plus one submitted or graded; read the
+   assignments section.
+   - *Why:* Pinned work leads, is listed once and counted as active; a last-week
+     miss is styled as missed with its count; submitted, graded and
+     other-quarter work never shows.
+2. Click All assignments.
+   - *Why:* Lecture Desk shows the quarter record with This week and Past deadline
+     counts; submitted rows say Submitted instead of a countdown; open work
+     counts down in two units; a miss shows its deadline as "ago"; work older
+     than two weeks folds behind "N earlier, back to the quarter start" and
+     expands on click.
+3. In Assignments mode read a row's subtitle, open Hidden assignments,
+   switch to a quarter without work and back.
+   - *Why:* Rows show course · state; a hidden row names its course and restores;
+     an empty quarter says so; nothing errors on the switch.
+
+**Where to look**
+
+The assignments section on Today and the Lecture Desk assignment list.
+
+**Expected**
+
+Each group holds what the reasons above say, with no submitted or
+other-quarter work on Today and no error on a quarter switch.
+
+**Why this is manual**
+
+A glance check of what the screen draws; Core's task view decides the
+groups and is tested in Core, and the e2e suite no longer asserts drawn
+rows.
+
+**Covers**
+
+- `apps/desktop/src/pages/today/TodayAssignments.tsx`
+- `apps/desktop/src/pages/lectures/LectureAssignments.tsx`
+- `apps/desktop/src/pages/lectures/LectureDesk.tsx`
+
+**Last recorded** never run
+
 ### PDF viewer save toolbar and a large cached document (`DESKTOP-PDF-TOOLBAR`)
 
 **Area** desktop · **Persona** 理工学系 3年生・履修計画期 · **Result** —
@@ -3560,6 +3616,26 @@ A course with a large cached PDF material.
      search floats at the code's top right (⌘F too) and highlights every
      match; the LMS page's header shows its address with back, forward,
      reload and open-in-browser, following the page as it navigates.
+5. In a course with a ZIP material, a folder, and an assignment whose
+   text links a ZIP and a .rar, expand each ZIP and the folder in the
+   outline, open a README from a ZIP, then click the .rar and an outside
+   link.
+   - *Why:* ZIPs (also one whose address does not say so) and folders are rows
+     listing the files Core reports; an entry opens in the reader; a file
+     the reader cannot show opens as a card at its row; an outside page
+     opens in the reader's web view. Any new window here is the failure.
+6. Open six PDFs one after another, then an image, a password-protected
+   PDF (type a wrong password once), a file over the automatic download
+   limit, a mixed portrait/landscape deck and a Markdown course file. On
+   the deck use the zoom select and a trackpad pinch.
+   - *Why:* The reader holds one document with its PDF tools pinned above it; a
+     wrong password asks again; an oversized file previews only on request;
+     each page is sized by its own orientation; zoom redraws only the
+     visible pages; a Markdown file is read-only.
+7. With a document open, switch to another lecture and back; then close
+   the reader and switch again.
+   - *Why:* A hidden lecture releases its document but keeps it open for the
+     return; a closed reader must not come back.
 
 **Where to look**
 
@@ -3587,6 +3663,10 @@ whether the PDF.js data files ship with it.
 - `apps/desktop/src/components/workspace-chrome.css`
 - `apps/desktop/vite.config.ts`
 - `apps/desktop/src-tauri/src/school_downloads.rs`
+- `apps/desktop/src/features/lms/FilePreview.tsx`
+- `apps/desktop/src/features/lms/FolderRow.tsx`
+- `apps/desktop/src/features/lms/LmsReader.tsx`
+- `apps/desktop/src/components/files/MarkdownDocument.tsx`
 
 **Last recorded** never run
 
@@ -3858,6 +3938,29 @@ has already been read once.
    - *Why:* A failure must name the dataset, the reason and when Core retries,
      and Retry must start only that dataset; a generic "Refresh failed"
      or a full refresh means the scope was lost.
+6. While 教務Web is still paused, press Refresh now; then turn Wi-Fi off
+   and on; then disconnect and reconnect the campus VPN. Open the status
+   menu and the app log after each.
+   - *Why:* A paused host holds its keys ("paused until …") without failing
+     them. A press, a network that came back and a VPN that came up
+     each send one probe at once instead of waiting out the pause; a
+     second one within half a minute sends none. Keys that collect
+     failures, or a burst of requests, means the pause leaked into the
+     keys.
+7. On a fresh workspace, open the course finder so other departments
+   are read in the background, and while the status menu still lists
+   catalog reads, open Grades.
+   - *Why:* A background 教務Web read gives the lane to the opened page at its
+     next safe point and resumes after the page's read ends. Grades
+     waiting for the whole catalog read means the yield is gone; a
+     catalog read that fails with a timeout after the pause means the
+     pause was counted against its deadline.
+8. Leave the app until only background work runs and open the status
+   menu, then again once the dot is quiet.
+   - *Why:* Background-only work says only that it is updating in the background,
+     and a quiet healthy sync names the accounts without a per-source "Never
+     updated" age; a percentage or an age list means the shell describes more
+     than Core reported.
 
 **Where to look**
 
@@ -3868,7 +3971,9 @@ for the sync hints sent.
 
 Bars only with a total, a spinner for background work, held reasons and
 per-dataset failures in words with a retry time, and a lecture that
-stays readable while it updates.
+stays readable while it updates. A paused 教務Web is probed once per
+press or reconnection, and Grades starts reading within seconds of
+being opened during background catalog work, which then completes.
 
 **Why this is manual**
 
@@ -3889,6 +3994,9 @@ real school failure only exist against the live services.
 - `apps/desktop/src/platform/native-menu.ts`
 - `apps/desktop/src/pages/courses/CoursePlanningPage.tsx`
 - `apps/desktop/src/pages/lectures/LectureWorkspacePage.tsx`
+- `crates/app-core/src/net/breaker.rs`
+- `crates/app-core/src/plan/runner/lease.rs`
+- `crates/app-core/src/plan/runner/mod.rs`
 
 **Last recorded** never run
 
@@ -3974,6 +4082,12 @@ cache), signed in to TokyoTech.
 4. Search several conditions in a row with the network off.
    - *Why:* Search is local only; a spinner or error while offline means a
      remote search path came back.
+5. With the catalog stored, tick one official filter of each family (a
+   day, a start period, 英語, a 番台, a quarter, a requirement group, 推奨)
+   and compare the results with 教務Web's own search for the same choice.
+   - *Why:* Rows are filtered locally by reading each control's label; a family
+     read wrong silently drops or keeps the wrong courses, and its test on a
+     hand-built row was removed.
 
 **Where to look**
 
@@ -4691,6 +4805,17 @@ Add submission and one past its cut-off date.
      submission button on the real assign page, which has no captured copy
      in the repository. A late-allowed one without Prepare in LMS means the
      selector missed the button.
+5. Open a submitted assignment whose LMS field still reads as a draft,
+   then an open one from Today; on it click View in LMS, switch to another
+   page and back.
+   - *Why:* Submitted comes from Core's task view whatever the LMS field says, with
+     no due chip; requirements show in the card before any LMS page opens;
+     the official page survives being hidden and shown (React #311 used to
+     crash the first return).
+6. Open an assignment whose LMS page shows Opened/Due dates and a
+   completion line above its description; read the card's description.
+   - *Why:* Core drops Moodle's activity-dates and activity-information regions; a
+     repeated date line means the region markup changed.
 
 **Where to look**
 
@@ -8072,6 +8197,11 @@ English.
 6. Trigger a refusal or an error on purpose.
    - *Why:* Error text is where translations are most often missing, and it is
      exactly where this persona cannot afford to guess.
+7. On desktop, set the UI language to 中文 and open Home, Timetable,
+   Lectures, Web and every Settings section, Developer included.
+   - *Why:* A string that skipped t() shows as English on a Chinese screen; the
+     catalogue checks prove every key is translated, not that every visible
+     string goes through a key.
 
 **Where to look**
 
@@ -8177,6 +8307,10 @@ that has an assignment card inside a lesson.
 2. Scroll the outline by hand to just past a lesson's start and let go.
    - *Why:* Gravity still pulls a scroll the person made; the fix must not
      switch it off.
+3. Scroll to the middle of a long lesson with pictures, open another
+   lecture, and come back while the pictures load.
+   - *Why:* The outline returns to the same place in that section even as content
+     above it changes height.
 
 **Where to look**
 
@@ -8222,6 +8356,30 @@ Desktop and iOS devices on the same account with LMS lessons, a course with mixe
    - *Why:* The date and shared mark must agree and the mark action must be absent without a class.
 5. Open a lesson containing consecutive image-only labels and a page activity.
    - *Why:* Images should form a coherent grid and page text should remain inline without opening a document panel.
+6. On desktop, open the mixed lecture/recitation course in Lectures.
+   Compare its lesson rail with the iPad's, click the first lesson, then
+   double-click the next lesson in the rail and reopen the course.
+   - *Why:* Rail labels, where the outline opens and which lessons are held are
+     Core's courseContent over a real enrolment; the double-click sends
+     recordLesson for the class Core names and the rail moves only once that
+     commit lands. No real LMS course can be scripted, so this left the e2e
+     suite.
+7. In the outline search, type a phrase from the end of a long lesson's
+   text while it is folded, then use Collapse all.
+   - *Why:* Search must reach the whole text a folded lesson hides, and Collapse
+     all must fold every section.
+8. Open a lesson with a 授業計画 label table, an announcement forum with
+   posts and one without, and on a bilingual course with English UI use
+   Show original.
+   - *Why:* A label shows its own table, not Moodle's derived name, and keeps
+     Core's current-row mark; an announcement opens in the reader without
+     expanding in the outline; an empty forum says so and opens its official
+     page in the reader; Show original swaps Core's filtered text for the
+     original.
+9. Open courses whose section titles use 第N回, Lecture N, Week N:,
+   full-width digits, and skipped or repeated numbers.
+   - *Why:* Rail numbers count lessons in order; the Core tests on hand-made titles
+     are gone.
 
 **Where to look**
 
@@ -8233,7 +8391,7 @@ Desktop and iPad labels and marks agree; exam states are correct; lessons move a
 
 **Why this is manual**
 
-Real LMS data, native gestures, haptics and cross-device rendering are required; Core tests cover course-content and HTML rules.
+Real LMS data, native gestures, haptics and cross-device rendering are required; Core tests cover lesson marks and HTML sanitising.
 
 **Covers**
 
@@ -8479,6 +8637,11 @@ account. ScienceTokyoExam accepts the app's OAuth client.
    reconnect and inspect the Downloads section.
    - *Why:* The first restart must not resurrect the session. Reconnecting must
      not reveal a download that belonged to the disconnected session.
+4. With an LMS course whose shortname pairs two codes (e.g.
+   ENT.B101(LAS.F101)) and a timetable course stored under the alias, open
+   過去問's course list.
+   - *Why:* It is listed once under the primary code; the Core test on a hand-built
+     LMS shortname was removed.
 
 **Where to look**
 
@@ -8527,12 +8690,16 @@ there). Run the steps on one shell, then repeat on the next.
 2. Choose 同意して続ける, then quit and reopen the app.
    - *Why:* Only an account that registered is kept: after consent it must stay
      connected across a restart without the terms page.
-3. Download one material, then choose アカウントを削除 in the account
+3. Download a Markdown material that has formulas and open it.
+   - *Why:* It must open formatted and read-only with every formula set by KaTeX,
+     including one written with doubled backslashes; the e2e suite no longer
+     renders a past-exam document.
+4. Download one material, then choose アカウントを削除 in the account
    menu, read the confirmation and confirm.
    - *Why:* The confirmation must say what the service deletes and keeps. The
      deletion must sign out, show that it finished and remove the
      downloaded copy from マイ資料.
-4. Connect with the same account again.
+5. Connect with the same account again.
    - *Why:* The service deleted the account, so it must come back as a new one:
      the terms page, not a connected account.
 
@@ -8557,6 +8724,7 @@ service credentials and the deletion cannot be undone.
 
 - `crates/app-core/src/exam_share/account.rs`
 - `apps/desktop/src/pages/past-exams/PastExamsPage.tsx`
+- `apps/desktop/src/pages/past-exams/ExamReader.tsx`
 - `apps/ios/IsctCompanion/Features/PastExams/PastExamsScreen.swift`
 - `apps/android/app/src/main/java/app/isctcompanion/features/pastexams/PastExamsScreen.kt`
 
@@ -9215,6 +9383,15 @@ relaunch the app, so TipKit forgets the tips it has shown).
    - *Why:* Each TipKit tip shows once beside its gesture (long press a block,
      long press a lesson chip, swipe a row, switch sites) and none shows
      while the sheet is still open.
+5. On a first desktop launch, read the data-notice line in the welcome
+   sheet and press View details.
+   - *Why:* The notice is one line inside the sheet with its full text behind View
+     details; a second dialog to click through is the regression.
+6. With no school account and an empty timetable look at Home, then
+   import a timetable and look again.
+   - *Why:* The one-line "Connect your school accounts" prompt (reason in its
+     tooltip) belongs only on an empty Home and opens Settings → Accounts; it
+     must not sit above an existing timetable.
 
 **Where to look**
 
@@ -10227,56 +10404,6 @@ for a denied read is covered by the school_session suite.
 - `apps/desktop/src/lib/sync-text.ts`
 - `apps/desktop/src-tauri/src/secrets.rs`
 - `crates/app-core/src/school_session/identity.rs`
-
-**Last recorded** never run
-
-### Secrets held only in an earlier release's keychain place survive the upgrade (`DESKTOP-KEYCHAIN-OLD-PLACE-UPGRADE`)
-
-**Area** desktop · **Persona** Two devices, interrupted work · **Result** —
-
-> Not verified: never verified
-
-**Preconditions**
-
-A signed macOS release build from this commit, on a Mac user with no
-Isct Companion items in the keychain, and a test value for the Google
-Drive credential-sync password, not a real one.
-
-**Steps**
-
-1. Before launching, add the value under the earlier product name:
-   service `Campus Life`, account
-   `app.campuslife.sciencetokyo.passwords.cloud-credential-sync`.
-   - *Why:* That is where a person upgrading from the old product has it, and
-     only there. The school-login cleanup removed this path once on a
-     branch; dropping it loses the cloud sync key on upgrade.
-2. Launch the app and use Settings → Cloud to read the credential-sync
-   password state.
-   - *Why:* The first read finds it in the old place and copies it to the
-     current one, verifying the copy before the old item goes.
-3. Repeat with a school login saved by a build in the login keychain
-   (`IsctCompanion` service), then press Retry once.
-   - *Why:* A school login in the local keychain moves to the synchronized one
-     on its first read, and the re-read a Retry now does on every
-     platform finds it there without asking again.
-
-**Where to look**
-
-Settings, and Keychain Access for where each item is afterwards.
-
-**Expected**
-
-Each value is available after the upgrade and lives only in the current
-place; nothing is lost and no prompt repeats.
-
-**Why this is manual**
-
-Needs a signed bundle with the keychain entitlement and items written
-by another identity; Core only sees the vault port.
-
-**Covers**
-
-- `apps/desktop/src-tauri/src/secrets.rs`
 
 **Last recorded** never run
 

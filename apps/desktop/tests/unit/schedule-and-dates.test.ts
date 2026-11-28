@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_TEACHING_PERIODS } from "@app/generated/persistence";
 import {
   formatDay,
   formatTimestamp,
@@ -8,12 +7,7 @@ import {
   parseIsoTimestamp,
   tokyoDate,
 } from "@app/lib/civil-date";
-import {
-  axisPosition,
-  axisSpan,
-  classSlots,
-  nowPercent,
-} from "@app/lib/timetable-layout";
+import { axisPosition, axisSpan, nowPercent } from "@app/lib/timetable-layout";
 import {
   agendaColumns,
   planningColumns,
@@ -63,13 +57,10 @@ function installNonGregorianDefaultLocale(): void {
   );
 }
 
-describe("civil date validation", () => {
-  it("accepts zero-padded Gregorian dates, including a leap day", () => {
+describe("civil date and ISO timestamp validation", () => {
+  it("accepts zero-padded Gregorian dates and rejects localized, unpadded, impossible and non-string ones", () => {
     expect(isCivilDate("2026-04-13")).toBe(true);
     expect(isCivilDate("2028-02-29")).toBe(true);
-  });
-
-  it("rejects localized, unpadded, impossible and non-string civil dates", () => {
     for (const value of [
       "04/13/2026",
       "2026-4-13",
@@ -81,19 +72,14 @@ describe("civil date validation", () => {
     ])
       expect(isCivilDate(value)).toBe(false);
   });
-});
 
-describe("ISO timestamp parsing", () => {
-  it("parses an explicit offset or Z timestamp to the instant it names", () => {
+  it("parses an explicit offset or Z timestamp to its instant and rejects everything else", () => {
     expect(parseIsoTimestamp("2026-10-13T12:00:00+09:00")?.toISOString()).toBe(
       "2026-10-13T03:00:00.000Z",
     );
     expect(parseIsoTimestamp("2026-10-13T03:00:00Z")?.toISOString()).toBe(
       "2026-10-13T03:00:00.000Z",
     );
-  });
-
-  it("rejects locale text, bare dates, overflow days and out-of-range clock hours", () => {
     for (const value of [
       "10/13/2026",
       "2026-10-13",
@@ -114,7 +100,7 @@ describe("machine dates under a non-Gregorian device locale", () => {
 });
 
 describe("JST timestamp display", () => {
-  it("renders a timestamp in Japan time as the requested locale would", () => {
+  it("renders Japan time in the requested locale whatever zone is asked, and nothing for malformed timestamps", () => {
     expect(formatTimestamp("2026-12-31T15:01:00Z", "en-GB")).toBe(
       "1 Jan 2027, 00:01",
     );
@@ -124,17 +110,11 @@ describe("JST timestamp display", () => {
       expect(text).toContain("00:01");
       expect(text).not.toContain("2026");
     }
-  });
-
-  it("ignores a caller-supplied time zone and always renders Japan time", () => {
     expect(
       formatTimestamp("2026-12-31T15:01:00Z", "en-GB", {
         timeZone: "America/Los_Angeles",
       }),
     ).toBe("1 Jan 2027, 00:01");
-  });
-
-  it("returns undefined for malformed legacy timestamps instead of throwing", () => {
     for (const invalid of [
       "Invalid Date",
       "2026-02-30T10:00:00Z",
@@ -171,26 +151,6 @@ describe("shell clock", () => {
     // The last subscriber leaving stops the timer.
     stop();
     expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe("timetable class slots", () => {
-  it("labels the configured periods in order and keeps the 11–12 evening block last", () => {
-    const slots = classSlots(DEFAULT_TEACHING_PERIODS);
-    expect(slots.map((slot) => slot.label)).toEqual([
-      "1-2",
-      "3-4",
-      "5-6",
-      "7-8",
-      "9-10",
-      "11-12",
-    ]);
-    expect(slots.at(-1)).toEqual({
-      label: "11-12",
-      periods: [11, 12],
-      start: "19:05",
-      end: "20:45",
-    });
   });
 });
 
@@ -253,23 +213,16 @@ describe("timetable axis placement", () => {
 });
 
 describe("subscription status day formatting", () => {
-  it("formats a source timestamp using the selected display language", () => {
-    expect(formatDay("2026-10-06T12:00:00Z", "en")).toBe("6 Oct");
-    expect(formatDay("2026-10-06T12:00:00Z", "ja")).toBe("10月6日");
-  });
-
-  it("formats a civil date without shifting it across the Japan midnight", () => {
-    expect(formatDay("2026-10-06", "en")).toBe("6 Oct");
-    expect(formatDay("2026-10-06", "ja")).toBe("10月6日");
-  });
-
-  it("passes caller options through, as the quarter ranges ask for a weekday", () => {
+  it("formats a timestamp or civil date in the display language, without shifting the day", () => {
+    for (const value of ["2026-10-06T12:00:00Z", "2026-10-06"]) {
+      expect(formatDay(value, "en"), value).toBe("6 Oct");
+      expect(formatDay(value, "ja"), value).toBe("10月6日");
+    }
+    // Caller options pass through, as the quarter ranges ask for a weekday.
     expect(formatDay("2026-10-06", "en", { weekday: "short" })).toBe(
       "Tue 6 Oct",
     );
-  });
-
-  it("returns malformed source dates unchanged instead of handing them to Intl", () => {
+    // Malformed source dates come back unchanged instead of reaching Intl.
     expect(formatDay("not-a-date", "en")).toBe("not-a-date");
     expect(formatDay("10/06/2026", "en")).toBe("10/06/2026");
   });

@@ -477,6 +477,6 @@ fn select_in<'a>(root: ElementRef<'a>, raw: &str) -> Vec<ElementRef<'a>> {
         .unwrap_or_default()
 }
 
-#[cfg(all(test, feature = "campus-vpn"))]
+#[cfg(all(test, feature = "campus-vpn", vpn_captures))]
 #[path = "tests/login.rs"]
 mod tests;

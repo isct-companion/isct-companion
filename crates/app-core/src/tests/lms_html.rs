@@ -1,3 +1,12 @@
+//! Real teacher HTML is a course's own, so none is committed. The
+//! `moodle_ws_captures` test reads the `core_course_get_contents.json`
+//! saved as described in `net__moodle__mapping.rs`, from the directory in
+//! `MOODLE_WS_CAPTURES`, and is compiled only when that variable names a
+//! directory (`build.rs`); a missing file fails the test. The other tests feed the sanitizer generic markup: script,
+//! event handlers and `javascript:` links never appear in a capture, so a
+//! capture cannot show they are dropped.
+//!
+//! `MOODLE_WS_CAPTURES=/path/to/dir cargo test -p app-core --lib schedule::lms_html`
 use super::*;
 
 #[test]
@@ -29,57 +38,6 @@ fn teacher_html_keeps_text_and_safe_links_only() {
 }
 
 #[test]
-fn schedule_tables_mark_where_the_course_is() {
-    let table = safe_html(
-        concat!(
-            "<table><tr><th>日付</th><th>授業回目</th></tr>",
-            "<tr><td>10/2</td><td>1回目</td></tr><tr><td>10/16</td><td>休講</td></tr>",
-            "<tr><td>10/20</td><td>2回目</td></tr><tr><td>10/23</td><td>3回目</td></tr></table>",
-        ),
-        false,
-    );
-    // Earlier rows past, a cancelled one off (and past), the current row now.
-    assert_eq!(
-        mark_schedule(&table, Some(2)),
-        concat!(
-            "<table><tbody><tr><th>日付</th><th>授業回目</th></tr>",
-            r#"<tr class="lmsRowPast"><td>10/2</td><td>1回目</td></tr>"#,
-            r#"<tr class="lmsRowOff lmsRowPast"><td>10/16</td><td>休講</td></tr>"#,
-            r#"<tr class="lmsRowNow"><td>10/20</td><td>2回目</td></tr>"#,
-            "<tr><td>10/23</td><td>3回目</td></tr></tbody></table>",
-        )
-    );
-    // No current lesson, no table, or a table with one numbered row: as is.
-    assert_eq!(mark_schedule(&table, None), table);
-    assert_eq!(mark_schedule("<p>no table</p>", Some(2)), "<p>no table</p>");
-    let single = safe_html(
-        "<table><tr><td>1回目</td><td>intro</td></tr><tr><td>reading</td><td>—</td></tr></table>",
-        false,
-    );
-    assert_eq!(mark_schedule(&single, Some(2)), single);
-}
-
-#[test]
-fn lesson_text_reads_as_a_summary_and_labels_as_pictures() {
-    assert_eq!(
-        lesson_summary("<p>授業計画：正規文法<br>課題：確認する</p>"),
-        "正規文法"
-    );
-    assert_eq!(lesson_summary(""), "");
-    let picture = r#"<p><a href="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s.png"><img src="https://lms.s.isct.ac.jp/2025/pluginfile.php/1/mod_label/intro/s_s.png" alt=""></a></p>"#;
-    assert!(image_only(picture));
-    assert!(!image_only(&format!("{picture}<p>Scan to join</p>")));
-    assert!(!image_only(
-        r#"<img src="https://lms.s.isct.ac.jp/theme/image.php/icon">"#
-    ));
-    // The sanitized original preserves recognized language markers.
-    assert_eq!(
-        safe_html(r#"<p lang="EN">x</p><p lang="fr">y</p>"#, false),
-        r#"<p lang="en">x</p><p>y</p>"#
-    );
-}
-
-#[test]
 fn language_projection_uses_explicit_markers_and_preserves_the_sanitized_original() {
     let source = concat!(
         r#"<p>Unmarked announcement</p><p lang="ja">日本語</p>"#,
@@ -103,4 +61,54 @@ fn language_projection_uses_explicit_markers_and_preserves_the_sanitized_origina
     assert!(project_html(source, false, None)
         .preferred
         .contains("日本語"));
+    // The sanitized original keeps recognized language markers only.
+    assert_eq!(
+        safe_html(r#"<p lang="EN">x</p><p lang="fr">y</p>"#, false),
+        r#"<p lang="en">x</p><p>y</p>"#
+    );
+}
+
+/// Every section summary and activity description of a real course comes
+/// out inert, and marking where the course is in a lesson table only adds
+/// the row classes, whichever lesson it is at.
+#[test]
+#[cfg(moodle_ws_captures)]
+fn captured_teacher_html_stays_inert_and_schedule_marks_only_add_classes() {
+    let path =
+        std::path::Path::new(env!("MOODLE_WS_CAPTURES")).join("core_course_get_contents.json");
+    let raw = std::fs::read(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let contents: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    let mut bodies = Vec::new();
+    for section in contents.as_array().unwrap() {
+        bodies.extend(section["summary"].as_str());
+        for module in section["modules"].as_array().into_iter().flatten() {
+            bodies.extend(module["description"].as_str());
+        }
+    }
+    assert!(
+        bodies.iter().any(|body| !body.trim().is_empty()),
+        "the captured course has teacher text"
+    );
+    let marks = Regex::new(r#" class="lmsRow[A-Za-z ]*""#).unwrap();
+    for body in bodies {
+        let safe = safe_html(body, true);
+        let lower = safe.to_lowercase();
+        for inert in [
+            "<script",
+            "<iframe",
+            "<form",
+            "<style",
+            "javascript:",
+            " style=",
+            " onclick=",
+        ] {
+            assert!(!lower.contains(inert), "{inert} in {safe}");
+        }
+        for lesson in 1..=16 {
+            assert_eq!(
+                marks.replace_all(&mark_schedule(&safe, Some(lesson)), ""),
+                safe
+            );
+        }
+    }
 }

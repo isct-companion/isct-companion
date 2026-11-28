@@ -665,6 +665,8 @@ impl Core {
             .map(|events| events.clone() as Arc<dyn EventSink>)
             .unwrap_or_else(|| Arc::new(NoopEvents));
         let engine = SchoolBrowserEngine::new(self.sessions.clone(), events, browser)?;
+        let plan = self.sync.hints();
+        engine.on_kyomu_left(Arc::new(move || plan.kyomu_web_left()));
         *owner = Some(engine.clone());
         Ok(engine)
     }

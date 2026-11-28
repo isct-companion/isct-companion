@@ -21,6 +21,8 @@ fn signature_is_md5_of_wwwroot_then_passport_in_lowercase_hex() {
 #[test]
 fn launch_answer_yields_only_a_token_signed_for_this_passport() {
     let passport = new_passport();
+    // A passport is never reused, so an old answer cannot pass as this one.
+    assert_ne!(new_passport(), passport);
     let signature = launch_signature(WWWROOT, &passport);
     let token = "0123456789abcdefABCDEF0123456789";
 
@@ -108,21 +110,4 @@ fn launch_rejects_other_locations_and_malformed_answers() {
         parse_launch_location("moodlemobile://token=***", WWWROOT, passport).unwrap_err(),
         LaunchError::Malformed
     );
-}
-
-#[test]
-fn launch_url_asks_the_mobile_service_for_our_scheme() {
-    let url = launch_url(WWWROOT, "p1").unwrap();
-    assert_eq!(url.host_str(), Some("lms.s.isct.ac.jp"));
-    assert_eq!(url.path(), "/2025/admin/tool/mobile/launch.php");
-    let query: Vec<(String, String)> = url.query_pairs().into_owned().collect();
-    assert_eq!(
-        query,
-        [
-            ("service".to_string(), "moodle_mobile_app".to_string()),
-            ("passport".to_string(), "p1".to_string()),
-            ("urlscheme".to_string(), "moodlemobile".to_string()),
-        ]
-    );
-    assert_ne!(new_passport(), new_passport());
 }

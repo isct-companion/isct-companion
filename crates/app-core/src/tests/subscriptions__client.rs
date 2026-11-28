@@ -4,32 +4,27 @@ use crate::subscriptions::tests::{
     FIXTURE_INDEX,
 };
 
-const FIXTURE_INDEX_HASH: &str = include_str!("../../tests/fixtures/subscriptions/index.sha256");
-
 #[test]
-fn frozen_fixture_manifest_hashes_match_every_source() {
-    assert_eq!(
-        data_encoding::HEXLOWER.encode(&Sha256::digest(FIXTURE_INDEX.as_bytes())),
-        FIXTURE_INDEX_HASH.trim()
-    );
+fn published_sources_verify_against_their_manifest_hash_and_an_edited_source_does_not() {
     let index: SubscriptionIndex = serde_json::from_str(FIXTURE_INDEX).unwrap();
-    let year = index.academic_years.get("2026").unwrap();
-    let cohort_2025 = index.admission_years.get("2025").unwrap();
-    let cohort_2026 = index.admission_years.get("2026").unwrap();
-    let actual = [
-        content_hash(&serde_json::from_str(FIXTURE_ACADEMIC_CALENDAR_2026).unwrap()).unwrap(),
-        content_hash(&serde_json::from_str(FIXTURE_DEPARTMENTS_2025).unwrap()).unwrap(),
-        content_hash(&serde_json::from_str(FIXTURE_DEPARTMENTS_2026).unwrap()).unwrap(),
-    ];
-    let expected = [
-        year.academic_calendar.hash.as_str(),
-        cohort_2025.departments.hash.as_str(),
-        cohort_2026.departments.hash.as_str(),
-    ];
-    assert_eq!(
-        actual.iter().map(String::as_str).collect::<Vec<_>>(),
-        expected
-    );
+    let calendar = &index.academic_years["2026"].academic_calendar;
+    let cohort_2025 = &index.admission_years["2025"].departments;
+    let cohort_2026 = &index.admission_years["2026"].departments;
+    // The published files are pretty-printed while the manifest hashes their
+    // content, so these pass only if Core hashes content the way Isct-Data does.
+    for (raw, source) in [
+        (FIXTURE_ACADEMIC_CALENDAR_2026, calendar),
+        (FIXTURE_DEPARTMENTS_2025, cohort_2025),
+        (FIXTURE_DEPARTMENTS_2026, cohort_2026),
+    ] {
+        validate_indexed_source(source).unwrap();
+        verify_source_hash(raw, &source.hash).unwrap();
+    }
+
+    let mut edited: Value = serde_json::from_str(FIXTURE_DEPARTMENTS_2026).unwrap();
+    edited["admissionYear"] = 2025.into();
+    assert!(verify_source_hash(&edited.to_string(), &cohort_2026.hash).is_err());
+    assert!(verify_source_hash(FIXTURE_DEPARTMENTS_2025, &cohort_2026.hash).is_err());
 }
 
 #[test]

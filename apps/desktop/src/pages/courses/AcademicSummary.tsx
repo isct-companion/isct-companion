@@ -124,7 +124,9 @@ export function AcademicSummary({
                   {all
                     ? `${unavailable ? `${t("courses.previousFetch")}: ` : ""}${
                         formatTimestamp(
-                          all.fetchedAt,
+                          // The row keeps the time its content last changed;
+                          // the page's own check says when it was last read.
+                          unavailable ? all.fetchedAt : (availability?.checkedAt ?? all.fetchedAt),
                           intlLocale(i18n.language),
                         ) ?? t("courses.notFetchedYet")
                       }`

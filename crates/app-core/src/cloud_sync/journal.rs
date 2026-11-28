@@ -292,11 +292,10 @@ pub(super) struct JournalStore {
 
 impl JournalStore {
     pub(super) fn open(
-        legacy: PathBuf,
+        path: PathBuf,
         supported: &[CloudProvider],
         authorized: &[CloudProvider],
     ) -> Result<Self, CloudSyncError> {
-        let path = legacy.with_extension("sqlite");
         let connection = rusqlite::Connection::open(&path).map_err(storage)?;
         connection
             .execute_batch(
@@ -308,15 +307,8 @@ impl JournalStore {
             .optional()
             .map_err(storage)?;
         let mut journal = if let Some(saved) = saved {
-            parse_journal(serde_json::from_str(&saved)).map_err(|error| {
+            serde_json::from_str(&saved).map_err(|error| {
                 CloudSyncError::Compatibility(format!("Invalid sync journal: {error}"))
-            })?
-        } else if legacy.exists() {
-            parse_journal(serde_json::from_slice(
-                &std::fs::read(&legacy).map_err(storage)?,
-            ))
-            .map_err(|error| {
-                CloudSyncError::Compatibility(format!("Invalid sync configuration: {error}"))
             })?
         } else {
             Journal {
@@ -422,37 +414,4 @@ pub(super) fn version(document: &Value) -> Result<String, CloudSyncError> {
 
 fn storage(error: impl ToString) -> CloudSyncError {
     CloudSyncError::Storage(error.to_string())
-}
-
-/// Providers this app no longer offers. Journals written by early releases
-/// may still name them; their rows, deliveries and timestamps are dropped
-/// so the rest of the journal stays readable.
-const RETIRED_PROVIDERS: &[&str] = &["onedrive"];
-
-fn parse_journal(value: serde_json::Result<Value>) -> serde_json::Result<Journal> {
-    let mut value = value?;
-    drop_retired(&mut value);
-    serde_json::from_value(value)
-}
-
-fn drop_retired(value: &mut Value) {
-    let retired = |value: &Value| {
-        value
-            .get("provider")
-            .and_then(Value::as_str)
-            .is_some_and(|provider| RETIRED_PROVIDERS.contains(&provider))
-    };
-    match value {
-        Value::Array(items) => {
-            items.retain(|item| !retired(item));
-            items.iter_mut().for_each(drop_retired);
-        }
-        Value::Object(map) => {
-            if let Some(Value::Object(uploaded)) = map.get_mut("uploaded_at") {
-                uploaded.retain(|provider, _| !RETIRED_PROVIDERS.contains(&provider.as_str()));
-            }
-            map.values_mut().for_each(drop_retired);
-        }
-        _ => {}
-    }
 }

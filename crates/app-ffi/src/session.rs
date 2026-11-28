@@ -838,7 +838,7 @@ async fn initialize(
             }
         }
         let sync = CloudSync::new(
-            data.join("cloud-sync-state.json"),
+            data.join("cloud-sync-state.sqlite"),
             &project_input::<_, Vec<app_core::cloud_sync::CloudProvider>>(supported)?,
             &project_input::<_, Vec<app_core::cloud_sync::CloudProvider>>(authorized)?,
         )?;

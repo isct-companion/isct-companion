@@ -1,11 +1,19 @@
 //! Freshness per (dataset, key): the one record of whether a piece of school
-//! or reference data is current.
+//! or reference data is current, kept like a keyspace (`d/azfvr2`).
 //!
 //! A key is the atomic unit of a sync. Its rows and its `dataset_state` row
 //! commit in one transaction ([`commit`]), so nothing is marked fresh unless
 //! all of it landed. A failed or cancelled read writes no rows; [`fail`] only
-//! pushes that key's next attempt back. Every read also leaves one
-//! `sync_runs` row ([`record_run`]) for diagnostics.
+//! pushes that key's next attempt back.
+//!
+//! Besides when it was read, each key holds when its content last changed
+//! (`changed_at`) and a sorted set of times it falls due because something
+//! else changed (`due_marks`, [`mark_due`]). Every read ends in
+//! [`record_run`], in the transaction that wrote its rows: a read that
+//! landed clears the marks it answers (set before it started), and one that
+//! changed rows stamps `changed_at` and marks what depends on the key
+//! ([`dependents`]). Ingest only says whether its key changed; the planner
+//! only reads these facts. `sync_runs` is diagnostics.
 use crate::data::DataError;
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
@@ -84,8 +92,10 @@ const DAY: i64 = 24 * HOUR;
 
 /// The base TTL of a key, or `None` when a fetched key is never renewed
 /// automatically.
-pub fn ttl(dataset: Dataset, term: Term) -> Option<Duration> {
-    let seconds = match (dataset, term) {
+/// Each source's own rule, by `d/0mzmh8` and the decisions under it: the
+/// 学籍 page almost never changes, every other 教務 page a week.
+pub fn ttl(key: &Key, term: Term) -> Option<Duration> {
+    let seconds = match (key.dataset, term) {
         (_, Term::Frozen) => return None,
         (Dataset::LmsEnrolment, _) => 12 * HOUR,
         (Dataset::LmsDeadlines, _) => 2 * HOUR,
@@ -93,6 +103,7 @@ pub fn ttl(dataset: Dataset, term: Term) -> Option<Duration> {
         (Dataset::LmsAssign, Term::Current) => 6 * HOUR,
         (Dataset::LmsCourse | Dataset::LmsAssign, Term::Past) => 30 * DAY,
         (Dataset::LmsHistory, _) => DAY,
+        (Dataset::KyomuPage, _) if key.key == "profile" => 30 * DAY,
         (Dataset::KyomuPage | Dataset::CatalogOfficial, _) => 7 * DAY,
         (Dataset::Reference, _) => DAY,
         // Checked while the app is in the foreground only
@@ -168,6 +179,11 @@ pub struct KeyState {
     pub failures: u32,
     pub next_eligible: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
+    /// When a complete read last changed the key's rows.
+    pub changed_at: Option<DateTime<Utc>>,
+    /// When the key falls due because something it depends on changed,
+    /// earliest first.
+    pub due_marks: Vec<DateTime<Utc>>,
     pub last_used: Option<DateTime<Utc>>,
 }
 
@@ -339,7 +355,7 @@ pub fn touch(connection: &Connection, keys: &[Key], now: DateTime<Utc>) -> Resul
 }
 
 const COLUMNS: &str = "dataset,key,fetched_at,validator,outcome,message,
-    failures,next_eligible,last_error,last_used";
+    failures,next_eligible,last_error,last_used,changed_at,due_marks";
 
 fn time(value: Option<String>) -> Option<DateTime<Utc>> {
     value
@@ -363,7 +379,126 @@ fn key_state(row: &rusqlite::Row<'_>) -> rusqlite::Result<KeyState> {
         next_eligible: time(row.get(7)?),
         last_error: row.get(8)?,
         last_used: time(row.get(9)?),
+        changed_at: time(row.get(10)?),
+        due_marks: marks(row.get::<_, Option<String>>(11)?.as_deref()).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                11,
+                rusqlite::types::Type::Text,
+                Box::new(error),
+            )
+        })?,
     })
+}
+
+/// The stored set of due marks, earliest first. A value `store_marks` did
+/// not write fails the read.
+fn marks(raw: Option<&str>) -> Result<Vec<DateTime<Utc>>, DataError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let corrupt = |error: &dyn std::fmt::Display| {
+        DataError::Storage(format!("corrupt due_marks {raw:?}: {error}"))
+    };
+    let mut marks = serde_json::from_str::<Vec<String>>(raw)
+        .map_err(|error| corrupt(&error))?
+        .iter()
+        .map(|at| {
+            DateTime::parse_from_rfc3339(at)
+                .map(|at| at.with_timezone(&Utc))
+                .map_err(|error| corrupt(&error))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    marks.sort();
+    marks.dedup();
+    Ok(marks)
+}
+
+fn store_marks(
+    connection: &Connection,
+    key: &Key,
+    marks: &[DateTime<Utc>],
+) -> Result<(), DataError> {
+    let raw = (!marks.is_empty()).then(|| {
+        serde_json::Value::from(marks.iter().map(|at| at.to_rfc3339()).collect::<Vec<_>>())
+            .to_string()
+    });
+    connection
+        .execute(
+            "INSERT INTO dataset_state(dataset,key,due_marks) VALUES(?1,?2,?3)
+             ON CONFLICT(dataset,key) DO UPDATE SET due_marks=excluded.due_marks",
+            params![key.dataset.name(), key.key, raw],
+        )
+        .map_err(DataError::from)?;
+    Ok(())
+}
+
+fn stored_marks(connection: &Connection, key: &Key) -> Result<Vec<DateTime<Utc>>, DataError> {
+    let raw: Option<Option<String>> = connection
+        .query_row(
+            "SELECT due_marks FROM dataset_state WHERE dataset=?1 AND key=?2",
+            params![key.dataset.name(), key.key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(DataError::from)?;
+    marks(raw.flatten().as_deref())
+}
+
+/// Makes `key` due at `at`, beside any marks it already has: like `ZADD`,
+/// the set keeps every distinct time until a read answers it.
+pub fn mark_due(connection: &Connection, key: &Key, at: DateTime<Utc>) -> Result<(), DataError> {
+    let mut marks = stored_marks(connection, key)?;
+    if !marks.contains(&at) {
+        marks.push(at);
+        marks.sort();
+    }
+    store_marks(connection, key, &marks)
+}
+
+/// Which keys fall due when `key`'s content changes, and after how long:
+/// the one table of these dependencies (`d/azfvr2`, beside the read-order
+/// table `plan::planner::prerequisite`). The school can compute the GPA and
+/// requirements after the grades land, so they are read at once and a day
+/// later (`d/aa17ta`). A deadline that moved marks its own course's
+/// assignments, by row, in the deadline ingest.
+fn dependents(key: &Key) -> Vec<(Key, Duration)> {
+    match (key.dataset, key.key.as_str()) {
+        (Dataset::KyomuPage, "grades") => ["gpa", "requirements"]
+            .into_iter()
+            .flat_map(|page| {
+                [Duration::zero(), Duration::days(1)]
+                    .map(|after| (Key::new(Dataset::KyomuPage, page), after))
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The keyspace side of a read that landed: the marks set before it
+/// started are answered; a read that changed rows stamps `changed_at` and
+/// marks the key's dependents.
+fn settle_read(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataError> {
+    let left: Vec<DateTime<Utc>> = stored_marks(connection, run.key)?
+        .into_iter()
+        .filter(|at| *at > run.started_at)
+        .collect();
+    store_marks(connection, run.key, &left)?;
+    if run.changed > 0 {
+        connection
+            .execute(
+                "UPDATE dataset_state SET changed_at=?3 WHERE dataset=?1 AND key=?2",
+                params![
+                    run.key.dataset.name(),
+                    run.key.key,
+                    run.finished_at.to_rfc3339()
+                ],
+            )
+            .map_err(DataError::from)?;
+        for (dependent, after) in dependents(run.key) {
+            mark_due(connection, &dependent, run.finished_at + after)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn get(connection: &Connection, key: &Key) -> Result<Option<KeyState>, DataError> {
@@ -409,6 +544,11 @@ pub enum RunOutcome {
 }
 
 impl RunOutcome {
+    /// A read that reached the school and stored its answer.
+    fn lands(self) -> bool {
+        matches!(self, Self::Complete | Self::Unchanged | Self::Unavailable)
+    }
+
     fn as_str(self) -> &'static str {
         match self {
             Self::Complete => "complete",
@@ -439,7 +579,13 @@ pub struct RunRecord<'a> {
     pub error_kind: Option<&'a str>,
 }
 
+/// Ends one read: its diagnostics row, and for a read that landed
+/// ([`RunOutcome::lands`]) its keyspace side (`settle_read`). Call in the
+/// transaction that wrote the read's rows.
 pub fn record_run(connection: &Connection, run: &RunRecord<'_>) -> Result<(), DataError> {
+    if run.outcome.lands() {
+        settle_read(connection, run)?;
+    }
     connection
         .execute(
             "INSERT INTO sync_runs(run,dataset,key,started_at,finished_at,outcome,changed,requests,bytes,source,error_kind)

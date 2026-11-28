@@ -448,7 +448,7 @@ pub(crate) fn reference_due(
     let ttl = if kind == "departments" {
         Some(DEPARTMENTS_TTL)
     } else {
-        sync_state::ttl(Dataset::Reference, Term::Current)
+        sync_state::ttl(key, Term::Current)
     };
     let due = match sync_state::due(stored.state.as_ref(), ttl, now) {
         Due::Fresh if stored.held.is_some() || stored.validator(index_url).is_none() => Due::Stale,

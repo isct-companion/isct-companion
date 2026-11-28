@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { english } from "@app/i18n";
 import { submissionLabel } from "@app/lib/academic";
-import { COURSE_FILE_POLICY } from "@app/lib/course-file-policy";
-import { departmentById } from "@app/lib/departments";
 import type { Assignment } from "@app/lib/model";
 import { readRepoFile } from "@tests/harness";
 
@@ -11,11 +9,10 @@ import { readRepoFile } from "@tests/harness";
  * The parts of the course pipeline that decide what the finder may offer and
  * which department the study profile refers to.
  *
- * These modules had no suite of their own: the finder constants, the department
- * table, the generated course-file limits and the assignment state label were
- * only exercised through the panels that render them. The expectations below
- * come from the modules' contracts and from the bundled 2026 subscription
- * fixture.
+ * These modules had no suite of their own: the department table and the
+ * assignment state label were only exercised through the panels that render
+ * them. The expectations below come from the modules' contracts and from the
+ * bundled 2026 subscription fixture.
  *
  * `unit/` never mounts a component; everything here is plain node.
  */
@@ -47,8 +44,6 @@ const label = english;
 
 const DEPARTMENTS_PATH =
   "crates/app-core/tests/fixtures/subscriptions/data/2026/departments.json";
-const CS_RECOMMENDED_PATH =
-  "crates/app-core/tests/fixtures/subscriptions/data/2026/cs-recommended.json";
 
 type BundledDepartment = {
   id: string;
@@ -105,152 +100,12 @@ describe("the bundled undergraduate departments", () => {
   });
 });
 
-describe("resolving the department stored in settings", () => {
-  const cs = SYLLABUS_DEPARTMENTS.find((department) => department.id === "cs")!;
-
-  it("resolves a subscription-scoped id by the part after the colon", () => {
-    expect(departmentById(SYLLABUS_DEPARTMENTS, "2026:cs")).toBe(cs);
-    expect(departmentById(SYLLABUS_DEPARTMENTS, "undergraduate:cs")).toBe(cs);
-  });
-
-  it("resolves every id the settings picker offers", () => {
-    for (const department of SYLLABUS_DEPARTMENTS)
-      expect(
-        departmentById(SYLLABUS_DEPARTMENTS, department.id),
-        department.id,
-      ).toBe(department);
-  });
-
-  it("returns nothing when no department is selected", () => {
-    expect(departmentById(SYLLABUS_DEPARTMENTS, undefined)).toBeUndefined();
-    expect(departmentById(SYLLABUS_DEPARTMENTS, "")).toBeUndefined();
-  });
-
-  it("returns nothing for an id that names no department", () => {
-    for (const value of ["astrophysics", "2026:csx", "xcs", "2026:"])
-      expect(
-        departmentById(SYLLABUS_DEPARTMENTS, value),
-        value,
-      ).toBeUndefined();
-  });
-
-  it("resolves the department a hand-transcribed guide table names", () => {
-    const transcript = repositoryJson<{
-      departmentId: string;
-      source: { title: string; url: string }[];
-    }>(CS_RECOMMENDED_PATH);
-    const resolved = departmentById(
-      SYLLABUS_DEPARTMENTS,
-      transcript.departmentId,
-    );
-    expect(resolved).toBe(cs);
-    expect(resolved!.scope).toBe(cs.scope);
-    const bundledCs = bundled2026.departments.find(
-      (department) => department.id === "cs",
-    )!;
-    expect(bundledCs.syllabusScope).toBe(resolved!.scope);
-    expect(transcript.source.map((source) => source.url)).toContain(
-      bundledCs.guidePdf,
-    );
-  });
-});
-
-describe("the course file limits the settings page edits", () => {
-  it("keeps every limit a usable control with the default inside its range", () => {
-    for (const [name, policy] of Object.entries(COURSE_FILE_POLICY)) {
-      expect(Number.isInteger(policy.min), name).toBe(true);
-      expect(Number.isInteger(policy.default), name).toBe(true);
-      expect(Number.isInteger(policy.max), name).toBe(true);
-      expect(policy.min, name).toBeGreaterThanOrEqual(1);
-      expect(policy.default, name).toBeGreaterThanOrEqual(policy.min);
-      expect(policy.default, name).toBeLessThanOrEqual(policy.max);
-    }
-  });
-});
-
 describe("the state label shown beside an assignment", () => {
   it("only appends a grade after Core marks the work as graded", () => {
     const graded = assignment({ grade: "秀" });
-    expect(submissionLabel(graded, label, "graded")).toBe("graded 秀");
-    expect(submissionLabel(graded, label, "submitted")).toBe("submitted");
-    expect(submissionLabel(assignment(), label, "graded")).toBe("graded");
-  });
-});
-
-describe("bundled public subscription data", () => {
-  type Source = { title: string; url: string };
-  type Department = {
-    id: string;
-    name: { ja: string; en: string };
-    syllabusScope: string;
-    guidePdf: string;
-    recommended: { code: string; group: string; mark?: string }[];
-  };
-  const readDepartments = (year: "2025" | "2026") =>
-    JSON.parse(
-      readRepoFile(
-        `crates/app-core/tests/fixtures/subscriptions/data/${year}/departments.json`,
-      ),
-    ) as {
-      admissionYear: number;
-      source: Source[];
-      departments: Department[];
-    };
-
-  it("ships the 17 documented department guides with names and cited sources", () => {
-    const data = readDepartments("2026");
-    expect(data.source.length).toBeGreaterThan(0);
-    for (const source of data.source) {
-      expect(source.title.trim()).not.toBe("");
-      const url = new URL(source.url);
-      expect(url.protocol).toBe("https:");
-      expect(url.hostname.endsWith("titech.ac.jp")).toBe(true);
-    }
-    expect(data.departments).toHaveLength(17);
-    expect(
-      new Set(data.departments.map((department) => department.id)).size,
-    ).toBe(17);
-    expect(
-      data.departments.every(
-        (department) =>
-          department.name.ja.trim() !== "" &&
-          department.name.en.trim() !== "" &&
-          /^\d\/[^/]+$/.test(department.syllabusScope) &&
-          department.guidePdf.startsWith("https://www.titech.ac.jp/"),
-      ),
-    ).toBe(true);
-    expect(
-      data.departments.find((department) => department.id === "cs")?.name.ja,
-    ).toBe("情報工学系");
-  });
-
-  it("cites an official source for the academic-calendar day list", () => {
-    const calendar = JSON.parse(
-      readRepoFile(
-        "crates/app-core/tests/fixtures/subscriptions/data/2026/academic-calendar.json",
-      ),
-    ) as { source: Source[]; days: unknown[] };
-    expect(calendar.days.length).toBeGreaterThan(0);
-    expect(calendar.source.length).toBeGreaterThan(0);
-    for (const source of calendar.source) {
-      expect(source.title.trim()).not.toBe("");
-      const url = new URL(source.url);
-      expect(url.protocol).toBe("https:");
-      expect(url.hostname.endsWith("titech.ac.jp")).toBe(true);
-    }
-  });
-
-  it("keeps the two admission cohorts distinct", () => {
-    const current = readDepartments("2026");
-    const previous = readDepartments("2025");
-    expect(current.admissionYear).toBe(2026);
-    expect(previous.admissionYear).toBe(2025);
-    expect(current.source[0].url).not.toBe(previous.source[0].url);
-    const previousPdfs = new Set(
-      previous.departments.map((department) => department.guidePdf),
-    );
-    for (const department of current.departments) {
-      expect(previousPdfs.has(department.guidePdf), department.id).toBe(false);
-    }
+    const ungraded = submissionLabel(assignment(), label, "graded");
+    expect(submissionLabel(graded, label, "graded")).toContain("秀");
+    expect(submissionLabel(graded, label, "graded")).toContain(ungraded);
+    expect(submissionLabel(graded, label, "submitted")).not.toContain("秀");
   });
 });

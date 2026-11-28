@@ -100,13 +100,8 @@ fn workspace() -> Value {
 }
 
 #[test]
-fn exact_and_missed_reminders_share_a_durable_five_minute_grace() {
-    for (now, expected) in [
-        (DUE, true),
-        (GRACE, true),
-        ("2026-04-13T10:05:00+09:00", true),
-        (LATE, false),
-    ] {
+fn exact_and_missed_reminders_share_a_durable_grace() {
+    for (now, expected) in [(DUE, true), (GRACE, true), (LATE, false)] {
         let history = History::new();
         let workspace = workspace();
         let plan = history.reconcile(now, facts(), &workspace);

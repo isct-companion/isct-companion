@@ -15,12 +15,11 @@ pub(super) fn apply_academic_identity(
 ) -> Result<(), DataError> {
     if let Some(identity) = read_setting(connection, "kyomuAcademicIdentity")? {
         if text(&workspace["settings"], "departmentId").is_empty() {
-            let departments: Vec<Value> =
-                serde_json::from_str(include_str!("../course_query/departments.json"))?;
-            if let Some(department) = departments.iter().find(|d| {
-                d.pointer("/name/ja").and_then(Value::as_str) == identity["department"].as_str()
-            }) {
-                workspace["settings"]["departmentId"] = department["id"].clone();
+            if let Some(department) = crate::course_query::SyllabusDepartment::all()
+                .iter()
+                .find(|d| d.name.ja.as_deref() == identity["department"].as_str())
+            {
+                workspace["settings"]["departmentId"] = department.id.clone().into();
             }
         }
         if let Ok(date) =

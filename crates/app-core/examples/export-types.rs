@@ -103,8 +103,10 @@ fn main() {
     output.push_str("\nexport const DEFAULT_REMINDER_LEAD_OPTIONS: ReminderLeadOptions = ");
     output.push_str(
         &serde_json::to_string_pretty(
-            &app_core::schedule::reminder_lead_options(&empty_workspace["settings"]["notifications"])
-                .expect("valid default reminder times"),
+            &app_core::schedule::reminder_lead_options(
+                &empty_workspace["settings"]["notifications"],
+            )
+            .expect("valid default reminder times"),
         )
         .expect("serialize reminder choices"),
     );

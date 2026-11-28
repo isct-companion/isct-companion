@@ -207,13 +207,14 @@ struct RemoteCheck {
 pub struct CloudSync(Arc<Inner>);
 
 impl CloudSync {
+    /// Opens the sync journal at `journal`, a SQLite file.
     pub fn new(
-        legacy: PathBuf,
+        journal: PathBuf,
         supported: &[CloudProvider],
         authorized: &[CloudProvider],
     ) -> Result<Self, CloudSyncError> {
         Ok(Self(Arc::new(Inner {
-            journal: JournalStore::open(legacy, supported, authorized)?,
+            journal: JournalStore::open(journal, supported, authorized)?,
             run: tokio::sync::Mutex::new(()),
             tasks: RuntimeTasks::default(),
             pass: Arc::new(tokio::sync::Semaphore::new(1)),

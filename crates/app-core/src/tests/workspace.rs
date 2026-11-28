@@ -153,6 +153,8 @@ fn cached_settings_follow_external_commits_and_core_validates_every_value() {
         ("/density", json!(3)),
         ("/closeWindow", json!("minimize")),
         ("/cloud/provider", json!("dropbox")),
+        // Only the department table's own ids are stored; readers match exactly.
+        ("/departmentId", json!("undergraduate:cs")),
     ] {
         let error = service
             .apply(WorkspaceMutation {
@@ -1401,8 +1403,9 @@ fn offering(id: &str, code: &str, quarters: &[&str]) -> Value {
 }
 
 #[test]
-fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing_data() {
+fn catalog_add_judges_stored_content_in_every_placed_quarter_and_rejects_the_whole_batch() {
     let service = service("catalog-first-year");
+    // Added before any study profile: an unknown identity does not block.
     run(
         &service,
         WorkspaceIntent::AddCatalogCourses {
@@ -1411,69 +1414,6 @@ fn catalog_add_enforces_first_year_eligibility_atomically_and_preserves_existing
         },
     )
     .unwrap();
-    run(
-        &service,
-        WorkspaceIntent::SetStudyProfile {
-            admission_year: Some(2026),
-            study_enrollments: vec![StudyEnrollment {
-                stage: crate::study_profile::StudyStage::Undergraduate,
-                entry_kind: crate::study_profile::StudyEntryKind::Regular,
-                entry_grade: Some(1),
-                admitted_term: "2026-1Q".into(),
-            }],
-        },
-    )
-    .unwrap();
-    let before = service.read_back().unwrap();
-    let error = run(
-        &service,
-        WorkspaceIntent::AddCatalogCourses {
-            term_id: "2026-3Q".into(),
-            offerings: vec![
-                offering("202630100", "CSC.T101", &["3Q"]),
-                offering("202630200", "LAH.T209-01", &["3Q"]),
-            ],
-        },
-    )
-    .unwrap_err();
-    assert!(matches!(error, DataError::InvalidInput(_)));
-    let rejected = service.read_back().unwrap();
-    assert_eq!(rejected.revision, before.revision);
-    assert!(rows(&rejected.workspace, "courses")
-        .unwrap()
-        .any(|course| is_live(course) && course["code"] == "CSC.T301"));
-    assert!(!rows(&rejected.workspace, "courses")
-        .unwrap()
-        .any(|course| course["code"] == "CSC.T101"));
-
-    let first_year = run(
-        &service,
-        WorkspaceIntent::AddCatalogCourses {
-            term_id: "2026-3Q".into(),
-            offerings: vec![offering("202630100", "CSC.T101", &["3Q"])],
-        },
-    )
-    .unwrap();
-    assert!(rows(&first_year, "courses")
-        .unwrap()
-        .any(|course| is_live(course) && course["code"] == "CSC.T101"));
-
-    let second_year = run(
-        &service,
-        WorkspaceIntent::AddCatalogCourses {
-            term_id: "2027-3Q".into(),
-            offerings: vec![offering("202630200", "CSC.T201", &["3Q"])],
-        },
-    )
-    .unwrap();
-    assert!(rows(&second_year, "courses")
-        .unwrap()
-        .any(|course| is_live(course) && course["code"] == "CSC.T201"));
-}
-
-#[test]
-fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
-    let service = service("catalog-authority");
     run(
         &service,
         WorkspaceIntent::SetStudyProfile {
@@ -1495,15 +1435,18 @@ fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
         },
     )
     .unwrap();
+    let allowed = offering("202630100", "CSC.T101", &["4Q"]);
     let canonical = offering("202630209", "LAH.T209-01", &["3Q", "4Q"]);
     service
         .store
-        .catalog_upsert_offerings(std::slice::from_ref(&canonical))
+        .catalog_upsert_offerings(&[allowed.clone(), canonical.clone()])
         .unwrap();
     let before = service.read_back().unwrap();
 
-    // The requested 4Q is a master's term, but the same offering would
-    // also be placed into undergraduate 3Q and must be rejected there.
+    // The requested 4Q is a master's term, but the stored offering would
+    // also be placed into undergraduate 3Q and must be rejected there, even
+    // though the submitted copy claims an allowed code. The allowed course
+    // in the same batch is not written either.
     let mut submitted = canonical;
     submitted["code"] = json!("CSC.T101");
     let error = service
@@ -1511,17 +1454,31 @@ fn catalog_add_checks_authoritative_content_in_every_placed_quarter() {
             expected_revision: before.revision.clone(),
             intent: WorkspaceIntent::AddCatalogCourses {
                 term_id: "2026-4Q".into(),
-                offerings: vec![submitted],
+                offerings: vec![allowed.clone(), submitted],
             },
         })
         .unwrap_err();
-    assert_eq!(
-        error.to_string(),
-        "LAH.T209-01 is not available to a regular first-year undergraduate student."
-    );
-    let after = service.read_back().unwrap();
-    assert_eq!(after.revision, before.revision);
-    assert!(!rows(&after.workspace, "courses").unwrap().any(is_live));
+    assert!(matches!(error, DataError::InvalidInput(_)));
+    let rejected = service.read_back().unwrap();
+    assert_eq!(rejected.revision, before.revision);
+    assert!(rows(&rejected.workspace, "courses")
+        .unwrap()
+        .any(|course| is_live(course) && course["code"] == "CSC.T301"));
+    assert!(!rows(&rejected.workspace, "courses")
+        .unwrap()
+        .any(|course| course["code"] == "CSC.T101"));
+
+    let accepted = run(
+        &service,
+        WorkspaceIntent::AddCatalogCourses {
+            term_id: "2026-4Q".into(),
+            offerings: vec![allowed],
+        },
+    )
+    .unwrap();
+    assert!(rows(&accepted, "courses")
+        .unwrap()
+        .any(|course| is_live(course) && course["code"] == "CSC.T101"));
 }
 
 /// Live plan items as `(id, courseId, termId)`.

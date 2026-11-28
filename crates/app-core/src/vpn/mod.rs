@@ -111,8 +111,8 @@ pub struct HelperReport {
     pub detail: Option<String>,
     /// When the tunnel's session ends, as openconnect reported it.
     pub expires_at: Option<DateTime<Utc>>,
-    /// The answering helper's revision; `None` from the first helpers.
-    pub revision: Option<u32>,
+    /// The answering helper's revision.
+    pub revision: u32,
     /// Why the helper ended the last tunnel itself.
     pub ended: Option<Ending>,
     /// The file the helper runs from, when it says.
@@ -343,7 +343,7 @@ pub trait VpnPort: Send + Sync {
 /// copy installed elsewhere, as on Windows).
 pub fn project(report: HelperReport, own_helper: Option<&Path>) -> VpnState {
     if report.state != HelperState::Connected {
-        if report.revision < Some(HELPER_REVISION) {
+        if report.revision < HELPER_REVISION {
             return VpnState::Error(VpnError::HelperOutdated);
         }
         if let (Some(own), Some(program)) = (own_helper, &report.program) {

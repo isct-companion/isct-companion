@@ -8,7 +8,7 @@
 
 use super::html::{
     by_id, cells, clean, clean_text, closest, disabled, first, group, is, js_number, jwc, lines,
-    maintenance_notice, nine_digits, select, table_rows, text_content,
+    nine_digits, select, table_rows, text_content,
 };
 use super::SchoolParseError;
 use scraper::{ElementRef, Html};
@@ -35,7 +35,6 @@ pub const MAX_SEARCH_ROWS: usize = 1000;
 const MAX_PAGE_ROWS: usize = 2000;
 
 pub enum SearchRead {
-    Maintenance(String),
     /// The grid pages its rows: post these fields back once to show its
     /// largest page.
     Expand(Vec<(String, String)>),
@@ -57,12 +56,9 @@ enum Prelude<'a> {
     Grid(Option<ElementRef<'a>>, Option<ElementRef<'a>>),
 }
 
-/// The maintenance page, the paging postback, or the grid and its page-size
+/// The paging postback, or the grid and its page-size
 /// control: what every search response is checked for first.
 fn prelude(document: &Html, expand: bool) -> Result<Prelude<'_>, SchoolParseError> {
-    if let Some(notice) = maintenance_notice(document) {
-        return Ok(Prelude::Read(SearchRead::Maintenance(notice)));
-    }
     let grid = by_id(document, "ctl00_ContentPlaceHolder1_gvGrid");
     let page_size = grid.and_then(|grid| first(grid, r#"select[id$="_drpPageSize"]"#));
     if expand {

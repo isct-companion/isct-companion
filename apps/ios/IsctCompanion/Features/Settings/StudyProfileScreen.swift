@@ -30,10 +30,6 @@ struct StudyProfileScreen: View {
                         ForEach(departments, id: \.id) { department in
                             Text(department.name).tag(department.id)
                         }
-                        // A stored id this list does not hold still shows.
-                        if !departmentId.isEmpty, !departments.contains(where: { $0.id == departmentId }) {
-                            Text(departmentId).tag(departmentId)
-                        }
                     }
                     Picker(t("settings.main.admissionYear"), selection: Binding(get: { year }, set: { choose(year: $0, stage: stage) })) {
                         Text(t("settings.studyProfile.notSet")).tag(Int32?.none)
@@ -60,11 +56,10 @@ struct StudyProfileScreen: View {
         .task(id: model.contentRevision) { await load() }
     }
 
-    /// The stored department, matched like the desktop's `departmentById`
-    /// (a plain id or a subscription-scoped "2026:cs").
+    /// Core stores only ids of its department table, so the stored id is a
+    /// picker value as it is.
     private var departmentId: String {
-        let raw = model.records.settings["departmentId"] as? String ?? ""
-        return departments.first { raw == $0.id || raw.hasSuffix(":\($0.id)") }?.id ?? raw
+        model.records.settings["departmentId"] as? String ?? ""
     }
 
     private var departmentBinding: Binding<String> {

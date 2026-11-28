@@ -30,9 +30,9 @@ with `// @vitest-environment jsdom`; everything else runs in plain node.
 | The thing you are protecting                                     | Suite                                              |
 | ---------------------------------------------------------------- | -------------------------------------------------- |
 | Dates, quarters, timetable geometry, locales, text, message keys | `unit/schedule-and-dates`, `unit/text-and-locales` |
-| Course eligibility, finder ranking, editors                      | `unit/courses-and-eligibility`                     |     | LMS files, previews, lessons, assignments, OCR input | `unit/lms-content` |
+| Course eligibility, finder ranking, editors, department ids      | `unit/courses-and-eligibility`                     |
+| LMS files, previews, lessons, assignments, OCR input             | `unit/lms-content`                                 |
 | School hosts, sessions, injected web scripts                     | `unit/school-sites`                                |
-| Public fixture provenance, bundled subscription data             | `unit/courses-and-eligibility`                           |
 | Bridge contracts, capability policy, query caches, store, routes | `unit/workspace-store`                             |
 | Build/release tooling, generated artifacts                       | `unit/tooling`                                     |
 | Shell navigation, retention, shortcuts                           | `e2e/app-shell`                                    |
@@ -95,7 +95,6 @@ import {
   workspaceFixture,
   overviewFor,
   planningWeekFor,
-  scheduleViewFor,
   emptySchoolRecords,
   emptyCredentialStatus,
   repositoryRoot,
@@ -246,6 +245,16 @@ Two rules keep this from growing:
 - **No test that a sibling already covers.** If another test in the crate
   exercises the same function and boundary, fold any distinctive assertions into
   that test and delete the narrower one. A deletion needs a named survivor.
+
+Tests over files that cannot be committed (pages and answers saved from a real
+account, a private camera frame, the published campus map) are not `#[ignore]`d:
+each group sits behind a cfg that the crate's `build.rs` turns on, through
+`crates/capture-gate`, only when its variable is set and the directory (or
+file) it names exists. Without them the tests are not compiled; with them they
+run in a plain `cargo test`, for example
+`KYOMU_CAPTURES=/path/to/dir cargo test -p adpt-isct`, and a file missing from
+the directory fails its test. Each test file's header names its variable and
+the files it reads.
 
 Integration tests are the exception cargo dictates: `apps/desktop/src-tauri/tests/`
 holds the ones that link the crate from outside, named for their behaviour

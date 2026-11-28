@@ -1,8 +1,11 @@
 //! The page's rules over the published export, by fixed real places, through
 //! its contract: intents in, the rendered scene out. The file is not in this
 //! repository: `ISCT_CAMPUS_MAP_EXPORT` names a downloaded
-//! `campus-map.json.gz`, the pinned one the `campus-map` workflow fetches, so
-//! these run only with `--ignored`.
+//! `campus-map.json.gz`, the pinned one the `campus-map` workflow fetches, and
+//! these are compiled only when that file exists (`campus_map_export`,
+//! `build.rs`).
+//!
+//! `ISCT_CAMPUS_MAP_EXPORT=/path/to/campus-map.json.gz cargo test -p app-core --features campus-map campus_map`
 use super::*;
 use crate::campus_map::{
     export,
@@ -23,10 +26,8 @@ const PREFERENCES: Preferences = Preferences {
 };
 
 fn map() -> Arc<Map> {
-    let path = std::env::var("ISCT_CAMPUS_MAP_EXPORT").unwrap_or_else(|_| {
-        panic!("ISCT_CAMPUS_MAP_EXPORT must name the published campus-map.json.gz")
-    });
-    let gz = std::fs::read(&path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"));
+    let path = env!("ISCT_CAMPUS_MAP_EXPORT");
+    let gz = std::fs::read(path).unwrap_or_else(|error| panic!("cannot read {path}: {error}"));
     Arc::new(Map::new(export::read(&gz).expect("format 2")).expect("a valid export"))
 }
 
@@ -114,7 +115,6 @@ fn building_of(map: &Map, level_id: Option<&str>) -> Option<usize> {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn focus_holds_through_small_zooms_and_enters_on_the_street_floor() {
     let map = map();
     let center = map.export.buildings[map.buildings[W9]].center;
@@ -144,7 +144,6 @@ fn focus_holds_through_small_zooms_and_enters_on_the_street_floor() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn the_building_holding_a_point_wins_over_a_smaller_one_nearby() {
     let map = map();
     let footprint = |id: &str| &map.export.buildings[map.buildings[id]].footprint;
@@ -169,7 +168,6 @@ fn the_building_holding_a_point_wins_over_a_smaller_one_nearby() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn search_finds_buildings_by_the_codes_in_the_data() {
     let map = map();
     let first = |query: &str| {
@@ -195,7 +193,6 @@ fn search_finds_buildings_by_the_codes_in_the_data() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
     let map = map();
     let w9 = map.buildings[W9];
@@ -306,7 +303,6 @@ fn a_selection_survives_floor_changes_zooming_out_and_other_buildings() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn a_quick_tap_picks_a_room_and_a_tap_on_nothing_closes_the_card() {
     let map = map();
     let mut page = Page::open(map.clone(), PREFERENCES, Some("W9-202"));
@@ -355,7 +351,6 @@ fn a_quick_tap_picks_a_room_and_a_tap_on_nothing_closes_the_card() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn an_entrance_picked_on_the_building_card_shows_its_floor_in_the_map() {
     let map = map();
     let w9 = map.buildings[W9];
@@ -407,7 +402,6 @@ fn an_entrance_picked_on_the_building_card_shows_its_floor_in_the_map() {
 }
 
 #[test]
-#[ignore = "needs the published export in ISCT_CAMPUS_MAP_EXPORT"]
 fn locate_picks_the_building_the_person_stands_in_or_near() {
     let map = map();
     let w9 = map.buildings[W9];

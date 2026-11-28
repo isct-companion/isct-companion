@@ -311,50 +311,6 @@ fn draft_upload_rechecks_the_stored_assignment_before_reading_files() {
     ));
 }
 
-#[test]
-fn the_layout_before_the_trees_moves_in_without_overwriting() {
-    let fixture = Fixture::new("migrate");
-    let root = &fixture.0;
-    let old = root.join("2026-3Q/CSC.T251");
-    let workspace = old.join("workspaces/Report 3");
-    fs::create_dir_all(workspace.join(SUBMIT_DIR)).unwrap();
-    fs::write(
-        workspace.join(META),
-        r#"{"assignment":"a1","title":"Report 3"}"#,
-    )
-    .unwrap();
-    fs::write(workspace.join("submit/answer.pdf"), "mine").unwrap();
-    fs::create_dir_all(old.join("materials")).unwrap();
-    fs::write(old.join("materials/slides-1234abcd.pdf"), "old copy").unwrap();
-    // Already in the material tree, so the old copy must not replace it.
-    let newer = root.join("material/2026-3Q/CSC.T251/materials/slides-1234abcd.pdf");
-    fs::create_dir_all(newer.parent().unwrap()).unwrap();
-    fs::write(&newer, "new copy").unwrap();
-    fs::create_dir_all(root.join("Photos")).unwrap();
-
-    let first = storage::migrate_layout(root).unwrap();
-    assert_eq!(first, storage::Moved { moved: 1, kept: 1 });
-    let found = Workspaces::new(root.clone())
-        .find(&course(), "a1")
-        .unwrap()
-        .unwrap();
-    assert!(Path::new(&found.path).ends_with("workspace/2026-3Q/CSC.T251/Report 3"));
-    assert_eq!(
-        fs::read_to_string(Path::new(&found.path).join("submit/answer.pdf")).unwrap(),
-        "mine"
-    );
-    assert_eq!(fs::read_to_string(&newer).unwrap(), "new copy");
-    assert!(old.join("materials/slides-1234abcd.pdf").exists());
-    assert!(!old.join("workspaces").exists());
-    // A folder not named like a quarter is not the app's.
-    assert!(root.join("Photos").is_dir());
-    // Running again finds only what it already had to keep.
-    assert_eq!(
-        storage::migrate_layout(root).unwrap(),
-        storage::Moved { moved: 0, kept: 1 }
-    );
-}
-
 // The one `ASSIGNMENT.md` the desktop and its agents starts from: the LMS
 // description as plain text (the row's notes when the page has none), the
 // due time in Japan time, and every attachment, saying which were not saved.

@@ -1,0 +1,7 @@
+[package]
+name = "capture-gate"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.90"
+publish = false
+description = "Build-script switch for the tests that read files kept outside the repository"

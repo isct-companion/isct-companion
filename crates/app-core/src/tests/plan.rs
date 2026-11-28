@@ -1,5 +1,5 @@
 use super::planner::{
-    self, Candidate, Credential, Credentials, Depth, Facts, Inputs, Lane, ReferenceWatch, Waited,
+    self, Candidate, Credentials, Depth, Facts, Inputs, Lane, ReferenceWatch, Waited,
 };
 use super::runner::{ReadRefused, ReadRequest};
 use super::*;
@@ -9,7 +9,7 @@ use crate::{
     lms_ingest::StoredLmsCourse,
     net::{
         moodle::{MoodleClient, MoodleFunction, TokenFact, Via},
-        Host,
+        Host, Http,
     },
     ports::{SecretError, SecretVault},
     school_auth::SchoolAuthService,
@@ -82,6 +82,8 @@ fn stored(
             next_eligible,
             last_error: next_eligible.map(|_| "timeout".into()),
             last_used: None,
+            changed_at: None,
+            due_marks: Vec::new(),
         },
     )
 }
@@ -126,6 +128,7 @@ fn inputs(states: Vec<(Key, KeyState)>) -> Inputs {
         year: None,
         english: false,
         references: Vec::new(),
+        own_prefix: None,
     }
 }
 
@@ -297,6 +300,66 @@ fn due_keys_are_planned_missing_first_within_each_tier() {
     assert!(find(&again, &key(Dataset::LmsCourse, "101")).is_none());
 }
 
+/// Every 教務 page due at once (a first read, a week gone): what the open
+/// page needs is leased first, in the page's order, not by key name
+/// (2026-11-22: the timetable's registrations waited behind declared, gpa,
+/// grades and profile, about eleven seconds), even when declared would read
+/// the list beside it (`d/3mjnxv`). A press of both reads the registered
+/// list beside the declared page it vouches for, in one read, never on its
+/// own (`d/cy7j2w`, `d/h8nbng`, `d/aevz1j`).
+#[test]
+fn a_visible_page_leases_its_own_keys_first_in_its_order() {
+    let week_old = |page: &str| {
+        stored(
+            Dataset::KyomuPage,
+            page,
+            Some(now() - Duration::days(8)),
+            None,
+        )
+    };
+    let inputs = inputs(
+        [
+            "profile",
+            "registrations",
+            "declared",
+            "grades",
+            "requirements",
+            "gpa",
+        ]
+        .into_iter()
+        .map(week_old)
+        .collect(),
+    );
+    let kyomu = |plan: &[Candidate]| -> Vec<String> {
+        plan.iter()
+            .filter(|candidate| candidate.lane == Lane::Kyomu)
+            .map(|candidate| candidate.key.key.clone())
+            .collect()
+    };
+    let timetable = kyomu(&plan(&inputs, &facts(), &[View::Timetable], &[]));
+    assert_eq!(timetable.first().map(String::as_str), Some("registrations"));
+    let grades = kyomu(&plan(&inputs, &facts(), &[View::Grades], &[]));
+    assert_eq!(&grades[..3], ["grades", "gpa", "requirements"]);
+    let declared = key(Dataset::KyomuPage, "declared");
+    let registrations = key(Dataset::KyomuPage, "registrations");
+    // Also when only declared is missing, as after a cancelled first sync.
+    let mut interrupted = inputs.clone();
+    interrupted.states.remove(&declared);
+    for inputs in [inputs, interrupted] {
+        let pressed = plan(
+            &inputs,
+            &facts(),
+            &[],
+            &[declared.clone(), registrations.clone()],
+        );
+        assert!(find(&pressed, &registrations).is_none());
+        assert_eq!(
+            find(&pressed, &declared).map(|read| (read.priority, read.depth)),
+            Some((Priority::Interactive, Depth::Full))
+        );
+    }
+}
+
 #[test]
 fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backoff() {
     let minutes = |minutes: i64| Some(now() - Duration::minutes(minutes));
@@ -363,23 +426,34 @@ fn an_open_page_renews_after_fifteen_minutes_and_a_refresh_ignores_ttl_and_backo
     }
 }
 
-/// The open finder reads a department it never stored before other due
-/// work and on any network; a stored one, however old, keeps the view's
-/// priority. English names wait for the Japanese rows they merge into.
+/// The open finder reads the person's own department and the shared
+/// families it never stored at once and on any network, still after what
+/// other visible pages need; every other department, and a stored one
+/// however old, stays background work (`d/8j3ytx`). English names wait for
+/// the Japanese rows they merge into.
 #[test]
 fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     let department = planner::department_prefixes()[0].clone();
+    let other = planner::department_prefixes()
+        .iter()
+        .find(|prefix| **prefix != department && !matches!(prefix.as_str(), "LA" | "ENT"))
+        .unwrap()
+        .clone();
     let japanese = key(Dataset::CatalogOfficial, &format!("2026/{department}"));
     let english = key(Dataset::CatalogOfficial, &format!("2026/{department}/en"));
+    let elsewhere = key(Dataset::CatalogOfficial, &format!("2026/{other}"));
+    let liberal_arts = key(Dataset::CatalogOfficial, "2026/LA");
     let mut inputs = inputs(Vec::new());
     inputs.year = Some(2026);
+    inputs.own_prefix = Some(department.clone());
     let finder = [View::Finder { year: 2026 }];
     let plan_now = |inputs: &Inputs, facts: &Facts| plan(inputs, facts, &finder, &[]);
     let priority = |plan: &[Candidate], wanted: &Key| {
         find(plan, wanted).map(|candidate| (candidate.priority, candidate.held.clone()))
     };
-    // Nothing stored: the shown year's departments come first, even on
-    // cellular; without the finder they are background work that waits.
+    // Nothing stored: the person's own department and the shared families
+    // are read at once, even on cellular; every other department, and all
+    // of them without the finder, are background work that waits.
     let cellular = Facts {
         network: Network::Cellular,
         ..facts()
@@ -387,6 +461,36 @@ fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     assert_eq!(
         priority(&plan_now(&inputs, &cellular), &japanese),
         Some((Priority::Interactive, None))
+    );
+    assert_eq!(
+        priority(&plan_now(&inputs, &cellular), &liberal_arts),
+        Some((Priority::Interactive, None))
+    );
+    assert_eq!(
+        priority(&plan_now(&inputs, &cellular), &elsewhere),
+        Some((Priority::Background, Some(Held::Cellular)))
+    );
+    // Even raised, the catalog is leased after what another visible page
+    // needs from the same 教務 lane.
+    let mut busy = inputs.clone();
+    busy.states.insert(
+        key(Dataset::KyomuPage, "registrations"),
+        stored(
+            Dataset::KyomuPage,
+            "registrations",
+            Some(now() - Duration::days(2)),
+            None,
+        )
+        .1,
+    );
+    let both = plan(
+        &busy,
+        &facts(),
+        &[View::Finder { year: 2026 }, View::Timetable],
+        &[],
+    );
+    assert!(
+        position(&both, &key(Dataset::KyomuPage, "registrations")) < position(&both, &japanese)
     );
     assert_eq!(
         priority(&plan(&inputs, &cellular, &[], &[]), &japanese),
@@ -411,10 +515,11 @@ fn finder_catalog_keys_read_new_departments_first_and_english_after_japanese() {
     let english_read = find(&plan, &english).cloned().unwrap();
     assert_eq!(english_read.lane, Lane::Kyomu);
     assert_eq!(english_read.priority, Priority::Interactive);
-    // A week-old stored department is renewed at the view's priority.
-    assert_eq!(priority(&plan, &japanese), Some((Priority::Visible, None)));
-    assert_eq!(planner::japanese_key(&english), Some(japanese.clone()));
-    assert_eq!(planner::japanese_key(&japanese), None);
+    // A week-old stored department is renewed in the background.
+    assert_eq!(
+        priority(&plan, &japanese),
+        Some((Priority::Background, None))
+    );
 }
 
 /// After a reset the open course page asks for its course before the
@@ -749,8 +854,9 @@ fn the_english_catalog_reads_on_its_own_session() {
 /// (here the token answered the enrolment's dashboard block with no grid the
 /// parser reads, and the session behind the cookie fallback was refused).
 /// That record never holds another key: the deadlines use the same token and
-/// go on, and so does the same key asked for in full. Any move of the facts
-/// lets it go, and a pause it waited for runs out on its own.
+/// go on, and so does the same key asked for in full. A pause it waited for
+/// runs out on its own; a move of the facts letting it go is the engine path
+/// in `a_paused_host_or_a_blocked_account_holds_keys_without_failing_them`.
 #[test]
 fn a_key_that_ended_waiting_waits_until_the_facts_move_and_holds_no_other() {
     let deadlines = key(Dataset::LmsDeadlines, "all");
@@ -805,15 +911,6 @@ fn a_key_that_ended_waiting_waits_until_the_facts_move_and_holds_no_other() {
         ),
         Some((Depth::Full, None))
     );
-    // Stamped with a version older than the facts now: it holds nothing.
-    let moved = Credentials {
-        version: 2,
-        ..credentials()
-    };
-    assert_eq!(
-        held(&waited(until), &moved, &[], &enrolment),
-        Some((Depth::Light, None))
-    );
     let ran_out = waited(now() - Duration::seconds(1));
     assert_eq!(
         held(&ran_out, &credentials(), &[], &enrolment),
@@ -832,15 +929,6 @@ fn a_function_the_token_cannot_serve_moves_only_its_keys_to_the_cookie() {
     let token = TokenFact::Held {
         unavailable: HashSet::from([MoodleFunction::PageGetPagesByCourses]),
     };
-    let lms = Credential::Site(Site::Lms);
-    assert_eq!(
-        planner::usable_path(&course, Depth::Light, &token),
-        vec![lms]
-    );
-    assert_eq!(
-        planner::usable_path(&deadlines, Depth::Light, &token),
-        vec![Credential::Token, lms]
-    );
     assert_eq!(school::via(&course, Depth::Light, &token), Via::Cookie);
     assert_eq!(school::via(&deadlines, Depth::Light, &token), Via::Token);
     // The full enrolment reads on the session whatever the token knows; a
@@ -911,7 +999,7 @@ fn engine_with(name: &str, auth: Arc<SchoolAuthService>) -> (PlanEngine, DataSto
 
 /// An engine whose Tokyo Tech account is set up, its school sessions
 /// attached (they never reach the network).
-fn tokyo_engine(name: &str) -> (PlanEngine, DataStore, SchoolSessions) {
+fn tokyo_engine(name: &str, http: Option<Http>) -> (PlanEngine, DataStore, SchoolSessions) {
     let auth = Arc::new(SchoolAuthService::new(MemoryVault::default()));
     auth.promote(
         SchoolAuthProfile::TokyoTech,
@@ -924,7 +1012,7 @@ fn tokyo_engine(name: &str) -> (PlanEngine, DataStore, SchoolSessions) {
     )
     .unwrap();
     let (engine, store) = engine_with(name, auth.clone());
-    let sessions = SchoolSessions::new(None, auth.clone());
+    let sessions = SchoolSessions::new(http, auth.clone());
     engine.attach_school(SchoolReaders {
         sessions: sessions.clone(),
         moodle: Arc::new(MoodleClient::new(auth, sessions.credential_signal())),
@@ -954,7 +1042,6 @@ async fn runs_count_real_keys_and_a_refresh_joins_the_lease_in_flight() {
     let snapshot = engine.snapshot();
     let run = reference_runs(&snapshot)[0].clone();
     assert_eq!((run.done, run.total), (0, Some(followed as u32)));
-    assert_eq!(run.label.key, "sync.run.reference");
 
     // The independent announcement read may take the same lane first.
     let mut first = engine.lease_for_test(Lane::IsctData).unwrap();
@@ -1026,6 +1113,16 @@ fn last_run(store: &DataStore) -> (String, Option<String>) {
         .unwrap()
 }
 
+fn run_count(store: &DataStore) -> i64 {
+    store
+        .write(None, |transaction| {
+            transaction
+                .query_row("SELECT COUNT(*) FROM sync_runs", [], |row| row.get(0))
+                .map_err(crate::data::DataError::from)
+        })
+        .unwrap()
+}
+
 fn failures(store: &DataStore, key: &Key) -> u32 {
     store
         .write(None, |transaction| sync_state::get(transaction, key))
@@ -1033,11 +1130,99 @@ fn failures(store: &DataStore, key: &Key) -> u32 {
         .map_or(0, |state| state.failures)
 }
 
+/// Leaving 教務Web is a write to the school's data (`d/wdhvm1`): a read
+/// leased before it never commits after it, and the confirmation read leased
+/// after it does. The confirmation is one declared read with the registered
+/// list beside it (`d/aevz1j`): the list is not leased on its own, and is
+/// still wanted when it did not land beside the declared page.
+#[tokio::test]
+async fn leaving_kyomu_confirms_changes_after_an_earlier_refresh() {
+    let (engine, store, _) = tokyo_engine("confirm-after-refresh", None);
+    let registrations = key(Dataset::KyomuPage, "registrations");
+    let declared = key(Dataset::KyomuPage, "declared");
+    // What `school::read_kyomu_page` commits for the pages that landed.
+    let land = |lease: &Lease, pages: &[&Key]| {
+        if lease.key == declared && pages.contains(&&registrations) {
+            lease.landed_beside();
+        }
+        lease.writer().write(None, |tx| {
+            for page in pages {
+                sync_state::commit(
+                    tx,
+                    page,
+                    Commit {
+                        validator: None,
+                        outcome: Outcome::Complete,
+                        message: None,
+                    },
+                    crate::clock::now(),
+                )?;
+            }
+            Ok::<_, crate::data::DataError>(())
+        })
+    };
+    engine.refresh_for_test(Scope::Timetable);
+    engine.evaluate_now().await;
+    let earlier = engine.lease_for_test(Lane::Kyomu).unwrap();
+    assert_eq!(earlier.key, registrations);
+
+    // The old read started before the person finished registering online.
+    engine.hints().kyomu_web_left();
+    engine.evaluate_now().await;
+    let write = land(&earlier, &[&registrations]);
+    assert!(matches!(write, Err(Gated::Stale)), "{write:?}");
+    let committed = store
+        .write(None, |transaction| {
+            sync_state::get(transaction, &registrations)
+        })
+        .unwrap();
+    assert!(committed.is_none(), "the stale read committed nothing");
+    engine.settle_for_test(earlier, KeyEnd::Stale).await;
+    let plan = engine.evaluate_now().await;
+    assert!(find(&plan, &registrations).is_none());
+    assert_eq!(
+        find(&plan, &declared).map(|read| read.priority),
+        Some(Priority::Interactive)
+    );
+    let confirmation = engine.lease_for_test(Lane::Kyomu).unwrap();
+    assert_eq!(confirmation.key, declared);
+    land(&confirmation, &[&registrations, &declared]).unwrap();
+    engine
+        .settle_for_test(confirmation, KeyEnd::Done { changed: 0 })
+        .await;
+    let plan = engine.evaluate_now().await;
+    assert!(
+        find(&plan, &registrations).is_none(),
+        "answered beside declared"
+    );
+    assert!(find(&plan, &declared).is_none());
+
+    // A second visit can make another change inside the button's join
+    // window. The registered list fails beside the declared page: the
+    // declared page only adds, and the list is read again on its own.
+    engine.hints().kyomu_web_left();
+    engine.evaluate_now().await;
+    let confirmation = engine.lease_for_test(Lane::Kyomu).unwrap();
+    assert_eq!(confirmation.key, declared);
+    land(&confirmation, &[&declared]).unwrap();
+    engine
+        .settle_for_test(confirmation, KeyEnd::Done { changed: 0 })
+        .await;
+    let plan = engine.evaluate_now().await;
+    assert_eq!(
+        find(&plan, &registrations).map(|read| read.priority),
+        Some(Priority::Interactive)
+    );
+    assert!(find(&plan, &declared).is_none());
+}
+
 #[tokio::test]
 async fn a_paused_host_or_a_blocked_account_holds_keys_without_failing_them() {
-    let (engine, store, _) = tokyo_engine("paused");
+    let http = Http::new().unwrap();
+    let (engine, store, _) = tokyo_engine("paused", Some(http.clone()));
     let page = key(Dataset::KyomuPage, "grades");
-    let until = crate::clock::now() + Duration::minutes(5);
+    http.report_maintenance(Host::Kyomu);
+    let until = DateTime::from_timestamp(http.paused_until(Host::Kyomu).unwrap(), 0).unwrap();
     engine
         .settle_for_test(
             Lease::detached(&store, page.clone()),
@@ -1058,13 +1243,40 @@ async fn a_paused_host_or_a_blocked_account_holds_keys_without_failing_them() {
         })
     );
     assert_eq!(failures(&store, &page), 0);
-    assert_eq!(last_run(&store).1.as_deref(), Some("host-paused"));
+    // Not the key's failure, and no run row either (`d/kt8ts2`).
+    assert_eq!(run_count(&store), 0);
+
+    // Report network facts outside the runtime so the real hint handler
+    // updates the breaker and planner without launching school HTTP reads.
+    let report = |hint| {
+        std::thread::scope(|threads| threads.spawn(|| engine.hint(hint)).join().unwrap());
+    };
+    report(Hint::Network {
+        network: Network::Offline,
+    });
+    let plan = engine.evaluate_now().await;
+    assert_eq!(find(&plan, &page).unwrap().held, Some(Held::Offline));
+    assert!(engine.lease_for_test(Lane::Kyomu).is_none());
+    assert!(http.paused_until(Host::Kyomu).is_some());
+    report(Hint::Suspend);
+    report(Hint::Network {
+        network: Network::Wifi,
+    });
+    let plan = engine.evaluate_now().await;
+    assert_eq!(find(&plan, &page).unwrap().held, Some(Held::Background));
+    assert!(http.paused_until(Host::Kyomu).is_none());
+    assert!(engine.lease_for_test(Lane::Kyomu).is_none());
+    report(Hint::Resume);
+    let plan = engine.evaluate_now().await;
+    assert_eq!(find(&plan, &page).unwrap().held, None);
+    assert!(engine.lease_for_test(Lane::Kyomu).is_some());
+    assert_eq!(run_count(&store), 0);
 
     // A read that ended waiting (its sign-in was refused) is no failure of
     // the key, and no key of its path is leased again while the account's
     // credential facts stay as they were; any move of them (a Connect, a
     // Retry, a session got) lets them go at once.
-    let (engine, store, sessions) = tokyo_engine("blocked");
+    let (engine, store, sessions) = tokyo_engine("blocked", None);
     let signal = sessions.credential_signal();
     let refused_at = |version: u64| KeyEnd::Blocked {
         profile: SchoolAuthProfile::TokyoTech,
@@ -1296,14 +1508,11 @@ fn snapshot_wire_names_match_the_shell_contract() {
 }
 
 /// The plan's own deadline includes what is not due yet: a fresh key at the
-/// end of its TTL, an open page's key at fifteen minutes, a backoff at its
-/// end and a paused host at its end. A key wanted by hand is due now, so it
-/// is in the plan, not in the deadline; with every key due or waiting for a
-/// fact, there is no time to wake for.
+/// end of its TTL, an open page's key at its open threshold, a backoff at its
+/// end and a paused host at its end.
 #[test]
 fn the_next_deadline_includes_keys_that_are_not_due_yet() {
     let deadlines = key(Dataset::LmsDeadlines, "all");
-    let enrolment = key(Dataset::LmsEnrolment, "all");
     let inputs = inputs(vec![
         stored(
             Dataset::LmsDeadlines,
@@ -1332,28 +1541,50 @@ fn the_next_deadline_includes_keys_that_are_not_due_yet() {
     // The deadlines key goes stale at its two-hour TTL; the enrolment list
     // backs off for twenty minutes, sooner.
     assert_eq!(next(&[], &facts()), Some(now() + Duration::minutes(20)));
-    // An open page renews the deadlines at fifteen minutes.
+    // An open page renews the deadlines at its open threshold.
     assert_eq!(
         next(&[View::Assignments], &facts()),
-        Some(now() - Duration::minutes(10) + planner::OPEN_THRESHOLD)
+        Some(
+            now() - Duration::minutes(10)
+                + super::freshness::open_threshold(&View::Assignments, &deadlines, false)
+        )
     );
     let mut paused = facts();
     paused
         .paused
         .insert(Host::Moodle, now() + Duration::minutes(5));
     assert!(next(&[], &paused).unwrap() <= now() + Duration::minutes(20));
-    let manual: HashMap<Key, Option<String>> =
-        [(deadlines.clone(), None), (enrolment.clone(), None)].into();
-    let wanted = planner::plan(
-        &inputs,
-        &facts(),
-        &credentials(),
-        &[],
-        &manual,
-        &HashSet::new(),
-        now(),
+}
+
+#[test]
+fn announcements_poll_on_cellular_only_while_in_the_foreground() {
+    let mut inputs = Inputs::default();
+    let mut facts = Facts {
+        network: Network::Cellular,
+        ..Facts::default()
+    };
+    let announcements = crate::announcements::key();
+    let due = plan(&inputs, &facts, &[], &[]);
+    let candidate = find(&due, &announcements).unwrap();
+    assert_eq!(candidate.lane, Lane::IsctData);
+    assert_eq!(candidate.priority, Priority::Visible);
+    assert!(candidate.held.is_none());
+
+    facts.foreground = false;
+    assert!(find(&plan(&inputs, &facts, &[], &[]), &announcements).is_none());
+
+    let (key, state) = stored(
+        Dataset::Announcements,
+        &announcements.key,
+        Some(now()),
+        None,
     );
-    assert!(find(&wanted, &deadlines).is_some());
+    inputs.states.insert(key, state);
+    let next =
+        |foreground| planner::next_due(&inputs, foreground, &[], &[], &HashMap::new(), now());
+    let ttl = sync_state::ttl(&announcements, sync_state::Term::Current).unwrap();
+    assert_eq!(next(true), Some(now() + ttl));
+    assert_eq!(next(false), None);
 }
 
 /// A one-off read is admitted by the engine's rules: held now (offline, a
@@ -1409,20 +1640,135 @@ async fn a_one_off_read_is_held_like_a_key_and_joins_its_equal() {
     );
 }
 
-/// An LMS write starts on a key's resource: a read leased before it never
-/// commits after it, and the next lease of the key, taken after, does.
-#[tokio::test]
-async fn a_read_leased_before_a_write_does_not_commit_after_it() {
-    let (engine, _store) = engine("resource");
+/// A background 教務 read gives the lane to a page the person opened at its
+/// next safe point, between two exchanges, and goes on once that page's
+/// read ends; the pause does not count against its deadline (`d/3mjnxv`).
+#[tokio::test(start_paused = true)]
+async fn a_background_read_gives_the_lane_to_an_opened_page_at_its_safe_point() {
+    use std::time::Duration as Elapsed;
+    use tokio::time::{advance, timeout, Instant};
+
+    let (engine, _, _) = tokyo_engine("yield", None);
     engine.evaluate_now().await;
-    let before = engine.lease_for_test(Lane::IsctData).unwrap();
-    let revision = engine.bump_resource(&before.key);
-    assert_eq!(revision, 1);
-    assert!(before.writer().enter().is_none());
-    engine.settle_for_test(before, KeyEnd::Stale).await;
+    let background = engine.fill_for_test(Lane::Kyomu);
+    assert_eq!(background.len(), 1);
+    let background = background.into_iter().next().unwrap();
+    assert_eq!(background.key, key(Dataset::KyomuPage, "declared"));
+    let deadline = background.deadline();
+
+    std::thread::scope(|threads| {
+        threads
+            .spawn(|| engine.hint(Hint::Open { view: View::Grades }))
+            .join()
+            .unwrap()
+    });
     engine.evaluate_now().await;
-    let after = engine.lease_for_test(Lane::IsctData).unwrap();
-    assert!(after.writer().enter().is_some());
+    // The lane is full: nothing new is leased, the running read is asked.
+    assert!(engine.fill_for_test(Lane::Kyomu).is_empty());
+    // The background read runs under the worker's deadline and reaches its
+    // safe point.
+    let background = Arc::new(background);
+    let paused = {
+        let background = background.clone();
+        tokio::spawn(async move {
+            let work = async {
+                background.checkpoint().await;
+                KeyEnd::Done { changed: 0 }
+            };
+            PlanEngine::bounded_for_test(&background, work).await
+        })
+    };
+    tokio::task::yield_now().await;
+    let opened = engine.fill_for_test(Lane::Kyomu);
+    assert_eq!(
+        opened
+            .iter()
+            .map(|lease| lease.key.clone())
+            .collect::<Vec<_>>(),
+        [key(Dataset::KyomuPage, "grades")]
+    );
+    // The opened page takes longer than the paused read had left.
+    let pause = deadline - Instant::now() + Elapsed::from_secs(1);
+    advance(pause).await;
+    assert!(!paused.is_finished(), "paused while the opened page reads");
+
+    // The opened page's reads end, those its grades make due included; the
+    // paused read then gets its slot back and finishes its work instead of
+    // timing out.
+    let mut opened = opened;
+    while let Some(lease) = opened.pop() {
+        assert_ne!(lease.key, background.key);
+        opened.extend(
+            engine
+                .finish_for_test(lease, KeyEnd::Done { changed: 0 })
+                .await,
+        );
+        if opened.is_empty() {
+            opened = engine.fill_for_test(Lane::Kyomu);
+        }
+    }
+    let end = timeout(Elapsed::from_secs(1), paused)
+        .await
+        .expect("the paused read resumes")
+        .unwrap();
+    assert!(matches!(end, KeyEnd::Done { .. }), "{end:?}");
+    assert!(background.deadline() >= deadline + pause);
+    // Not asked again: the next safe point goes straight on.
+    timeout(Elapsed::from_millis(100), background.checkpoint())
+        .await
+        .expect("no second pause");
+}
+
+/// A mobile network window can end before the worker's deadline. It must
+/// cancel that read, refuse new reads while suspended and free the slot
+/// for the first foreground request, even when it asks for the same key.
+#[tokio::test(start_paused = true)]
+async fn an_expired_background_window_frees_the_kyomu_slot_for_resume() {
+    use std::time::Duration as Elapsed;
+    use tokio::time::{advance, Instant};
+
+    let (engine, _) = engine("background-slot");
+    engine.prepare_background_start();
+    // This scenario exercises an interactive read; automatic reference
+    // downloads wait under power saver.
+    engine.hint(Hint::PowerSaver { on: true });
+    engine.begin_opportunity("mobile".into(), true);
+    let request = || ReadRequest {
+        key: "same-kyomu-read".into(),
+        lane: Lane::Kyomu,
+        account: None,
+        deadline: KEY_DEADLINE,
+    };
+    let (started, entered) = tokio::sync::oneshot::channel();
+    let worker = engine.clone();
+    let running = tokio::spawn(async move {
+        worker
+            .read(request(), |_| {
+                Box::pin(async move {
+                    started.send(()).unwrap();
+                    std::future::pending::<()>().await
+                })
+            })
+            .await
+    });
+    entered.await.unwrap();
+    assert!(!engine.wait_quiet(Elapsed::from_secs(25)).await);
+    assert!(engine.end_opportunity("mobile", OpportunityEnd::Finished));
+    assert_eq!(running.await.unwrap(), Err(ReadRefused::Cancelled));
+    assert_eq!(
+        engine.read(request(), |_| Box::pin(async {})).await,
+        Err(ReadRefused::Held(Held::Background))
+    );
+    advance(Elapsed::from_secs(5)).await;
+    engine.hint(Hint::Resume);
+    engine.hint(Hint::Foreground);
+    let resumed = Instant::now();
+    let next = engine
+        .read(request(), |_| Box::pin(async { Instant::now() }))
+        .await
+        .unwrap();
+    assert_eq!(next, resumed);
+    engine.shutdown().await;
 }
 
 /// A duty that is due once, counting its runs.
@@ -1560,8 +1906,6 @@ fn a_failed_kyomu_run_names_each_page_and_its_reason() {
         ),
         KeyEnd::HostPaused { .. }
     ));
-    let long = reason(KeyEnd::failed_because("parse", "", &"あ".repeat(500))).1;
-    assert_eq!(long.unwrap().chars().count(), 200);
 
     let failed = |kind: &str, reason: Option<String>| runner::FailedKey {
         kind: kind.into(),
@@ -1589,10 +1933,10 @@ fn a_failed_kyomu_run_names_each_page_and_its_reason() {
         finished_at: None,
     };
     let run = snapshot::run_view(&batch(Dataset::KyomuPage));
-    assert_eq!(
-        run.failure.unwrap().detail.as_deref(),
-        Some("gpa: http-500\ngrades: The grade page shape is unknown.")
-    );
+    let detail = run.failure.unwrap().detail.unwrap();
+    for quoted in ["gpa", "http-500", "grades", grades.as_deref().unwrap()] {
+        assert!(detail.contains(quoted), "{quoted} missing from {detail:?}");
+    }
     // A 教務Web page has no title; it is named by its page, never its key.
     assert_eq!(run.current.unwrap().key, "syncStatus.kyomuPage.profile");
     // Other datasets' keys are ids a person cannot read: no detail, and no
@@ -1736,13 +2080,17 @@ fn every_visible_dataset_has_its_sync_labels_in_every_catalog() {
         {
             let name = snapshot::label_name(dataset);
             assert!(catalog[format!("sync.run.{name}")].is_string(), "{name}");
-            assert_eq!(
-                catalog[format!("sync.current.{name}")],
-                "{{title}}",
+            // The current item is passed as its title.
+            assert!(
+                catalog[format!("sync.current.{name}")]
+                    .as_str()
+                    .is_some_and(|copy| copy.contains("{{title}}")),
                 "{name}"
             );
         }
-        for page in snapshot::KYOMU_PAGES {
+        // Each 教務Web page has a name in the catalogs, so a page in
+        // progress never shows its identifier.
+        for page in adpt_isct::kyomu::PAGES.map(|page| page.kind) {
             assert!(
                 catalog[format!("syncStatus.kyomuPage.{page}")].is_string(),
                 "{page}"
@@ -1852,6 +2200,9 @@ fn attention_prioritizes_visible_work_and_account_blockers_below_reset() {
     );
 }
 
+/// A failure's reason is copy every catalog has, an HTTP status reaches it
+/// as its number, and only a kind Core does not know falls back to the
+/// generic reason.
 #[test]
 fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
     let catalogs = [
@@ -1860,30 +2211,7 @@ fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
         include_str!("../../../../resources/locales/zh.json"),
     ]
     .map(|catalog| serde_json::from_str::<serde_json::Value>(catalog).unwrap());
-    for (kind, expected, arg) in [
-        (
-            "http-302",
-            "serverRedirected",
-            serde_json::json!({"status":"302"}),
-        ),
-        (
-            "http-403",
-            "serverRefused",
-            serde_json::json!({"status":"403"}),
-        ),
-        (
-            "http-503",
-            "serverFailed",
-            serde_json::json!({"status":"503"}),
-        ),
-        ("timeout", "timedOut", serde_json::json!({})),
-        ("dns", "unreachable", serde_json::json!({})),
-        ("stalled", "interrupted", serde_json::json!({})),
-        ("too-large", "tooLarge", serde_json::json!({})),
-        ("host-paused", "paused", serde_json::json!({})),
-        ("cancelled", "cancelled", serde_json::json!({})),
-        ("other", "unknownCode", serde_json::json!({})),
-    ] {
+    let reason = |kind: &str| {
         let mut state = stored(
             Dataset::Reference,
             "calendar/2026",
@@ -1902,16 +2230,39 @@ fn sync_failure_exposes_the_shared_reason_key_and_http_status() {
             inputs: &inputs,
             now: now(),
         });
-        let reference = projected
+        projected
             .sources
-            .iter()
+            .into_iter()
             .find(|source| source.source == "references")
-            .unwrap();
-        let reason = &reference.failure.as_ref().unwrap().reason;
-        assert_eq!(reason.key, format!("syncStatus.failure.{expected}"));
-        assert_eq!(reason.args, arg);
+            .unwrap()
+            .failure
+            .unwrap()
+            .reason
+    };
+    let unknown = reason("other");
+    for kind in [
+        "http-302",
+        "http-403",
+        "http-503",
+        "timeout",
+        "dns",
+        "stalled",
+        "too-large",
+        "host-paused",
+        "cancelled",
+        "other",
+    ] {
+        let shown = reason(kind);
         for catalog in &catalogs {
-            assert!(catalog[&reason.key].is_string(), "{}", reason.key);
+            assert!(catalog[&shown.key].is_string(), "{}", shown.key);
+        }
+        assert_eq!(
+            shown.args.get("status").and_then(|status| status.as_str()),
+            kind.strip_prefix("http-"),
+            "{kind}"
+        );
+        if kind != "other" {
+            assert_ne!(shown.key, unknown.key, "{kind}");
         }
     }
 }

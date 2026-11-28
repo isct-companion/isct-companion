@@ -50,20 +50,19 @@ pub struct VaultItem {
     pub synchronized: bool,
 }
 
-/// The keychain key of `account` under an application identifier. Desktop also
-/// reads the identifiers of earlier releases through this.
-pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
+/// The keychain key of `account`, under `VAULT_SERVICE`.
+fn vault_key(account: &str) -> Result<String, SecretError> {
     let suffix = match account {
         "school-accounts" => "passwords.school-accounts",
         "school-sign-out-science"
         | "school-sign-out-tokyo-tech"
         | "school-accepted-science"
-        | "school-accepted-tokyo-tech" => return Ok(format!("{app_id}.passwords.{account}")),
+        | "school-accepted-tokyo-tech" => {
+            return Ok(format!("{VAULT_SERVICE}.passwords.{account}"))
+        }
         "school-otp-enrollment" => "passwords.school-otp-enrollment",
         "school-otp-only" => "passwords.school-otp-only",
         "school-refusals" => "passwords.school-refusals",
-        // An earlier release's device item; Core only deletes it.
-        "school-candidates" => "passwords.school-candidates",
         "sciencetokyoexam" => "passwords.sciencetokyoexam",
         "google-drive" => "passwords.google-drive",
         "icloud" => "passwords.icloud",
@@ -72,17 +71,17 @@ pub fn vault_key(app_id: &str, account: &str) -> Result<String, SecretError> {
         "school-session-science" => "passwords.school-session-science",
         "school-session-tokyo-tech" => "passwords.school-session-tokyo-tech",
         part if crate::secret_parts::is_part(part) => {
-            return Ok(format!("{app_id}.passwords.{part}"))
+            return Ok(format!("{VAULT_SERVICE}.passwords.{part}"))
         }
         _ => return Err(SecretError::InvalidAccount),
     };
-    Ok(format!("{app_id}.{suffix}"))
+    Ok(format!("{VAULT_SERVICE}.{suffix}"))
 }
 
 pub fn vault_item(account: &str) -> Result<VaultItem, SecretError> {
     Ok(VaultItem {
         service: VAULT_SERVICE,
-        key: vault_key(VAULT_SERVICE, account)?,
+        key: vault_key(account)?,
         synchronized: account == "school-accounts",
     })
 }

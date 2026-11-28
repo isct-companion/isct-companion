@@ -62,6 +62,8 @@ objc2-core-ml = { version = "0.3", default-features = false, features = ["std", 
 libloading = { version = "=0.9.0", optional = true }
 
 [build-dependencies]
+# Switches on the test over a private camera frame.
+capture-gate = { path = "../capture-gate" }
 # Fetch and check the pinned Windows LiteRT DLL.
 sha2 = "0.11"
 ureq = { version = "3", default-features = false, features = ["rustls"] }

@@ -104,7 +104,8 @@ impl Http {
     /// Always sends the app User-Agent "Mozilla/5.0 (compatible; IsctCompanion/0.1)".
     ///
     /// Every status comes back as `Ok`; the caller decides what a 302, 404 or
-    /// 503 means. 5xx statuses still count as host failures. The deadline
+    /// 503 means. Statuses [`super::host_failing`] names still count as host
+    /// failures. The deadline
     /// starts when the request leaves the host queue.
     pub async fn send(&self, request: NetRequest) -> Result<Response, NetError> {
         if Host::of(&request.url) != Some(request.host) {
@@ -136,7 +137,7 @@ impl Http {
         };
         let result = exchange(&lane.client, request).await;
         let outcome = match &result {
-            Ok(response) if response.status >= 500 => Outcome::Failure,
+            Ok(response) if super::host_failing(response.status) => Outcome::Failure,
             Ok(_) => Outcome::Success,
             Err(NetError::Connect(_) | NetError::Dns | NetError::Stalled | NetError::Deadline) => {
                 Outcome::Failure
@@ -155,6 +156,12 @@ impl Http {
     /// The end of the host's current pause, while it lasts.
     pub fn paused_until(&self, host: Host) -> Option<i64> {
         self.0.breaker.paused_until(host, now_unix())
+    }
+
+    /// Lets the next request to a paused host be its probe now
+    /// (`Breaker::probe_early`); returns whether it did.
+    pub fn probe_early(&self, host: Host) -> bool {
+        self.0.breaker.probe_early(host, now_unix())
     }
 
     fn paused(&self, host: Host) -> Result<(), NetError> {
@@ -307,3 +314,7 @@ fn chain(error: &reqwest::Error) -> String {
     }
     text
 }
+
+#[cfg(test)]
+#[path = "../tests/net__http.rs"]
+mod tests;
