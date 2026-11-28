@@ -6,6 +6,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -132,6 +134,7 @@ internal fun Notice(title: String, detail: String, actionLabel: String? = null, 
 
 /** The building (on a room's card) and the maps app: the
  * card moves the map, and only this button leaves the app. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun Actions(
     card: CampusMapCard,
@@ -140,7 +143,10 @@ private fun Actions(
     photos: FloorPhotoUploads?,
     takePhoto: () -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(Theme.space4)) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(Theme.space4),
+        verticalArrangement = Arrangement.spacedBy(Theme.space3),
+    ) {
         // Each tap opens the camera; the label tells how the photos went.
         if (photos != null) {
             ActionButton(
@@ -150,8 +156,8 @@ private fun Actions(
                     else -> t("campusMap.photos.upload")
                 },
                 onClick = takePhoto,
-                modifier = Modifier.weight(1f),
                 level = ButtonLevel.Secondary,
+                maxLines = Int.MAX_VALUE,
                 icon = Icons.Rounded.PhotoCamera,
             )
         }
@@ -159,16 +165,16 @@ private fun Actions(
             ActionButton(
                 card.buildingName,
                 onClick = { select(building) },
-                modifier = Modifier.weight(1f)
-                    .semantics { contentDescription = t("campusMap.showBuilding", "name" to card.buildingName) },
+                modifier = Modifier.semantics { contentDescription = t("campusMap.showBuilding", "name" to card.buildingName) },
                 level = ButtonLevel.Secondary,
+                maxLines = Int.MAX_VALUE,
             )
         }
         ActionButton(
             t("campusMap.openInMaps"),
             onClick = openInMaps,
-            modifier = Modifier.weight(1f),
             level = ButtonLevel.Secondary,
+            maxLines = Int.MAX_VALUE,
             icon = Icons.Rounded.Map,
         )
     }

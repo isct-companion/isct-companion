@@ -506,6 +506,11 @@ textarea.uiInput {
   max-height: min(320px, var(--radix-select-content-available-height, 60vh));
   overflow-y: auto;
 }
+.uiMenuLabel {
+  padding: var(--space-2) var(--space-5);
+  color: var(--muted);
+  font-size: calc(var(--type-note-size) * var(--text));
+}
 .uiSelectOption,
 .uiMenuItem {
   position: relative;

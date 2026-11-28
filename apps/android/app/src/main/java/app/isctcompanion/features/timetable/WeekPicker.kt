@@ -135,7 +135,8 @@ private fun WeekRow(week: TimetableWeek, year: TimetableYear, selected: Boolean,
             color = tone, modifier = Modifier.width(110.dp),
         )
         Text(
-            days(week.monday), style = MaterialTheme.typography.bodyLarge.tabular(),
+            Format.civilDate(week.monday)?.let(::weekDateRange) ?: week.monday,
+            style = MaterialTheme.typography.bodyLarge.tabular(),
             color = if (selected) Theme.colors.accentInk else Theme.colors.ink,
             modifier = Modifier
                 .clip(CircleShape)
@@ -163,11 +164,4 @@ private fun rows(weeks: List<TimetableWeek>): List<PickerRow> {
         rows.add(PickerRow.Week(week))
     }
     return rows
-}
-
-/** `10/19 – 10/23` */
-private fun days(monday: String): String {
-    val start = Format.civilDate(monday) ?: return monday
-    val end = start.plusDays(4)
-    return "${start.monthValue}/${start.dayOfMonth} – ${end.monthValue}/${end.dayOfMonth}"
 }

@@ -3,6 +3,7 @@ import { act, useState } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   advance,
+  buttonByText,
   click,
   chooseOption,
   courseFor,
@@ -469,13 +470,10 @@ describe("shell navigation", () => {
     };
 
     await click(
-      await required(
-        () =>
-          app!.host.querySelector<HTMLButtonElement>(
-            '[aria-label="Calendar export options"]',
-          ),
-        "the export options menu",
-      ),
+      await required(() => {
+        const button = buttonByText(app!.host, i18n.t("common.exportICS"));
+        return button && !button.disabled ? button : undefined;
+      }, "the timetable export button"),
     );
     const menu = await required(
       () => document.querySelector('[role="menu"]'),

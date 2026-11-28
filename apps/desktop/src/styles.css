@@ -2664,11 +2664,6 @@ summary,
   border-color: var(--line-strong);
 }
 
-.calendarExportActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
-}
 /* One schedule workspace: dated week for viewing, quarter pattern for editing. */
 .scheduleTitleRow {
   display: flex;

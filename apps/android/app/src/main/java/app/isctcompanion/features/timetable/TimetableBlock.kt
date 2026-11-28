@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -151,11 +150,10 @@ internal fun Block(
                 block.title, style = style, fontWeight = FontWeight.SemiBold, color = ink,
                 textDecoration = if (cancelled) TextDecoration.LineThrough else null,
                 maxLines = if (lanes > 1) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
             )
             // Side by side there is room for the title only.
             if (lanes == 1) {
-                Spacer(Modifier.weight(1f))
                 // 計画, 休講, the times of a block drawn over whole periods,
                 // or the first room; every room stays on the course page.
                 val moved = grid != null && (grid.startTime != block.startTime || grid.endTime != block.endTime)

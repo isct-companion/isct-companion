@@ -10,7 +10,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,12 +32,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.TextAutoSize
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,7 +53,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -77,13 +72,10 @@ import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.core.TimetableYear
 import app.isctcompanion.core.TodayPhase
-import app.isctcompanion.design.ActionButton
-import app.isctcompanion.design.ButtonLevel
 import app.isctcompanion.design.Format
 import app.isctcompanion.design.GuideTip
 import app.isctcompanion.design.RefreshBox
 import app.isctcompanion.design.Theme
-import app.isctcompanion.design.CountingText
 import app.isctcompanion.design.courseMix
 import app.isctcompanion.design.t
 import app.isctcompanion.design.tabular
@@ -115,10 +107,9 @@ fun TimetableScreen() {
     val model = LocalModel.current
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
-    val week = model.timetableWeeks[monday]
     val weekRevision = model.timetableWeeks.revision
     var axis by remember { mutableStateOf(model.lastTimetableAxis) }
-    var year by remember { mutableStateOf<TimetableYear?>(null) }
+    var yearSnapshot by remember { mutableStateOf<TimetableYearSnapshot?>(null) }
     var picker by remember { mutableStateOf(false) }
     // The grid's horizontal travel while weeks change, and its fade when the
     // system asks for less motion (slotledger `approach/motion-week-swipe`).
@@ -144,11 +135,14 @@ fun TimetableScreen() {
             model.lastTimetableAxis = shape
         }
         val number = model.academicYear(requestedMonday) ?: return@LaunchedEffect
-        if (year?.year != number || year?.quarters?.isEmpty() == true) {
+        val snapshot = yearSnapshot
+        if (snapshot == null || snapshot.calendar.year != number || snapshot.revision != weekRevision ||
+            snapshot.calendar.quarters.isEmpty()
+        ) {
             val calendar = model.timetableYear(number)
             currentCoroutineContext().ensureActive()
             if (monday == requestedMonday && model.timetableWeeks.revision == weekRevision && calendar != null) {
-                year = calendar
+                yearSnapshot = TimetableYearSnapshot(calendar, weekRevision)
             }
         }
     }
@@ -183,8 +177,9 @@ fun TimetableScreen() {
         show(to)
         shift.snapTo(0f)
     }
-    // The shown week's quarter, or this quarter between quarters.
-    val term = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }?.term ?: week?.term ?: model.today?.term
+    val year = yearSnapshot?.calendar
+    val shownWeek = year?.weeks?.firstOrNull { it.monday == Format.civil(monday) }
+    val exportTerm = shownWeek?.term?.takeIf { yearSnapshot?.revision == weekRevision }
 
     RefreshBox(
         { model.refreshFromSchool() },
@@ -203,12 +198,11 @@ fun TimetableScreen() {
                 .padding(bottom = Theme.space4),
             verticalArrangement = Arrangement.spacedBy(Theme.space6),
         ) {
-        Header(
-            monday, chip(year, monday), term, openPicker = { picker = true },
-            step = { weeks -> go(monday.plusWeeks(weeks), slow = false) },
-        ) { go(thisWeek(), slow = false) }
-        // One line, so the grid keeps its height; the week buttons above say
-        // how to change weeks.
+        TimetableHeader(
+            monday, year, exportTerm,
+            openPicker = { picker = true },
+            toToday = { go(thisWeek(), slow = false) },
+        )
         GuideTip("timetable-marks", "timetable.longPressAClassTo")
         // Period rows share the height the screen leaves, so the week fits
         // without scrolling; past the floor (a tablet on its side, split
@@ -258,7 +252,8 @@ fun TimetableScreen() {
                 key(slot) {
                     Grid(
                         start, model.timetableWeeks[start], axis, rowHeight,
-                        Modifier
+                        step = if (slot == 0) ({ weeks -> go(monday.plusWeeks(weeks), slow = false) }) else null,
+                        modifier = Modifier
                             .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
                             .graphicsLayer { alpha = fade.value }
                             .verticalScroll(rememberScrollState()),
@@ -276,57 +271,10 @@ fun TimetableScreen() {
     }
 }
 
+private data class TimetableYearSnapshot(val calendar: TimetableYear, val revision: Long)
+
 private val Occurrence.isBlock: Boolean
     get() = kind == OccurrenceKind.COURSE || kind == OccurrenceKind.EXAM
-
-/** The week chip on its own row, free to take the full width; below it the
- * date range between the previous and next week buttons, the quarter export
- * and 今日. Swiping the grid also changes weeks. */
-@Composable
-private fun Header(
-    monday: LocalDate, chip: String, term: String?, openPicker: () -> Unit, step: (Long) -> Unit, toToday: () -> Unit,
-) {
-    Column(Modifier.padding(top = Theme.space6, start = Theme.space2, end = Theme.space2), verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
-        // The way into the week picker, a secondary button.
-        ActionButton(
-            chip, openPicker,
-            Modifier.semantics { contentDescription = t("timetable.chooseAWeek") },
-            level = ButtonLevel.Secondary, icon = Icons.Rounded.CalendarMonth,
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val friday = monday.plusDays(4)
-            IconButton(onClick = { step(-1) }) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, t("today.previousWeek"), tint = Theme.colors.accent)
-            }
-            Box(Modifier.weight(1f)) {
-                CountingText(
-                    "${monday.monthValue}/${monday.dayOfMonth} – ${friday.monthValue}/${friday.dayOfMonth}",
-                    Modifier.clickable(onClick = openPicker),
-                    style = MaterialTheme.typography.headlineLarge.tabular(), fontWeight = FontWeight.Bold,
-                    color = Theme.colors.ink, countsDown = false,
-                )
-            }
-            IconButton(onClick = { step(1) }) {
-                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, t("today.nextWeek"), tint = Theme.colors.accent)
-            }
-            term?.let { ExportButton(it) }
-            // 今日 rests while this week is shown, which doubles as "you are here".
-            val atThisWeek = monday == thisWeek()
-            ActionButton(
-                t("common.today"), toToday,
-                Modifier.semantics { contentDescription = t("timetable.backToThisWeek") },
-                level = ButtonLevel.Secondary, enabled = !atThisWeek,
-            )
-        }
-    }
-}
-
-/** "2026年度 · 3Q 第 2 週", from Core's week list; between quarters, 休み. */
-private fun chip(year: TimetableYear?, monday: LocalDate): String {
-    year ?: return t("common.timetable")
-    val label = year.weeks.firstOrNull { it.monday == Format.civil(monday) }?.let { weekLabel(it, year) }
-    return listOfNotNull(t("timetable.academicYear", "year" to year.year), label).joinToString(" · ")
-}
 
 internal fun thisWeek() = monday(Format.today())
 
@@ -338,14 +286,35 @@ fun monday(date: LocalDate): LocalDate = when (date.dayOfWeek) {
 }
 
 @Composable
-private fun Grid(monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, rowHeight: Dp, modifier: Modifier) {
+private fun Grid(
+    monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, rowHeight: Dp, step: ((Long) -> Unit)?, modifier: Modifier,
+) {
     val model = LocalModel.current
     val days = (0L until 5L).map { monday.plusDays(it) }
     val height = rowHeight * (axis?.length ?: 12.5).toFloat()
     val today = Format.today()
     val current = model.today?.takeIf { it.phase == TodayPhase.IN_CLASS }?.hero?.occurrence?.key
     Column(modifier, verticalArrangement = Arrangement.spacedBy(Theme.space3)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+        // On the shown week the days read as its range and carry, for a
+        // screen reader, the neighbouring weeks a swipe turns to.
+        Row(
+            step?.let { turn ->
+                Modifier.semantics(mergeDescendants = true) {
+                    contentDescription = weekDateRange(monday)
+                    customActions = listOf(
+                        CustomAccessibilityAction(t("today.previousWeek")) {
+                            turn(-1)
+                            true
+                        },
+                        CustomAccessibilityAction(t("today.nextWeek")) {
+                            turn(1)
+                            true
+                        },
+                    )
+                }
+            } ?: Modifier,
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
             Spacer(Modifier.width(periodWidth))
             for (day in days) DayHeader(day, day == today, Modifier.weight(1f))
         }

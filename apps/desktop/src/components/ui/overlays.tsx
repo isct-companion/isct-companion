@@ -332,6 +332,9 @@ export const Menu = Object.assign(MenuRoot, {
     <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
   ),
   Dropdown: MenuContent,
+  Label: ({ className, ...props }: ComponentProps<typeof DropdownMenu.Label>) => (
+    <DropdownMenu.Label {...props} className={cx("uiMenuLabel", className)} />
+  ),
   Item: ({
     leftSection,
     onClick,

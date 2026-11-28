@@ -284,7 +284,7 @@ an unverified area becomes an assumed-good one.
 | `DESKTOP-HIDDEN-VIEW-KEYBOARD-FOCUS` | native | Narrow window, keyboard only | —<br>not run | apps/desktop/src-tauri/src/school_webkit/** |
 | `DESKTOP-WRITES-PUBLISH-THEMSELVES` | desktop | Two devices, interrupted work | —<br>not run | apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>crates/app-core/src/plan/school.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src/store/workspace.ts<br>apps/desktop/src/platform/view-query.ts |
 | `DESKTOP-CALENDAR-MARK-LATENCY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/store/workspace.ts<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/data/migrations.rs<br>crates/app-core/src/lms_ingest.rs |
-| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift<br>apps/ios/IsctCompanion/Shared/ShareSheet.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
+| `IOS-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableHeader.swift<br>apps/ios/IsctCompanion/Design/HorizontalPager.swift<br>apps/ios/IsctCompanion/Design/TabItemPress.swift<br>apps/ios/IsctCompanion/App/IsctCompanionApp.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableExport.swift<br>apps/ios/IsctCompanion/Shared/ShareSheet.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableAxisLayout.swift<br>apps/ios/IsctCompanion/Core/AppModel.swift |
 | `TIMETABLE-BLOCK-STATES` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Features/Timetable/TimetableBlock.swift<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/desktop/src/components/timetable/timetable.tsx<br>apps/desktop/src/styles.css<br>design/tokens/course.json |
 | `BACKGROUND-THEMES` | native | 理工学系 1年生・初学期 | —<br>not run | design/tokens/theme.json<br>apps/ios/IsctCompanion/Design/Theme.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/AppearanceSettings.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Theme.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/AppearanceSettings.kt<br>apps/desktop/src/pages/settings/AppearanceSettings.tsx<br>crates/app-core/src/data/settings.rs |
 | `MOTION-AND-LOADING` | native | 理工学系 1年生・初学期 | —<br>not run | apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift<br>apps/ios/IsctCompanion/Design/Polish.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/desktop/src/styles.css<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/desktop/src/pages/lectures/LectureDesk.tsx<br>apps/desktop/src/pages/lectures/lectures.css<br>apps/desktop/src/app/App.tsx<br>apps/desktop/src/pages/lectures/LectureExams.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayAssignments.tsx |
@@ -304,7 +304,7 @@ an unverified area becomes an assumed-good one.
 | `ANDROID-MATRIX-SOURCES` | native | 理工学系 3年生・履修計画期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/settings/CredentialImport.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt<br>apps/android/app/src/main/res/xml/file_paths.xml<br>apps/android/app/src/main/AndroidManifest.xml<br>apps/android/app/build.gradle.kts<br>crates/app-ocr/src/engine/letters/litert.rs |
 | `SYNC-FAILED-PAGE-REASON` | native | 修士課程 1年・前期課程 | —<br>not run | apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/desktop/src/lib/sync-text.ts |
 | `ANDROID-TODAY-CLASS-STACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/today/TodayScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/assignments/AssignmentLists.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/lectures/LecturesScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/App.kt |
-| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
+| `ANDROID-TIMETABLE-WEEK-AND-MARKS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableHeader.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/timetable/WeekPicker.kt<br>apps/android/app/src/main/res/xml/file_paths.xml |
 | `ANDROID-COURSE-LESSONS` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/features/course/CourseDetailScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/course/AssignmentViews.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/LmsContent.kt<br>apps/ios/IsctCompanion/Features/Course/AssignmentViews.swift<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/src/main/AndroidManifest.xml |
 | `ANDROID-COURSE-ZOOM-BACK` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt<br>apps/android/app/src/main/java/app/isctcompanion/design/Components.kt<br>apps/android/app/build.gradle.kts |
 | `ANDROID-ORIENTATION` | native | 理工学系 1年生・初学期 | —<br>not run | apps/android/app/src/main/java/app/isctcompanion/App.kt<br>apps/android/app/src/main/AndroidManifest.xml |
@@ -364,7 +364,7 @@ an unverified area becomes an assumed-good one.
 | `SCHOOL-ACCOUNT-STATES` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>apps/desktop/src/pages/settings/SchoolAccounts.tsx<br>apps/desktop/src/app/SchoolStatus.tsx<br>apps/ios/IsctCompanion/Features/SchoolStatus/SchoolStatusViews.swift<br>apps/ios/IsctCompanion/Features/Settings/SettingsScreen.swift<br>apps/ios/IsctCompanion/Features/Settings/SchoolAccountScreen.swift<br>apps/ios/IsctCompanion/Core/AppModelSchoolAccount.swift<br>apps/android/app/src/main/java/app/isctcompanion/features/schoolstatus/SyncStatus.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SettingsScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/features/settings/SchoolAccountScreen.kt<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModelSchoolAccount.kt |
 | `SCHOOL-REFUSAL-UNSAVED-COPY` | school | Two devices, interrupted work | —<br>not run | apps/desktop/src/lib/sync-text.ts<br>crates/app-core/src/school_auth/mod.rs<br>crates/app-core/src/school_auth/matrix.rs<br>crates/app-core/src/school_auth/otp_setup.rs |
 | `DESKTOP-ERROR-CODE-COPY` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/native-error.ts<br>apps/desktop/src-tauri/src/command_error.rs<br>crates/app-core/src/error_code.rs<br>resources/locales/*.json |
-| `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
+| `DESKTOP-WEEKLY-EVENTS` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/pages/courses/CoursesPage.tsx<br>apps/desktop/src/pages/courses/TimetableExportButton.tsx<br>apps/desktop/src/pages/courses/editors.tsx<br>apps/desktop/src/pages/today/TodayAgenda.tsx<br>apps/desktop/src/pages/today/TodayPage.tsx |
 | `MOBILE-ERROR-CODE-COPY` | native | International student | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/error.rs |
 | `DESKTOP-QUERY-CACHE-INVALIDATION` | desktop | 理工学系 3年生・履修計画期 | —<br>not run | apps/desktop/src/platform/query-client.ts<br>apps/desktop/src/platform/view-query.ts<br>apps/desktop/src/platform/records.ts<br>apps/desktop/src/store/workspace.ts<br>crates/app-core/src/data/views.rs<br>crates/app-core/src/facade.rs<br>crates/app-core/src/workspace_changes.rs<br>apps/desktop/src-tauri/src/commands/workspace.rs<br>apps/desktop/src-tauri/src/lms_files.rs<br>apps/desktop/src-tauri/src/agent_server.rs<br>crates/app-core/src/data/mod.rs<br>crates/app-core/src/runtime.rs<br>crates/app-core/src/notes.rs<br>apps/desktop/src-tauri/src/commands/backup.rs<br>apps/desktop/src/storage/repository.ts<br>crates/app-core/src/lms_ingest.rs |
 | `MOBILE-VIEW-QUERIES` | native | Two devices, interrupted work | —<br>not run | apps/ios/IsctCompanion/Core/AppModel.swift<br>apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt<br>crates/app-ffi/src/session.rs |
@@ -6016,7 +6016,7 @@ snapshot nor the school reads, and "no visible delay" is a glance.
 
 **Last recorded** never run
 
-### iPhone timetable header, fitted blocks, session marks and the now line (`IOS-TIMETABLE-WEEK-AND-MARKS`)
+### iPhone and iPad timetable, session marks and quarter export (`IOS-TIMETABLE-WEEK-AND-MARKS`)
 
 **Area** native · **Persona** 理工学系 1年生・初学期 · **Result** —
 
@@ -6030,64 +6030,97 @@ between the first period's start and the last period's end (Tokyo time).
 **Steps**
 
 1. Open 時間割 and read the title block: the quarter and week label is
-   an accent capsule with a calendar symbol on its own row, on one
-   line, and tapping it or the date range opens the week picker.
-   - *Why:* The capsule used to share a column with the range and a share
-     button, so it wrapped onto two lines; on its own row it may take the
-     full width.
+   an accent capsule with a calendar symbol on one line, the share
+   button and 今日 beside it or under it, and below them the date range
+   on one line with no week arrows. Tap the capsule, then the range.
+   - *Why:* Both open the week picker. The range has the full width, so its end
+     is never cut off ("11/23 – 1" is the old layout); arrows beside it
+     are the layout the swipe replaced.
 2. Swipe the grid left twice, each swipe starting on a class block,
    then tap 今日.
-   - *Why:* Swiping is now the only way to step weeks; the range figures must
-     roll in place. The grid moves with the finger, so a block under it
-     used to open its course on release: a course page after a swipe is
-     that bug (PagePan must cancel the block's tap). 今日 is dimmed on
-     the current week and active elsewhere, so a dimmed 今日 on another
-     week or an active one on this week is wrong.
-3. Find a two-period class with a long English title and one whose
+   - *Why:* Swiping the grid is the only visible way to step weeks; the range
+     figures must roll in place. The grid moves with the finger, so a
+     block under it used to open its course on release: a course page
+     after a swipe is that bug (PagePan must cancel the block's tap).
+     今日 is dimmed on the current week and active elsewhere, so a
+     dimmed 今日 on another week or an active one on this week is wrong.
+3. At the default text size and again at the largest accessibility
+   size, swipe from a teaching week into an exam week and into a week
+   between quarters, then across a month change (for example 11/30 –
+   12/4).
+   - *Why:* Whether the capsule shares a row with the actions follows the
+     window and the text size, measured against the year's widest label,
+     not the week shown: a header that grows or shrinks between these
+     weeks makes the grid's rows jump. Each range must stay whole on one
+     line while its figures roll.
+4. With the largest accessibility text size, or in a narrow split view
+   on iPad, scroll the page to the end of the grid and tap the last
+   period's class.
+   - *Why:* Past the row floor the page scrolls instead of cutting the last
+     periods off under the tab bar; pull to refresh and the week swipe
+     still work from the top.
+5. With VoiceOver on, focus the weekday row above the grid, swipe up
+   and down on it, then use the rotor's actions for 前の週 and 次の週.
+   - *Why:* The row reads the week's range and steps to the neighbouring week
+     through the same turn as a swipe; without it a VoiceOver user can
+     change weeks only through the picker.
+6. Find a two-period class with a long English title and one whose
    room field lists several rooms.
    - *Why:* The title fills the block's height instead of stopping at three
      lines over empty space, and only the first room shows; a cut title
      over blank space or a room list ending in … is the old layout.
-4. Long press a class and choose 試験にする, then 休講にする, then
+7. Long press a class and choose 試験にする, then 休講にする, then
    通常の授業に戻す, reopening the menu each time.
    - *Why:* Each mark is Core's MarkSession and must redraw at once: a deeper
      fill with a solid 試験 tag above the title and no ring, then a grey
      striped block with a struck-through title and 休講, then the plain
      block; the tick must follow the state. Plan blocks must offer no
      menu.
-5. Look at today's column during a teaching hour.
+8. Look at today's column during a teaching hour.
    - *Why:* The red now line with its dot sits at the current time and moves
      every half minute; outside the axis, and on weekends when the grid
      shows the coming week, there is no line by design.
-6. Swipe quickly through the next three weeks and back.
+9. Swipe quickly through the next three weeks and back.
    - *Why:* One read covers four weeks either side, so each step draws its
      blocks with the header; blocks that arrive after the date range
      changed mean the window cache was skipped.
-7. Long-press the 時間割 tab, slide to 授業のみ and lift; save the file
-   to Files, then open it from Files.
-   - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
-     desktop's ICSを書き出す. Calendar must offer to add this quarter's
-     classes with their rooms; another quarter or an empty file is wrong.
+10. On iPhone and on iPad in portrait, landscape and narrow Split View,
+   open a dated week in another quarter. Tap the share icon next to
+   今日 and check the menu title against the week label. With VoiceOver
+   on, check that the icon is announced as ICSを書き出す. On a quarter with
+   both classes and weekly events, export each scope to Files and
+   open both files in Calendar. Visit a week marked 休み and check the
+   export button there. Then long-press the 時間割 tab (on iPad, the
+   rail row's menu), choose 授業のみ and open that file too.
+   - *Why:* The page header must fit independently of the tab or rail. Calendar
+     must offer to add the named quarter's classes with their rooms,
+     and only the broader export includes weekly events. A week with
+     no quarter cannot start an export from the header. The tab's long
+     press and the rail share the header's export, so their file names
+     the same quarter.
 
 **Where to look**
 
-The 時間割 tab on the device.
+The timetable header, system share sheet, and Calendar preview on the devices.
 
 **Expected**
 
 The header reads and steps as described, blocks use their height, marks
 redraw immediately with the right styling and tick, and the now line
-tracks the clock in today's column.
+tracks the clock in today's column. The export is available from the
+named quarter's header and each file contains the selected scope.
 
 **Why this is manual**
 
 Layout, the capsule cue, the context menu and the moving line are read
-at a glance on a phone; the axis maths is covered by Core's timing tests
-and the desktop `nowPercent` unit tests.
+at a glance on a phone. The menu and file handoff need iPad window
+layouts, VoiceOver and the installed Calendar app. The axis maths is
+covered by Core's timing tests and the desktop `nowPercent` unit tests.
 
 **Covers**
 
 - `apps/ios/IsctCompanion/Features/Timetable/TimetableScreen.swift`
+- `apps/ios/IsctCompanion/Features/Timetable/TimetableHeader.swift`
 - `apps/ios/IsctCompanion/Design/HorizontalPager.swift`
 - `apps/ios/IsctCompanion/Design/TabItemPress.swift`
 - `apps/ios/IsctCompanion/App/IsctCompanionApp.swift`
@@ -7313,36 +7346,53 @@ between the first period's start and the last period's end (Tokyo time).
    then with the system font size at 130%.
    - *Why:* A five-character time is wider than the 26 dp period column and
      shrinks to fit; a clipped 10:4 means it no longer does.
-3. On a small tablet turned on its side (or in split screen), scroll
+3. On a phone about 360 dp wide, at the default font size and again at
+   the largest font size, read the header, then swipe from a teaching
+   week into an exam week, into a week between quarters and across a
+   month change (for example 11/30 – 12/4).
+   - *Why:* The date range sits on its own line under the week chip, share and
+     今日, with no week arrows, and must read whole on one line while its
+     figures roll; "11/23 – 1" is the old layout. Whether the chip shares
+     a row with the actions follows the width and the font size,
+     measured against the year's widest label, not the week shown: a
+     header that grows or shrinks between these weeks makes the grid's
+     rows jump.
+4. With TalkBack on, focus the weekday row above the grid and open its
+   actions; choose 下一周, then 上一周.
+   - *Why:* The row reads the week's range and steps to the neighbouring week
+     through the same path as a swipe; without it a TalkBack user can
+     change weeks only through the picker.
+5. On a small tablet turned on its side (or in split screen), scroll
    the grid to the bottom.
    - *Why:* Past the row floor the grid scrolls and the last period is
      reachable; before, the columns were cut off and the late classes
      could not be seen or tapped.
-4. Tap the week chip, step a year back and forward, tap a quarter chip,
+6. Tap the week chip, step a year back and forward, tap a quarter chip,
    then a week row.
    - *Why:* The sheet lists Core's TimetableYear weeks under their months with
      each week's quarter label; a quarter chip jumps to that quarter's
      first week. A week that lands elsewhere means the jump target is
      wrong.
-5. Long press a class and choose 試験にする, then 休講にする, then
+7. Long press a class and choose 試験にする, then 休講にする, then
    通常の授業に戻す, reopening the menu each time.
    - *Why:* Each choice is Core's MarkSession and must redraw at once: a warn
      border with 試験 before the room, then a faded struck-through title
      with 休講, then the plain block; the tick follows the state. Planned
      blocks offer no menu.
-6. Look at today's column during a teaching hour.
+8. Look at today's column during a teaching hour.
    - *Why:* The red now line sits at the current time and moves every half
      minute; outside the axis there is no line by design.
-7. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
+9. Relaunch the app, open 時間割 and swipe quickly four weeks forward,
    then back past this week.
    - *Why:* The week is read with four weeks on either side in one query, as on
      iOS, so each swipe within that reach draws its blocks at once.
      Columns that flash empty before filling mean each week is still
      queried on its own.
-8. Tap the share button in the header, choose 授業のみ, send the file to
-   Google Calendar or Files and open it.
-   - *Why:* The .ics is Core's quarterIcs for the shown week's quarter, as the
-     desktop's ICSを書き出す; another quarter or an empty file is wrong.
+10. Open a week in another quarter. Tap the share button in the header,
+   read the menu's academic year and quarter, choose 授業のみ and open
+   the file from Files or a calendar app. Visit a week marked 休み.
+   - *Why:* The menu and .ics must follow the week, including when it differs
+     from today's quarter. The export button is disabled for 休み.
 
 **Where to look**
 
@@ -7350,7 +7400,9 @@ The 時間割 tab on the device or emulator.
 
 **Expected**
 
-The week fits, every start time reads in full, the picker labels and
+The week fits, every start time and the rolling date range read in
+full, the header keeps its shape from week to week, TalkBack steps
+weeks from the weekday row, the picker labels and
 jumps as Core says, marks redraw at once, the now line tracks the clock
 and the shared .ics holds this quarter's classes; nearby weeks appear
 without an empty flash.
@@ -7365,6 +7417,8 @@ calendar export are covered by Core's timing and ICS tests.
 
 - `apps/android/app/src/main/java/app/isctcompanion/core/AppModel.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableScreen.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableHeader.kt`
+- `apps/android/app/src/main/java/app/isctcompanion/design/Motion.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableBlock.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableExport.kt`
 - `apps/android/app/src/main/java/app/isctcompanion/features/timetable/TimetableAxisLayout.kt`
@@ -10797,7 +10851,9 @@ on Wednesday afternoon, and a later quarter with no weekly events.
    any way to add an event there.
    - *Why:* Today shows and edits weekly events but has no add entry; an add
      button or a dead click means the page kept or lost the wrong path.
-6. Export ICS → 课程＋固定日程 and import the file into Apple Calendar.
+6. Open 导出 ICS and verify that the menu names the selected academic
+   year and quarter. Choose 课程＋固定日程, save the file and import it
+   into Apple Calendar.
    - *Why:* The export used to skip events entirely. 组会 missing on the
      Wednesdays of the quarter means the scope did not reach Core.
 
@@ -10823,6 +10879,7 @@ export logic is pinned by the Core schedule and workspace suites.
 **Covers**
 
 - `apps/desktop/src/pages/courses/CoursesPage.tsx`
+- `apps/desktop/src/pages/courses/TimetableExportButton.tsx`
 - `apps/desktop/src/pages/courses/editors.tsx`
 - `apps/desktop/src/pages/today/TodayAgenda.tsx`
 - `apps/desktop/src/pages/today/TodayPage.tsx`

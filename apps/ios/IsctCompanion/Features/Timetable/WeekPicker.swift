@@ -80,7 +80,7 @@ struct WeekPicker: View {
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(tone)
                     .frame(width: 110, alignment: .leading)
-                Text(days(week.monday))
+                Text(Format.civilDate(week.monday).map { weekDateRange(from: $0) } ?? week.monday)
                     .font(.body.monospacedDigit())
                     .foregroundStyle(selected ? Theme.accentInk : Theme.ink)
                     .padding(.horizontal, Theme.space5)
@@ -96,18 +96,6 @@ struct WeekPicker: View {
 
     private func isShown(_ quarter: TimetableQuarter) -> Bool {
         year?.weeks.first { $0.monday == AppModel.civil(monday) }?.term == quarter.term
-    }
-
-    /// `10/19 – 10/23`
-    private func days(_ monday: String) -> String {
-        guard let start = Format.civilDate(monday),
-            let end = Calendar.tokyo.date(byAdding: .day, value: 4, to: start)
-        else { return monday }
-        let format = { (date: Date) in
-            let parts = Calendar.tokyo.dateComponents([.month, .day], from: date)
-            return "\(parts.month ?? 0)/\(parts.day ?? 0)"
-        }
-        return "\(format(start)) – \(format(end))"
     }
 
     private struct Month {

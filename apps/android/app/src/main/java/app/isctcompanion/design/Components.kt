@@ -340,6 +340,7 @@ fun ActionButton(
     icon: ImageVector? = null,
     danger: Boolean = false,
     enabled: Boolean = true,
+    maxLines: Int = 1,
 ) {
     val colors = Theme.colors
     val role = if (danger) colors.danger else colors.accent
@@ -359,7 +360,7 @@ fun ActionButton(
             .alpha(if (enabled) 1f else 0.35f),
     ) {
         icon?.let { Icon(it, null, tint = ink, modifier = Modifier.size(18.dp)) }
-        Text(title, color = ink, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(title, color = ink, fontWeight = FontWeight.SemiBold, maxLines = maxLines, overflow = TextOverflow.Ellipsis)
     }
 }
 
