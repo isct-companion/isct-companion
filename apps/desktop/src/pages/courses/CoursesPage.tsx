@@ -340,6 +340,7 @@ function CoursesBody({
               }
               <WeekTimetable
                 days={columns}
+                axis={planning?.axis}
                 onSelect={select}
                 now={now}
                 onSlot={canEdit ? onSlot : undefined}

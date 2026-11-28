@@ -201,29 +201,48 @@ describe("The weekly event editor", () => {
         workspace,
         queries: {
           ...eventQueries(),
-          upcomingExams: () => [],
-          calendarRange: () => [
-            {
+          todayAgenda: (query) => {
+            const { now } = query as { now: string };
+            return {
               date: today,
-              occurrences: [
+              today,
+              week: [],
+              rows: [
                 {
-                  key: `${event.id}-${today}`,
-                  id: event.id,
-                  kind: "event",
-                  courseId: null,
-                  date: today,
-                  title: event.title,
-                  subtitle: null,
-                  room: event.room,
-                  startTime: "00:00",
-                  endTime: "24:00",
-                  color: "#556b8d",
+                  status: "now",
+                  highlighted: false,
+                  occurrence: {
+                    key: `${event.id}-${today}`,
+                    id: event.id,
+                    kind: "event",
+                    courseId: null,
+                    date: today,
+                    title: event.title,
+                    subtitle: null,
+                    room: event.room,
+                    startTime: "00:00",
+                    endTime: "23:59",
+                    color: "#556b8d",
+                  },
                 },
               ],
               importantDates: [],
-              noClasses: false,
-            },
-          ],
+              calendarNotice: null,
+              dayKind: "teachingDay",
+              nextClass: null,
+              exams: [],
+              tasks: {
+                deadlines: {},
+                states: {},
+                handInAvailability: {},
+                nearestByCourse: {},
+                byTerm: {},
+              },
+              nextBoundary: new Date(
+                Date.parse(now) + 86_400_000,
+              ).toISOString(),
+            };
+          },
         },
       },
       { route: paths.home() },

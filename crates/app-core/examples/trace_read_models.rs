@@ -1,19 +1,18 @@
 //! Local profiling against a disposable copy of the data folder; never prints workspace contents.
 use app_core::{
     data::DataStore,
-    schedule::WorkspaceQuery,
+    schedule::{TimetableMode, WorkspaceQuery},
     workspace::{WorkspaceIntent, WorkspaceMutation, WorkspaceService},
 };
 use std::time::Instant;
 
 /// The desktop calendar's read: the week shown with four weeks on either
-/// side, from 3Q's toolbar context, here around 2Q's middle week.
+/// side, here around 2Q's middle week.
 fn schedule_view() -> WorkspaceQuery {
-    WorkspaceQuery::ScheduleView {
-        term: "2026-3Q".into(),
-        from: "2026-05-18".into(),
-        to: "2026-07-17".into(),
-        include_personal: false,
+    WorkspaceQuery::TimetableWeeks {
+        monday: "2026-06-15".into(),
+        reach: 4,
+        mode: TimetableMode::Classes,
     }
 }
 
@@ -47,7 +46,14 @@ fn page_queries(course: &str) -> Vec<(&'static str, WorkspaceQuery)> {
                 term: "2026-2Q".into(),
             },
         ),
-        ("scheduleView", schedule_view()),
+        ("timetableWeeks", schedule_view()),
+        (
+            "todayAgenda",
+            WorkspaceQuery::TodayAgenda {
+                date: None,
+                now: now.into(),
+            },
+        ),
         ("taskView", WorkspaceQuery::TaskView { now: now.into() }),
         ("today", WorkspaceQuery::Today { now: now.into() }),
         (
@@ -174,10 +180,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let encoded = serde_json::to_vec(&answer.values[0])?;
         let encode_ms = start.elapsed().as_millis();
         session_key = serde_json::from_slice::<serde_json::Value>(&encoded)?
-            .pointer("/value/agendas")
+            .pointer("/value")
             .and_then(serde_json::Value::as_array)
             .into_iter()
             .flatten()
+            .flat_map(|week| week["agendas"].as_array().cloned().unwrap_or_default())
             .flat_map(|agenda| {
                 agenda["occurrences"]
                     .as_array()

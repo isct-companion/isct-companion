@@ -1,7 +1,7 @@
 import IsctCore
 import SwiftUI
 
-/// 時間割: a dated week. Blocks come from Core's `ScheduleView` for
+/// 時間割: a dated week. Blocks come from Core's `TimetablePage` for
 /// Monday–Friday, whatever quarter the week is in; the title opens a picker
 /// that names each week's quarter (`TimetableYear`). A long press marks one
 /// session as an exam, a quiz or 休講 (choosing the checked mark again makes
@@ -10,6 +10,7 @@ struct TimetableScreen: View {
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
     @State private var monday = TimetableScreen.monday(of: AppClock.now)
+    private var week: TimetablePage? { model.timetableWeeks[monday] }
     @State private var yearSnapshot: (calendar: TimetableYear, revision: Int)?
     @State private var showsPicker = false
     @State private var dragOffset: CGFloat = 0
@@ -17,14 +18,14 @@ struct TimetableScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Core's equal-row axis for the shown week.
-    @State private var axis: TimetableAxis?
+    private var axis: TimetableAxis? { week?.axis ?? model.lastTimetableAxis }
     @State private var gridHeight: CGFloat = 600
     @State private var headerHeight: CGFloat = 0
     @State private var weekdayRowHeight: CGFloat = 0
 
     /// Period rows share the height the screen leaves, so the week fits
     /// without scrolling (with a floor for very short windows).
-    private var rowHeight: CGFloat {
+    private func rowHeight(_ axis: TimetableAxis?) -> CGFloat {
         max(Self.minimumRow, ((gridHeight - gridHeaderHeight) / CGFloat(axis?.length ?? 12.5)).rounded(.down))
     }
 
@@ -86,20 +87,12 @@ struct TimetableScreen: View {
         }
         .onAppear {
             model.syncHint(.open(view: .timetable))
-            if axis == nil { axis = model.lastTimetableAxis }
         }
-        .task(id: "\(monday.timeIntervalSince1970)-\(weekRevision)-\(model.today?.term ?? "")") { [monday] in
+        .task(id: "\(monday.timeIntervalSince1970)-\(weekRevision)") { [monday] in
             guard self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
             guard let loaded = await model.week(starting: monday), !Task.isCancelled else { return }
-            let blocks = loaded.agendas.flatMap(\.occurrences).filter { [.course, .exam].contains($0.kind) }
-            let earliest = blocks.map(\.startTime).min { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
-            let latest = blocks.map(\.endTime).max { TimetableAxis.minutes($0) < TimetableAxis.minutes($1) }
-            let shape = await model.timetableAxis(earliest: earliest, latest: latest)
-            guard !Task.isCancelled, self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
-            if let shape {
-                axis = shape
-                model.lastTimetableAxis = shape
-            }
+            guard self.monday == monday, model.timetableWeeks.revision == weekRevision else { return }
+            model.lastTimetableAxis = loaded.axis
             guard let number = await model.academicYear(of: monday),
                 year?.year != number || yearSnapshot?.revision != weekRevision || year?.quarters.isEmpty == true
             else { return }
@@ -216,7 +209,9 @@ struct TimetableScreen: View {
     private static let columnSpacing: CGFloat = 3
     private static let periodWidth: CGFloat = 26
 
-    private func grid(_ start: Date, week: ScheduleView?) -> some View {
+    private func grid(_ start: Date, week: TimetablePage?) -> some View {
+        let axis = week?.axis ?? self.axis
+        let rowHeight = self.rowHeight(axis)
         let height = rowHeight * CGFloat(axis?.length ?? 12.5)
         let days = days(from: start)
         return VStack(spacing: Theme.space3) {
@@ -241,9 +236,9 @@ struct TimetableScreen: View {
             .accessibilityAction(named: Text(t("today.previousWeek"))) { turn(-1) }
             .accessibilityAction(named: Text(t("today.nextWeek"))) { turn(1) }
             HStack(alignment: .top, spacing: Self.columnSpacing) {
-                periodColumn.frame(width: Self.periodWidth, height: height, alignment: .top)
+                periodColumn(axis, rowHeight: rowHeight).frame(width: Self.periodWidth, height: height, alignment: .top)
                 ForEach(days, id: \.self) { day in
-                    dayColumn(day, week: week).frame(maxWidth: .infinity).frame(height: height)
+                    dayColumn(day, week: week, axis: axis, rowHeight: rowHeight).frame(maxWidth: .infinity).frame(height: height)
                 }
             }
         }
@@ -266,7 +261,7 @@ struct TimetableScreen: View {
 
     /// Period numbers at their rows; each block's start time under its first
     /// period and its end time under its last.
-    private var periodColumn: some View {
+    private func periodColumn(_ axis: TimetableAxis?, rowHeight: CGFloat) -> some View {
         ZStack(alignment: .top) {
             ForEach(axis?.rows ?? [], id: \.top) { row in
                 if let periods = row.periods, periods.count == 2 {
@@ -299,15 +294,15 @@ struct TimetableScreen: View {
             .minimumScaleFactor(0.8)
     }
 
-    private func agenda(_ day: Date, in week: ScheduleView?) -> DatedAgenda? {
+    private func agenda(_ day: Date, in week: TimetablePage?) -> DatedAgenda? {
         let civil = AppModel.civil(day)
         return week?.agendas.first { $0.date == civil }
     }
 
-    private func dayColumn(_ day: Date, week: ScheduleView?) -> some View {
+    private func dayColumn(_ day: Date, week: TimetablePage?, axis: TimetableAxis?, rowHeight: CGFloat) -> some View {
         let agenda = agenda(day, in: week)
         let today = AppClock.isToday(day)
-        let blocks = (agenda?.occurrences ?? []).filter { [.course, .exam].contains($0.kind) }
+        let blocks = agenda?.occurrences ?? []
         let holiday = agenda?.noClasses == true
         let shape = RoundedRectangle(cornerRadius: Theme.radiusColumn, style: .continuous)
         // A day without classes is a flat grey column; stripes belong to the
@@ -316,7 +311,7 @@ struct TimetableScreen: View {
             shape.fill(holiday ? Theme.mix(Theme.muted, 0.08, into: Theme.surface) : Theme.surface)
             if let axis { RowRules(axis: axis, rowHeight: rowHeight).clipShape(shape) }
             if week == nil {
-                skeleton(day).clipShape(shape)
+                skeleton(day, rowHeight: rowHeight).clipShape(shape)
             }
             if let axis {
                 GeometryReader { column in
@@ -343,7 +338,7 @@ struct TimetableScreen: View {
 
     /// Grey stand-ins for a week not read yet, two blocks a day at rows that
     /// shift by weekday so the grid does not read as a real timetable.
-    private func skeleton(_ day: Date) -> some View {
+    private func skeleton(_ day: Date, rowHeight: CGFloat) -> some View {
         let weekday = Calendar.tokyo.component(.weekday, from: day)
         return ZStack(alignment: .topLeading) {
             ForEach([weekday % 3 * 2, weekday % 3 * 2 + 4], id: \.self) { row in

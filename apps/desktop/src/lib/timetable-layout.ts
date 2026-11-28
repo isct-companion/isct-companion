@@ -85,24 +85,3 @@ export function nowPercent(
     return undefined;
   return percentOf(axis, axisOffset(axis, minutes));
 }
-
-/** The week's first start and last end, so the axis widens around classes
- * outside the teaching day instead of cutting them off. */
-export function axisSpan(
-  blocks: readonly { startTime: string; endTime: string }[],
-): { earliest?: string; latest?: string } {
-  const clocks = blocks.filter(
-    (block) => CLOCK.test(block.startTime) && CLOCK.test(block.endTime),
-  );
-  if (!clocks.length) return {};
-  const byMinutes = (a: string, b: string) => clockMinutes(a) - clockMinutes(b);
-  return {
-    earliest: clocks.map((block) => block.startTime).sort(byMinutes)[0],
-    latest: clocks
-      .map((block) => block.endTime)
-      .sort(byMinutes)
-      .at(-1),
-  };
-}
-
-const CLOCK = /^\d{1,2}:\d{2}$/;

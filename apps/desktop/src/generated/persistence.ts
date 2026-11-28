@@ -1654,15 +1654,6 @@ export type Occurrence = {
   mark?: SessionMark | null;
 };
 
-export type ScheduleProblemKind = "courseMeeting" | "scheduleOverride";
-
-export type ScheduleProblem = {
-  kind: ScheduleProblemKind;
-  id: string;
-  title: string;
-  message: string;
-};
-
 export type NotificationLocale = "ja" | "en";
 
 export type NotificationPriority = "class" | "exam" | "deadline";
@@ -1742,6 +1733,7 @@ export type CourseConflict = {
 export type PlanningWeek = {
   courses: unknown[];
   days: Array<PlanningDay>;
+  axis: TimetableAxis;
   conflictCount: number;
   /**
    * Every clash, once per course involved, so a shell can explain a
@@ -2175,6 +2167,7 @@ export type TodayView = {
    * the following class days, at most `UPCOMING_CLASSES`.
    */
   upcoming: Array<TodayClass>;
+  upcomingExams: Array<ExamView>;
   /**
    * In class: the current course's newest materials and open work.
    */
@@ -2319,36 +2312,59 @@ export type LectureList = {
   allTerms: Array<string>;
 };
 
-export type ScheduleView = {
-  term: string;
-  range: QuarterRange | null;
-  courses: unknown[];
+export type TimetablePage = {
+  monday: string;
   agendas: Array<DatedAgenda>;
-  exams: Array<ExamView>;
-  declaredCredits: number | null;
-  colors: { [key in string]: string };
-  enrolledCourseIds: Array<string>;
-  allTerms: Array<string>;
-  /**
-   * Stored plans and overrides left out of `agendas`.
-   */
-  problems: Array<ScheduleProblem>;
+  axis: TimetableAxis;
 };
+
+export type TimetableMode = "calendar" | "classes";
+
+export type TodayAgenda = {
+  date: string;
+  today: string;
+  week: Array<AgendaDate>;
+  rows: Array<AgendaRow>;
+  importantDates: unknown[];
+  calendarNotice: string | null;
+  dayKind: AgendaDayKind;
+  nextClass: Occurrence | null;
+  exams: Array<ExamView>;
+  tasks: TaskView;
+  nextBoundary: string;
+};
+
+export type AgendaDate = { date: string; hasItems: boolean };
+
+export type AgendaRow = {
+  occurrence: Occurrence;
+  status: AgendaStatus | null;
+  highlighted: boolean;
+};
+
+export type AgendaStatus = "earlier" | "now" | "next" | "later";
+
+export type AgendaDayKind =
+  "teachingDay" | "weekend" | "examPeriod" | "noClasses";
 
 export type ScheduleIntensiveDay = { date: string; periods: [number, number] };
 
 export type WorkspaceQuery =
   | { kind: "announcements" }
   | { kind: "teachingPeriods" }
-  | { kind: "timetableAxis"; earliest: string | null; latest: string | null }
   | { kind: "workspaceOverview"; term: string }
   | { kind: "subscriptionViews" }
   | { kind: "planningWeek"; term: string }
   | { kind: "academicYears"; date: string; selectedYear: number }
   | { kind: "taskView"; now: string }
   | { kind: "today"; now: string }
-  | { kind: "upcomingExams"; from: string; to: string | null; now: string }
-  | { kind: "calendarRange"; from: string; to: string }
+  | { kind: "todayAgenda"; date: string | null; now: string }
+  | {
+      kind: "timetableWeeks";
+      monday: string;
+      reach: number;
+      mode: TimetableMode;
+    }
   | { kind: "assignmentBoard"; now: string; term: string | null }
   | { kind: "courseDetail"; courseId: string; now: string }
   | { kind: "courseContent"; courseId: string; now: string }
@@ -2357,16 +2373,6 @@ export type WorkspaceQuery =
   | { kind: "examAssociation"; examKey: string; courseId: string | null }
   | { kind: "lectureSearch"; term: string | null; query: string }
   | { kind: "lectureList"; term: string; now: string }
-  | {
-      kind: "scheduleView";
-      /**
-       * Toolbar/credit context only; agendas include every term in the date range.
-       */
-      term: string;
-      from: string;
-      to: string;
-      includePersonal: boolean;
-    }
   | {
       kind: "dayAgenda";
       term: string;
@@ -2407,7 +2413,6 @@ export type WorkspaceQuery =
 
 export type WorkspaceQueryResult =
   | { kind: "teachingPeriods"; value: Array<TeachingPeriod> }
-  | { kind: "timetableAxis"; value: TimetableAxis }
   | { kind: "workspaceOverview"; value: WorkspaceOverview }
   | { kind: "subscriptionViews"; value: unknown }
   | { kind: "planningWeek"; value: PlanningWeek }
@@ -2416,8 +2421,8 @@ export type WorkspaceQueryResult =
   | { kind: "deadlineDisplay"; value: TaskDeadlineView }
   | { kind: "today"; value: TodayView }
   | { kind: "announcements"; value: AnnouncementsView }
-  | { kind: "upcomingExams"; value: Array<ExamView> }
-  | { kind: "calendarRange"; value: Array<DatedAgenda> }
+  | { kind: "todayAgenda"; value: TodayAgenda }
+  | { kind: "timetableWeeks"; value: Array<TimetablePage> }
   | { kind: "assignmentBoard"; value: AssignmentBoard }
   | { kind: "courseDetail"; value: CourseDetail }
   | { kind: "assignmentDetail"; value: AssignmentDetail | null }
@@ -2425,7 +2430,6 @@ export type WorkspaceQueryResult =
   | { kind: "examAssociation"; value: ExamAssociation }
   | { kind: "lectureSearch"; value: LectureSearch }
   | { kind: "lectureList"; value: LectureList }
-  | { kind: "scheduleView"; value: ScheduleView }
   | { kind: "dayAgenda"; value: Array<Occurrence> }
   | { kind: "calendarState"; value: unknown | null }
   | { kind: "quarterRange"; value: QuarterRange | null }

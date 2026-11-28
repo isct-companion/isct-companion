@@ -10,11 +10,7 @@ import {
 } from "@app/generated/persistence";
 import type { Workspace } from "@app/lib/model";
 import type { DesktopTool, SchoolRecords } from "@app/platform/desktop-bridge";
-import {
-  DEFAULT_TIMETABLE_AXIS,
-  SCHEDULE_READS,
-  emptySchoolRecords,
-} from "./fixtures";
+import { SCHEDULE_READS, emptySchoolRecords } from "./fixtures";
 
 /**
  * A scripted stand-in for the Tauri host.
@@ -222,10 +218,7 @@ export function installFakeCore(options: FakeCoreOptions): FakeCore {
       return { active: [], pending: [] };
     if (kind === "records" && !options.queries?.records)
       return records((query as { fields: string[] }).fields);
-    const entry =
-      options.queries?.[kind] ??
-      // Every timetable asks for Core's axis; the default periods answer it.
-      (kind === "timetableAxis" ? DEFAULT_TIMETABLE_AXIS : undefined);
+    const entry = options.queries?.[kind];
     if (entry === undefined) return null;
     return typeof entry === "function"
       ? (entry as (value: unknown, core: FakeCore) => unknown)(query, core)

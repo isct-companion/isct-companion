@@ -882,7 +882,6 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
     let now = "2026-10-05T09:00:00+09:00";
     let queries = [
         json!({"kind":"teachingPeriods"}),
-        json!({"kind":"timetableAxis"}),
         json!({"kind":"workspaceOverview","term":"2026-3Q"}),
         json!({"kind":"subscriptionViews"}),
         json!({"kind":"planningWeek","term":"2026-3Q"}),
@@ -895,7 +894,8 @@ fn every_query_answers_from_its_view_as_from_the_whole_workspace() {
         json!({"kind":"courseContent","courseId":course,"now":now}),
         json!({"kind":"assignmentDetail","assignmentId":"lms-assignment:1001"}),
         json!({"kind":"lectureSearch","term":"2026-3Q","query":"handout"}),
-        json!({"kind":"scheduleView","term":"2026-3Q","from":"2026-09-28","to":"2026-10-25"}),
+        json!({"kind":"timetableWeeks","monday":"2026-10-05","reach":1,"mode":"classes"}),
+        json!({"kind":"todayAgenda","date":null,"now":now}),
         json!({"kind":"dayAgenda","term":"2026-3Q","date":"2026-10-05"}),
         json!({"kind":"calendarState","date":"2026-10-14"}),
         json!({"kind":"quarterRange","term":"2026-3Q"}),

@@ -49,11 +49,11 @@ final class ScheduleReads {
 @MainActor @Observable
 final class TimetableWeeks {
     private let reads = ScheduleReads()
-    private var shown: [String: ScheduleView] = [:]
+    private var shown: [String: TimetablePage] = [:]
     @ObservationIgnored private var fresh: Set<String> = []
     private(set) var revision = 0
 
-    subscript(monday: Date) -> ScheduleView? { shown[AppModel.civil(monday)] }
+    subscript(monday: Date) -> TimetablePage? { shown[AppModel.civil(monday)] }
 
     /// A week on screen reads again when a commit touched what it read, or
     /// when its last read did not finish.
@@ -69,23 +69,18 @@ final class TimetableWeeks {
         if discard { shown.removeAll() }
     }
 
-    func week(starting monday: Date, term: String, session: Session) async -> ScheduleView? {
+    func week(starting monday: Date, session: Session) async -> TimetablePage? {
         let key = AppModel.civil(monday)
         if fresh.contains(key), (try? reads.current(session)) == true { return shown[key] }
 
         let generation = reads.generation
-        // A cold read fills the swipe window. Refreshing a shown week only
-        // queries that week, and its neighbours refresh as they become current.
-        let reach = shown[key] == nil ? 4 : 0
-        let calendar = Calendar.tokyo
-        let first = calendar.date(byAdding: .day, value: -7 * reach, to: monday) ?? monday
-        let last = calendar.date(byAdding: .day, value: 7 * reach + 4, to: monday) ?? monday
-        let query = WorkspaceQuery.scheduleView(
-            term: term, from: AppModel.civil(first), to: AppModel.civil(last), includePersonal: false)
+        // A cold read fills the swipe window. Refreshes cover the pages visible while swiping.
+        let reach: UInt8 = shown[key] == nil ? 4 : 1
+        let query = WorkspaceQuery.timetableWeeks(monday: key, reach: reach, mode: .classes)
 
         while !Task.isCancelled, generation == reads.generation {
             guard case let .schedule(snapshot)? = try? await session.scheduleQuery(queries: [query]).value(),
-                  case let .scheduleView(view)? = snapshot.values.first,
+                  case let .timetableWeeks(weeks)? = snapshot.values.first,
                   !Task.isCancelled, generation == reads.generation else { return nil }
             let previousVersion = reads.publishedVersion
             guard let accepted = try? reads.accept(snapshot, started: generation, session: session) else { return nil }
@@ -93,15 +88,7 @@ final class TimetableWeeks {
 
             // A commit may already be visible to Core before its event arrives.
             if reads.publishedVersion != previousVersion { fresh.removeAll() }
-            var loaded: [String: ScheduleView] = [:]
-            for offset in -reach...reach {
-                guard let start = calendar.date(byAdding: .day, value: 7 * offset, to: monday) else { continue }
-                let from = AppModel.civil(start)
-                let to = AppModel.civil(calendar.date(byAdding: .day, value: 4, to: start) ?? start)
-                var slice = view
-                slice.agendas = view.agendas.filter { $0.date >= from && $0.date <= to }
-                loaded[from] = slice
-            }
+            let loaded = Dictionary(uniqueKeysWithValues: weeks.map { ($0.monday, $0) })
             shown.merge(loaded) { _, new in new }
             fresh.formUnion(loaded.keys)
             return shown[key]

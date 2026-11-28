@@ -6,7 +6,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::SchoolReads;
-use chrono::{DateTime, Duration, FixedOffset};
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 #[cfg(feature = "ts")]
@@ -16,12 +16,12 @@ use super::calendar::{quarter_range, teaching_week};
 use super::course_content::{item_source, kind_of, LessonItemKind};
 use super::reminders::reminder_term;
 use super::tasks::{
-    assignment_state, deadline_view, hand_in_availability, task_view, AssignmentGroups,
-    AssignmentState, DeadlineState, HandInAvailability, TaskDeadlineView,
+    assignment_state, deadline_view, hand_in_availability, next_assignment_boundary, task_view,
+    AssignmentGroups, AssignmentState, DeadlineState, HandInAvailability, TaskDeadlineView,
 };
 use super::{
-    array, calendar_between, display_color, parse_civil_date, teaching_periods, text, tokyo_date,
-    visible, Occurrence, ScheduleError, TeachingPeriod,
+    array, display_color, parse_civil_date, teaching_periods, text, tokyo_date, visible, DatedAgenda,
+    ExamView, Occurrence, ScheduleError, TeachingPeriod,
 };
 use crate::locale::ContentLanguage;
 
@@ -170,6 +170,7 @@ pub struct TodayView {
     /// The next classes after now and after the hero, today first and then
     /// the following class days, at most `UPCOMING_CLASSES`.
     pub upcoming: Vec<TodayClass>,
+    pub upcoming_exams: Vec<ExamView>,
     /// In class: the current course's newest materials and open work.
     pub class_materials: Vec<MaterialItem>,
     pub class_assignments: Vec<DeadlineItem>,
@@ -220,14 +221,18 @@ pub struct AssignmentBoard {
     pub record: DeadlineGroups,
 }
 
-fn jst() -> Result<FixedOffset, ScheduleError> {
+pub(super) fn jst() -> Result<FixedOffset, ScheduleError> {
     FixedOffset::east_opt(9 * 3600)
         .ok_or_else(|| ScheduleError::Compatibility("JST offset unavailable".into()))
 }
 
 pub(super) fn at(date: &str, time: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
-    DateTime::parse_from_rfc3339(&format!("{date}T{time}:00+09:00"))
-        .map_err(|_| ScheduleError::Compatibility("schedule contains an invalid time".into()))
+    let invalid = || ScheduleError::Compatibility("schedule contains an invalid time".into());
+    NaiveDateTime::parse_from_str(&format!("{date}T{time}"), "%Y-%m-%dT%H:%M")
+        .map_err(|_| invalid())?
+        .and_local_timezone(jst()?)
+        .single()
+        .ok_or_else(invalid)
 }
 
 pub(super) fn start_of_next_day(date: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
@@ -388,7 +393,7 @@ pub(super) struct ClassMoment {
 }
 
 pub(super) fn timed_classes(
-    day: &super::DatedAgenda,
+    day: &DatedAgenda,
     periods: &[TeachingPeriod],
 ) -> Result<Vec<TodayClass>, ScheduleError> {
     classes_on(&day.occurrences)
@@ -453,6 +458,15 @@ pub(super) fn class_moment(
     }
 }
 
+pub(super) fn today_agenda_between(
+    workspace: &Value,
+    school: &SchoolReads,
+    from: &str,
+    to: &str,
+) -> Result<Vec<DatedAgenda>, ScheduleError> {
+    super::range::calendar_between_with_options(workspace, school, from, to, true, false)
+}
+
 pub(crate) fn today_view(
     workspace: &Value,
     school: &SchoolReads,
@@ -463,7 +477,7 @@ pub(crate) fn today_view(
     let term = reminder_term(workspace);
     let periods = teaching_periods(workspace)?;
     let lookahead = (parse_civil_date(&date)? + Duration::days(LOOKAHEAD_DAYS)).to_string();
-    let days = calendar_between(workspace, school, &date, &lookahead)?;
+    let days = today_agenda_between(workspace, school, &date, &lookahead)?;
     let (no_classes, calendar_notice) = days
         .first()
         .map(|day| (day.no_classes, day.calendar_notice.clone()))
@@ -487,6 +501,8 @@ pub(crate) fn today_view(
         mut next_boundary,
     } = class_moment(now, today, later);
     let midnight = start_of_next_day(&date)?;
+    let exams = super::exams::today_exams(workspace, school, now, &date)?;
+    let exam_boundary = exams.iter().map(|(_, end)| *end).min();
     let open = open_deadlines(workspace, now)?;
     let due_before = |item: &DeadlineItem, limit: DateTime<FixedOffset>| {
         item.due_at
@@ -506,6 +522,7 @@ pub(crate) fn today_view(
         phase,
         hero: None,
         upcoming,
+        upcoming_exams: exams.into_iter().map(|(exam, _)| exam).collect(),
         class_materials: Vec::new(),
         class_assignments: Vec::new(),
         deadline_hero: None,
@@ -578,6 +595,8 @@ pub(crate) fn today_view(
     view.next_boundary = next_boundary
         .into_iter()
         .chain(shown_due)
+        .chain(exam_boundary)
+        .chain(next_assignment_boundary(workspace, now))
         .min()
         .map(|at| at.to_rfc3339());
     Ok(view)

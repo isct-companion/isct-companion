@@ -8,6 +8,7 @@ import {
   click,
   chooseOption,
   mountApp,
+  DEFAULT_TIMETABLE_AXIS,
   overviewFor,
   planningWeekFor,
   lectureListFor,
@@ -202,8 +203,6 @@ function taskViewFor(workspace: Workspace, term: TermId = TERM): TaskView {
 }
 
 const homeQueries = {
-  calendarRange: () => [],
-  upcomingExams: () => [],
   workspaceOverview: (_query: unknown, core: FakeCore) =>
     overviewFor(core.workspace),
   planningWeek: (_query: unknown, core: FakeCore) =>
@@ -250,6 +249,22 @@ async function mountToday(workspace: Workspace): Promise<MountedApp> {
       queries: {
         ...homeQueries,
         taskView: (_query, core) => taskViewFor(core.workspace),
+        todayAgenda: (query, core) => {
+          const { now } = query as { now: string };
+          return {
+            date: jstDay(0),
+            today: jstDay(0),
+            week: [],
+            rows: [],
+            importantDates: [],
+            calendarNotice: null,
+            dayKind: "teachingDay",
+            nextClass: null,
+            exams: [],
+            tasks: taskViewFor(core.workspace),
+            nextBoundary: new Date(Date.parse(now) + 86_400_000).toISOString(),
+          };
+        },
       },
       handle: nativeNoise,
     },
@@ -385,14 +400,20 @@ describe("the lecture desk", () => {
         workspace,
         queries: {
           ...homeQueries,
-          calendarRange: () => [
+          timetableWeeks: (query) => [
             {
-              date: jstDay(0),
-              occurrences: [
-                lectureBlock("now", jstDay(0), "00:00", "24:00", "R3"),
+              monday: (query as { monday: string }).monday,
+              axis: DEFAULT_TIMETABLE_AXIS,
+              agendas: [
+                {
+                  date: jstDay(0),
+                  occurrences: [
+                    lectureBlock("now", jstDay(0), "00:00", "23:59", "R3"),
+                  ],
+                  importantDates: [],
+                  noClasses: false,
+                },
               ],
-              importantDates: [],
-              noClasses: false,
             },
           ],
           taskView: (_query, core) => taskViewFor(core.workspace),

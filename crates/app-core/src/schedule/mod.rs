@@ -26,6 +26,7 @@ mod school;
 mod search;
 mod tasks;
 mod today;
+mod today_agenda;
 pub mod widgets;
 
 #[cfg(test)]
@@ -65,7 +66,9 @@ pub(crate) use lecture_list::LectureList;
 #[cfg(test)]
 pub(crate) use occurrence::occurrences_on_date;
 pub use occurrence::PlanningWeek;
-pub(crate) use range::calendar_between;
+pub(crate) use range::{calendar_between, TimetablePage};
+// Named by callers building a `WorkspaceQuery::TimetableWeeks`.
+pub use range::TimetableMode;
 pub(crate) use reminders::ReminderChanges;
 pub(crate) use requests::ColorCourse;
 pub(crate) use school::SchoolReads;
@@ -99,11 +102,14 @@ pub(crate) use {
 };
 pub(crate) use {
     occurrence::intensive_days, occurrence::planning_week, occurrence::resolve_day_agenda,
-    occurrence::schedule_problems, occurrence::scheduled_courses,
-    occurrence::validate_academic_profile, occurrence::AgendaOptions, occurrence::GridSlot,
-    occurrence::Occurrence, occurrence::OccurrenceKind, occurrence::ScheduleProblem,
-    occurrence::SessionMark,
+    occurrence::scheduled_courses, occurrence::validate_academic_profile,
+    occurrence::AgendaOptions, occurrence::GridSlot, occurrence::Occurrence,
+    occurrence::OccurrenceKind, occurrence::SessionMark,
 };
+#[cfg(any(test, feature = "agent"))]
+pub(crate) use occurrence::schedule_problems;
+#[cfg(feature = "agent")]
+pub(crate) use occurrence::ScheduleProblem;
 pub use {
     reminders::glance, reminders::NotificationItem, reminders::NotificationPlan,
     reminders::NotificationSink, reminders::NotificationSinkError, reminders::ReminderError,
@@ -123,13 +129,15 @@ pub(crate) use {
 };
 pub use {timing::default_teaching_periods, timing::TeachingPeriod};
 pub(crate) use {
-    timing::teaching_periods, timing::timetable_axis, timing::validate_teaching_periods,
-    timing::TimetableAxis,
+    timing::teaching_periods, timing::validate_teaching_periods, timing::TimetableAxis,
 };
+#[cfg(test)]
+use timing::timetable_axis;
 pub(crate) use {
     today::assignment_board, today::today_view, today::RecentKind, today::TodayClass,
     today::TodayPhase, today::TodayView,
 };
+pub(crate) use today_agenda::TodayAgenda;
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ScheduleError {
@@ -167,14 +175,6 @@ pub struct AgendaRequestOptions {
 pub enum WorkspaceQuery {
     Announcements,
     TeachingPeriods,
-    /// The equal-row axis timetables place times on, widened to the week's
-    /// earliest start and latest end when those leave the teaching day.
-    TimetableAxis {
-        #[serde(default)]
-        earliest: Option<String>,
-        #[serde(default)]
-        latest: Option<String>,
-    },
     WorkspaceOverview {
         term: String,
     },
@@ -189,21 +189,20 @@ pub enum WorkspaceQuery {
     TaskView {
         now: String,
     },
-    /// Phone Today: phase, hero and sections for this moment.
+    /// Today: phase, hero and sections for this moment.
     Today {
         now: String,
     },
-    /// Upcoming exams in this inclusive range of civil dates, without those
-    /// already over at `now`.
-    UpcomingExams {
-        from: String,
-        to: Option<String>,
+    /// The selected date's agenda, with the surrounding week for navigation.
+    TodayAgenda {
+        date: Option<String>,
         now: String,
     },
-    /// All visible items in an inclusive civil-date range, across terms.
-    CalendarRange {
-        from: String,
-        to: String,
+    /// Calendar pages and their axes. Reach counts weeks on either side.
+    TimetableWeeks {
+        monday: String,
+        reach: u8,
+        mode: TimetableMode,
     },
     /// Phone assignment lists: a quarter's timeline as rows, the current
     /// quarter's unless `term` names another (the iPad 授業 page's 課題).
@@ -241,14 +240,6 @@ pub enum WorkspaceQuery {
     LectureList {
         term: String,
         now: String,
-    },
-    ScheduleView {
-        /// Toolbar/credit context only; agendas include every term in the date range.
-        term: String,
-        from: String,
-        to: String,
-        #[serde(default = "default_true")]
-        include_personal: bool,
     },
     DayAgenda {
         term: String,
@@ -376,7 +367,6 @@ impl WorkspaceQuery {
             | Self::ValidateAcademicProfile { .. }
             | Self::AcademicTermForDate { .. } => &[],
             Self::TeachingPeriods
-            | Self::TimetableAxis { .. }
             | Self::IntensiveDays { .. }
             | Self::AcademicYears { .. }
             | Self::CalendarState { .. }
@@ -397,7 +387,7 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::ScheduleView { .. } | Self::LectureList { .. } => &[
+            Self::LectureList { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -408,8 +398,7 @@ impl WorkspaceQuery {
                 Subscriptions,
                 Settings,
             ],
-            Self::CalendarRange { .. }
-            | Self::UpcomingExams { .. }
+            Self::TimetableWeeks { .. }
             | Self::PlanningWeek { .. }
             | Self::DayAgenda { .. }
             | Self::QuarterIcs { .. } => AGENDA,
@@ -456,7 +445,10 @@ impl WorkspaceQuery {
                 Plans,
                 Settings,
             ],
-            Self::Today { .. } | Self::CourseContent { .. } | Self::Glance { .. } => &[
+            Self::Today { .. }
+            | Self::TodayAgenda { .. }
+            | Self::CourseContent { .. }
+            | Self::Glance { .. } => &[
                 Courses,
                 Registrations,
                 Finder,
@@ -499,24 +491,8 @@ pub struct DatedAgenda {
     pub important_dates: Vec<Value>,
     pub no_classes: bool,
     pub calendar_notice: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[cfg_attr(feature = "ts", derive(TS))]
-#[serde(rename_all = "camelCase")]
-pub struct ScheduleView {
-    pub term: String,
-    pub range: Option<QuarterRange>,
-    #[cfg_attr(feature = "ts", ts(type = "unknown[]"))]
-    pub courses: Vec<Value>,
-    pub agendas: Vec<DatedAgenda>,
-    pub exams: Vec<ExamView>,
-    pub declared_credits: Option<f64>,
-    pub colors: std::collections::BTreeMap<String, String>,
-    pub enrolled_course_ids: Vec<String>,
-    pub all_terms: Vec<String>,
-    /// Stored plans and overrides left out of `agendas`.
-    pub problems: Vec<ScheduleProblem>,
+    #[serde(skip)]
+    pub(crate) exam_period: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -581,7 +557,6 @@ pub struct AcademicYearIndex {
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum WorkspaceQueryResult {
     TeachingPeriods(Vec<TeachingPeriod>),
-    TimetableAxis(TimetableAxis),
     WorkspaceOverview(WorkspaceOverview),
     SubscriptionViews(#[cfg_attr(feature = "ts", ts(type = "unknown"))] Value),
     PlanningWeek(PlanningWeek),
@@ -590,8 +565,8 @@ pub enum WorkspaceQueryResult {
     DeadlineDisplay(TaskDeadlineView),
     Today(TodayView),
     Announcements(AnnouncementsView),
-    UpcomingExams(Vec<ExamView>),
-    CalendarRange(Vec<DatedAgenda>),
+    TodayAgenda(TodayAgenda),
+    TimetableWeeks(Vec<TimetablePage>),
     AssignmentBoard(AssignmentBoard),
     CourseDetail(CourseDetail),
     AssignmentDetail(Option<AssignmentDetail>),
@@ -599,7 +574,6 @@ pub enum WorkspaceQueryResult {
     ExamAssociation(ExamAssociation),
     LectureSearch(LectureSearch),
     LectureList(LectureList),
-    ScheduleView(ScheduleView),
     DayAgenda(Vec<Occurrence>),
     CalendarState(#[cfg_attr(feature = "ts", ts(type = "unknown | null"))] Option<Value>),
     QuarterRange(Option<QuarterRange>),
@@ -657,13 +631,6 @@ pub fn query(
         WorkspaceQuery::TeachingPeriods => Ok(WorkspaceQueryResult::TeachingPeriods(
             teaching_periods(workspace)?,
         )),
-        WorkspaceQuery::TimetableAxis { earliest, latest } => {
-            Ok(WorkspaceQueryResult::TimetableAxis(timetable_axis(
-                &teaching_periods(workspace)?,
-                earliest.as_deref(),
-                latest.as_deref(),
-            )?))
-        }
         WorkspaceQuery::WorkspaceOverview { term } => Ok(WorkspaceQueryResult::WorkspaceOverview(
             workspace_overview(workspace, school, &term)?,
         )),
@@ -715,18 +682,13 @@ pub fn query(
             school,
             parse_timestamp(&now)?,
         )?)),
-        WorkspaceQuery::CalendarRange { from, to } => Ok(WorkspaceQueryResult::CalendarRange(
-            calendar_between(workspace, school, &from, &to)?,
+        WorkspaceQuery::TodayAgenda { date, now } => Ok(WorkspaceQueryResult::TodayAgenda(
+            today_agenda::read(workspace, school, date.as_deref(), parse_timestamp(&now)?)?,
         )),
-        WorkspaceQuery::UpcomingExams { from, to, now } => {
-            let now = parse_timestamp(&now)?;
-            Ok(WorkspaceQueryResult::UpcomingExams(
-                exams::upcoming_exams(workspace, school, &from)
-                    .into_iter()
-                    .filter(|exam| to.as_ref().is_none_or(|last| &exam.date <= last))
-                    .filter(|exam| !exam.ended(now))
-                    .collect(),
-            ))
+        WorkspaceQuery::TimetableWeeks { monday, reach, mode } => {
+            Ok(WorkspaceQueryResult::TimetableWeeks(range::timetable_weeks(
+                workspace, school, &monday, reach, mode,
+            )?))
         }
         WorkspaceQuery::AssignmentBoard { now, term } => {
             let term = term.map(|term| Term::parse(&term)).transpose()?;
@@ -764,35 +726,6 @@ pub fn query(
         WorkspaceQuery::LectureList { term, now } => Ok(WorkspaceQueryResult::LectureList(
             lecture_list::lecture_list(workspace, school, &term, parse_timestamp(&now)?)?,
         )),
-        WorkspaceQuery::ScheduleView {
-            term,
-            from,
-            to,
-            include_personal,
-        } => {
-            let term = Term::parse(&term)?.to_string();
-            let overview = workspace_overview(workspace, school, &term)?;
-            let agendas = range::calendar_between_with_personal(
-                workspace,
-                school,
-                &from,
-                &to,
-                include_personal,
-            )?;
-            let exams = exam_views(workspace, school, &term);
-            Ok(WorkspaceQueryResult::ScheduleView(ScheduleView {
-                term,
-                range: overview.range,
-                courses: overview.courses,
-                agendas,
-                exams,
-                colors: overview.colors,
-                enrolled_course_ids: overview.enrolled_course_ids,
-                all_terms: overview.all_terms,
-                declared_credits: overview.declared_credits,
-                problems: schedule_problems(workspace),
-            }))
-        }
         WorkspaceQuery::DayAgenda {
             term,
             date,
@@ -1047,10 +980,6 @@ const ALWAYS_RECORDS: [&str; 6] = [
     "terms",
 ];
 
-fn default_true() -> bool {
-    true
-}
-
 pub(crate) fn parse_timestamp(raw: &str) -> Result<DateTime<FixedOffset>, ScheduleError> {
     static RFC3339: std::sync::LazyLock<Result<regex::Regex, regex::Error>> =
         std::sync::LazyLock::new(|| {
@@ -1133,8 +1062,6 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         SessionMark::decl(cfg),
         GridSlot::decl(cfg),
         Occurrence::decl(cfg),
-        occurrence::ScheduleProblemKind::decl(cfg),
-        ScheduleProblem::decl(cfg),
         NotificationLocale::decl(cfg),
         reminders::NotificationPriority::decl(cfg),
         NotificationItem::decl(cfg),
@@ -1197,7 +1124,13 @@ pub fn declarations(cfg: &ts_rs::Config) -> Vec<String> {
         lecture_list::LectureMeeting::decl(cfg),
         lecture_list::LectureExamGroups::decl(cfg),
         LectureList::decl(cfg),
-        ScheduleView::decl(cfg),
+        TimetablePage::decl(cfg),
+        TimetableMode::decl(cfg),
+        TodayAgenda::decl(cfg),
+        today_agenda::AgendaDate::decl(cfg),
+        today_agenda::AgendaRow::decl(cfg),
+        today_agenda::AgendaStatus::decl(cfg),
+        today_agenda::AgendaDayKind::decl(cfg),
         ScheduleIntensiveDay::decl(cfg),
         WorkspaceQuery::decl(cfg),
         WorkspaceQueryResult::decl(cfg),

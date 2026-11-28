@@ -1513,34 +1513,6 @@ const departments = (year: 2025 | 2026) =>
   ) as OfficialDepartments;
 
 /** Core returns one block per meeting day; the harness fixture only uses day 2. */
-function planningWeekByDay(workspace: Workspace): Record<string, unknown> {
-  const active = workspace.courses.filter((row) => !row.deletedAt);
-  return {
-    courses: active,
-    conflictCount: 0,
-    days: Array.from({ length: 7 }, (_, index) => ({
-      day: index + 1,
-      blocks: active.flatMap((row) =>
-        row.meetings
-          .filter((meeting) => meeting.days.includes(index + 1))
-          .map((meeting, slot) => ({
-            key: `${row.id}-${index}-${slot}`,
-            id: row.id,
-            courseId: row.id,
-            kind: "course",
-            date: "",
-            title: row.title,
-            subtitle: row.code,
-            room: meeting.room ?? "",
-            startTime: meeting.startTime ?? "",
-            endTime: meeting.endTime ?? "",
-            color: row.color,
-          })),
-      ),
-    })),
-  };
-}
-
 describe("the committed school fixtures", () => {
   it("renders the committed CSC.T354 offering with its real meetings and guide mark", async () => {
     const source = parsedCourses().find(
@@ -1608,7 +1580,7 @@ describe("the committed school fixtures", () => {
         queries: {
           ...plannerQueries(["2026-2Q"]),
           planningWeek: (_query: unknown, core: FakeCore) =>
-            planningWeekByDay(core.workspace),
+            planningWeekFor(core.workspace),
         },
         handle: finderHandler({
           courses: [real],

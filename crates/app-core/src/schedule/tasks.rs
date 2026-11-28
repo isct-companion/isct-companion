@@ -174,11 +174,19 @@ pub(super) fn assignment_boundaries(
             let due = parse_timestamp(text(row, "dueAt")?).ok()?;
             // Missed work leaves the recent list just after the grace date.
             Some([
+                due - Duration::days(7),
                 due,
                 due + Duration::days(TODAY_MISSED_DAYS) + Duration::milliseconds(1),
             ])
         })
         .flatten()
+}
+
+pub(super) fn next_assignment_boundary(
+    workspace: &Value,
+    now: DateTime<FixedOffset>,
+) -> Option<DateTime<FixedOffset>> {
+    assignment_boundaries(workspace).filter(|at| *at > now).min()
 }
 
 pub(crate) fn task_view(

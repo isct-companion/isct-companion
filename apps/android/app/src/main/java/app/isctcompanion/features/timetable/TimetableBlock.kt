@@ -46,7 +46,6 @@ import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.Occurrence
 import app.isctcompanion.core.OccurrenceKind
-import app.isctcompanion.core.ScheduleView
 import app.isctcompanion.core.SessionMark
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.design.Tag
@@ -64,7 +63,6 @@ internal val laneGap = 2.dp
 @Composable
 internal fun Block(
     block: Occurrence,
-    week: ScheduleView?,
     axis: TimetableAxis,
     rowHeight: Dp,
     columnWidth: Dp,

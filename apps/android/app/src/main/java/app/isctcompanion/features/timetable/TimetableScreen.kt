@@ -65,9 +65,7 @@ import androidx.compose.ui.unit.sp
 import app.isctcompanion.LocalModel
 import app.isctcompanion.LocalNavigator
 import app.isctcompanion.core.DatedAgenda
-import app.isctcompanion.core.Occurrence
-import app.isctcompanion.core.OccurrenceKind
-import app.isctcompanion.core.ScheduleView
+import app.isctcompanion.core.TimetablePage
 import app.isctcompanion.core.SyncView
 import app.isctcompanion.core.TimetableAxis
 import app.isctcompanion.core.TimetableYear
@@ -96,7 +94,7 @@ private val weekGap = 24.dp
 private val dayHeaderHeight = 54.dp
 private val periodWidth = 26.dp
 
-/** 時間割: a dated week. Blocks come from Core's `ScheduleView` for
+/** 時間割: a dated week. Blocks come from Core's `TimetablePage` for
  * Monday–Friday, whatever quarter the week is in; the week chip opens a picker
  * that names each week's quarter (`TimetableYear`). A long press marks one
  * session as an exam, a quiz or 休講 (choosing the checked mark again makes
@@ -108,7 +106,8 @@ fun TimetableScreen() {
     val navigator = LocalNavigator.current
     var monday by rememberSaveable { mutableStateOf(monday(Format.today())) }
     val weekRevision = model.timetableWeeks.revision
-    var axis by remember { mutableStateOf(model.lastTimetableAxis) }
+    val week = model.timetableWeeks[monday]
+    val axis = week?.axis ?: model.lastTimetableAxis
     var yearSnapshot by remember { mutableStateOf<TimetableYearSnapshot?>(null) }
     var picker by remember { mutableStateOf(false) }
     // The grid's horizontal travel while weeks change, and its fade when the
@@ -124,16 +123,12 @@ fun TimetableScreen() {
         navigator.timetableDate = null
     }
     val requestedMonday = monday
-    LaunchedEffect(requestedMonday, weekRevision, model.today?.term) {
+    LaunchedEffect(requestedMonday, weekRevision) {
         if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
         val loaded = model.week(requestedMonday) ?: return@LaunchedEffect
-        val shape = model.timetableAxis(loaded)
         currentCoroutineContext().ensureActive()
         if (monday != requestedMonday || model.timetableWeeks.revision != weekRevision) return@LaunchedEffect
-        if (shape != null) {
-            axis = shape
-            model.lastTimetableAxis = shape
-        }
+        model.lastTimetableAxis = loaded.axis
         val number = model.academicYear(requestedMonday) ?: return@LaunchedEffect
         val snapshot = yearSnapshot
         if (snapshot == null || snapshot.calendar.year != number || snapshot.revision != weekRevision ||
@@ -240,8 +235,6 @@ fun TimetableScreen() {
                         }
                     },
         ) {
-            val length = axis?.length ?: 12.5
-            val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
             val columns = constraints.maxWidth.toFloat()
             SideEffect { width = columns }
             // The previous, shown and next weeks, one page apart. The
@@ -249,9 +242,13 @@ fun TimetableScreen() {
             // skeleton otherwise), so a swipe shows the next week coming in.
             for (slot in -1..1) {
                 val start = monday.plusWeeks(slot.toLong())
+                val page = model.timetableWeeks[start]
+                val pageAxis = page?.axis ?: axis
+                val length = pageAxis?.length ?: 12.5
+                val rowHeight = maxOf(minimumRow, floor(((maxHeight - dayHeaderHeight).value / length)).dp)
                 key(slot) {
                     Grid(
-                        start, model.timetableWeeks[start], axis, rowHeight,
+                        start, page, pageAxis, rowHeight,
                         step = if (slot == 0) ({ weeks -> go(monday.plusWeeks(weeks), slow = false) }) else null,
                         modifier = Modifier
                             .offset { IntOffset((slot * (width + gap) + shift.value).roundToInt(), 0) }
@@ -273,9 +270,6 @@ fun TimetableScreen() {
 
 private data class TimetableYearSnapshot(val calendar: TimetableYear, val revision: Long)
 
-private val Occurrence.isBlock: Boolean
-    get() = kind == OccurrenceKind.COURSE || kind == OccurrenceKind.EXAM
-
 internal fun thisWeek() = monday(Format.today())
 
 /** Saturday and Sunday look ahead to the coming week. */
@@ -287,7 +281,7 @@ fun monday(date: LocalDate): LocalDate = when (date.dayOfWeek) {
 
 @Composable
 private fun Grid(
-    monday: LocalDate, week: ScheduleView?, axis: TimetableAxis?, rowHeight: Dp, step: ((Long) -> Unit)?, modifier: Modifier,
+    monday: LocalDate, week: TimetablePage?, axis: TimetableAxis?, rowHeight: Dp, step: ((Long) -> Unit)?, modifier: Modifier,
 ) {
     val model = LocalModel.current
     val days = (0L until 5L).map { monday.plusDays(it) }
@@ -389,7 +383,7 @@ private fun PeriodTime(time: String) {
 private fun DayColumn(
     agenda: DatedAgenda?,
     today: Boolean,
-    week: ScheduleView?,
+    week: TimetablePage?,
     axis: TimetableAxis?,
     rowHeight: Dp,
     current: String?,
@@ -397,7 +391,7 @@ private fun DayColumn(
 ) {
     val shape = RoundedCornerShape(Theme.radiusColumn)
     val holiday = agenda?.noClasses == true
-    val blocks = agenda?.occurrences.orEmpty().filter { it.isBlock }
+    val blocks = agenda?.occurrences.orEmpty()
     // A day without classes is a flat grey column; stripes belong to the
     // classes that do not take place (slotledger `approach/timetable-cancelled-stripes`).
     val background = if (holiday) courseMix(Theme.colors.muted, 0.08f, Theme.colors.surface) else Theme.colors.surface
@@ -409,7 +403,7 @@ private fun DayColumn(
             Loading(week != null, placeholder = { DaySkeleton(axis, rowHeight) }) {
                 Box(Modifier.fillMaxSize()) {
                     for (block in blocks) key(block.key) {
-                        Block(block, week, axis, rowHeight, width, block.key == current)
+                        Block(block, axis, rowHeight, width, block.key == current)
                     }
                 }
             }

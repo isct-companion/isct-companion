@@ -70,7 +70,6 @@ final class AppModel {
     private let dashboardReads = ScheduleReads()
     let timetableWeeks = TimetableWeeks()
     @ObservationIgnored private var pendingSessionMark: Task<Void, Never>?
-    private(set) var upcomingExams: [ExamView] = []
     private var boundaryTask: Task<Void, Never>?
     private var settingsWrite: Task<Void, Never>?
     /// The one timer for Core's next deadline (`WakeDirective`).
@@ -429,14 +428,11 @@ final class AppModel {
 
     private func readDashboard(_ session: Session, generation: Int) async throws {
         let date = AppClock.now
-        let now = Self.timestamp(date)
-        let from = Self.civil(date)
-        let last = Self.civil(Calendar.tokyo.date(byAdding: .day, value: 14, to: date) ?? date)
+        let now = Self.timestamp(date, fractional: true)
         let previousRevision = revision
         guard case let .text(current) = try await session.workspaceRevision().value(),
               case var .schedule(result) = try await session.scheduleQuery(queries: [
                 .records(fields: ["courses", "assignments"]), .today(now: now),
-                .upcomingExams(from: from, to: last, now: now),
                 .assignmentBoard(now: now, term: nil), .teachingPeriods, .announcements,
               ]).value() else { throw SdkError.Unavailable(detail: "dashboard") }
 
@@ -458,9 +454,7 @@ final class AppModel {
             switch value {
             case let .records(json): records = WorkspaceRecords(json: json)
             case let .today(view):
-                if let old = today?.term, old != view.term { timetableWeeks.invalidate() }
                 today = view
-            case let .upcomingExams(exams): upcomingExams = exams
             case let .assignmentBoard(value): board = value; writeShareChoices(value)
             case let .teachingPeriods(value): periods = value
             case let .announcements(view):
@@ -478,11 +472,12 @@ final class AppModel {
     private func scheduleBoundary() {
         boundaryTask?.cancel()
         guard let raw = today?.nextBoundary, let at = Self.date(raw) else { return }
-        let delay = max(1, AppClock.until(at) + 1)
+        let delay = max(0, AppClock.until(at))
         boundaryTask = Task {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled else { return }
-            await refresh()
+            dashboardReads.invalidate()
+            await scheduleRefresh()?.value
         }
     }
 
@@ -532,9 +527,9 @@ final class AppModel {
         syncSnapshot = snapshot
     }
 
-    func week(starting monday: Date) async -> ScheduleView? {
-        guard let session, let term = today?.term else { return nil }
-        return await timetableWeeks.week(starting: monday, term: term, session: session)
+    func week(starting monday: Date) async -> TimetablePage? {
+        guard let session else { return nil }
+        return await timetableWeeks.week(starting: monday, session: session)
     }
 
     /// A quarter as an iCalendar file, written by Core as the desktop's export.
@@ -585,18 +580,6 @@ final class AppModel {
             case let .assignmentBoard(board)? = result.values.first
         else { return nil }
         return board
-    }
-
-    /// Core's equal-row timetable axis, widened to the week's earliest start
-    /// and latest end when those leave the teaching day.
-    func timetableAxis(earliest: String?, latest: String?) async -> TimetableAxis? {
-        guard let session,
-            case let .schedule(result)? = try? await session.scheduleQuery(queries: [
-                .timetableAxis(earliest: earliest, latest: latest)
-            ]).value(),
-            case let .timetableAxis(axis)? = result.values.first
-        else { return nil }
-        return axis
     }
 
     /// The last axis Core gave, so a timetable draws its rows at once.
@@ -904,7 +887,10 @@ extension AppModel {
     func reset(_ request: ResetRequest) async throws {
         guard let session else { return }
         do {
-            defer { timetableWeeks.invalidate(discard: true) }
+            defer {
+                timetableWeeks.invalidate(discard: true)
+                lastTimetableAxis = nil
+            }
             _ = try await session.reset(request: request)
         }
         problem = nil

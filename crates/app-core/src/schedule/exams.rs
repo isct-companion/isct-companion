@@ -71,11 +71,15 @@ impl ExamView {
     /// Over at `now`: past its end time, or, with no time, past its day. A
     /// date or time Core cannot read never counts as over.
     pub(crate) fn ended(&self, now: DateTime<FixedOffset>) -> bool {
+        self.end_at().is_ok_and(|end| end <= now)
+    }
+
+    /// Its end time, or with no time the start of the next day.
+    pub(super) fn end_at(&self) -> Result<DateTime<FixedOffset>, ScheduleError> {
         match self.end_time.as_deref() {
             Some(end) => super::today::at(&self.date, end),
             None => super::today::start_of_next_day(&self.date),
         }
-        .is_ok_and(|end| end <= now)
     }
 
     /// The course whose weekly sessions this timetable row replaces on its
@@ -434,7 +438,13 @@ pub(super) fn quizzes_count(workspace: &Value) -> bool {
     .quizzes
 }
 
-pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str) -> Vec<ExamView> {
+pub(super) fn upcoming_exams(
+    workspace: &Value,
+    school: &SchoolReads,
+    now: DateTime<FixedOffset>,
+    from: &str,
+    to: Option<&str>,
+) -> Vec<(ExamView, DateTime<FixedOffset>)> {
     let quizzes = quizzes_count(workspace);
     let mut exams: Vec<_> = exam_terms(workspace, school)
         .iter()
@@ -444,10 +454,27 @@ pub(super) fn upcoming_exams(workspace: &Value, school: &SchoolReads, from: &str
                 && exam.course_id.is_some()
                 && exam.status == "scheduled"
                 && exam.date.as_str() >= from
+                && to.is_none_or(|last| exam.date.as_str() <= last)
         })
         .collect();
     sort_views(&mut exams);
-    exams
+    let mut upcoming = Vec::new();
+    for exam in exams {
+        if let Some(end) = exam.end_at().ok().filter(|end| *end > now) {
+            upcoming.push((exam, end));
+        }
+    }
+    upcoming
+}
+
+pub(super) fn today_exams(
+    workspace: &Value,
+    school: &SchoolReads,
+    now: DateTime<FixedOffset>,
+    from: &str,
+) -> Result<Vec<(ExamView, DateTime<FixedOffset>)>, ScheduleError> {
+    let last = super::add_days(from, 14)?;
+    Ok(upcoming_exams(workspace, school, now, from, Some(&last)))
 }
 
 /// Every exam of the quarter: the exam timetable with the user's corrections,
@@ -714,8 +741,8 @@ fn removed_view(change: &Value, term: &str, courses: &[&Value]) -> Option<ExamVi
     let base = change.get("base")?;
     let schedule = ExamSchedule {
         date: text(base, "date")?.into(),
-        start_time: text(base, "startTime").map(str::to_owned),
-        end_time: text(base, "endTime").map(str::to_owned),
+        start_time: text(base, "startTime").and_then(super::timing::canonical_clock),
+        end_time: text(base, "endTime").and_then(super::timing::canonical_clock),
         room: text(base, "room").unwrap_or_default().into(),
     };
     let course = text(base, "courseId").and_then(|id| {
@@ -818,8 +845,8 @@ fn source_view_with(
     let (start_time, end_time) = match periods.and_then(|range| clock(teaching, range)) {
         Some((start, end)) => (Some(start), Some(end)),
         None => (
-            text(exam, "startTime").map(str::to_owned),
-            text(exam, "endTime").map(str::to_owned),
+            text(exam, "startTime").and_then(super::timing::canonical_clock),
+            text(exam, "endTime").and_then(super::timing::canonical_clock),
         ),
     };
     let source = ExamSchedule {
@@ -881,12 +908,13 @@ fn apply_override(
             .unwrap_or_else(|| "#c98245".into());
     }
     let filled = |name| text(change, name).filter(|value| !value.trim().is_empty());
+    let clock_value = |name| filled(name).and_then(super::timing::canonical_clock);
     if let Some(date) = filled("date") {
         view.date = date.into();
     }
-    let timed = if let (Some(start), Some(end)) = (filled("startTime"), filled("endTime")) {
-        view.start_time = Some(start.into());
-        view.end_time = Some(end.into());
+    let timed = if let (Some(start), Some(end)) = (clock_value("startTime"), clock_value("endTime")) {
+        view.start_time = Some(start);
+        view.end_time = Some(end);
         view.periods = None;
         true
     } else if let Some(range) = period_range(change, teaching) {

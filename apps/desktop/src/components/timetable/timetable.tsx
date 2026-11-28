@@ -6,14 +6,8 @@ import type { Alternation } from "../../lib/model";
 import { ContextMenu, type ContextAction } from "../ui";
 import { GuideTip } from "../guide";
 import { zoomFrom } from "./course-zoom";
-import {
-  axisPosition,
-  axisRows,
-  axisSpan,
-  nowPercent,
-} from "../../lib/timetable-layout";
+import { axisPosition, axisRows, nowPercent } from "../../lib/timetable-layout";
 import { jstMinutes } from "../../lib/civil-date";
-import { useScheduleQuery } from "../../platform/core-query";
 import type {
   GridSlot,
   SessionMark,
@@ -116,6 +110,7 @@ function blockHalves(
 
 export function WeekTimetable({
   days,
+  axis,
   onSelect,
   selectedId,
   now,
@@ -125,6 +120,7 @@ export function WeekTimetable({
   zoom,
 }: {
   days: DayColumn[];
+  axis?: TimetableAxis;
   onSelect?: (block: Block) => void;
   selectedId?: string;
   /** The shell clock (`useClock`); draws the now line in the column marked
@@ -140,14 +136,6 @@ export function WeekTimetable({
    * that page's title (`course-zoom`). */
   zoom?: boolean;
 }) {
-  // Every period is one row; Core places times on that axis
-  // (`timetable_axis`), widened around classes outside the teaching day.
-  const span = axisSpan(days.flatMap((column) => column.blocks));
-  const axis = useScheduleQuery<TimetableAxis>({
-    kind: "timetableAxis",
-    earliest: span.earliest ?? null,
-    latest: span.latest ?? null,
-  }).value;
   const rows = axis ? axisRows(axis) : [];
   const nowOffset =
     now && axis ? nowPercent(axis, jstMinutes(new Date(now))) : undefined;

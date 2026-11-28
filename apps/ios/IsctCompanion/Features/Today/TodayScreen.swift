@@ -14,8 +14,6 @@ struct TodayScreen: View {
     var columns = false
     @Environment(AppModel.self) private var model
     @Environment(Navigator.self) private var navigator
-    /// Core's upcoming exams for the next two weeks.
-    private var exams: [ExamView] { model.upcomingExams }
 
     /// The dashboard's list margin, which its header lines up with.
     private static let margin = Theme.gutter
@@ -81,7 +79,7 @@ struct TodayScreen: View {
                 FirstLoadCard(snapshot: snapshot)
             }
             if let today = model.today {
-                TodayContent(today: today, now: now, exams: exams, spread: columns)
+                TodayContent(today: today, now: now, spread: columns)
                     .transition(.opacity)
             } else if !model.needsAccount {
                 SkeletonRows(rows: 4).transition(.opacity)
@@ -151,7 +149,6 @@ private struct RecentLabel: View {
 private struct TodayContent: View {
     let today: TodayView
     let now: Date
-    let exams: [ExamView]
     /// The class cards side by side rather than stacked.
     var spread = false
 
@@ -159,7 +156,7 @@ private struct TodayContent: View {
         switch today.phase {
         case .beforeClasses, .betweenClasses:
             ClassStack(items: today.upcoming, now: now, spread: spread)
-            UpcomingExams(exams: exams)
+            UpcomingExams(exams: today.upcomingExams)
         case .inClass:
             if let hero = today.hero { CurrentClassHero(item: hero, now: now) }
             if !today.classMaterials.isEmpty || !today.classAssignments.isEmpty {
@@ -170,9 +167,9 @@ private struct TodayContent: View {
         case .afterClasses:
             if let hero = today.deadlineHero { TonightHero(item: hero, now: now) }
             ClassStack(items: today.upcoming, now: now, spread: spread)
-            UpcomingExams(exams: exams)
+            UpcomingExams(exams: today.upcomingExams)
         case .noClasses:
-            UpcomingExams(exams: exams)
+            UpcomingExams(exams: today.upcomingExams)
             ClassStack(items: today.upcoming, now: now, spread: spread)
             if !today.recent.isEmpty {
                 RecentLabel()

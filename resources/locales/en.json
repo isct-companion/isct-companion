@@ -1579,6 +1579,8 @@
   "today.quizInProgress": "Quiz in progress",
   "today.readsYourTimetableAssignmentsAnd": "Reads your timetable, assignments and materials from the school sites. Your password is kept in the Keychain and sent only to the school sites.",
   "today.readsYourTimetableAssignmentsAndMaterials": "Reads your timetable, assignments and materials from the school sites. Your password is encrypted in this device’s keystore and sent only to the school sites.",
+  "today.examPeriod": "Exam period",
+  "today.noClasses": "No classes",
   "today.teachingDay": "Teaching day",
   "today.thisClass": "This class",
   "today.tomorrowsClass": "Tomorrow’s class",

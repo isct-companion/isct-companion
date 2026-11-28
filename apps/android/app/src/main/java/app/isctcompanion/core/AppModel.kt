@@ -120,8 +120,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     private val dashboardReads = ScheduleReads()
     internal val timetableWeeks = TimetableWeeks()
     private val sessionMarks = Mutex()
-    var upcomingExams by mutableStateOf(emptyList<ExamView>())
-        private set
     private var boundaryJob: Job? = null
     /** The one timer for Core's next deadline (`WakeDirective`). */
     private var deadlineJob: Job? = null
@@ -432,13 +430,11 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
 
     private suspend fun readDashboard(session: Session, generation: Long) {
         val instant = Instant.now()
-        val now = Format.timestamp(instant)
-        val date = Format.today(instant)
+        val now = instant.toString()
         val previousRevision = revision
         val current = (session.workspaceRevision().value() as OperationResult.Text).value
         val queries = listOf(
             WorkspaceQuery.Records(listOf("courses", "assignments")), WorkspaceQuery.Today(now),
-            WorkspaceQuery.UpcomingExams(Format.civil(date), Format.civil(date.plusDays(14)), now),
             WorkspaceQuery.AssignmentBoard(now, null), WorkspaceQuery.TeachingPeriods, WorkspaceQuery.Announcements,
         )
         val result = (session.scheduleQuery(queries).value() as OperationResult.Schedule).snapshot
@@ -458,11 +454,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         for (value in result.values) {
             when (value) {
                 is WorkspaceQueryResult.Records -> records = WorkspaceRecords(value.v1)
-                is WorkspaceQueryResult.Today -> {
-                    if (today?.term?.let { it != value.v1.term } == true) timetableWeeks.invalidate()
-                    today = value.v1
-                }
-                is WorkspaceQueryResult.UpcomingExams -> upcomingExams = value.v1
+                is WorkspaceQueryResult.Today -> today = value.v1
                 is WorkspaceQueryResult.AssignmentBoard -> board = value.v1
                 is WorkspaceQueryResult.TeachingPeriods -> periods = value.v1
                 is WorkspaceQueryResult.Announcements -> {
@@ -481,10 +473,11 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
     private fun scheduleBoundary() {
         boundaryJob?.cancel()
         val at = Format.date(today?.nextBoundary) ?: return
-        val delayMs = maxOf(1_000L, at.toEpochMilli() - System.currentTimeMillis() + 1_000L)
+        val delayMs = maxOf(1L, at.toEpochMilli() - System.currentTimeMillis())
         boundaryJob = scope.launch {
             delay(delayMs)
-            refresh()
+            dashboardReads.invalidate()
+            scheduleRefresh()?.join()
         }
     }
 
@@ -538,10 +531,9 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
         if (shown == null || snapshot.generation >= shown.generation) syncSnapshot = snapshot
     }
 
-    suspend fun week(monday: LocalDate): ScheduleView? {
+    suspend fun week(monday: LocalDate): TimetablePage? {
         val session = session ?: return null
-        val term = today?.term ?: return null
-        return timetableWeeks.week(monday, term, session) { scheduleSnapshot(session, it) }
+        return timetableWeeks.week(monday, session) { scheduleSnapshot(session, it) }
     }
 
     /** The academic year (April–March) a date belongs to. */
@@ -585,16 +577,6 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
 
     suspend fun examCourses(): ExamCourseList? =
         (query(WorkspaceQuery.ExamCourses) as? WorkspaceQueryResult.ExamCourses)?.v1
-
-    /** Core's equal-row timetable axis, widened to the week's earliest start
-     * and latest end when those leave the teaching day. */
-    suspend fun timetableAxis(week: ScheduleView): TimetableAxis? {
-        val blocks = week.agendas.flatMap { it.occurrences }
-            .filter { it.kind == OccurrenceKind.COURSE || it.kind == OccurrenceKind.EXAM }
-        val earliest = blocks.map { it.startTime }.minByOrNull(::clockMinutes)
-        val latest = blocks.map { it.endTime }.maxByOrNull(::clockMinutes)
-        return (query(WorkspaceQuery.TimetableAxis(earliest, latest)) as? WorkspaceQueryResult.TimetableAxis)?.v1
-    }
 
     /** The last axis Core gave, so a timetable draws its rows at once. */
     var lastTimetableAxis: TimetableAxis? = null
@@ -816,6 +798,7 @@ class AppModel(internal val context: Context, private val scope: CoroutineScope)
             session.reset(request)
         } finally {
             timetableWeeks.invalidate(discard = true)
+            lastTimetableAxis = null
         }
         problem = null
         refreshAccounts()
